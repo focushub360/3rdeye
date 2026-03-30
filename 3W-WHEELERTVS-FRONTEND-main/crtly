@@ -1,0 +1,28 @@
+# PROJECT ANALYSIS: 3W-WHEELERTVS-FRONTEND
+
+## Overview
+This project is a React-based Form Management System.
+
+### Tech Stack:
+- Framework: React 18 / Vite / TypeScript
+- CSS: Tailwind CSS
+- Key Libraries: Chart.js, Leaflet, ExcelJS, Socket.io
+- Entry Point: src/main.tsx
+
+## Structure:
+- src/components: UI logic (large files: FormCreator, AllResponses)
+- src/context: Global state management (Auth, Theme, Logo, Sidebar, Notification)
+- src/hooks: Business logic abstraction
+- src/api: Backend communication
+
+## Execution:
+The project has been initialized and is running.
+- npm install: Completed
+- Dev Server: Running at http://localhost:5173/
+
+## Recent Developments:
+- Integration of mobile-ready features.
+- Refinement of circular UI loaders and dark mode settings.
+- Form management with complex branching and follow-ups.
+
+Analysis completed.
