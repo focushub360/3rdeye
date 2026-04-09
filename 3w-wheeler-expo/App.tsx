@@ -8,9 +8,13 @@ import ServiceAnalyticsScreen from './src/screens/ServiceAnalyticsScreen';
 import ChatListScreen from './src/screens/ChatbotScreen'; // Renamed to ChatList
 import ChatDetailScreen from './src/screens/ChatDetailScreen';
 import HRMSScreen from './src/screens/HRMSScreen';
+import FormListScreen from './src/screens/FormListScreen';
+import FormPreviewScreen from './src/screens/FormPreviewScreen';
+import FormAnalyticsScreen from './src/screens/FormAnalyticsScreen';
+import DemoFormListScreen from './src/screens/DemoFormListScreen';
 import SplashScreen from './src/screens/SplashScreen';
 import { ActivityIndicator, View, StyleSheet, StatusBar, Platform } from 'react-native';
-import { LayoutDashboard, MessageSquareText, Briefcase } from 'lucide-react-native';
+import { LayoutDashboard, MessageSquareText, Briefcase, ClipboardList } from 'lucide-react-native';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -24,8 +28,8 @@ const TabNavigator = () => {
           backgroundColor: '#ffffff',
           borderTopWidth: 1,
           borderTopColor: '#f1f5f9',
-          height: Platform.OS === 'ios' ? 92 : 75,
-          paddingBottom: Platform.OS === 'ios' ? 32 : 18,
+          height: Platform.OS === 'ios' ? 100 : 85,
+          paddingBottom: Platform.OS === 'ios' ? 38 : 22,
           paddingTop: 12,
           elevation: 20,
           shadowColor: '#1e3a8a',
@@ -52,6 +56,14 @@ const TabNavigator = () => {
         }}
       />
       <Tab.Screen 
+        name="Forms" 
+        component={FormListScreen} 
+        options={{
+          tabBarLabel: 'FORMS',
+          tabBarIcon: ({ color, size }) => <ClipboardList size={22} color={color} />
+        }}
+      />
+      <Tab.Screen 
         name="HRMS" 
         component={HRMSScreen} 
         options={{
@@ -63,7 +75,7 @@ const TabNavigator = () => {
         name="Chat" 
         component={ChatListScreen} 
         options={{
-          tabBarLabel: 'AI CHAT',
+          tabBarLabel: 'MESSAGE',
           tabBarIcon: ({ color, size }) => <MessageSquareText size={22} color={color} />
         }}
       />
@@ -95,9 +107,15 @@ const NavigationWrapper = () => {
           <>
             <Stack.Screen name="MainTabs" component={TabNavigator} />
             <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+            <Stack.Screen name="FormPreview" component={FormPreviewScreen} />
+            <Stack.Screen name="FormAnalytics" component={FormAnalyticsScreen} />
           </>
         ) : (
-          <Stack.Screen name="Login" component={LoginScreen} />
+          <>
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="DemoFormList" component={DemoFormListScreen} />
+            <Stack.Screen name="FormPreview" component={FormPreviewScreen} />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>
@@ -118,5 +136,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#fff',
+    paddingTop: Platform.OS === 'android' ? 40 : 0,
   },
 });

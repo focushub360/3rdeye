@@ -4,9 +4,17 @@ import apiClient from '../api/config';
 
 interface User {
   id: string;
+  _id?: string;
   email: string;
   role: string;
   name?: string;
+  username?: string;
+  tenantId?: string;
+  tenant?: {
+    id: string;
+    name: string;
+    slug: string;
+  };
 }
 
 interface AuthContextType {

@@ -13,6 +13,7 @@ export const getMessages = async (req, res) => {
         { senderId: contactId, receiverId: userId }
       ]
     })
+      .populate('replyTo')
       .sort({ createdAt: 1 })
       .limit(100);
 
@@ -28,6 +29,32 @@ export const getMessages = async (req, res) => {
     });
   } catch (error) {
     console.error('Get messages error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+export const getGroupMessages = async (req, res) => {
+  try {
+    const { tenantId } = req.user;
+
+    const messages = await Message.find({
+      tenantId,
+      isGroup: true
+    })
+      .populate('senderId', 'firstName lastName role')
+      .populate({
+        path: 'replyTo',
+        populate: { path: 'senderId', select: 'firstName lastName' }
+      })
+      .sort({ createdAt: 1 })
+      .limit(100);
+
+    res.json({
+      success: true,
+      data: messages
+    });
+  } catch (error) {
+    console.error('Get group messages error:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };

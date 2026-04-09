@@ -1,5 +1,7 @@
 import LoginLog from '../models/LoginLog.js';
 import User from '../models/User.js';
+import OTP from '../models/OTP.js';
+import WhatsAppService from '../services/whatsappService.js';
 
 // Get location info from IP (using request headers or IP API)
 const getLocationFromIP = async (ip) => {
@@ -90,19 +92,16 @@ export const getAttendance = async (req, res) => {
 
         // Role-based filtering
         if (userRole === 'superadmin') {
-            // Super admin sees all users across all tenants
-            // Optionally filter by tenant if provided
+            // Super admin sees everything
             if (req.query.tenantId) {
                 query.tenantId = req.query.tenantId;
             }
-        } else if (userRole === 'admin') {
-            // Admin sees only their tenant's users
+        } else if (userRole === 'subadmin' || userRole === 'admin') {
+            // Subadmin sees only their tenant's inspectors (and themselves)
             query.tenantId = userTenantId;
-        } else if (userRole === 'subadmin') {
-            // SubAdmin sees only their own attendance
-            query.userId = userIdFilter;
+            // Optionally could filter only role: 'inspector' here if they shouldn't see other subadmins
         } else {
-            // Regular users see only their own
+            // Inspector sees only their own
             query.userId = userIdFilter;
         }
 
@@ -209,9 +208,9 @@ export const getAttendanceSummary = async (req, res) => {
         // Role-based filtering
         if (userRole === 'superadmin') {
             // Super admin sees all
-        } else if (userRole === 'admin') {
+        } else if (userRole === 'subadmin' || userRole === 'admin') {
             query.tenantId = userTenantId;
-        } else if (userRole === 'subadmin') {
+        } else {
             query.userId = req.user._id;
         }
 
@@ -247,12 +246,12 @@ export const getAttendanceSummary = async (req, res) => {
         // Get all users for the tenant/role to show absent ones
         let users = [];
         if (userRole === 'superadmin') {
-            users = await User.find({ role: { $in: ['admin', 'subadmin'] } })
+            users = await User.find({ role: { $in: ['subadmin', 'inspector', 'admin'] } })
                 .populate('tenantId', 'name slug companyName');
-        } else if (userRole === 'admin') {
+        } else if (userRole === 'subadmin' || userRole === 'admin') {
             users = await User.find({
                 tenantId: userTenantId,
-                role: 'subadmin',
+                role: 'inspector',
                 isActive: true
             });
         }
@@ -501,14 +500,14 @@ export const getAttendanceUsers = async (req, res) => {
         let query = { isActive: true };
 
         if (userRole === 'superadmin') {
-            // Get all admins and subadmins
-            query.role = { $in: ['admin', 'subadmin'] };
-        } else if (userRole === 'admin') {
-            // Get only subadmins in this tenant
-            query.role = 'subadmin';
+            // Superadmin can see all subadmins and inspectors across all tenants
+            query.role = { $in: ['subadmin', 'inspector', 'admin'] };
+        } else if (userRole === 'subadmin' || userRole === 'admin') {
+            // Subadmin/Admin can see all inspectors in their tenant
+            query.role = 'inspector';
             query.tenantId = userTenantId;
         } else {
-            // SubAdmin can only see themselves
+            // Inspector can only see themselves
             query._id = req.user._id;
         }
 
@@ -523,6 +522,135 @@ export const getAttendanceUsers = async (req, res) => {
         });
     } catch (error) {
         console.error('Get attendance users error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error'
+        });
+    }
+};
+
+// Send OTP for attendance
+export const sendAttendanceOTP = async (req, res) => {
+    try {
+        const { type } = req.body; // IN or OUT
+        const user = await User.findById(req.user._id);
+
+        if (!user || (!user.phone && !user.email)) {
+            return res.status(400).json({
+                success: false,
+                message: 'User does not have a registered phone number or email'
+            });
+        }
+
+        // Generate 6-digit OTP
+        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+        // Save OTP to database
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+        await OTP.create({
+            userId: user._id,
+            code: otpCode,
+            purpose: 'attendance',
+            expiresAt
+        });
+
+        // Send via WhatsApp if phone exists
+        if (user.phone) {
+            await WhatsAppService.sendOTP(user.phone, otpCode, 'attendance');
+        }
+
+        res.json({
+            success: true,
+            message: `OTP sent successfully to your registered device for Check-${type}`
+        });
+    } catch (error) {
+        console.error('Send Attendance OTP error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to send OTP. Please try again later.'
+        });
+    }
+};
+
+// Verify OTP and mark attendance
+export const verifyAttendanceOTP = async (req, res) => {
+    try {
+        const { type, otp, sessionLogId } = req.body;
+
+        if (!otp) {
+            return res.status(400).json({
+                success: false,
+                message: 'OTP is required'
+            });
+        }
+
+        const otpRecord = await OTP.findOne({
+            userId: req.user._id,
+            code: otp,
+            purpose: 'attendance',
+            isUsed: false,
+            expiresAt: { $gt: new Date() }
+        });
+
+        if (!otpRecord) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid or expired OTP'
+            });
+        }
+
+        // Mark OTP as used
+        otpRecord.isUsed = true;
+        await otpRecord.save();
+
+        let attendanceLog;
+
+        if (type === 'IN') {
+            // Check if there's an active session without logout
+            const activeLog = await LoginLog.findOne({
+                userId: req.user._id,
+                logoutTime: null
+            }).sort({ loginTime: -1 });
+
+            if (activeLog) {
+                attendanceLog = activeLog;
+            } else {
+                // Create a new login log as attendance check-in
+                attendanceLog = new LoginLog({
+                    userId: req.user._id,
+                    tenantId: req.user.tenantId,
+                    loginTime: new Date(),
+                    isActive: true
+                });
+                await attendanceLog.save();
+            }
+        } else {
+            // Check-out logic
+            const logId = sessionLogId;
+            if (!logId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Session log ID is required for Check-OUT'
+                });
+            }
+
+            attendanceLog = await LoginLog.findByIdAndUpdate(
+                logId,
+                {
+                    logoutTime: new Date(),
+                    isActive: false
+                },
+                { new: true }
+            );
+        }
+
+        res.json({
+            success: true,
+            message: `Successfully Checked-${type}`,
+            data: attendanceLog
+        });
+    } catch (error) {
+        console.error('Verify Attendance OTP error:', error);
         res.status(500).json({
             success: false,
             message: 'Internal server error'

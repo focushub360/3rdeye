@@ -246,13 +246,13 @@ const router = createBrowserRouter(
         {
           path: "/admin/management",
           element: withAccessControl(<AdminManagement />, {
-            allowedRoles: ["admin"],
+            allowedRoles: ["admin", "subadmin"],
           }),
         },
          {
           path: "/admin/activity-logs",
           element: withAccessControl(<UserActivityLogs />, {
-            allowedRoles: ["admin", "superadmin"],
+            allowedRoles: ["admin", "superadmin", "subadmin"],
           }),
         },
         {

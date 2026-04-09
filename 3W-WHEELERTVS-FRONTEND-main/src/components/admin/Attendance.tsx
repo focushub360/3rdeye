@@ -430,7 +430,7 @@ export default function Attendance() {
                         <span style="font-size: 10px; color: #6b7280;">${user.username}</span>
                     </td>
                     <td class="role-cell">
-                        <span style="background: ${user.role === 'admin' ? '#3b82f6' : user.role === 'subadmin' ? '#10b981' : '#8b5cf6'}; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px;">
+                        <span style="background: ${user.role === 'admin' ? '#3b82f6' : user.role === 'subadmin' ? '#10b981' : user.role === 'inspector' ? '#f59e0b' : '#8b5cf6'}; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px;">
                             ${user.role}
                         </span>
                     </td>
@@ -608,6 +608,8 @@ export default function Attendance() {
                 return "bg-blue-100 text-blue-700";
             case "subadmin":
                 return "bg-green-100 text-green-700";
+            case "inspector":
+                return "bg-amber-100 text-amber-700";
             default:
                 return "bg-gray-100 text-gray-700";
         }

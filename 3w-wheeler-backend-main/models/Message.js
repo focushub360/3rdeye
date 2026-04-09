@@ -9,7 +9,20 @@ const messageSchema = new mongoose.Schema({
   receiverId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: function() { return !this.isGroup; }
+  },
+  isGroup: {
+    type: Boolean,
+    default: false
+  },
+  isTYC: {
+    type: Boolean,
+    default: false
+  },
+  replyTo: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Message',
+    default: null
   },
   message: {
     type: String,

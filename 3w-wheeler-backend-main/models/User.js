@@ -24,8 +24,8 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['superadmin', 'admin', 'subadmin', 'teacher', 'student', 'staff', 'editor', 'viewer'],
-    default: 'student'
+    enum: ['superadmin', 'admin', 'subadmin', 'inspector', 'staff', 'editor', 'viewer'],
+    default: 'inspector'
   },
   tenantId: {
     type: mongoose.Schema.Types.ObjectId,

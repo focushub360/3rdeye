@@ -402,7 +402,7 @@ Please check your email for the attached Excel file with complete details.
     }
   }
 
-  async sendTestMessage(recipientPhone) {
+  async sendOTP(recipientPhone, otpCode, purpose = 'attendance') {
     try {
       if (!this.isConfigured) {
         return { success: false, error: 'Twilio WhatsApp service not configured' };
@@ -413,19 +413,21 @@ Please check your email for the attached Excel file with complete details.
         return { success: false, error: 'Invalid phone number format' };
       }
 
+      const emojis = {
+        attendance: '🕒',
+        login: '🔐',
+        password_reset: '🔑'
+      };
+      const emoji = emojis[purpose] || '🔢';
+
       const message = `
-✅ *TEST MESSAGE*
+${emoji} *VERIFICATION CODE*
 
-This is a test message from Focus Auto Shop WhatsApp integration.
+Your verification code for ${purpose.replace('_', ' ')} is:
 
-If you received this, WhatsApp service is working correctly! 🎉
+*${otpCode}*
 
-Configuration Status:
-✓ Twilio Account Connected
-✓ WhatsApp Service Active
-✓ Message Delivery Working
-
-Timestamp: ${new Date().toLocaleString()}
+Valid for 5 minutes. Do not share this code.
       `.trim();
 
       const messageData = await this.client.messages.create({
@@ -434,10 +436,10 @@ Timestamp: ${new Date().toLocaleString()}
         body: message,
       });
 
-      console.log('Test message sent:', messageData.sid);
+      console.log('OTP sent:', messageData.sid);
       return { success: true, messageId: messageData.sid };
     } catch (error) {
-      console.error('Error sending test message:', error);
+      console.error('Error sending OTP message:', error);
       return { success: false, error: error.message };
     }
   }

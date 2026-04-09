@@ -85,30 +85,51 @@ export const initializeSocket = (server) => {
       console.log(`💬 User ${socket.id} joined personal chat room: ${userId}`);
     });
 
+    // Join tenant group chat room
+    socket.on('join-group-chat', (tenantId) => {
+      socket.join(`group-${tenantId}`);
+      console.log(`💬 Client ${socket.id} joined group chat room: ${tenantId}`);
+    });
+
     // Handle sending message
     socket.on('send-message', async (data) => {
       try {
-        const { senderId, receiverId, message, tenantId } = data;
+        const { senderId, receiverId, message, tenantId, isTYC, replyTo } = data;
         
         // Save to DB
         const newMessage = await Message.create({
           senderId,
           receiverId,
           message,
-          tenantId
+          tenantId,
+          isTYC: !!isTYC,
+          replyTo: replyTo || null
         });
+
+        const populatedMessage = await Message.findById(newMessage._id).populate('replyTo');
 
         // Emit to receiver's personal room
         io.to(`user-${receiverId}`).emit('receive-message', {
-          _id: newMessage._id,
+          _id: populatedMessage._id,
           senderId,
           message,
-          createdAt: newMessage.createdAt
+          isTYC: !!isTYC,
+          replyTo: populatedMessage.replyTo,
+          createdAt: populatedMessage.createdAt
         });
+
+        // If it's a TYC, notify admins in that tenant
+        if (isTYC) {
+           io.to(`group-${tenantId}`).emit('tyc-raised', {
+             senderId,
+             message,
+             createdAt: populatedMessage.createdAt
+           });
+        }
 
         // Emit back to sender (optional, but good for sync)
         socket.emit('message-sent', {
-          _id: newMessage._id,
+          _id: populatedMessage._id,
           status: 'sent'
         });
 
@@ -116,6 +137,56 @@ export const initializeSocket = (server) => {
       } catch (error) {
         console.error('Send message socket error:', error);
         socket.emit('message-error', { error: 'Failed to send message' });
+      }
+    });
+
+    // Handle group message
+    socket.on('send-group-message', async (data) => {
+      try {
+        const { senderId, tenantId, message, isTYC, replyTo } = data;
+
+        // Save to DB
+        const newMessage = await Message.create({
+          senderId,
+          message,
+          tenantId,
+          isGroup: true,
+          isTYC: !!isTYC,
+          replyTo: replyTo || null
+        });
+
+        // Get populated details
+        const populatedMessage = await Message.findById(newMessage._id)
+          .populate('senderId', 'firstName lastName role')
+          .populate({
+            path: 'replyTo',
+            populate: { path: 'senderId', select: 'firstName lastName' }
+          });
+
+        // Emit to all users in the tenant group room
+        io.to(`group-${tenantId}`).emit('receive-group-message', {
+          _id: populatedMessage._id,
+          senderId: populatedMessage.senderId,
+          message,
+          isTYC: !!isTYC,
+          replyTo: populatedMessage.replyTo,
+          createdAt: populatedMessage.createdAt
+        });
+
+        // Emit specially for TYC if needed
+        if (isTYC) {
+          io.to(`group-${tenantId}`).emit('tyc-raised', {
+            senderId,
+            senderName: `${populatedMessage.senderId.firstName} ${populatedMessage.senderId.lastName}`,
+            message,
+            createdAt: populatedMessage.createdAt
+          });
+        }
+
+        console.log(`✉️ Group message sent in tenant ${tenantId} by ${senderId}`);
+      } catch (error) {
+        console.error('Send group message error:', error);
+        socket.emit('message-error', { error: 'Failed to send group message' });
       }
     });
 

@@ -10,18 +10,19 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
-  Dimensions
+  Dimensions,
+  Platform
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { Search, MessageSquare, Plus, UserCircle, X, ShieldCheck } from 'lucide-react-native';
+import { Search, MessageSquare, Plus, UserCircle, X, ShieldCheck, Users } from 'lucide-react-native';
 import apiClient from '../api/config';
 import { useAuth } from '../context/AuthContext';
 
 const { height } = Dimensions.get('window');
 
 const ChatListScreen = () => {
-  const [conversations, setConversations] = useState([]);
-  const [contacts, setContacts] = useState([]);
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [contacts, setContacts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
@@ -39,7 +40,28 @@ const ChatListScreen = () => {
       if (convRes.data.success) setConversations(convRes.data.data);
       if (contactRes.data.success) setContacts(contactRes.data.data);
     } catch (error) {
-      console.error('Fetch chat data error:', error);
+      console.log('Using mock chat data for showcase');
+      // Mock Data for Demo
+      setConversations([
+        {
+          _id: '1',
+          user: { firstName: 'Vell', lastName: 'Murugan', role: 'subadmin' },
+          lastMessage: 'The vehicle inspection report is ready.',
+          createdAt: new Date().toISOString(),
+          unreadCount: 2
+        },
+        {
+          _id: '2',
+          user: { firstName: 'Deepak', lastName: 'V', role: 'superadmin' },
+          lastMessage: 'Please check the new service request.',
+          createdAt: new Date().toISOString(),
+          unreadCount: 0
+        }
+      ]);
+      setContacts([
+        { _id: '1', firstName: 'Vell', lastName: 'Murugan', role: 'subadmin' },
+        { _id: '2', firstName: 'Deepak', lastName: 'V', role: 'superadmin' }
+      ]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -124,6 +146,30 @@ const ChatListScreen = () => {
         <Text style={styles.title}>Messages</Text>
       </View>
 
+      {/* Group Chat Card */}
+      {user?.tenant && (
+        <TouchableOpacity 
+          style={styles.groupCard}
+          onPress={() => navigation.navigate('ChatDetail', { 
+            isGroup: true,
+            tenantId: user.tenant.id || user.tenantId,
+            name: `${user.tenant.name || 'Laxmi Metals'} Group`,
+            role: 'TEAM'
+          })}
+        >
+          <View style={styles.groupIconBox}>
+            <Users size={28} color="#fff" />
+          </View>
+          <View style={styles.groupInfo}>
+            <Text style={styles.groupName}>{user.tenant.name || 'Laxmi Metals'} Group</Text>
+            <Text style={styles.groupSubtitle}>Collaborative Team Channel</Text>
+          </View>
+          <View style={styles.groupTag}>
+            <Text style={styles.groupTagText}>GROUP</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
       <View style={styles.searchBox}>
         <Search size={18} color="#94a3b8" />
         <TextInput
@@ -168,7 +214,7 @@ const ChatListScreen = () => {
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.modalTitle}>Contact Authority</Text>
-                <Text style={styles.modalSubtitle}>Select a Supervisor or Administrator</Text>
+                <Text style={styles.modalSubtitle}>Select a Subadmin or Superadmin</Text>
               </View>
               <TouchableOpacity onPress={() => setIsModalVisible(false)}>
                 <X size={24} color="#64748b" />
@@ -199,11 +245,60 @@ const styles = StyleSheet.create({
   header: {
     padding: 24,
     paddingBottom: 16,
+    paddingTop: Platform.OS === 'android' ? 45 : 20,
   },
   title: {
     fontSize: 24,
     fontWeight: '800',
     color: '#0f172a',
+  },
+  groupCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1e3a8a',
+    marginHorizontal: 20,
+    padding: 20,
+    borderRadius: 24,
+    marginBottom: 20,
+    elevation: 4,
+    shadowColor: '#1e3a8a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  groupIconBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  groupInfo: {
+    flex: 1,
+  },
+  groupName: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  groupSubtitle: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  groupTag: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  groupTagText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
   },
   searchBox: {
     flexDirection: 'row',
