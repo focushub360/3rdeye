@@ -1,36 +1,27 @@
-# Node.js
+# dependencies
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
-# Expo
-.expo/
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-*.orig
-*.swp
-.expo-shared/
-.expo/
-web-build/
-
-# IDE / Build
-.idea/
-.vscode/
-dist/
-build/
-*.log
-.DS_Store
+# environment
 .env
 .env.local
 .env.*
 
-# Temporary
-tmp/
-CORTEX_SESSION/
-brain/
-artifacts/
-temp/
+# build output
+dist/
+build/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+.idea/
+
+# cache
+.cache/
