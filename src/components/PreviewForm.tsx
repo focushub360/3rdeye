@@ -55,7 +55,7 @@ interface PreviewFormProps {
     questionType: string,
     sectionId: string,
     sectionTitle: string,
-    answer?: any
+    answer?: any,
   ) => void;
   onSectionComplete?: (
     sectionId: string,
@@ -81,6 +81,12 @@ export default function PreviewForm({
 }: PreviewFormProps) {
   const { id: formId } = useParams<{ id: string }>();
   const { tenant, user } = useAuth();
+
+  // Debug log to check auth state
+  useEffect(() => {
+    console.log("[PREVIEW FORM] Auth state changed - user:", user);
+    console.log("[PREVIEW FORM] Auth state changed - tenant:", tenant?.slug);
+  }, [user, tenant]);
   const tenantSlug = tenant?.slug;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -108,18 +114,30 @@ export default function PreviewForm({
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationConfirmed, setLocationConfirmed] = useState(true);
   const [reverseGeocoding, setReverseGeocoding] = useState(false);
-  const [locationDisplayName, setLocationDisplayName] = useState<string | null>(null);
+  const [locationDisplayName, setLocationDisplayName] = useState<string | null>(
+    null,
+  );
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [navigationHistory, setNavigationHistory] = useState<number[]>([0]);
-  const [validationErrors, setValidationErrors] = useState<Set<string>>(new Set());
+  const [validationErrors, setValidationErrors] = useState<Set<string>>(
+    new Set(),
+  );
   const [branchingAlert, setBranchingAlert] = useState<string | null>(null);
-  const [parentSectionIndex, setParentSectionIndex] = useState<number | null>(null);
+  const [parentSectionIndex, setParentSectionIndex] = useState<number | null>(
+    null,
+  );
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const [previousQuestionId, setPreviousQuestionId] = useState<string | null>(null);
+  const [previousQuestionId, setPreviousQuestionId] = useState<string | null>(
+    null,
+  );
   const [sectionStartTime, setSectionStartTime] = useState<Date>(new Date());
   const [sectionQuestionCount, setSectionQuestionCount] = useState(0);
-  const [visitedSectionIndices, setVisitedSectionIndices] = useState<Set<number>>(new Set([0]));
-  const [sectionNavigationHistory, setSectionNavigationHistory] = useState<number[]>([0]);
+  const [visitedSectionIndices, setVisitedSectionIndices] = useState<
+    Set<number>
+  >(new Set([0]));
+  const [sectionNavigationHistory, setSectionNavigationHistory] = useState<
+    number[]
+  >([0]);
 
   const allFormQuestions = useMemo(() => {
     const getAllQuestions = (questions: any[]): any[] => {
@@ -150,11 +168,22 @@ export default function PreviewForm({
   }, [form]);
 
   const [sectionSubmitting, setSectionSubmitting] = useState(false);
-  const [suggestedAnswers, setSuggestedAnswers] = useState<Record<string, any> | null>(null);
-  const [fetchingSuggestionsForId, setFetchingSuggestionsForId] = useState<string | null>(null);
-  const [lastSuggestionSource, setLastSuggestionSource] = useState<string | null>(null);
+  const [suggestedAnswers, setSuggestedAnswers] = useState<Record<
+    string,
+    any
+  > | null>(null);
+  const [fetchingSuggestionsForId, setFetchingSuggestionsForId] = useState<
+    string | null
+  >(null);
+  const [lastSuggestionSource, setLastSuggestionSource] = useState<
+    string | null
+  >(null);
   const [previousUniqueAnswers, setPreviousUniqueAnswers] = useState<any[]>([]);
   const [selectedRank, setSelectedRank] = useState<number | null>(null);
+  const [triggeringQuestionId, setTriggeringQuestionId] = useState<string | null>(null);
+  const [globalRankAnswers, setGlobalRankAnswers] = useState<Record<string, any> | null>(null);
+  const [globalRank, setGlobalRank] = useState<number | null>(null);
+  const [previousAnswers, setPreviousAnswers] = useState<string[]>([]);
   const { darkMode, toggleDarkMode } = useTheme();
   const { showSuccess, showConfirm, showError: showNotifyError } = useNotification();
   const { getOrderedVisibleQuestions } = useQuestionLogic();
@@ -251,8 +280,8 @@ export default function PreviewForm({
       if (!section) return;
       const allQuestions = [...section.questions];
       const subSections = form?.sections.filter(
-        (s) => s.isSubsection && s.parentSectionId === section.id,
-      ) || [];
+          (s) => s.isSubsection && s.parentSectionId === section.id,
+        ) || [];
 
       subSections.forEach((ss) => {
         allQuestions.push(...ss.questions);
@@ -427,7 +456,7 @@ export default function PreviewForm({
             "Already Responded",
             "Yes, Continue",
             "Go Home",
-            () => navigate(`/${tenantSlug}`),
+            () => navigate("/forms/analytics"),
           );
           return;
         }
@@ -600,10 +629,44 @@ export default function PreviewForm({
   const performSubmission = async () => {
     setSubmitting(true);
     try {
+      console.log("[PREVIEW FORM] User object full:", JSON.stringify(user));
+      console.log("[PREVIEW FORM] User is null?", user === null);
+      console.log("[PREVIEW FORM] User is undefined?", user === undefined);
+      console.log("[PREVIEW FORM] User firstName:", user?.firstName);
+      console.log("[PREVIEW FORM] User lastName:", user?.lastName);
+      console.log("[PREVIEW FORM] User email:", user?.email);
+      console.log("[PREVIEW FORM] User username:", user?.username);
+
+      // Build user info - fallback to tenant info if user is not available
+      let submittedByValue: string | undefined = undefined;
+      if (user) {
+        submittedByValue =
+          user.firstName && user.lastName
+            ? `${user.firstName} ${user.lastName}`
+            : user.username || user.email || undefined;
+      }
+      console.log("[PREVIEW FORM] submittedByValue:", submittedByValue);
+
       const submissionData: any = {
         answers: answers,
         inviteId: inviteId || null,
+        submittedBy: submittedByValue,
+        submitterContact: user
+          ? {
+              email: user.email || "",
+              phone: user.phone || "",
+            }
+          : {},
       };
+
+      console.log(
+        "[PREVIEW FORM] Submission data submittedBy:",
+        submissionData.submittedBy,
+      );
+      console.log(
+        "[PREVIEW FORM] Submission data submitterContact:",
+        submissionData.submitterContact,
+      );
 
       if (location) {
         submissionData.location = {
@@ -613,6 +676,13 @@ export default function PreviewForm({
           source: "browser",
           capturedAt: new Date().toISOString(),
         };
+      }
+
+      // Also add timing data if available
+      if (formSessionId) {
+        submissionData.sessionId = formSessionId;
+        submissionData.startedAt = sectionStartTime;
+        submissionData.completedAt = new Date();
       }
 
       if (propOnSubmit) {
@@ -733,6 +803,17 @@ export default function PreviewForm({
       return qId === normalizedQId || qId.toLowerCase() === normalizedQId.toLowerCase() || normalizeKey(qId) === normalizedTarget;
     });
 
+    // Only fetch suggestions if trackResponseQuestion OR trackResponseRank is enabled
+    const isTrackQuestionEnabled = question && (
+      question.trackResponseQuestion === true || 
+      String(question.trackResponseQuestion) === "true"
+    );
+    const isTrackRankEnabled = question && (
+      question.trackResponseRank === true ||
+      String(question.trackResponseRank) === "true"
+    );
+    const isAnyTrackingEnabled = isTrackQuestionEnabled || isTrackRankEnabled;
+
     if (fetchingSuggestionsForId !== questionId) {
       setPreviousUniqueAnswers([]);
     }
@@ -761,7 +842,8 @@ export default function PreviewForm({
       typeof value === "number" ||
       ((question?.type === "chassis-with-zone" || question?.type === "chassis-without-zone") && value?.chassisNumber?.trim().length >= 1);
 
-    if (isMeaningful && formId && !isAlreadySuggested) {
+    // Only fetch suggestions if any tracking is enabled (trackResponseQuestion OR trackResponseRank)
+    if (isMeaningful && formId && !isAlreadySuggested && isAnyTrackingEnabled) {
       const timeoutId = (window as any)._suggestionTimeout;
       if (timeoutId) clearTimeout(timeoutId);
       (window as any)._suggestionTimeout = setTimeout(() => {
@@ -803,6 +885,7 @@ export default function PreviewForm({
 
     try {
       setFetchingSuggestionsForId(searchSource);
+      setTriggeringQuestionId(questionId);
 
       apiClient.getQuestionPreviousAnswers(formId, questionId, tenantSlug)
         .then(res => {
@@ -816,20 +899,38 @@ export default function PreviewForm({
       setLastSuggestionSource(`${questionId}:${searchValue}`);
 
       if (result && result.suggestedAnswers) {
-        const suggestions = result.suggestedAnswers;
-        const suggestionsArray = Array.isArray(suggestions) ? suggestions : [];
-        const totalAnswersCount = suggestionsArray.length;
+        const rawSuggestions = Array.isArray(result.suggestedAnswers) ? result.suggestedAnswers : [];
+        
+        // Exact match filter: only show if the triggering question's value matches exactly
+        const normalize = (v: any) => String(v || "").trim().toLowerCase();
+        const searchValNormalized = normalize(searchValue);
+        
+        const suggestions = rawSuggestions.filter(s => {
+          const val = s.answers?.[questionId];
+          if (typeof val === 'object' && val?.chassisNumber) {
+            return normalize(val.chassisNumber) === searchValNormalized;
+          }
+          return normalize(val) === searchValNormalized;
+        });
+
+        const totalAnswersCount = suggestions.length;
         const hasSubstantialData = totalAnswersCount > 0;
 
         setSuggestedAnswers(suggestions);
-        if (hasSubstantialData) {
+        if (hasSubstantialData && suggestions[0]) {
           setSelectedRank(1);
+          setGlobalRankAnswers(suggestions[0].answers || null);
+          setGlobalRank(suggestions[0].rank || 1);
           showSuccess(`${totalAnswersCount} previous records found!`);
         } else {
           setSuggestedAnswers({ _no_match: true });
+          setGlobalRankAnswers(null);
+          setGlobalRank(null);
         }
       } else {
         setSuggestedAnswers({ _no_match: true });
+        setGlobalRankAnswers(null);
+        setGlobalRank(null);
       }
     } catch (err) {
       console.error("[PreviewForm] Failed to fetch suggestions:", err);
@@ -867,12 +968,16 @@ export default function PreviewForm({
 
         if (question) {
           const qId = question.id || (question as any)._id;
-          if (effectiveTargetId) {
-            const normalizedTarget = normalize(effectiveTargetId);
+
+          // If targetQuestionId is provided, we only apply to THAT specific question
+          // If it is NULL, we apply EVERYTHING in the record (Apply All feature)
+          if (targetQuestionId) {
+            const normalizedTarget = normalize(targetQuestionId);
             if (normalize(qId) !== normalizedTarget) {
               return;
             }
           }
+
           if (key.endsWith("_tracking")) {
             newAnswers[`${qId}_tracking`] = val;
           } else {
@@ -883,6 +988,17 @@ export default function PreviewForm({
       return newAnswers;
     });
   };
+
+  const activeTrackQuestion = useMemo(() => {
+    const qId = triggeringQuestionId || (lastSuggestionSource?.split(':')[0]);
+    if (!qId) return null;
+    
+    const question = allFormQuestions.find(q => (q.id || (q as any)._id) === qId);
+    if (!question || !(question.trackResponseQuestion === true || String(question.trackResponseQuestion) === "true")) {
+      return null;
+    }
+    return question;
+  }, [triggeringQuestionId, lastSuggestionSource, allFormQuestions]);
 
   const handleLoadSampleData = () => {
     if (!form) return;
@@ -1219,6 +1335,15 @@ export default function PreviewForm({
         sectionIndex: currentSectionIndex,
         isSectionSubmit: true,
         inviteId: inviteId || null,
+        // ✅ ADD THESE LINES
+        submittedBy:
+          user?.firstName && user?.lastName
+            ? `${user.firstName} ${user.lastName}`
+            : user?.username || user?.email || undefined,
+        submitterContact: {
+          email: user?.email || "",
+          phone: user?.phone || "",
+        },
       };
 
       if (location) {
@@ -1472,7 +1597,9 @@ export default function PreviewForm({
               <p
                 className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"} leading-relaxed`}
               >
-                Completing this step helps the school understand where answers are coming from. We will use the confirmed location details only for operational insights.
+                Completing this step helps the people understand where answers
+                are coming from. We will use the confirmed location details only
+                for operational insights.
               </p>
 
               {location ? (
@@ -1656,7 +1783,26 @@ export default function PreviewForm({
               </div>
             )}
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
+              {suggestedAnswers && !suggestedAnswers._no_match && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSuggestedAnswers(null);
+                    setLastSuggestionSource(null);
+                    setSelectedRank(null);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all border ${
+                    darkMode
+                      ? "bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20"
+                      : "bg-amber-50 text-amber-600 border-amber-100 hover:bg-amber-100"
+                  }`}
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Clear Suggestions
+                </button>
+              )}
+
               <button
                 onClick={handleLoadSampleData}
                 className={`p-1.5 rounded-full transition-all duration-300 ${
@@ -1688,69 +1834,69 @@ export default function PreviewForm({
       <div className="relative py-8">
         <div className="mx-auto max-w-[98%] px-4">
           <div className="flex flex-col lg:flex-row gap-6 items-start">
-            {/* Form Column - 88% */}
-            <div className="flex-1 w-full lg:max-w-[88%] space-y-4">
+            {/* Form Column */}
+            <div className="flex-1 w-full space-y-4 max-w-5xl mx-auto">
               {/* Chassis Number Selection (If enabled and at first section) */}
               {formSessionId && chassisNumbers.length > 0 && currentSectionIndex === 0 && (
                 <div className={`p-8 rounded-2xl border-2 ${darkMode ? "bg-purple-500/5 border-purple-500/20" : "bg-purple-50 border-purple-100"} shadow-sm relative overflow-hidden group`}>
-                  <div className="absolute top-0 right-0 p-4 opacity-10 font-bold">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 font-bold">
                     <Clipboard className={`w-16 h-16 ${darkMode ? "text-purple-400" : "text-purple-600"}`} />
-                  </div>
+                    </div>
                   <h2 className={`text-xl font-bold ${darkMode ? "text-purple-300" : "text-purple-900"} mb-6 flex items-center gap-2`}>
                     <div className={`p-2 rounded-lg ${darkMode ? "bg-purple-800/30" : "bg-purple-100"}`}>
                       <Users className={`w-5 h-5 ${darkMode ? "text-purple-400" : "text-purple-600"}`} />
-                    </div>
-                    Select Chassis Number *
-                  </h2>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      </div>
+                      Select Chassis Number *
+                    </h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {chassisNumbers.map((cn: { chassisNumber: string; partDescription: string }) => {
-                      const chassisAssignments = chassisTenantAssignments;
+                          const chassisAssignments = chassisTenantAssignments;
                       const isVisibleToTenant = !user?.tenantId ||
-                        !chassisAssignments[cn.chassisNumber] ||
-                        chassisAssignments[cn.chassisNumber].length === 0 ||
+                            !chassisAssignments[cn.chassisNumber] ||
+                            chassisAssignments[cn.chassisNumber].length === 0 ||
                         chassisAssignments[cn.chassisNumber].includes(user.tenantId);
 
-                      if (!isVisibleToTenant) return null;
+                          if (!isVisibleToTenant) return null;
 
                       const displayValue = cn.partDescription ? `${cn.chassisNumber}-${cn.partDescription}` : cn.chassisNumber;
 
-                      return (
-                        <button
-                          key={cn.chassisNumber}
-                          type="button"
+                          return (
+                            <button
+                              key={cn.chassisNumber}
+                              type="button"
                           onClick={() => handleResponseChange('chassis_number', cn.chassisNumber)}
-                          className={`p-4 rounded-xl text-left border-2 transition-all duration-200 group relative overflow-hidden ${
+                              className={`p-4 rounded-xl text-left border-2 transition-all duration-200 group relative overflow-hidden ${
                             answers['chassis_number'] === cn.chassisNumber
-                              ? `border-purple-600 ${darkMode ? "bg-gray-800" : "bg-white"} shadow-lg ring-4 ring-purple-100 dark:ring-purple-900/30 scale-[1.02]`
-                              : `border-white dark:border-gray-700 ${darkMode ? "bg-gray-800/60" : "bg-white/60"} hover:border-purple-300 dark:hover:border-purple-500 hover:bg-white dark:hover:bg-gray-800 hover:shadow-md`
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex flex-col">
+                                  ? `border-purple-600 ${darkMode ? "bg-gray-800" : "bg-white"} shadow-lg ring-4 ring-purple-100 dark:ring-purple-900/30 scale-[1.02]`
+                                  : `border-white dark:border-gray-700 ${darkMode ? "bg-gray-800/60" : "bg-white/60"} hover:border-purple-300 dark:hover:border-purple-500 hover:bg-white dark:hover:bg-gray-800 hover:shadow-md`
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex flex-col">
                               <span className={`font-bold ${answers['chassis_number'] === cn.chassisNumber ? "text-purple-700 dark:text-purple-300" : "text-gray-600 dark:text-gray-400"}`}>
-                                {cn.chassisNumber}
-                              </span>
-                              {cn.partDescription && (
+                                    {cn.chassisNumber}
+                                  </span>
+                                  {cn.partDescription && (
                                 <span className={`text-xs ${answers['chassis_number'] === cn.chassisNumber ? "text-purple-500 dark:text-purple-400" : "text-gray-500 dark:text-gray-400"}`}>
-                                  {cn.partDescription}
-                                </span>
-                              )}
-                            </div>
+                                      {cn.partDescription}
+                                    </span>
+                                  )}
+                                </div>
                             {answers['chassis_number'] === cn.chassisNumber && (
-                              <div className="w-5 h-5 bg-purple-600 rounded-full flex items-center justify-center">
-                                <Send className="w-3 h-3 text-white" />
+                                  <div className="w-5 h-5 bg-purple-600 rounded-full flex items-center justify-center">
+                                    <Send className="w-3 h-3 text-white" />
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
                           <div className={`mt-1 text-[10px] uppercase tracking-wider font-bold ${answers['chassis_number'] === cn.chassisNumber ? "text-purple-400 dark:text-purple-500" : "text-gray-400"}`}>
                             {answers['chassis_number'] === cn.chassisNumber ? 'Selected Chassis' : 'Available'}
-                          </div>
-                        </button>
-                      );
+                              </div>
+                            </button>
+                          );
                     })}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
               <form id="customer-form" onSubmit={handleSubmit} className="space-y-0">
                 <div className="space-y-4">
@@ -1783,14 +1929,14 @@ export default function PreviewForm({
                           </div>
                           {currentSection.title && currentSection.title !== form.title && (
                             <h2 className={`text-lg font-black tracking-tight ${darkMode ? "text-white" : "text-slate-900"}`}>
-                              {currentSection.title || currentSection.name}
-                            </h2>
-                          )}
+                                {currentSection.title || currentSection.name}
+                              </h2>
+                            )}
                           {currentSection.description && currentSection.description !== form.description && (
                             <p className={`mt-1 text-xs ${darkMode ? "text-slate-500" : "text-slate-500"}`}>
-                              {currentSection.description}
-                            </p>
-                          )}
+                                {currentSection.description}
+                              </p>
+                            )}
                         </div>
                       </div>
                     </div>
@@ -1822,6 +1968,9 @@ export default function PreviewForm({
                             lastSuggestionSource={lastSuggestionSource}
                             onApplyFullSuggestion={applySuggestions}
                             fetchingSuggestionsForId={fetchingSuggestionsForId}
+                            rankMatchedAnswers={globalRankAnswers}
+                            currentRank={globalRank}
+                            onPreviousAnswersChange={setPreviousAnswers}
                           />
                         </div>
                       ))}
@@ -1831,22 +1980,35 @@ export default function PreviewForm({
               </form>
             </div>
 
-            {/* Recommendations Sidebar - 12% */}
-            <div className="w-full lg:w-[12%] min-w-[300px] shrink-0 sticky top-24 space-y-4">
-              <div className={`p-5 rounded-2xl border-2 ${darkMode ? "bg-slate-900/80 border-slate-800 shadow-2xl" : "bg-white border-slate-100 shadow-xl"} backdrop-blur-xl`}>
-                <div className="flex items-center gap-3 mb-6">
-                  <div className={`p-2 rounded-xl ${darkMode ? "bg-blue-500/10 text-blue-400" : "bg-blue-50 text-blue-600"}`}>
-                    <Sparkles className="h-4 w-4" />
+            {/* Assistant Sidebar */}
+            {activeTrackQuestion && suggestedAnswers && !suggestedAnswers._no_match && Array.isArray(suggestedAnswers) && suggestedAnswers.length > 0 && (
+              <div className="hidden lg:block w-[380px] sticky top-24 animate-in fade-in slide-in-from-right-4 duration-500">
+                <div className={`rounded-2xl border ${darkMode ? "border-slate-800 bg-slate-900/40" : "border-slate-200 bg-white shadow-xl shadow-slate-200/50"} overflow-hidden backdrop-blur-sm`}>
+                  <div className={`border-b ${darkMode ? "border-slate-800 bg-slate-900/60" : "border-slate-50 bg-slate-50/80"} px-5 py-4`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-lg ${darkMode ? "bg-blue-500/20" : "bg-blue-50"}`}>
+                        <Sparkles className="h-4 w-4 text-blue-500" />
+                      </div>
+                      <div>
+                        <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Assistant</span>
+                        <h3 className={`text-sm font-black ${darkMode ? "text-white" : "text-slate-900"}`}>Found Records!</h3>
+                      </div>
+                    </div>
                   </div>
-                  <h3 className={`text-[11px] font-black uppercase tracking-[0.2em] ${darkMode ? "text-white" : "text-slate-900"}`}>Assistant</h3>
-                </div>
 
-                {!fetchingSuggestionsForId && !(suggestedAnswers && lastSuggestionSource) ? (
+                {!fetchingSuggestionsForId &&
+                !(suggestedAnswers && lastSuggestionSource) ? (
                   <div className="py-12 flex flex-col items-center justify-center text-center gap-4 opacity-30">
                     <Zap className="h-10 w-10" />
                     <div className="space-y-1">
-                      <p className="text-[10px] font-black uppercase tracking-widest">Assistant Ready</p>
-                      <p className="text-[9px] font-medium leading-tight">Start typing to see<br />smart recommendations</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest">
+                        Assistant Ready
+                      </p>
+                      <p className="text-[9px] font-medium leading-tight">
+                        Start typing to see
+                        <br />
+                        smart recommendations
+                      </p>
                     </div>
                   </div>
                 ) : fetchingSuggestionsForId ? (
@@ -1858,99 +2020,136 @@ export default function PreviewForm({
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <p className={`text-[11px] font-black uppercase tracking-widest ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>Searching...</p>
-                      <p className={`text-[9px] font-bold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Checking records</p>
+                      <p
+                        className={`text-[11px] font-black uppercase tracking-widest ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}
+                      >
+                        Searching...
+                      </p>
+                      <p
+                        className={`text-[9px] font-bold ${darkMode ? "text-slate-500" : "text-slate-400"}`}
+                      >
+                        Checking records
+                      </p>
                     </div>
                   </div>
-                ) : (Array.isArray(suggestedAnswers) && suggestedAnswers.length > 0) ? (
-                  <div className="space-y-6 animate-in fade-in zoom-in-95 duration-500">
-                    <div className={`p-8 rounded-[2.5rem] ${darkMode ? "bg-slate-900 border-emerald-500/30" : "bg-white border-emerald-100"} border-2 shadow-2xl relative overflow-hidden group`}>
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full -mr-16 -mt-16 blur-2xl group-hover:bg-emerald-500/10 transition-colors duration-700" />
-                      
-                      <div className="relative space-y-6">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={`p-3 rounded-2xl ${darkMode ? "bg-emerald-500/10 text-emerald-400" : "bg-emerald-50 text-emerald-500"} shadow-inner`}>
-                              <Sparkles className="h-6 w-6" />
-                            </div>
-                            <div>
-                              <span className={`block text-[10px] font-black uppercase tracking-[0.2em] ${darkMode ? "text-emerald-500/50" : "text-emerald-600/50"}`}>Assistant</span>
-                              <span className={`block text-[14px] font-black ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Found Records!</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className={`p-6 rounded-3xl ${darkMode ? "bg-emerald-500/5 border-emerald-500/20" : "bg-emerald-50/30 border-emerald-100/50"} space-y-4`}>
-                          <p className={`text-[12px] font-bold leading-relaxed ${darkMode ? "text-emerald-400/80" : "text-emerald-700/80"}`}>
-                            Historical records found for this entry. You can review and apply them below.
-                          </p>
-                        </div>
-
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between px-2">
-                            <span className={`text-[10px] font-black uppercase tracking-[0.1em] ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Selected Rank:</span>
-                            <div className="px-3 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-black">
-                              #{selectedRank || 1} Record
-                            </div>
-                          </div>
-      
-                          <div className="space-y-3">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className={`text-[9px] font-black uppercase tracking-widest ${darkMode ? "text-slate-600" : "text-slate-400"}`}>Historical versions:</span>
-                            </div>
-                            <div className="flex flex-wrap gap-2.5">
-                              {(Array.isArray(suggestedAnswers) ? suggestedAnswers : []).map((suggestion: any) => (
-                                <button
-                                  key={suggestion.rank}
-                                  type="button"
-                                  onClick={() => setSelectedRank(suggestion.rank)}
-                                  className={`w-12 h-12 rounded-2xl border-2 flex items-center justify-center text-[13px] font-black transition-all duration-300 hover:scale-110 active:scale-95 ${
-                                    selectedRank === suggestion.rank
-                                      ? "bg-emerald-600 border-emerald-600 text-white shadow-xl shadow-emerald-500/30 ring-4 ring-emerald-500/10"
-                                      : darkMode
-                                        ? "bg-slate-950 border-slate-800 text-slate-500 hover:border-emerald-500/50 hover:text-emerald-400"
-                                        : "bg-white border-neutral-100 text-neutral-400 hover:border-emerald-500/50 hover:text-emerald-600 shadow-sm"
-                                  }`}
-                                >
-                                  {suggestion.rank}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
+                ) : Array.isArray(suggestedAnswers) &&
+                  suggestedAnswers.length > 0 ? (
+                  <div className="space-y-6">
+                    <div
+                      className={`p-5 rounded-2xl ${darkMode ? "bg-emerald-500/10 border-emerald-500/20" : "bg-emerald-50 border-emerald-100"} border shadow-sm shadow-emerald-500/5 animate-in zoom-in-95 duration-500`}
+                    >
+                      <div className="flex items-center gap-3 mb-3 text-emerald-500">
+                        <Sparkles className="h-5 w-5" />
+                        <span className="text-[10px] font-black uppercase tracking-widest">
+                          Previous Entries
+                        </span>
                       </div>
+                      <p
+                        className={`text-[10px] font-bold leading-relaxed ${darkMode ? "text-emerald-400/80" : "text-emerald-600/80"}`}
+                      >
+                        Found {suggestedAnswers.length} historical records for
+                        this chassis.
+                      </p>
                     </div>
 
-                    <div className="pt-2 space-y-4">
-                      <div className="flex items-center gap-3 px-2">
-                        <div className={`h-[1px] flex-1 ${darkMode ? "bg-slate-800" : "bg-neutral-100"}`} />
-                        <span className={`text-[9px] font-black uppercase tracking-[0.2em] ${darkMode ? "text-slate-600" : "text-neutral-400"}`}>Record Content</span>
-                        <div className={`h-[1px] flex-1 ${darkMode ? "bg-slate-800" : "bg-neutral-100"}`} />
+                    <div className="space-y-4">
+                      <div className="flex flex-col gap-1">
+                        <span
+                          className={`text-[10px] font-black uppercase tracking-[0.1em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}
+                        >
+                          Selected Rank:
+                        </span>
+                        <div
+                          className={`text-[14px] font-black ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}
+                        >
+                          #{selectedRank || 1} Record Applied
+                        </div>
                       </div>
-                      
-                      <div className="space-y-3 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar pb-4">
+
+                      <div className="space-y-3">
+                        <span
+                          className={`text-[9px] font-black uppercase tracking-widest ${darkMode ? "text-slate-500" : "text-slate-400"}`}
+                        >
+                          Switch Record:
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          {(Array.isArray(suggestedAnswers)
+                            ? suggestedAnswers
+                            : []
+                          ).map((suggestion: any) => (
+                            <button
+                              key={suggestion.rank}
+                              type="button"
+                              onClick={() => setSelectedRank(suggestion.rank)}
+                              className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-[12px] font-black transition-all hover:scale-105 active:scale-95 ${
+                                selectedRank === suggestion.rank
+                                  ? "bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-500/20"
+                                  : darkMode
+                                    ? "bg-slate-900 border-slate-800 text-slate-400 hover:border-emerald-500/50 hover:text-emerald-400"
+                                    : "bg-white border-slate-100 text-slate-400 hover:border-emerald-500/50 hover:text-emerald-600 shadow-sm"
+                              }`}
+                            >
+                              {suggestion.rank}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Display Selected Record Content */}
+                      <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                        <span
+                          className={`text-[9px] font-black uppercase tracking-widest ${darkMode ? "text-slate-500" : "text-slate-400"}`}
+                        >
+                          Record Content:
+                        </span>
+                        <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                           {(() => {
-                            const activeRecord = (Array.isArray(suggestedAnswers) ? suggestedAnswers : []).find(s => s.rank === (selectedRank || 1));
+                            const activeRecord = (
+                              Array.isArray(suggestedAnswers)
+                                ? suggestedAnswers
+                                : []
+                            ).find((s) => s.rank === (selectedRank || 1));
                             if (!activeRecord) return null;
 
-                            const entries = Object.entries(activeRecord.answers);
+                            const entries = Object.entries(
+                              activeRecord.answers,
+                            );
                             const uniqueEntries = new Map();
 
                             const normalizeKey = (s: string) =>
-                              String(s || "").toLowerCase().replace(/_tracking$/, "").replace(/^_/, "").trim();
+                              String(s || "")
+                                .toLowerCase()
+                                .replace(/_tracking$/, "")
+                                .replace(/^_/, "")
+                                .trim();
 
-                            const activeTargetId = (fetchingSuggestionsForId?.split(':')[0]) || (lastSuggestionSource?.split(':')[0]);
-                            const normalizedActiveTarget = activeTargetId ? normalizeKey(activeTargetId) : null;
+                            const activeTargetId =
+                              fetchingSuggestionsForId?.split(":")[0] ||
+                              lastSuggestionSource?.split(":")[0];
+                            const normalizedActiveTarget = activeTargetId
+                              ? normalizeKey(activeTargetId)
+                              : null;
 
                             entries.forEach(([key, val]) => {
-                              if (key.startsWith('_') || !val || (typeof val === 'string' && val.trim() === '')) return;
-                              const baseKey = key.replace('_tracking', '');
-                              if (normalizedActiveTarget && normalizeKey(baseKey) !== normalizedActiveTarget) {
+                              if (
+                                key.startsWith("_") ||
+                                !val ||
+                                (typeof val === "string" && val.trim() === "")
+                              )
+                                return;
+                              const baseKey = key.replace("_tracking", "");
+                              if (
+                                normalizedActiveTarget &&
+                                normalizeKey(baseKey) !== normalizedActiveTarget
+                              ) {
                                 return;
                               }
-                              const isTracking = key.endsWith('_tracking');
+                              const isTracking = key.endsWith("_tracking");
                               if (!uniqueEntries.has(baseKey)) {
-                                uniqueEntries.set(baseKey, { main: null, tracking: null });
+                                uniqueEntries.set(baseKey, {
+                                  main: null,
+                                  tracking: null,
+                                });
                               }
                               const entry = uniqueEntries.get(baseKey);
                               if (isTracking) entry.tracking = val;
@@ -1960,29 +2159,41 @@ export default function PreviewForm({
                             const items = Array.from(uniqueEntries.entries());
                             if (items.length === 0) {
                               return (
-                                <p className={`text-[10px] italic ${darkMode ? "text-slate-600" : "text-slate-400"}`}>
-                                  No historical record for this specific question.
+                                <p
+                                  className={`text-[10px] italic ${darkMode ? "text-slate-600" : "text-slate-400"}`}
+                                >
+                                  No historical record for this specific
+                                  question.
                                 </p>
                               );
                             }
 
                             return items.map(([baseKey, data]) => {
-                              const question = allFormQuestions.find(q => (q.id || q._id) === baseKey);
+                              const question = allFormQuestions.find(
+                                (q) => (q.id || q._id) === baseKey,
+                              );
                               const qText = question?.text || baseKey;
 
                               const formatVal = (v: any) => {
                                 if (!v) return null;
-                                if (typeof v === 'object') {
+                                if (typeof v === "object") {
                                   if (v.chassisNumber) {
                                     const parts = [];
-                                    if (v.status) parts.push(`Status: ${v.status}`);
-                                    if (v.zone?.length) parts.push(`Zones: ${v.zone.join(', ')}`);
-                                    if (v.defectCategory) {
-                                      const catText = Array.isArray(v.defectCategory) ? v.defectCategory.join(", ") : v.defectCategory;
-                                      parts.push(`Category: ${catText}`);
-                                    }
-                                    if (v.defects?.length) parts.push(`Defects: ${v.defects.map((d: any) => typeof d === 'string' ? d : d.name).join(', ')}`);
-                                    return parts.length ? parts.join(' | ') : v.chassisNumber;
+                                    if (v.status)
+                                      parts.push(`Status: ${v.status}`);
+                                    if (v.zone?.length)
+                                      parts.push(`Zones: ${v.zone.join(", ")}`);
+                                    if (v.defectCategory)
+                                      parts.push(
+                                        `Category: ${v.defectCategory}`,
+                                      );
+                                    if (v.defects?.length)
+                                      parts.push(
+                                        `Defects: ${v.defects.map((d: any) => (typeof d === "string" ? d : d.name)).join(", ")}`,
+                                      );
+                                    return parts.length
+                                      ? parts.join(" | ")
+                                      : v.chassisNumber;
                                   }
                                   return JSON.stringify(v);
                                 }
@@ -1995,110 +2206,97 @@ export default function PreviewForm({
                               if (!mainDisplay && !trackingDisplay) return null;
 
                               return (
-                                <div key={baseKey} className={`group/item relative p-4 rounded-2xl border ${darkMode ? "bg-slate-900 border-slate-800 hover:border-emerald-500/30" : "bg-white border-neutral-100 hover:border-emerald-200"} hover:shadow-lg hover:shadow-emerald-500/5 transition-all duration-300`}>
-                                  <div className="flex flex-col gap-2">
-                                    <div className="flex items-start justify-between gap-4">
-                                      <div className="flex-1 min-w-0">
-                                        <p className={`text-[10px] font-black uppercase tracking-tight ${darkMode ? "text-slate-500" : "text-neutral-400"} mb-1.5 line-clamp-2 leading-relaxed`}>
-                                          {qText}
-                                        </p>
-                                        <div className="flex flex-col gap-1.5">
-                                          {trackingDisplay && (
-                                            <div className={`inline-flex items-center gap-2 px-2 py-1 rounded-lg ${darkMode ? "bg-blue-500/10 text-blue-400" : "bg-blue-50 text-blue-700"}`}>
-                                              <span className="text-[8px] font-black uppercase tracking-widest opacity-50">Track</span>
-                                              <span className="text-[11px] font-black truncate max-w-[200px]">{trackingDisplay}</span>
-                                            </div>
-                                          )}
-                                          {mainDisplay && (
-                                            <div className={`inline-flex items-center gap-2 px-2 py-1 rounded-lg ${darkMode ? "bg-emerald-500/10 text-emerald-400" : "bg-emerald-50 text-emerald-700"}`}>
-                                              <span className="text-[8px] font-black uppercase tracking-widest opacity-50">Value</span>
-                                              <span className="text-[11px] font-black truncate max-w-[200px]">{mainDisplay}</span>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={() => applySuggestions(activeRecord.answers, baseKey, activeRecord.rank)}
-                                        className={`flex-shrink-0 w-8 h-8 rounded-full ${darkMode ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-white" : "bg-emerald-100 text-emerald-600 hover:bg-emerald-600 hover:text-white"} flex items-center justify-center transition-all duration-300 group-hover/item:scale-110 active:scale-95 shadow-sm`}
-                                        title="Apply this answer"
+                                <div
+                                  key={baseKey}
+                                  className={`p-3 rounded-xl border ${darkMode ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-100"} space-y-3`}
+                                >
+                                  <div>
+                                    <p className="text-[8px] font-black uppercase tracking-tight text-slate-400 mb-1">
+                                      {qText}
+                                    </p>
+                                    {trackingDisplay && (
+                                      <p
+                                        className={`text-[10px] font-bold ${darkMode ? "text-blue-400" : "text-blue-600"} break-words mb-1`}
                                       >
-                                        <CheckCircle2 className="h-4 w-4" />
-                                      </button>
-                                    </div>
+                                        <span className="opacity-50 text-[8px] mr-1">
+                                          TRACKING:
+                                        </span>{" "}
+                                        {trackingDisplay}
+                                      </p>
+                                    )}
+                                    {mainDisplay && (
+                                      <p
+                                        className={`text-[10px] font-bold ${darkMode ? "text-emerald-400" : "text-emerald-600"} break-words`}
+                                      >
+                                        {mainDisplay}
+                                      </p>
+                                    )}
                                   </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      applySuggestions(
+                                        activeRecord.answers,
+                                        baseKey,
+                                        activeRecord.rank,
+                                      )
+                                    }
+                                    className="w-full py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-[0.98]"
+                                  >
+                                    Apply This Answer
+                                  </button>
                                 </div>
                               );
                             });
                           })()}
                         </div>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSuggestedAnswers(null);
-                          setLastSuggestionSource(null);
-                          setSelectedRank(null);
-                        }}
-                        className={`w-full py-4 rounded-2xl border-2 ${darkMode ? "border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-300" : "border-neutral-100 text-neutral-400 hover:border-neutral-300 hover:text-neutral-600"} text-[11px] font-black uppercase tracking-[0.2em] transition-all duration-300`}
-                      >
-                        Ignore Matches
-                      </button>
                     </div>
-                  ) : suggestedAnswers?._no_match ? (
-                    <div className="space-y-6 animate-in fade-in zoom-in-95 duration-500">
-                      <div className={`p-8 rounded-[2.5rem] ${darkMode ? "bg-slate-900 border-slate-800 shadow-2xl shadow-black/50" : "bg-white border-neutral-100 shadow-2xl shadow-neutral-200/50"} border-2 relative overflow-hidden group`}>
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full -mr-16 -mt-16 blur-2xl group-hover:bg-amber-500/10 transition-colors duration-700" />
-                        
-                        <div className="relative space-y-6">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className={`p-3 rounded-2xl ${darkMode ? "bg-amber-500/10 text-amber-500" : "bg-amber-50 text-amber-500"}`}>
-                                <Zap className="h-6 w-6" />
-                              </div>
-                              <div>
-                                <span className={`block text-[10px] font-black uppercase tracking-[0.2em] ${darkMode ? "text-amber-500/50" : "text-amber-600/50"}`}>Assistant</span>
-                                <span className={`block text-[14px] font-black ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Historical Insight</span>
-                              </div>
-                            </div>
-                          </div>
 
-                          <div className={`p-6 rounded-3xl ${darkMode ? "bg-slate-800/50 border-slate-700/50" : "bg-neutral-50/50 border-neutral-100"} border space-y-4`}>
-                            <div className="flex items-center gap-3 text-amber-600">
-                              <AlertTriangle className="h-5 w-5" />
-                              <span className="text-[11px] font-black uppercase tracking-widest">No Previous Match</span>
-                            </div>
-                            <p className={`text-[12px] font-bold leading-relaxed ${darkMode ? "text-slate-400" : "text-neutral-500"}`}>
-                              No previous data matches your current entry. Please double check the input or proceed with manual entry.
-                            </p>
-                          </div>
-
-                          <div className="flex flex-col gap-3">
-                            <p className={`text-[10px] font-black ${darkMode ? "text-slate-600" : "text-neutral-400"} uppercase tracking-widest text-center`}>Suggestions</p>
-                            <div className={`p-4 rounded-2xl ${darkMode ? "bg-blue-500/10 border-blue-500/20" : "bg-blue-50/50 border-blue-100/50"} border text-center`}>
-                              <p className={`text-[11px] font-bold ${darkMode ? "text-blue-400/70" : "text-blue-600/70"}`}>
-                                Try adjusting the search criteria or chassis number to find related records.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSuggestedAnswers(null);
+                        setLastSuggestionSource(null);
+                        setSelectedRank(null);
+                      }}
+                      className={`w-full py-3 rounded-xl ${darkMode ? "text-slate-600 hover:text-slate-400" : "text-slate-400 hover:text-slate-500"} text-[10px] font-black uppercase tracking-[0.2em] transition-all`}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                ) : suggestedAnswers?._no_match ? (
+                  <div className="space-y-5">
+                    <div
+                      className={`p-5 rounded-2xl ${darkMode ? "bg-slate-800/50 border-slate-700/50" : "bg-slate-50 border-slate-100"} border shadow-inner`}
+                    >
+                      <div className="flex items-center gap-3 mb-3 text-slate-400">
+                        <AlertTriangle className="h-5 w-5" />
+                        <span className="text-[10px] font-black uppercase tracking-widest">
+                          No Match
+                        </span>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSuggestedAnswers(null);
-                          setLastSuggestionSource(null);
-                        }}
-                        className={`w-full py-4 rounded-2xl border-2 ${darkMode ? "border-slate-800 text-slate-500 hover:border-primary-500 hover:text-primary-400 hover:bg-primary-500/10" : "border-neutral-100 text-neutral-400 hover:border-primary-500 hover:text-primary-600 hover:bg-primary-50/30"} text-[11px] font-black uppercase tracking-[0.3em] transition-all duration-300 active:scale-[0.98]`}
+                      <p
+                        className={`text-[10px] font-bold leading-relaxed ${darkMode ? "text-slate-500" : "text-slate-500"}`}
                       >
-                        Dismiss Assistant
-                      </button>
+                        No previous data matches your entry.
+                      </p>
                     </div>
-                  ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSuggestedAnswers(null);
+                        setLastSuggestionSource(null);
+                      }}
+                      className={`w-full py-3 rounded-xl border-2 ${darkMode ? "border-slate-800 text-slate-500 hover:bg-slate-800 hover:text-slate-300" : "border-slate-100 text-slate-400 hover:bg-slate-50 hover:text-slate-600"} text-[10px] font-black uppercase tracking-[0.2em] transition-all`}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                ) : null}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -2112,7 +2310,7 @@ export default function PreviewForm({
             <div className="flex items-center gap-4">
               <button
                 type="button"
-                onClick={() => navigate(`/${tenantSlug}`)}
+                onClick={() => navigate("/forms/analytics")}
                 className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-[10px] font-bold uppercase tracking-widest transition-all duration-200 ${
                   darkMode
                     ? "bg-slate-800/50 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
@@ -2132,7 +2330,8 @@ export default function PreviewForm({
                   >
                     <MapPin className="h-3 w-3" />
                     <span className="text-[9px] font-black uppercase tracking-tight truncate max-w-[100px] sm:max-w-[150px]">
-                      {locationDisplayName || `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`}
+                      {locationDisplayName ||
+                        `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`}
                     </span>
                   </div>
                 ) : locationError ? (
@@ -2140,14 +2339,18 @@ export default function PreviewForm({
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${darkMode ? "bg-red-500/10 border-red-500/20 text-red-400" : "bg-red-50 border-red-100 text-red-700"}`}
                   >
                     <AlertTriangle className="h-3 w-3" />
-                    <span className="text-[9px] font-black uppercase tracking-tight">Location Disabled</span>
+                    <span className="text-[9px] font-black uppercase tracking-tight">
+                      Location Disabled
+                    </span>
                   </div>
                 ) : (
                   <div
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${darkMode ? "bg-blue-500/10 border-blue-500/20 text-blue-400" : "bg-blue-50 border-blue-100 text-blue-700"}`}
                   >
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    <span className="text-[9px] font-black uppercase tracking-tight">Capturing...</span>
+                    <span className="text-[9px] font-black uppercase tracking-tight">
+                      Capturing...
+                    </span>
                   </div>
                 )}
               </div>

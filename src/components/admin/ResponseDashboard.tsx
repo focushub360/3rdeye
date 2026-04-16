@@ -520,7 +520,7 @@ export default function ResponseDashboard() {
     try {
       const result = await apiClient.getUsers({
         tenantId: tenant._id,
-        role: 'admin,subadmin'
+        role: 'admin,subadmin,inspector'
       });
       setAvailableAdmins(result.users || []);
     } catch (error) {
@@ -612,14 +612,16 @@ export default function ResponseDashboard() {
           };
         }
       });
-      const [adminData, subadminData] = await Promise.all([
+      const [adminData, subadminData, inspectorData] = await Promise.all([
         apiClient.getUsers({ role: 'admin', tenantId: tenant._id, limit: 100 }).catch(() => ({ users: [] })),
         apiClient.getUsers({ role: 'subadmin', tenantId: tenant._id, limit: 100 }).catch(() => ({ users: [] })),
+        apiClient.getUsers({ role: 'inspector', tenantId: tenant._id, limit: 100 }).catch(() => ({ users: [] })),
       ]);
 
       const allAdmins = [
         ...(Array.isArray(adminData.users) ? adminData.users : []),
         ...(Array.isArray(subadminData.users) ? subadminData.users : []),
+        ...(Array.isArray(inspectorData.users) ? inspectorData.users : []),
       ];
 
       const performancePromises = allAdmins.map(async (adminData: any) => {
@@ -809,7 +811,7 @@ export default function ResponseDashboard() {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `admin-performance-${tenant?.name || 'tenant'}-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `user-performance-${tenant?.name || 'tenant'}-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
   };
 
@@ -837,18 +839,18 @@ export default function ResponseDashboard() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-gray-100">
-            Admin Performance Dashboard
+            Users Response Dashboard
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
-            Track performance metrics of administrators under {tenant?.name || 'your tenant'}
+            Track performance metrics of users under {tenant?.name || 'your tenant'}
           </p>
         </div>
 
         {/* Stats Cards - Enhanced with Active Hours */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
           {[
-            { label: 'Total Admins', value: totalStats.totalAdmins, icon: <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />, bg: 'bg-blue-100 dark:bg-blue-900/30' },
-            { label: 'Active Admins', value: totalStats.activeAdmins, icon: <CheckCircle className="w-5 h-5 text-purple-600 dark:text-purple-400" />, bg: 'bg-purple-100 dark:bg-purple-900/30' },
+            { label: 'Total Users', value: totalStats.totalAdmins, icon: <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />, bg: 'bg-blue-100 dark:bg-blue-900/30' },
+            { label: 'Active Users', value: totalStats.activeAdmins, icon: <CheckCircle className="w-5 h-5 text-purple-600 dark:text-purple-400" />, bg: 'bg-purple-100 dark:bg-purple-900/30' },
             /*{ label: 'Avg Response Time', value: formatResponseTime(totalStats.avgResponseTime), icon: <Clock className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />, bg: 'bg-yellow-100 dark:bg-yellow-900/30' },*/
             { label: 'Total Submissions', value: totalStats.totalTenantSubmissions, icon: <FileText className="w-5 h-5 text-green-600 dark:text-green-400" />, bg: 'bg-green-100 dark:bg-green-900/30' },
             { label: 'Total Forms', value: totalStats.totalTenantForms, icon: <FolderOpen className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />, bg: 'bg-indigo-100 dark:bg-indigo-900/30' },
@@ -939,7 +941,7 @@ export default function ResponseDashboard() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search admins…"
+                  placeholder="Search users…"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-9 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm w-56"
@@ -962,7 +964,7 @@ export default function ResponseDashboard() {
             <table className="w-full">
               <thead className="bg-gray-50 dark:bg-gray-900/50">
                 <tr>
-                  {['Admin', 'Role', 'Forms Submitted', /* 'Approved / Rejected'*/, /* 'Pending'*/, /* 'Avg Response',*/ 'Active Hours', 'Last Active', 'Actions'].map((h, i) => (
+                  {['User', 'Role', 'Forms Submitted', /* 'Approved / Rejected'*/, /* 'Pending'*/, /* 'Avg Response',*/ 'Active Hours', 'Last Active', 'Actions'].map((h, i) => (
                     <th
                       key={h}
                       className={`px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider ${i === 8 ? 'text-right' : 'text-left'}`}
@@ -977,14 +979,14 @@ export default function ResponseDashboard() {
                   <tr>
                     <td colSpan={9} className="px-6 py-12 text-center">
                       <Loader2 className="w-8 h-8 animate-spin text-blue-500 mx-auto" />
-                      <p className="text-gray-500 dark:text-gray-400 mt-2 text-sm">Loading admin data…</p>
+                      <p className="text-gray-500 dark:text-gray-400 mt-2 text-sm">Loading user data…</p>
                     </td>
                   </tr>
                 ) : paginatedPerformances.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="px-6 py-12 text-center">
                       <Users className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-                      <p className="text-gray-500 dark:text-gray-400 text-sm">No admin data found</p>
+                      <p className="text-gray-500 dark:text-gray-400 text-sm">No user data found</p>
                     </td>
                   </tr>
                 ) : (
@@ -1021,7 +1023,12 @@ export default function ResponseDashboard() {
                       </td>
                       {/* Role */}
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${admin.role === 'admin' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'}`}>
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                          admin.role === 'admin' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400' 
+                          : admin.role === 'subadmin' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                          : admin.role === 'inspector' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                          : 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
+                        }`}>
                           {admin.role}
                         </span>
                       </td>
@@ -1304,8 +1311,7 @@ export default function ResponseDashboard() {
       );
     })}
   </div>
-)}
-
+)} 
 
                   {/* Per-Form Breakdown */}
                  {responseDetails.formBreakdown.length > 0 && (
@@ -1440,7 +1446,7 @@ export default function ResponseDashboard() {
                 </>
               ) : (
                 <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-xl p-5 text-sm text-yellow-700 dark:text-yellow-300">
-                  No response details available for this admin. They may not have any responses assigned or verified yet.
+                  No response details available for this user. They may not have any responses assigned or verified yet.
                 </div>
               )}
 
@@ -1487,7 +1493,7 @@ export default function ResponseDashboard() {
                         Pending Assignments ({unassignedResponses.length})
                       </h3>
                       <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        These responses need to be assigned to an admin
+                        These responses need to be assigned to a user
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -1591,7 +1597,7 @@ export default function ResponseDashboard() {
             </h3>
 
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Select an admin to assign these responses to:
+              Select a user to assign these responses to:
             </p>
 
             <div className="space-y-2 max-h-60 overflow-y-auto mb-6">
