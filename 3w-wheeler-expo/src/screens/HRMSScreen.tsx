@@ -65,7 +65,14 @@ const HRMSScreen = () => {
     try {
       const response = await apiClient.get('/attendance/summary');
       if (response.data.success) {
-        setAttendanceSummary(response.data.data);
+        const raw = response.data.data;
+        // Normalise: ensure .users is always an array regardless of server field name
+        const users = Array.isArray(raw?.users) ? raw.users
+          : Array.isArray(raw?.attendances) ? raw.attendances
+          : Array.isArray(raw?.records) ? raw.records
+          : Array.isArray(raw) ? raw
+          : [];
+        setAttendanceSummary({ ...raw, users });
       }
     } catch (error) {
       console.log('Using mock attendance for demo');
@@ -165,7 +172,7 @@ const HRMSScreen = () => {
   const isSubAdmin = user?.role === 'subadmin' || user?.role === 'admin';
   const isInspector = user?.role === 'inspector';
   const canMonitor = isSuperAdmin || isSubAdmin;
-  const canCheckIn = isSubAdmin || isInspector;
+  const canCheckIn = isInspector; // Only Inspectors can check in/out now
 
   return (
     <SafeAreaView style={styles.container}>
@@ -190,23 +197,23 @@ const HRMSScreen = () => {
              </View>
              
              <View style={styles.logCard}>
-               {attendanceSummary.users.map((item: any, idx: number) => {
+             {(attendanceSummary.users ?? []).map((item: any, idx: number) => {
                  const isIn = item.loginTime && !item.logoutTime;
                  const isWeb = item.location?.status === 'browser';
-                 const fullName = `${item.userId.firstName} ${item.userId.lastName}`;
+                 const fullName = `${item.userId?.firstName || 'Unknown'} ${item.userId?.lastName || 'User'}`;
                  
                  return (
                    <View key={idx} style={[styles.logItem, idx === attendanceSummary.users.length - 1 && { borderBottomWidth: 0 }]}>
                       <View style={styles.logLeft}>
-                        <View style={[styles.avatarSmall, { backgroundColor: item.userId.role === 'inspector' ? '#eff6ff' : '#fef3c7' }]}>
-                          <Text style={[styles.avatarText, { color: item.userId.role === 'inspector' ? '#3b82f6' : '#d97706' }]}>{item.userId.firstName[0]}</Text>
+                        <View style={[styles.avatarSmall, { backgroundColor: item.userId?.role === 'inspector' ? '#eff6ff' : '#fef3c7' }]}>
+                          <Text style={[styles.avatarText, { color: item.userId?.role === 'inspector' ? '#3b82f6' : '#d97706' }]}>{(item.userId?.firstName || 'U')[0]}</Text>
                         </View>
                         <View>
                           <View style={styles.nameAndPlatform}>
                             <Text style={styles.logName}>{fullName}</Text>
                             {isWeb ? <Globe size={10} color="#94a3b8" /> : <Smartphone size={10} color="#94a3b8" />}
                           </View>
-                          <Text style={styles.logRole}>{item.userId.role} • {isWeb ? 'Dashboard' : 'Mobile App'}</Text>
+                          <Text style={styles.logRole}>{item.userId?.role || 'Guest'} • {isWeb ? 'Dashboard' : 'Mobile App'}</Text>
                         </View>
                       </View>
                       <View style={styles.logRight}>

@@ -107,11 +107,13 @@ const ChatDetailScreen = () => {
   const handleSend = (isTYC = false) => {
     if (!newMessage.trim() || !user) return;
 
+    const finalIsTYC = isTYC || newMessage.includes("URGENT (TYC):");
+
     const messageData: any = {
       senderId: user._id,
       message: newMessage.trim(),
       tenantId: user.tenantId,
-      isTYC,
+      isTYC: finalIsTYC,
       replyTo: replyTo?._id || null
     };
 
@@ -127,7 +129,7 @@ const ChatDetailScreen = () => {
       _id: Date.now().toString(),
       senderId: isGroup ? { _id: user._id, firstName: user.name?.split(' ')[0] || 'Me', role: user.role } : user._id,
       message: newMessage.trim(),
-      isTYC,
+      isTYC: finalIsTYC,
       replyTo: replyTo,
       createdAt: new Date().toISOString()
     };
@@ -234,11 +236,17 @@ const ChatDetailScreen = () => {
             </View>
           </View>
         </View>
-        {isGroup && (
-          <TouchableOpacity onPress={() => setShowMembers(true)} style={styles.memberBtn}>
-            <Users size={22} color="#1e3a8a" />
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.raiseTycHeaderBtn} onPress={() => setNewMessage("URGENT (TYC): ")}>
+            <AlertTriangle size={14} color="#ef4444" />
+            <Text style={styles.raiseTycHeaderText}>RAISE TYC</Text>
           </TouchableOpacity>
-        )}
+          {isGroup && (
+            <TouchableOpacity onPress={() => setShowMembers(true)} style={styles.memberBtn}>
+              <Users size={22} color="#1e3a8a" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {loading ? (
@@ -343,16 +351,38 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+    paddingTop: Platform.OS === 'android' ? 40 : 0,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
-    paddingTop: Platform.OS === 'ios' ? 50 : 40,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  raiseTycHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    gap: 6,
+  },
+  raiseTycHeaderText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#ef4444',
+    letterSpacing: 0.5,
   },
   headerLeft: {
     flexDirection: 'row',

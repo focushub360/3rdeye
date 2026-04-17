@@ -75,7 +75,7 @@ export default function DashboardNew() {
       
       // Create tenant object from currentTenant
       const tenantObj: Tenant = {
-        _id: currentTenant.id,
+        _id: currentTenant._id || (currentTenant as any).id,
         name: currentTenant.name,
         companyName: currentTenant.companyName,
         slug: currentTenant.slug,
@@ -282,9 +282,20 @@ export default function DashboardNew() {
       return filtered;
     }
     
-    // In tenants view or no tenant selected, return empty
+    // For non-superadmin users (admin, subadmin, inspector), the API already
+    // returns only their tenant's forms — show them all directly.
+    if (!isSuperAdmin) {
+      const allForms = formsData.forms || [];
+      if (!searchQuery) return allForms;
+      return allForms.filter((form: any) =>
+        form.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (form.description && form.description.toLowerCase().includes(searchQuery.toLowerCase()))
+      );
+    }
+    
+    // In tenants view or no tenant selected (superadmin), return empty
     return [];
-  }, [formsData?.forms, selectedTenant, viewMode, searchQuery]);
+  }, [formsData?.forms, selectedTenant, viewMode, searchQuery, isSuperAdmin]);
 
   const statsCache = React.useMemo(() => {
     const cache = new Map<string, { yesCount: number; noCount: number; naCount: number; total: number }>();
@@ -532,16 +543,16 @@ export default function DashboardNew() {
             <div className="mt-4 text-sm text-gray-500">
               <p>Make sure forms have the correct tenant ID:</p>
               <p className="font-mono bg-gray-100 dark:bg-gray-800 p-2 rounded mt-1">
-                tenantId should be: "{selectedTenant._id}" or "{selectedTenant.slug}"
+                tenantId should be: "{String(selectedTenant._id)}" or "{selectedTenant.slug}"
               </p>
               <p className="mt-2">Available forms in system:</p>
               <div className="mt-1 max-h-40 overflow-y-auto">
                 {formsData.forms.map((form: any, index: number) => (
                   <div key={index} className="p-2 border-b text-left">
                     <p><strong>{form.title}</strong></p>
-                    <p className="text-xs">tenantId: {form.tenantId || 'null'}</p>
-                    <p className="text-xs">tenant._id: {form.tenant?._id || 'null'}</p>
-                    <p className="text-xs">tenant.slug: {form.tenant?.slug || 'null'}</p>
+                    <p className="text-xs">tenantId: {typeof form.tenantId === 'object' ? JSON.stringify(form.tenantId) : (form.tenantId || 'null')}</p>
+                    <p className="text-xs">tenant._id: {String(form.tenant?._id || 'null')}</p>
+                    <p className="text-xs">tenant.slug: {String(form.tenant?.slug || 'null')}</p>
                     <p className="text-xs">shared: {JSON.stringify(form.sharedWithTenants || [])}</p>
                   </div>
                 ))}
@@ -729,7 +740,7 @@ export default function DashboardNew() {
 
   // Determine if we should show back button
   const showBackButton = () => {
-    return isSuperAdmin && viewMode === "forms" && selectedTenant;
+    return Boolean(isSuperAdmin && viewMode === "forms" && selectedTenant);
   };
 
   // Determine if we should show search bar
@@ -757,9 +768,11 @@ export default function DashboardNew() {
                   </span>
                 </div>
                 <div>
-                  
+                  <span className="text-gray-600 dark:text-gray-400">
+                    Tenant ID:
+                  </span>{" "}
                   <span className="font-medium text-gray-900 dark:text-gray-100">
-                    {currentTenant._id}
+                    {String(currentTenant._id || (currentTenant as any).id || "N/A")}
                   </span>
                 </div>
                 <div>
@@ -876,7 +889,7 @@ export default function DashboardNew() {
             <p>Is Superadmin: {isSuperAdmin ? 'Yes' : 'No'}</p>
             <p>View Mode: {viewMode}</p>
             <p>Selected Tenant: {selectedTenant?.companyName || 'None'}</p>
-            <p>Selected Tenant ID: {selectedTenant?._id || 'None'}</p>
+            <p>Selected Tenant ID: {String(selectedTenant?._id || 'None')}</p>
             <p>Selected Tenant Slug: {selectedTenant?.slug || 'None'}</p>
             <p>Total Forms in System: {formsData?.forms?.length || 0}</p>
             <p>Filtered Forms: {filteredForms.length}</p>

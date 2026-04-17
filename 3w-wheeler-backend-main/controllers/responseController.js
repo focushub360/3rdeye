@@ -13,8 +13,19 @@ import FormSession from '../models/FormSession.js';
 
 export const createResponse = async (req, res) => {
   try {
+    console.log('[CREATE RESPONSE] === START ===');
+    console.log('[CREATE RESPONSE] req.user:', req.user);
+    console.log('[CREATE RESPONSE] req.user?._id:', req.user?._id);
+    console.log('[CREATE RESPONSE] req.user?.role:', req.user?.role);
+    console.log('[CREATE RESPONSE] req.user?.email:', req.user?.email);
+    console.log('[CREATE RESPONSE] req.user?.username:', req.user?.username);
+    console.log('[CREATE RESPONSE] auth header exists:', !!req.header('Authorization'));
+    console.log('[CREATE RESPONSE] auth header value:', req.header('Authorization')?.substring(0, 30) + '...');
+    console.log('[CREATE RESPONSE] body.submittedBy:', req.body.submittedBy);
+    console.log('[CREATE RESPONSE] body.submitterContact:', req.body.submitterContact);
+    
     const {
-      questionId,
+      questionId: bodyFormId,
       answers,
       parentResponseId,
       submittedBy,
@@ -27,7 +38,7 @@ export const createResponse = async (req, res) => {
       startedAt,
       completedAt
     } = req.body;
-    const { tenantSlug } = req.params;
+    const { tenantSlug, formId: paramFormId } = req.params;
 
     let form;
     let submissionTimeSpent = 0;
@@ -132,8 +143,22 @@ export const createResponse = async (req, res) => {
     console.log(`[TIME TRACKING] Form submission - Time spent: ${formatTimeDisplay(submissionTimeSpent)}`);
 
     // ========== FORM VALIDATION (Keep your existing code) ==========
+    const questionId = paramFormId || bodyFormId;
+
+    if (!questionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Form ID is required'
+      });
+    }
+
+    console.log(`[CREATE RESPONSE] FormID: ${questionId}, TenantSlug: ${tenantSlug || 'N/A'}`);
+    console.log(`[CREATE RESPONSE DEBUG] Step 1: Starting form lookup`);
+
+
     if (tenantSlug) {
       const tenant = await Tenant.findOne({ slug: tenantSlug, isActive: true });
+      console.log(`[CREATE RESPONSE DEBUG] Step 2: Tenant lookup done, found: ${!!tenant}`);
 
       if (!tenant) {
         return res.status(404).json({
@@ -143,6 +168,7 @@ export const createResponse = async (req, res) => {
       }
 
       form = await Form.findOne({ id: questionId, tenantId: tenant._id, isVisible: true });
+      console.log(`[CREATE RESPONSE DEBUG] Step 3: Form lookup done, found: ${!!form}`);
 
       if (!form) {
         return res.status(404).json({
@@ -152,6 +178,7 @@ export const createResponse = async (req, res) => {
       }
     } else {
       form = await Form.findOne({ id: questionId, ...req.tenantFilter });
+      console.log(`[CREATE RESPONSE DEBUG] Step 2: Form lookup done (no tenant), found: ${!!form}`);
 
       if (!form) {
         return res.status(404).json({
@@ -170,6 +197,8 @@ export const createResponse = async (req, res) => {
 
     // ========== INVITE HANDLING (Keep your existing code) ==========
     let inviteStatus = null;
+    let inviteObj = null;
+
     if (inviteId) {
       console.log(`[INVITE] Processing response with inviteId: ${inviteId}`);
 
@@ -178,21 +207,21 @@ export const createResponse = async (req, res) => {
         inviteId: inviteId
       });
 
-      if (!invite) {
+      if (!inviteObj) {
         return res.status(403).json({
           success: false,
           message: 'Invalid or expired invite link'
         });
       }
 
-      if (invite.status === 'responded' && !isSectionSubmit) {
+      if (inviteObj.status === 'responded' && !isSectionSubmit) {
         console.log(`[INVITE] Invite ${inviteId} was already responded.`);
       }
 
       if (!isSectionSubmit) {
-        invite.status = 'responded';
-        invite.respondedAt = new Date();
-        await invite.save();
+        inviteObj.status = 'responded';
+        inviteObj.respondedAt = new Date();
+        await inviteObj.save();
         inviteStatus = 'responded';
         console.log(`[INVITE] Updated invite ${inviteId} to responded status`);
       } else {
@@ -201,13 +230,30 @@ export const createResponse = async (req, res) => {
     }
 
     // ========== SUBMISSION METADATA (Keep your existing code) ==========
+    console.log(`[CREATE RESPONSE DEBUG] Step 4: Starting submission metadata collection`);
     const submissionMetadata = await collectSubmissionMetadata(req, {
       includeLocation: form.locationEnabled !== false,
     });
 
     if (bodyMetadata && bodyMetadata.source) {
       submissionMetadata.source = bodyMetadata.source;
+    } else if (inviteId && inviteObj) {
+      // Use the already found invite object
+      if (inviteObj.notificationChannels && inviteObj.notificationChannels.length > 0) {
+        // Preference 1: Use the explicit notification channel (email, sms, whatsapp)
+        submissionMetadata.source = inviteObj.notificationChannels[0];
+      } else if (inviteObj.phone && !inviteObj.email) {
+        // Preference 2: If only phone is present, it's likely SMS
+        submissionMetadata.source = 'sms';
+      } else if (inviteObj.email) {
+        // Preference 3: If email is present, it's likely Email
+        submissionMetadata.source = 'email';
+      } else {
+        // Fallback
+        submissionMetadata.source = 'email';
+      }
     }
+
 
     if (form.locationEnabled !== false && req.body.location && typeof req.body.location === 'object') {
       const { latitude, longitude, accuracy, source, capturedAt, city, region, country } = req.body.location;
@@ -224,17 +270,35 @@ export const createResponse = async (req, res) => {
       console.log('[DEBUG] Captured location stored:', submissionMetadata.capturedLocation);
     }
 
+    // Helper function to recursively collect all questions
+    const collectAllQuestions = (questions, result = []) => {
+      if (!Array.isArray(questions)) return result;
+
+      questions.forEach(q => {
+        result.push(q);
+        if (Array.isArray(q.followUpQuestions)) {
+          collectAllQuestions(q.followUpQuestions, result);
+        }
+      });
+
+      return result;
+    };
+
+
+
     // ========== SCORE CALCULATION (Keep your existing code) ==========
     const allQuestions = [];
     if (form.sections) {
       form.sections.forEach(section => {
         if (section.questions) {
-          allQuestions.push(...section.questions);
+          collectAllQuestions(section.questions, allQuestions);
+
         }
       });
     }
     if (form.followUpQuestions) {
-      allQuestions.push(...form.followUpQuestions);
+      collectAllQuestions(form.followUpQuestions, allQuestions);
+
     }
 
     let correct = 0;
@@ -298,14 +362,94 @@ export const createResponse = async (req, res) => {
       }
     });
 
+    // Calculate ranks for specific questions
+    const responseRanks = {};
+    const formObj = form.toObject();
+    const allQs = [];
+
+    // Recursive helper to collect all questions
+    const collectFromQuestions = (questions) => {
+      if (!Array.isArray(questions)) return;
+      questions.forEach(q => {
+        allQs.push(q);
+        if (Array.isArray(q.followUpQuestions)) {
+          collectFromQuestions(q.followUpQuestions);
+        }
+      });
+    };
+    if (formObj.sections) {
+      formObj.sections.forEach(section => {
+        if (section.questions) {
+          collectFromQuestions(section.questions);
+        }
+      });
+    }
+    if (formObj.followUpQuestions) {
+      collectFromQuestions(formObj.followUpQuestions);
+    } console.log(`[RANK DEBUG] Calculating ranks for ${allQs.length} total questions in form ${questionId}`);
+
+    for (const question of allQs) {
+      const qId = question.id;
+
+      // Check for tracking (handle both boolean and string "true")
+      const isTrackingEnabled =
+        question.trackResponseRank === true ||
+        question.trackResponseRank === "true" ||
+        question.trackResponseQuestion === true ||
+        question.trackResponseQuestion === "true";
+
+      if (isTrackingEnabled) {
+        // If trackResponseQuestion is enabled, we use the value from that field for ranking
+        const trackingQId = question.trackResponseQuestion ? `${qId}_tracking` : qId;
+        const answer = answers[trackingQId];
+        console.log(
+          `[RANK DEBUG] Question "${question.text}" (ID: ${qId}) HAS tracking enabled. TrackingField: ${trackingQId}, Answer: "${answer}"`,
+        );
+
+        if (answer !== undefined && answer !== null && answer !== "") {
+          // Count existing responses with the SAME answer for this form
+          // We filter by tenantId to avoid cross-business rank contamination
+          const query = {
+            questionId: questionId,
+            [`answers.${trackingQId}`]: answer,
+            isSectionSubmit: { $ne: true },
+            tenantId: form.tenantId,
+          };
+
+          try {
+            const count = await Response.countDocuments(query);
+            console.log(
+              `[RANK DEBUG] Found ${count} existing final responses for form ${questionId}, question ${qId}, trackingField ${trackingQId}, answer "${answer}". New rank: ${count + 1}`,
+            );
+            responseRanks[qId] = count + 1;
+          } catch (countError) {
+            console.error(
+              `[RANK ERROR] Failed to count documents for question ${qId}:`,
+              countError,
+            );
+          }
+        }
+      }
+    }
+
+
     // ========== IMAGE PROCESSING (Keep your existing code) ==========
     console.log('[IMAGE PROCESS] Starting image processing...');
 
+    // ======== UPDATED : Process images with Google Drive backup ==========
+    // ========== UPDATED: Process ALL images with OAuth 2.0 Google Drive backup ==========
+    console.log('[IMAGE PROCESS] Starting image processing for ALL images...');
+
+    // Check OAuth configuration
     const driveConfigured = !!(process.env.GOOGLE_DRIVE_CLIENT_ID &&
       process.env.GOOGLE_DRIVE_CLIENT_SECRET &&
       process.env.GOOGLE_DRIVE_REFRESH_TOKEN);
     console.log(`[IMAGE PROCESS] Google Drive OAuth configured: ${driveConfigured ? '✅' : '❌'}`);
+    if (!driveConfigured) {
+      console.log('[IMAGE PROCESS] Google Drive backup disabled. Configure OAuth 2.0 for backups.');
+    }
 
+    // Create metadata for Google Drive
     const metadata = {
       tenantId: form.tenantId,
       formId: questionId,
@@ -327,6 +471,7 @@ export const createResponse = async (req, res) => {
     };
 
     try {
+      // Process images with progress tracking
       const onProgress = (progress) => {
         console.log(`Image processing progress: ${progress.message}`);
         if (typeof emitImageProgress === 'function') {
@@ -341,9 +486,10 @@ export const createResponse = async (req, res) => {
         }
       };
 
+      // Process ALL images with OAuth 2.0 Google Drive backup
       processingResult = await processResponseImages(
-        answers,
-        metadata,
+        answers,      // All answers including any image URLs
+        metadata,     // Metadata for folder creation
         onProgress,
         `response-${Date.now()}`
       );
@@ -351,24 +497,47 @@ export const createResponse = async (req, res) => {
       console.log('[IMAGE PROCESS] Processing complete:', {
         totalImages: processingResult.stats.totalImages,
         driveBackups: processingResult.stats.successfulDriveBackups,
-        folderPath: processingResult.folderStructure?.fullPath
+        folderPath: processingResult.folderStructure?.fullPath,
+        storageType: 'Google Drive (OAuth 2.0)'
       });
 
     } catch (error) {
       console.error('[IMAGE PROCESS] Failed to process images:', error);
 
+      // Check if it's an OAuth error
       if (error.message.includes('invalid_grant') ||
         error.message.includes('invalid_credentials') ||
         error.message.includes('Refresh token expired')) {
         console.error('[IMAGE PROCESS] ❌ OAuth token invalid or expired.');
+        console.error('[IMAGE PROCESS] 🔗 Visit /api/drive/setup to get new tokens');
+        console.error('[IMAGE PROCESS] ℹ️ Continuing without Google Drive backup...');
       }
     }
+    let displayName = 'Anonymous';
+
+if (req.body.submittedBy && req.body.submittedBy !== 'Anonymous') {
+  displayName = req.body.submittedBy;
+} else if (req.user) {
+  // Try to get full name from firstName + lastName
+  if (req.user.firstName || req.user.lastName) {
+    displayName = `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim();
+  }
+  // Fallback to username
+  if (displayName === '' && req.user.username) {
+    displayName = req.user.username;
+  }
+  // Fallback to email
+  if (displayName === '' && req.user.email) {
+    displayName = req.user.email;
+  }
+}
 
     // ========== CREATE RESPONSE WITH TIMING DATA ==========
     const responseData = {
       id: uuidv4(),
       questionId,
       answers: new Map(Object.entries(processingResult.processedAnswers)),
+      responseRanks: new Map(Object.entries(responseRanks)),
       driveBackupUrls: processingResult.driveBackupUrls || {},
       imageProcessing: {
         totalImages: processingResult.stats.totalImages || 0,
@@ -379,7 +548,7 @@ export const createResponse = async (req, res) => {
         status: processingResult.error ? 'partial' : 'completed'
       },
       parentResponseId,
-      submittedBy: req.body.submittedBy || req.user?.username || req.user?.email || 'Anonymous',
+      submittedBy: displayName,
       submitterContact: {
         email: req.body.submitterContact?.email || req.user?.email,
         phone: req.body.submitterContact?.phone
@@ -405,6 +574,7 @@ export const createResponse = async (req, res) => {
       },
 
       status: 'pending',
+      createdBy: req.user?._id || null,
       isSectionSubmit: !!isSectionSubmit,
       sectionIndex: sectionIndex || null,
       tenantId: form.tenantId,
@@ -417,6 +587,8 @@ export const createResponse = async (req, res) => {
 
     const answersObj = response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers;
 
+    const ranksObj = response.responseRanks instanceof Map ? Object.fromEntries(response.responseRanks) : response.responseRanks;
+
     // Emit real-time event for new response
     emitResponseCreated(questionId, {
       id: response.id,
@@ -426,7 +598,8 @@ export const createResponse = async (req, res) => {
       createdAt: response.createdAt,
       answers: answersObj,
       inviteId: inviteId || null,
-      timeSpent: submissionTimeSpent
+      timeSpent: submissionTimeSpent,
+      responseRanks: ranksObj,
     });
 
     // ========== RETURN RESPONSE WITH TIMING DATA ==========
@@ -438,6 +611,7 @@ export const createResponse = async (req, res) => {
           id: response.id,
           questionId: response.questionId,
           answers: answersObj,
+          responseRanks: ranksObj,
           parentResponseId: response.parentResponseId,
           submittedBy: response.submittedBy,
           submitterContact: response.submitterContact,
@@ -445,6 +619,11 @@ export const createResponse = async (req, res) => {
           createdAt: response.createdAt,
           updatedAt: response.updatedAt,
           inviteId: inviteId || null,
+          imageProcessing: {
+            totalImages: response.imageProcessing?.totalImages || 0,
+            driveBackups: response.imageProcessing?.driveBackups || 0,
+            folderPath: response.imageProcessing?.folderStructure?.fullPath
+          },
           // Timing data
           timeSpent: submissionTimeSpent,
           timeSpentFormatted: formatTimeDuration(submissionTimeSpent),
@@ -483,7 +662,8 @@ export const createResponse = async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
-};
+}
+
 
 function formatTimeDuration(seconds) {
   if (!seconds || seconds < 0) return '0 seconds';
@@ -669,17 +849,30 @@ export const batchImportResponses = async (req, res) => {
             const submissionMetadata = await collectSubmissionMetadata(req, {
               includeLocation: form.locationEnabled !== false,
             });
+            // Helper function to recursively collect all questions
+            const collectAllQuestions = (questions, result = []) => {
+              if (!Array.isArray(questions)) return result;
+
+              questions.forEach(q => {
+                result.push(q);
+                if (Array.isArray(q.followUpQuestions)) {
+                  collectAllQuestions(q.followUpQuestions, result);
+                }
+              });
+
+              return result;
+            };
 
             const allQuestions = [];
             if (form.sections) {
               form.sections.forEach(section => {
                 if (section.questions) {
-                  allQuestions.push(...section.questions);
+                  collectAllQuestions(section.questions, allQuestions);
                 }
               });
             }
             if (form.followUpQuestions) {
-              allQuestions.push(...form.followUpQuestions);
+              collectAllQuestions(form.followUpQuestions, allQuestions);
             }
 
             let correct = 0;
@@ -694,11 +887,36 @@ export const batchImportResponses = async (req, res) => {
                 }
               }
             });
+            // Calculate ranks for specific questions
+            const responseRanks = {};
+            console.log(`[BATCH-RANK] Calculating ranks for ${allQuestions.length} questions`);
+            for (const question of allQuestions) {
+              // Check for trackResponseRank at any level
+              if (question.trackResponseRank) {
+                const answer = processedAnswers[question.id];
+                console.log(`[BATCH-RANK] Question "${question.text}" (ID: ${question.id}) has trackResponseRank=true. Answer:`, answer);
+
+                if (answer !== undefined && answer !== null && answer !== '') {
+                  // Count existing responses with the same answer for this form
+                  const query = {
+                    questionId: actualQuestionId,
+                    [`answers.${question.id}`]: answer,
+                    isSectionSubmit: false
+                  };
+
+                  console.log(`[BATCH-RANK] Querying existing responses with:`, JSON.stringify(query));
+                  const count = await Response.countDocuments(query);
+                  console.log(`[BATCH-RANK] Found ${count} existing responses. New rank: ${count + 1}`);
+                  responseRanks[question.id] = count + 1;
+                }
+              }
+            }
 
             const responseData = {
               id: uuidv4(),
               questionId: actualQuestionId,
               answers: new Map(Object.entries(processedAnswers)),
+              responseRanks: new Map(Object.entries(responseRanks)),
               parentResponseId,
               submittedBy,
               submitterContact,
@@ -713,6 +931,9 @@ export const batchImportResponses = async (req, res) => {
 
             const answersObj = response.answers instanceof Map ?
               Object.fromEntries(response.answers) : response.answers;
+            const ranksObj = response.responseRanks instanceof Map ?
+              Object.fromEntries(response.responseRanks) : response.responseRanks;
+
 
             emitResponseCreated(actualQuestionId, {
               id: response.id,
@@ -720,7 +941,8 @@ export const batchImportResponses = async (req, res) => {
               status: response.status,
               submittedBy: response.submittedBy,
               createdAt: response.createdAt,
-              answers: answersObj
+              answers: answersObj,
+              responseRanks: ranksObj
             });
 
             createdResponses.push({
@@ -801,18 +1023,33 @@ export const batchImportResponses = async (req, res) => {
           const submissionMetadata = await collectSubmissionMetadata(req, {
             includeLocation: form.locationEnabled !== false,
           });
+          // Helper function to recursively collect all questions
+          const collectAllQuestions = (questions, result = []) => {
+            if (!Array.isArray(questions)) return result;
+
+            questions.forEach(q => {
+              result.push(q);
+              if (Array.isArray(q.followUpQuestions)) {
+                collectAllQuestions(q.followUpQuestions, result);
+              }
+            });
+
+            return result;
+          };
+
 
           // Get all questions from form for scoring
           const allQuestions = [];
           if (form.sections) {
             form.sections.forEach(section => {
               if (section.questions) {
-                allQuestions.push(...section.questions);
+                collectAllQuestions(section.questions, allQuestions);
+
               }
             });
           }
           if (form.followUpQuestions) {
-            allQuestions.push(...form.followUpQuestions);
+            collectAllQuestions(form.followUpQuestions, allQuestions);
           }
 
           // Calculate score for yesNoNA questions
@@ -828,11 +1065,38 @@ export const batchImportResponses = async (req, res) => {
             }
           });
 
+          // Calculate ranks for specific questions
+          const responseRanks = {};
+          console.log(`[BATCH-RANK] Calculating ranks for ${allQuestions.length} questions`);
+          for (const question of allQuestions) {
+            // Check for trackResponseRank at any level
+            if (question.trackResponseRank) {
+              const answer = processedAnswers[question.id];
+              console.log(`[BATCH-RANK] Question "${question.text}" (ID: ${question.id}) has trackResponseRank=true. Answer:`, answer);
+
+              if (answer !== undefined && answer !== null && answer !== '') {
+                // Count existing responses with the same answer for this form
+                const query = {
+                  questionId: actualQuestionId,
+                  [`answers.${question.id}`]: answer,
+                  isSectionSubmit: false
+                };
+
+                console.log(`[BATCH-RANK] Querying existing responses with:`, JSON.stringify(query));
+                const count = await Response.countDocuments(query);
+                console.log(`[BATCH-RANK] Found ${count} existing responses. New rank: ${count + 1}`);
+                responseRanks[question.id] = count + 1;
+              }
+            }
+          }
+
           // Create response data
           const responseData = {
             id: uuidv4(),
             questionId: actualQuestionId,
             answers: new Map(Object.entries(processedAnswers)),
+            responseRanks: new Map(Object.entries(responseRanks)),
+
             parentResponseId,
             submittedBy: submittedBy || 'Excel Import',
             submitterContact,
@@ -849,6 +1113,8 @@ export const batchImportResponses = async (req, res) => {
           // Convert Map to Object for emitting
           const answersObj = response.answers instanceof Map ?
             Object.fromEntries(response.answers) : response.answers;
+          const ranksObj = response.responseRanks instanceof Map ?
+            Object.fromEntries(response.responseRanks) : response.responseRanks;
 
           // Emit event if function exists
           if (typeof emitResponseCreated === 'function') {
@@ -858,7 +1124,8 @@ export const batchImportResponses = async (req, res) => {
               status: response.status,
               submittedBy: response.submittedBy,
               createdAt: response.createdAt,
-              answers: answersObj
+              answers: answersObj,
+              responseRanks: ranksObj
             });
           }
 
@@ -908,6 +1175,7 @@ export const batchImportResponses = async (req, res) => {
  * Get current rank for a specific question and answer
  * Used for real-time ranking display during form filling
  */
+
 export const getRank = async (req, res) => {
   try {
     const { formId, questionId, answer } = req.query;
@@ -931,7 +1199,270 @@ export const getRank = async (req, res) => {
     // Find the form to verify it exists and if tracking is enabled
     const formQuery = { id: formId };
     if (tenantId) formQuery.tenantId = tenantId;
-    
+
+    const form = await Form.findOne(formQuery);
+    if (!form) {
+      return res.status(404).json({
+        success: false,
+        message: 'Form not found',
+      });
+    }
+
+    // Find the specific question to check for tracking configuration
+    let trackingQId = questionId;
+    const findQuestion = (questions) => {
+      if (!questions || !Array.isArray(questions)) return null;
+      for (const q of questions) {
+        if (q.id === questionId) return q;
+        if (q.followUpQuestions && q.followUpQuestions.length > 0) {
+          const found = findQuestion(q.followUpQuestions);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    let question = findQuestion(form.followUpQuestions || []);
+    if (!question && form.sections && Array.isArray(form.sections)) {
+      for (const section of form.sections) {
+        question = findQuestion(section.questions || []);
+        if (question) break;
+      }
+    }
+
+    if (
+      question &&
+      (question.trackResponseQuestion === true ||
+        question.trackResponseQuestion === "true")
+    ) {
+      trackingQId = `${questionId}_tracking`;
+    }
+
+    // Count existing final responses with the SAME answer for this form
+    const query = {
+      questionId: formId,
+      isSectionSubmit: { $ne: true },
+    };
+
+    // Try both exact match and numeric match if applicable
+    const orConditions = [
+      { [`answers.${trackingQId}`]: answer }
+    ];
+
+    const numAnswer = Number(answer);
+    if (!isNaN(numAnswer)) {
+      orConditions.push({ [`answers.${trackingQId}`]: numAnswer });
+    }
+
+    query.$or = orConditions;
+
+    if (tenantId) query.tenantId = tenantId;
+
+    const count = await Response.countDocuments(query);
+
+    return res.status(200).json({
+      success: true,
+      data: { rank: count + 1 }
+    });
+
+  } catch (error) {
+    console.error('Get rank error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+
+/**
+ * Get suggested answers based on a single question-answer pair.
+ * This is used to auto-fill or suggest previous answers when a user starts filling a form.
+ */
+export const getSuggestedAnswers = async (req, res) => {
+  const startTime = Date.now();
+  try {
+    const { formId: queryFormId, questionId, answer } = req.query;
+    const { tenantSlug, formId: paramFormId } = req.params;
+
+    const formId = paramFormId || queryFormId;
+
+    console.log(`[SUGGESTIONS] Request - Form: ${formId}, Question: ${questionId}, Answer: "${answer}", Tenant: ${tenantSlug}`);
+
+    if (!formId || !questionId || answer === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'formId, questionId, and answer are required'
+      });
+    }
+
+    let tenantId;
+    if (tenantSlug) {
+      const tenant = await Tenant.findOne({ slug: tenantSlug, isActive: true });
+      if (tenant) {
+        tenantId = tenant._id;
+        console.log(`[SUGGESTIONS] Resolved tenantId: ${tenantId}`);
+      }
+    }
+
+    // Find the form to verify it exists
+    const formQuery = { id: formId };
+    if (tenantId) formQuery.tenantId = tenantId;
+
+    const form = await Form.findOne(formQuery);
+    if (!form) {
+      console.warn(`[SUGGESTIONS] Form not found: ${formId}`);
+      return res.status(404).json({
+        success: false,
+        message: 'Form not found'
+      });
+    }
+
+    // Find a previous response with a match in the answers map
+    // For Mongoose Maps, we use dot notation: answers.questionId
+    const query = {
+      questionId: formId
+    };
+
+    const trackingQuestionId = `${questionId}_tracking`;
+
+    if (typeof answer === 'string') {
+      // Use case-insensitive prefix match for strings
+      const regex = {
+        $regex: `^${answer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+        $options: 'i'
+      };
+
+      query.$or = [
+        { [`answers.${questionId}`]: regex },
+        { [`answers.${trackingQuestionId}`]: regex },
+        { [`answers._${questionId}`]: regex },
+        { [`answers._${trackingQuestionId}`]: regex }
+      ];
+
+      // If the answer is numeric, also try exact number match
+      const numAnswer = Number(answer);
+      if (!isNaN(numAnswer)) {
+        query.$or.push({ [`answers.${questionId}`]: numAnswer });
+        query.$or.push({ [`answers.${trackingQuestionId}`]: numAnswer });
+        query.$or.push({ [`answers._${questionId}`]: numAnswer });
+        query.$or.push({ [`answers._${trackingQuestionId}`]: numAnswer });
+      }
+    } else {
+      query.$or = [
+        { [`answers.${questionId}`]: answer },
+        { [`answers.${trackingQuestionId}`]: answer },
+        { [`answers._${questionId}`]: answer },
+        { [`answers._${trackingQuestionId}`]: answer }
+      ];
+    }
+
+    // Only filter by tenantId if the form is NOT global or if we have a specific tenantSlug
+    if (tenantId) {
+      const isValid = mongoose.Types.ObjectId.isValid(tenantId);
+      const oid = isValid ? new mongoose.Types.ObjectId(String(tenantId)) : null;
+      query.tenantId = oid ? { $in: [tenantId, oid] } : tenantId;
+      console.log(`[SUGGESTIONS] Using specific tenantId filter: ${tenantId}`);
+    } else if (form.tenantId && !form.isGlobal) {
+      const isValid = mongoose.Types.ObjectId.isValid(form.tenantId);
+      const oid = isValid ? new mongoose.Types.ObjectId(String(form.tenantId)) : null;
+      query.tenantId = oid ? { $in: [form.tenantId, oid] } : form.tenantId;
+      console.log(`[SUGGESTIONS] Falling back to form owner tenantId filter: ${form.tenantId}`);
+    } else {
+      console.log(`[SUGGESTIONS] No tenantId filter applied (Global form or no slug)`);
+    }
+
+    console.log(`[SUGGESTIONS] DB Query: ${JSON.stringify(query)}`);
+
+    const queryStartTime = Date.now();
+    // Fetch top 5 matching responses to find the one with the most data
+    const matchingResponses = await Response.find(query)
+      .sort({ isSectionSubmit: 1, createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    const queryDuration = Date.now() - queryStartTime;
+
+    console.log(`[SUGGESTIONS] DB Query took ${queryDuration}ms. Found ${matchingResponses.length} matches.`);
+
+    if (matchingResponses.length === 0) {
+      // Log why it might have failed
+      const anyRespCount = await Response.countDocuments({ questionId: formId });
+      console.log(`[SUGGESTIONS] No match for "${answer}". Total responses for form ${formId}: ${anyRespCount}`);
+
+      return res.status(200).json({
+        success: true,
+        data: { suggestedAnswers: null }
+      });
+    }
+
+    // Sort matching responses: priority to non-partial, then by creation date (oldest first for ranking #1, #2, etc)
+    const sortedResponses = matchingResponses.sort((a, b) => {
+      if (a.isSectionSubmit !== b.isSectionSubmit) {
+        return a.isSectionSubmit ? 1 : -1;
+      }
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+
+    console.log(`[SUGGESTIONS] Found ${sortedResponses.length} matches.`);
+
+    const suggestions = sortedResponses.map((resp, index) => {
+      let answersObj = resp.answers || {};
+      if (answersObj instanceof Map) {
+        answersObj = Object.fromEntries(answersObj);
+      }
+      return {
+        rank: index + 1,
+        answers: answersObj,
+        timestamp: resp.createdAt,
+        id: resp.id || resp._id
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: { suggestedAnswers: suggestions }
+    });
+
+  } catch (error) {
+    console.error('[SUGGESTIONS] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch suggested answers'
+    });
+  }
+};
+
+/**
+ * Get all previous unique answers for a specific question
+ * Used to show suggestions to users as they fill the form
+ */
+export const getQuestionPreviousAnswers = async (req, res) => {
+  try {
+    const { formId: queryFormId, questionId } = req.query;
+    const { tenantSlug, formId: paramFormId } = req.params;
+
+    const formId = paramFormId || queryFormId;
+
+    if (!formId || !questionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'formId and questionId are required'
+      });
+    }
+
+    let tenantId;
+    if (tenantSlug) {
+      const tenant = await Tenant.findOne({ slug: tenantSlug, isActive: true });
+      if (tenant) {
+        tenantId = tenant._id;
+      }
+    }
+
+    // Find the form to verify it exists
+    const formQuery = { id: formId };
+    if (tenantId) formQuery.tenantId = tenantId;
+
     const form = await Form.findOne(formQuery);
     if (!form) {
       return res.status(404).json({
@@ -940,27 +1471,78 @@ export const getRank = async (req, res) => {
       });
     }
 
-    // Count existing final responses with the SAME answer for this form
+    // Use aggregation to find unique answers for this question
+    // Check both normal ID and tracking suffixed ID
+    const trackingQuestionId = `${questionId}_tracking`;
     const query = {
       questionId: formId,
-      [`answers.${questionId}`]: answer,
-      isSectionSubmit: { $ne: true }
+      $or: [
+        { [`answers.${questionId}`]: { $exists: true, $ne: null, $ne: "" } },
+        { [`answers.${trackingQuestionId}`]: { $exists: true, $ne: null, $ne: "" } },
+        { [`answers._${questionId}`]: { $exists: true, $ne: null, $ne: "" } },
+        { [`answers._${trackingQuestionId}`]: { $exists: true, $ne: null, $ne: "" } }
+      ]
     };
-    
-    if (tenantId) query.tenantId = tenantId;
 
-    const count = await Response.countDocuments(query);
-    
+    // If we have tenantId, filter by it for better accuracy/security
+    if (tenantId) {
+      query.tenantId = mongoose.Types.ObjectId.isValid(tenantId) ? new mongoose.Types.ObjectId(tenantId) : tenantId;
+    } else if (form.isGlobal) {
+      // For global forms without a specific tenant context, we don't filter by tenantId
+      // This allows suggestions across different tenants for global forms
+      console.log(`[SUGGESTIONS] Global form detected, skipping tenantId filter`);
+    } else if (form.tenantId) {
+      // Fallback to form's tenantId if slug wasn't provided but form belongs to a tenant
+      query.tenantId = mongoose.Types.ObjectId.isValid(form.tenantId) ? new mongoose.Types.ObjectId(form.tenantId) : form.tenantId;
+    }
+
+    console.log(`[SUGGESTIONS] Querying previous answers for Form: ${formId}, Question: ${questionId}, Tenant: ${query.tenantId || 'N/A'}`);
+
+    // Use aggregate for more reliable querying of Map fields and unique values
+    // In MongoDB aggregation, fields within a Mongoose Map are accessed like normal nested fields: answers.key
+    const pipeline = [
+      { $match: query },
+      {
+        $project: {
+          vals: [
+            `$answers.${questionId}`,
+            `$answers.${trackingQuestionId}`,
+            `$answers._${questionId}`,
+            `$answers._${trackingQuestionId}`
+          ]
+        }
+      },
+      { $unwind: "$vals" },
+      { $match: { vals: { $ne: null, $ne: "" } } },
+      {
+        $group: {
+          _id: "$vals"
+        }
+      },
+      { $limit: 15 }
+    ];
+
+    console.log(`[SUGGESTIONS] Pipeline:`, JSON.stringify(pipeline, null, 2));
+
+    const results = await Response.aggregate(pipeline);
+    console.log(`[SUGGESTIONS] Found ${results.length} unique raw results`);
+
+    const previousAnswers = results.map(r => r._id);
+    console.log(`[SUGGESTIONS] Final answers list:`, previousAnswers);
+
+    // Limit to top 10 unique answers to avoid overwhelming the UI
+    const limitedAnswers = previousAnswers.slice(0, 10);
+
     return res.status(200).json({
       success: true,
-      rank: count + 1
+      data: { answers: limitedAnswers }
     });
 
   } catch (error) {
-    console.error('Get rank error:', error);
+    console.error('Get question previous answers error:', error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: 'Failed to fetch previous answers'
     });
   }
 };
@@ -1080,16 +1662,16 @@ export const getRank = async (req, res) => {
 export const processBulkImages = async (req, res) => {
   try {
     const { answers, batchId = `bulk-${Date.now()}` } = req.body;
-    
+
     if (!answers || typeof answers !== 'object') {
       return res.status(400).json({
         success: false,
         message: 'Invalid request: answers object required'
       });
     }
-    
+
     console.log(`[BULK PROCESS] Starting bulk image processing for batch ${batchId}`);
-    
+
     // Initialize WebSocket progress
     emitImageProgress(batchId, {
       status: 'starting',
@@ -1097,7 +1679,7 @@ export const processBulkImages = async (req, res) => {
       currentImage: 0,
       totalImages: 0
     });
-    
+
     // Process images with progress tracking
     const onProgress = (progress) => {
       emitImageProgress(batchId, {
@@ -1108,20 +1690,20 @@ export const processBulkImages = async (req, res) => {
         percentage: progress.percentage
       });
     };
-    
-const metadata = {
-  tenantId: req.body.tenantId || null,
-  formId: req.body.formId || null,
-  submissionId: batchId,
-  submissionTimestamp: Date.now()
-};
 
-const processedResult = await processResponseImages(
-  answers, 
-  metadata,  // ADD THIS
-  onProgress, 
-  batchId
-);    
+    const metadata = {
+      tenantId: req.body.tenantId || null,
+      formId: req.body.formId || null,
+      submissionId: batchId,
+      submissionTimestamp: Date.now()
+    };
+
+    const processedResult = await processResponseImages(
+      answers,
+      metadata,  // ADD THIS
+      onProgress,
+      batchId
+    );
     // Final success message
     emitImageProgress(batchId, {
       status: 'complete',
@@ -1130,23 +1712,23 @@ const processedResult = await processResponseImages(
       totalImages: 100,
       percentage: 100
     });
-    
+
     res.json({
       success: true,
       message: 'Bulk image processing completed',
       batchId,
       processedAnswers
     });
-    
+
   } catch (error) {
     console.error('Bulk image processing error:', error);
-    
+
     emitImageProgress(batchId, {
       status: 'error',
       message: `Processing failed: ${error.message}`,
       error: error.message
     });
-    
+
     res.status(500).json({
       success: false,
       message: 'Bulk image processing failed',
@@ -1157,18 +1739,18 @@ const processedResult = await processResponseImages(
 
 export const getAllResponses = async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 10, 
-      questionId, 
-      status, 
-      assignedTo, 
+    const {
+      page = 1,
+      limit = 10,
+      questionId,
+      status,
+      assignedTo,
       search,
       startDate,
       endDate,
       includePartial = 'false'
     } = req.query;
-    
+
     const query = { ...req.tenantFilter };
 
     // Filter out partial submissions unless explicitly requested
@@ -1180,24 +1762,24 @@ export const getAllResponses = async (req, res) => {
     if (questionId) {
       query.questionId = questionId;
     }
-    
+
     // Filter by status
     if (status && status !== 'all') {
       query.status = status;
     }
-    
+
     // Filter by assigned user
     if (assignedTo) {
       query.assignedTo = assignedTo;
     }
-    
+
     // Date range filter
     if (startDate || endDate) {
       query.createdAt = {};
       if (startDate) query.createdAt.$gte = new Date(startDate);
       if (endDate) query.createdAt.$lte = new Date(endDate);
     }
-    
+
     // Search in answers or notes
     if (search) {
       query.$or = [
@@ -1485,16 +2067,20 @@ export const getResponsesByForm = async (req, res) => {
 
     // Verify form exists
     let formSearchQuery = { id: formId };
-    
+
+    // If not superadmin, check if form belongs to or is shared with this tenant
     // If not superadmin, check if form belongs to or is shared with this tenant
     if (req.user.role !== 'superadmin' && req.user.tenantId) {
-      const tenantId = req.user.tenantId instanceof mongoose.Types.ObjectId 
-        ? req.user.tenantId 
+      const tenantId = req.user.tenantId instanceof mongoose.Types.ObjectId
+        ? req.user.tenantId
         : new mongoose.Types.ObjectId(req.user.tenantId);
-        
+
+      const tenantIdStr = tenantId.toString();
+
       formSearchQuery.$or = [
         { tenantId: tenantId },
-        { sharedWithTenants: tenantId }
+        { sharedWithTenants: tenantId },
+        { "chassisTenantAssignments.assignedTenants": tenantIdStr }
       ];
     }
 
@@ -1506,15 +2092,52 @@ export const getResponsesByForm = async (req, res) => {
       });
     }
 
-    const query = { questionId: formId, ...req.tenantFilter };
-    
-    // Filter out partial submissions unless explicitly requested
+    // Determine access level
+    const userIdStr = req.user._id.toString();
+    const userTenantIdStr = req.user.tenantId?.toString();
+    const isSuperAdmin = req.user.role === 'superadmin';
+    const isOwner = form.tenantId && form.tenantId.toString() === userTenantIdStr;
+    const isShared = form.sharedWithTenants && form.sharedWithTenants.some(t => t.toString() === userTenantIdStr);
+    const hasChassisShare = Array.isArray(form.chassisTenantAssignments) && form.chassisTenantAssignments.some(
+      a => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr)
+    );
+
+    // Build response query
+    const query = { questionId: formId };
+
+    // Add status filter if provided
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+
+    // Add partial submission filter
     if (includePartial !== 'true') {
       query.isSectionSubmit = { $ne: true };
     }
 
-    if (status && status !== 'all') {
-      query.status = status;
+    // Apply tenant filtering
+    // Inspector sees only their own responses - no tenant filter
+    console.log('[GET RESPONSES] Inspector check - role:', req.user.role, 'userId:', req.user._id, 'tenantId:', req.user.tenantId, 'email:', req.user.email);
+    if (req.user.role === 'inspector') {
+  // Inspector sees ONLY their own responses
+  const userEmail = req.user.email || '';
+  const userUsername = req.user.username || '';
+  const userId = req.user._id;
+  
+  // ✅ CORRECTED: Remove the "createdBy: null" condition
+  query.$or = [
+    { createdBy: userId },
+    { submittedBy: userEmail },
+    { submittedBy: userUsername },
+    { "submitterContact.email": userEmail }
+  ];
+  
+  console.log('[INSPECTOR] Filtering responses for user:', userId, userEmail);
+  console.log('[INSPECTOR] Query $or:', JSON.stringify(query.$or));
+} else if (isOwner || isSuperAdmin) {
+      Object.assign(query, req.tenantFilter);
+    } else if (!isShared && !hasChassisShare) {
+      Object.assign(query, req.tenantFilter);
     }
 
     const options = {
@@ -1523,25 +2146,80 @@ export const getResponsesByForm = async (req, res) => {
       sort: { createdAt: -1 }
     };
 
-    const responses = await Response.find(query)
+    let responses = await Response.find(query)
       .populate('assignedTo', 'username firstName lastName email')
       .populate('verifiedBy', 'username firstName lastName email')
+      .populate('createdBy', 'username firstName lastName email')
       .sort(options.sort)
       .limit(options.limit * 1)
       .skip((options.page - 1) * options.limit);
 
+    console.log('[GET RESPONSES] Query:', JSON.stringify(query));
+    console.log('[GET RESPONSES] Responses found:', responses.length);
+    if (responses.length > 0) {
+      console.log('[GET RESPONSES] First response createdBy:', responses[0].createdBy);
+      console.log('[GET RESPONSES] First response submittedBy:', responses[0].submittedBy);
+    }
+
+    // Apply granular chassis filtering for chassis-shared users
+    if (!isSuperAdmin && !isOwner && hasChassisShare && !isShared) {
+      const myAssignedChassis = (form.chassisTenantAssignments || [])
+        .filter(a => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr))
+        .map(a => a.chassisNumber)
+        .filter(Boolean);
+
+      if (myAssignedChassis.length > 0) {
+        // Find the question ID that has type 'chassisNumber'
+        const chassisQuestion = form.sections?.flatMap(s => s.questions || []).find(q => q.type === 'chassisNumber')
+          || form.followUpQuestions?.find(q => q.type === 'chassisNumber');
+        const chassisFieldId = chassisQuestion?.id || 'chassis_number';
+
+        responses = responses.filter(r => {
+          const rAnswers = r.answers instanceof Map ? Object.fromEntries(r.answers) : (r.answers || {});
+          return myAssignedChassis.includes(rAnswers[chassisFieldId] || rAnswers['chassis_number']);
+        });
+      } else {
+        responses = [];
+      }
+    }
+
     const total = await Response.countDocuments(query);
 
     // Convert Map to Object for JSON serialization
-    const formattedResponses = responses.map(response => {
-      const responseObj = response.toObject();
-      return {
-        ...responseObj,
-        answers: response.answers ? Object.fromEntries(response.answers) : {},
-        responseRanks: response.responseRanks ? Object.fromEntries(response.responseRanks) : {},
-        submissionMetadata: responseObj.submissionMetadata || null
-      };
-    });
+  // Convert Map to Object for JSON serialization
+const formattedResponses = responses.map(response => {
+  const responseObj = response.toObject();
+  
+  // Determine the best display name for submittedBy
+  let displaySubmittedBy = response.submittedBy;
+  
+  // If submittedBy is "Anonymous" or missing, try to get from createdBy
+  if (!displaySubmittedBy || displaySubmittedBy === 'Anonymous') {
+    if (response.createdBy) {
+      if (typeof response.createdBy === 'object') {
+        const firstName = response.createdBy.firstName || '';
+        const lastName = response.createdBy.lastName || '';
+        const fullName = `${firstName} ${lastName}`.trim();
+        displaySubmittedBy = fullName || response.createdBy.email || response.createdBy.username;
+      } else if (typeof response.createdBy === 'string') {
+        displaySubmittedBy = response.createdBy;
+      }
+    }
+  }
+  
+  // If still empty, use email from submitterContact
+  if (!displaySubmittedBy || displaySubmittedBy === 'Anonymous') {
+    displaySubmittedBy = response.submitterContact?.email || 'Anonymous';
+  }
+  
+  return {
+    ...responseObj,
+    answers: response.answers ? Object.fromEntries(response.answers) : {},
+    responseRanks: response.responseRanks ? Object.fromEntries(response.responseRanks) : {},
+    submissionMetadata: responseObj.submissionMetadata || null,
+    submittedBy: displaySubmittedBy // Override with better display name
+  };
+});
 
     res.json({
       success: true,
@@ -1577,16 +2255,20 @@ export const exportResponses = async (req, res) => {
 
     // Verify form exists
     let formSearchQuery = { id: formId };
-    
+
+    // If not superadmin, check if form belongs to or is shared with this tenant
     // If not superadmin, check if form belongs to or is shared with this tenant
     if (req.user.role !== 'superadmin' && req.user.tenantId) {
-      const tenantId = req.user.tenantId instanceof mongoose.Types.ObjectId 
-        ? req.user.tenantId 
+      const tenantId = req.user.tenantId instanceof mongoose.Types.ObjectId
+        ? req.user.tenantId
         : new mongoose.Types.ObjectId(req.user.tenantId);
-        
+
+      const tenantIdStr = tenantId.toString();
+
       formSearchQuery.$or = [
         { tenantId: tenantId },
-        { sharedWithTenants: tenantId }
+        { sharedWithTenants: tenantId },
+        { "chassisTenantAssignments.assignedTenants": tenantIdStr }
       ];
     }
 
@@ -1598,7 +2280,23 @@ export const exportResponses = async (req, res) => {
       });
     }
 
-    const query = { questionId: formId, ...req.tenantFilter };
+    // Determine access level
+    const userTenantIdStr = req.user.tenantId?.toString();
+    const isSuperAdmin = req.user.role === 'superadmin';
+    const isOwner = form.tenantId && form.tenantId.toString() === userTenantIdStr;
+    const isShared = form.sharedWithTenants && form.sharedWithTenants.some(t => t.toString() === userTenantIdStr);
+    const hasChassisShare = Array.isArray(form.chassisTenantAssignments) && form.chassisTenantAssignments.some(
+      a => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr)
+    );
+
+    const query = { questionId: formId };
+
+    // Apply tenant filtering
+    if (isOwner || isSuperAdmin) {
+      Object.assign(query, req.tenantFilter);
+    } else if (!isShared && !hasChassisShare) {
+      Object.assign(query, req.tenantFilter);
+    }
 
     // Filter out partial submissions unless explicitly requested
     if (includePartial !== 'true') {
@@ -1609,10 +2307,32 @@ export const exportResponses = async (req, res) => {
       query.status = status;
     }
 
-    const responses = await Response.find(query)
+    let responses = await Response.find(query)
       .populate('assignedTo', 'username firstName lastName email')
       .populate('verifiedBy', 'username firstName lastName email')
       .sort({ createdAt: -1 });
+
+    // Apply granular chassis filtering for chassis-shared users
+    if (!isSuperAdmin && !isOwner && hasChassisShare && !isShared) {
+      const myAssignedChassis = (form.chassisTenantAssignments || [])
+        .filter(a => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr))
+        .map(a => a.chassisNumber)
+        .filter(Boolean);
+
+      if (myAssignedChassis.length > 0) {
+        // Find the question ID that has type 'chassisNumber'
+        const chassisQuestion = form.sections?.flatMap(s => s.questions || []).find(q => q.type === 'chassisNumber')
+          || form.followUpQuestions?.find(q => q.type === 'chassisNumber');
+        const chassisFieldId = chassisQuestion?.id || 'chassis_number';
+
+        responses = responses.filter(r => {
+          const rAnswers = r.answers instanceof Map ? Object.fromEntries(r.answers) : (r.answers || {});
+          return myAssignedChassis.includes(rAnswers[chassisFieldId] || rAnswers['chassis_number']);
+        });
+      } else {
+        responses = [];
+      }
+    }
 
     // Convert Map to Object for JSON serialization
     const formattedResponses = responses.map(response => ({
@@ -1741,7 +2461,7 @@ export const autoAssignResponse = async (req, res) => {
     // Get all active admins/subadmins for this tenant
     const admins = await User.find({
       tenantId,
-      role: { $in: ['admin', 'subadmin'] },
+      role: { $in: ['admin', 'subadmin', 'inspector'] },
       isActive: true
     }).select('_id').lean();
 

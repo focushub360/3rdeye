@@ -80,25 +80,33 @@ const FormCard = ({ id, title, description, responseCount = 0, published = true,
 );
 
 const FormListScreen = ({ navigation }: any) => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [forms, setForms] = useState<any[]>([]);
+  const [networkError, setNetworkError] = useState(false);
 
   const fetchForms = async () => {
+    setNetworkError(false);
     try {
       const response = await apiClient.get('/forms');
       if (response.data.success) {
-        setForms(response.data.data.forms);
+        // Safely handle different API response shapes
+        const formsData = response.data.data?.forms 
+          || response.data.data 
+          || response.data.forms 
+          || [];
+        setForms(Array.isArray(formsData) ? formsData : []);
       }
-    } catch (error) {
-      console.log('Using mock forms for showcase');
-      setForms([
-        { _id: '1', title: 'Laxmi Full Inspection (Standard)', description: 'Industry-standard 3-wheeler inspection form with full sections and branching logic.', sectionsCount: 3, published: true, responseCount: 12 },
-        { _id: '2', title: 'Laxmi Driver Log', description: 'Daily log for vehicle operator to track trips and vehicle health.', sectionsCount: 1, published: true, responseCount: 45 },
-        { _id: '3', title: 'Laxmi Vehicle Inspection', description: 'Periodic safety check for 3-wheelers to maintain operational efficiency.', sectionsCount: 2, published: true, responseCount: 142 },
-        { _id: '4', title: 'Laxmi Metals Service Form', description: 'Priority Service Request for Laxmi Metals vehicles for urgent maintenance.', sectionsCount: 1, published: true, responseCount: 8 }
-      ]);
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        console.log('Session expired, logging out...');
+        logout();
+        return;
+      }
+      console.error('Fetch Forms Error: ' + (error.message || 'Unknown Error'));
+      setNetworkError(true);
+      // Keep existing forms if already loaded; don't wipe them out
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -197,8 +205,8 @@ const FormListScreen = ({ navigation }: any) => {
         <View style={styles.formGrid}>
           {forms.map((form: any) => (
             <FormCard 
-              key={form._id}
-              id={form._id}
+              key={form._id || form.id}
+              id={form.id || form._id}
               title={form.title}
               description={form.description}
               published={form.published}
@@ -209,7 +217,23 @@ const FormListScreen = ({ navigation }: any) => {
           ))}
         </View>
 
-        {forms.length === 0 && (
+        {networkError && forms.length === 0 && (
+          <View style={styles.emptyState}>
+            <Text style={{ fontSize: 40, marginBottom: 12 }}>📡</Text>
+            <Text style={[styles.emptyText, { color: '#ef4444', fontWeight: '700' }]}>Cannot reach server</Text>
+            <Text style={[styles.emptyText, { fontSize: 13, marginTop: 6 }]}>
+              Ensure your phone is on the same Wi-Fi as your PC{`\n`}Server: 192.168.31.125:5001
+            </Text>
+            <TouchableOpacity
+              style={{ marginTop: 16, backgroundColor: '#1e3a8a', paddingVertical: 10, paddingHorizontal: 24, borderRadius: 10 }}
+              onPress={() => { setLoading(true); fetchForms(); }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {!networkError && forms.length === 0 && (
           <View style={styles.emptyState}>
             <FileText size={48} color="#cbd5e1" />
             <Text style={styles.emptyText}>No forms available for your current role priority.</Text>

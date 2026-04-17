@@ -127,9 +127,9 @@ const initializeSystem = async () => {
       console.log('  ✅ Default tenant already exists');
     } else {
       defaultTenant = new Tenant({
-        name: 'Default Business',
+        name: '3W Wheeler TVS',
         slug: 'default',
-        companyName: 'Little Flower School',
+        companyName: '3W Wheeler TVS',
         adminId: superadminUser._id,
         isActive: true,
         settings: {
@@ -195,17 +195,17 @@ const initializeSystem = async () => {
       console.log('  ✅ Teacher user already exists');
     } else {
       const teacherUser = new User({
-        username: 'teacher1',
+        username: 'linemanager1',
         email: teacherEmail,
         password: 'teacher123',
         firstName: 'John',
         lastName: 'Doe',
-        role: 'teacher',
+        role: 'inspector',
         tenantId: defaultTenant._id,
         isActive: true,
         mobile: '+1234567892',
-        department: 'Academic',
-        position: 'Mathematics Teacher',
+        department: 'Operations',
+        position: 'Line Manager',
         createdBy: adminUser._id
       });
 
@@ -217,13 +217,13 @@ const initializeSystem = async () => {
 
     console.log('\n🎉 System initialization completed successfully!');
     console.log('\n📋 Summary:');
-    console.log('• Default roles created: Administrator, Teacher, Editor, Viewer');
-    console.log('• Default tenant: default (Little Flower School)');
+    console.log('• Default roles created: Administrator, Inspector, Editor, Viewer');
+    console.log('• Default tenant: 3W Wheeler TVS (slug: default)');
     console.log('• Superadmin user: superadmin@focus.com / superadmin123#');
-    console.log('• Admin user: admin@focus.com / admin123#');
-    console.log('• Sample teacher: teacher@focus.com / teacher123');
+    console.log('• Admin user:      admin@focus.com / admin123#');
+    console.log('• Line Manager:    teacher@focus.com / teacher123');
     console.log('\n🚀 You can now start the server and begin using the system!');
-    console.log('🌐 Customer portal: http://localhost:5174/default/forms/:formId');
+    console.log('🌐 Web Dashboard:  http://localhost:5173');
 
   } catch (error) {
     console.error('❌ Initialization failed:', error);

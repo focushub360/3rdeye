@@ -1,4 +1,5 @@
 import axios from 'axios';
+import * as SecureStore from 'expo-secure-store';
 
 // IMPORTANT: Replace this with your computer's local IP address
 // You can find it by running 'ipconfig' on Windows
@@ -11,5 +12,23 @@ const apiClient = axios.create({
   },
   timeout: 10000,
 });
+
+// Add a request interceptor to automatically attach the auth token
+apiClient.interceptors.request.use(
+  async (config) => {
+    try {
+      const token = await SecureStore.getItemAsync('user_token');
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    } catch (error) {
+      console.error('Interceptor token retrieval error:', error);
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
 
 export default apiClient;

@@ -1,33 +1,36 @@
 import mongoose from 'mongoose';
 
 const otpSchema = new mongoose.Schema({
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  code: {
-    type: String,
-    required: true
-  },
-  purpose: {
-    type: String,
-    enum: ['attendance', 'password_reset', 'login'],
-    default: 'attendance'
-  },
-  expiresAt: {
-    type: Date,
-    required: true,
-    index: { expires: 0 } // Document will be deleted at this time
-  },
-  isUsed: {
-    type: Boolean,
-    default: false
-  }
+    mobile: {
+        type: String,
+        required: true,
+        index: true
+    },
+    otp: {
+        type: String,
+        required: true
+    },
+    expiresAt: {
+        type: Date,
+        required: true,
+        index: { expires: '5m' } // TTL index: documents expire 5 minutes after expiresAt
+    },
+    isVerified: {
+        type: Boolean,
+        default: false
+    }
 }, {
-  timestamps: true
+    timestamps: true
 });
 
-const OTP = mongoose.model('OTP', otpSchema);
+// Ensure expiresAt is set correctly if not provided
+otpSchema.pre('save', function(next) {
+    if (!this.expiresAt) {
+        this.expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes from now
+    }
+    next();
+});
 
-export default OTP;
+const Otp = mongoose.model('Otp', otpSchema);
+
+export default Otp;

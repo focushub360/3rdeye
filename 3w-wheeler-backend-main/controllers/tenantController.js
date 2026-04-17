@@ -7,6 +7,7 @@ import Parameter from '../models/Parameter.js';
 import Profile from '../models/Profile.js';
 import Settings from '../models/Settings.js';
 import bcrypt from 'bcryptjs';
+import mongoose from 'mongoose';
 
 // Create a new tenant (SuperAdmin only)
 export const createTenant = async (req, res) => {
@@ -19,6 +20,7 @@ export const createTenant = async (req, res) => {
       adminPassword,
       adminFirstName,
       adminLastName,
+      adminMobile,
       settings,
       subscription
     } = req.body;
@@ -56,6 +58,7 @@ export const createTenant = async (req, res) => {
       password: adminPassword,
       firstName: adminFirstName,
       lastName: adminLastName,
+      mobile: adminMobile,
       role: 'admin',
       isActive: true,
       createdBy: req.user._id
@@ -154,7 +157,7 @@ export const getAllTenants = async (req, res) => {
       tenants.map(async (tenant) => {
         const allAdmins = await User.find({
           tenantId: tenant._id,
-          role: { $in: ['admin', 'subadmin'] }
+          role: { $in: ['admin', 'subadmin', 'inspector'] }
         }).select('_id firstName lastName email isActive lastLogin role createdAt').lean();
         
         return {
@@ -186,7 +189,28 @@ export const getAllTenants = async (req, res) => {
   }
 };
 
-// Get tenant by slug
+// Get minimal list of tenants for sharing/linking (any authenticated user)
+export const getTenantsMinimal = async (req, res) => {
+  try {
+    const tenants = await Tenant.find({ isActive: true })
+      .select('_id name companyName')
+      .sort({ companyName: 1 })
+      .lean();
+
+    res.json({
+      success: true,
+      data: { tenants }
+    });
+  } catch (error) {
+    console.error('Get minimal tenants error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+// Update tenant
 export const getTenantBySlug = async (req, res) => {
   try {
     const { slug } = req.params;
@@ -274,7 +298,7 @@ export const toggleTenantStatus = async (req, res) => {
 
     // Update ALL admin/subadmin users status for this tenant
     await User.updateMany(
-      { tenantId: tenant._id, role: { $in: ['admin', 'subadmin'] } },
+      { tenantId: tenant._id, role: { $in: ['admin', 'subadmin', 'inspector'] } },
       { isActive: tenant.isActive }
     );
 
@@ -383,7 +407,7 @@ export const getTenantStats = async (req, res) => {
 export const addAdminToTenant = async (req, res) => {
   try {
     const { tenantId } = req.params;
-    const { email, password, firstName, lastName } = req.body;
+    const { email, password, firstName, lastName, mobile } = req.body;
     const requestingUser = req.user;
 
     console.log("📥 Adding admin to tenant:", { tenantId, email, firstName, lastName });
@@ -417,6 +441,7 @@ export const addAdminToTenant = async (req, res) => {
       password: password,
       firstName: firstName,
       lastName: lastName,
+      mobile: mobile,
       role: "admin",
       tenantId: tenantId,
       isActive: true,
@@ -525,7 +550,7 @@ export const removeAdminFromTenant = async (req, res) => {
     // Check if this is the last admin/subadmin
     const adminCount = await User.countDocuments({ 
       tenantId: tenantId, 
-      role: { $in: ['admin', 'subadmin'] },
+      role: { $in: ['admin', 'subadmin', 'inspector'] },
       isActive: true
     });
 

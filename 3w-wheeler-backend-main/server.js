@@ -32,7 +32,8 @@ import formInviteRoutes from './routes/formInviteRoutes.js';
 import uploadRoutes from './routes/upload.js';
 import activityRoutes from './routes/activityRoutes.js';
 import attendanceRoutes from './routes/attendanceRoutes.js';
-import chatRoutes from './routes/chatRoutes.js';
+import otpRoutes from './routes/otpRoutes.js';
+import hrRoutes from './routes/hrRoutes.js';
 
 // Connect to database
 await connectDB();
@@ -62,6 +63,10 @@ const developmentOrigins = [
   "http://localhost:5174", // Vite alternate port
   "http://127.0.0.1:5174",
   "http://localhost:8080", // Some dev servers
+  // LAN access from mobile WebView
+  "http://192.168.31.125:5173",
+  "http://192.168.31.125:5174",
+  "http://192.168.31.125:3000",
 ];
 
 // Combine production and development origins
@@ -129,7 +134,8 @@ app.use('/api/pdf', pdfRoutes);
 app.use('/api/forms', formInviteRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/attendance', attendanceRoutes);
-app.use('/api/chat', chatRoutes);
+app.use('/api/hr', hrRoutes);
+app.use('/api/otp', otpRoutes);
 
 
 process.on('SIGTERM', async () => {

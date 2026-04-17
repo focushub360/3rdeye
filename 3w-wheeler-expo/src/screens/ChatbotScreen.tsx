@@ -241,11 +241,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+    paddingTop: Platform.OS === 'android' ? 40 : 0,
   },
   header: {
     padding: 24,
     paddingBottom: 16,
-    paddingTop: Platform.OS === 'android' ? 45 : 20,
   },
   title: {
     fontSize: 24,

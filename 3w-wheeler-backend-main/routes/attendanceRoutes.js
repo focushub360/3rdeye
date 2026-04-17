@@ -6,9 +6,7 @@ import {
     getMyAttendance,
     exportAttendance,
     getAttendanceUsers,
-    updateLoginLocation,
-    sendAttendanceOTP,
-    verifyAttendanceOTP
+    updateLoginLocation
 } from '../controllers/attendanceController.js';
 import { authenticate } from '../middleware/auth.js';
 
@@ -46,16 +44,6 @@ router.get('/export', exportAttendance);
 // @desc    Update last active time (heartbeat)
 // @access  Private
 router.post('/heartbeat', updateLastActive);
-
-// @route   POST /api/attendance/send-otp
-// @desc    Send OTP for attendance verification
-// @access  Private
-router.post('/send-otp', sendAttendanceOTP);
-
-// @route   POST /api/attendance/verify-otp
-// @desc    Verify OTP and log attendance
-// @access  Private
-router.post('/verify-otp', verifyAttendanceOTP);
 
 // @route   PUT /api/attendance/login-location
 // @desc    Update login location info
