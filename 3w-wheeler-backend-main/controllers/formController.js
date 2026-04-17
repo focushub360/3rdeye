@@ -503,11 +503,20 @@ export const getAllForms = async (req, res) => {
       ]
     };
 
-    const forms = await Form.find(query)
-      .populate(options.populate)
+    // Optimization: Only select necessary fields for list view unless details requested
+    const { includeDetails = 'false' } = req.query;
+    let formsQuery = Form.find(query);
+
+    if (includeDetails !== 'true') {
+      formsQuery = formsQuery.select('id title description createdAt updatedAt isVisible isActive isGlobal category responseCount responseStats tenantId createdBy');
+    }
+
+    const forms = await formsQuery
       .sort(options.sort)
+      .skip((options.page - 1) * options.limit)
       .limit(options.limit * 1)
-      .skip((options.page - 1) * options.limit);
+      .populate(options.populate)
+      .lean();
 
     const total = await Form.countDocuments(query);
 
@@ -574,11 +583,10 @@ export const getAllForms = async (req, res) => {
     }
 
     const formsWithCounts = forms.map((form) => {
-      const plain = form.toObject({ virtuals: true });
       const lookupId = form.id || (form._id ? form._id.toString() : "");
       const responseCount = responseCountsMap.get(lookupId) || 0;
       return {
-        ...plain,
+        ...form,
         responseCount
       };
     });

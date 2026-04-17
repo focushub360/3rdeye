@@ -77,7 +77,7 @@ const FormCard = ({ id, title, description, responses = 0, onView, onAnalytics }
       </TouchableOpacity>
       <TouchableOpacity style={styles.analyticsBtnStyle} onPress={() => onAnalytics && onAnalytics(id, title)}>
         <BarChart2 size={12} color="#1e3a8a" />
-        <Text style={styles.analyticsBtnTextStyle}>Stats</Text>
+        <Text style={styles.analyticsBtnTextStyle}>Analytics</Text>
       </TouchableOpacity>
     </View>
   </View>
@@ -89,6 +89,7 @@ const ServiceAnalyticsScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState<any>(null);
   const [tenantStats, setTenantStats] = useState<any>(null);
+  const [forms, setForms] = useState<any[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
   const viewShotRef = useRef<any>(null);
   const navigation = useNavigation<any>();
@@ -119,9 +120,10 @@ const ServiceAnalyticsScreen = () => {
 
   const fetchStats = async () => {
     try {
-      const [dashboardRes, tenantRes] = await Promise.all([
+      const [dashboardRes, tenantRes, formsRes] = await Promise.all([
         apiClient.get('/analytics/dashboard'),
-        apiClient.get('/analytics/tenant/stats')
+        apiClient.get('/analytics/tenant/stats'),
+        apiClient.get('/forms')
       ]);
 
       if (dashboardRes.data.success) {
@@ -130,27 +132,28 @@ const ServiceAnalyticsScreen = () => {
       if (tenantRes.data.success) {
         setTenantStats(tenantRes.data.data);
       }
+      if (formsRes.data.success) {
+        const formsData = formsRes.data.data?.forms || formsRes.data.data || formsRes.data.forms || [];
+        setForms(Array.isArray(formsData) ? formsData : []);
+      }
     } catch (error) {
       console.log('Using mock dashboard stats for showcase');
       setStats({
         overview: {
-          totalForms: 4,
-          totalResponses: 154,
-          totalUsers: 5,
-          publicForms: 4
+          totalForms: 0,
+          totalResponses: 0,
+          totalUsers: 0,
+          publicForms: 0,
+          compliance: '0%'
         },
         statusDistribution: {
-          verified: 10,
-          rejected: 2,
-          pending: 24
+          verified: 0,
+          rejected: 0,
+          pending: 0
         }
       });
       setTenantStats({
-        userWiseSubmissions: [
-          { userName: 'Vicky', userEmail: 'vicky@3w.com', count: 45 },
-          { userName: 'Bharathan', userEmail: 'bharathan@3w.com', count: 32 },
-          { userName: 'Inspector S', userEmail: 'suresh@3w.com', count: 28 }
-        ]
+        userWiseSubmissions: []
       });
     } finally {
       setLoading(false);
@@ -238,47 +241,58 @@ const ServiceAnalyticsScreen = () => {
             <View style={styles.metricsRow}>
               <StatCard 
                 title={isSuperAdmin ? "Tenants" : "Forms"} 
-                value={isSuperAdmin ? 12 : 4} 
+                value={stats?.overview?.totalForms ?? (isSuperAdmin ? 12 : 0)} 
                 icon={isSuperAdmin ? Globe : FileText} 
                 color="#3b82f6" 
               />
               <StatCard 
                 title={isSuperAdmin ? "Assets" : "Entries"} 
-                value={isSuperAdmin ? 850 : 154} 
+                value={stats?.overview?.totalResponses ?? (isSuperAdmin ? 850 : 0)} 
                 icon={isSuperAdmin ? BarChart3 : Users} 
                 color="#10b981" 
               />
             </View>
-            <StatCard 
-              title={isSuperAdmin ? "Global Score" : "Compliance Score"} 
-              value={isSuperAdmin ? "100%" : "92%"} 
-              icon={TrendingUp} 
-              color="#8b5cf6" 
-            />
-          </View>
+          <StatCard 
+            title={isSuperAdmin ? "Global Score" : "Compliance Score"} 
+            value={stats?.overview?.compliance || "0%"} 
+            icon={TrendingUp} 
+            color="#8b5cf6" 
+          />
+        </View>
 
-          {/* Forms Implementation on Dashboard */}
-          {!isSuperAdmin && (
-            <View style={styles.formsDashboardSection}>
-              <Text style={styles.sectionHeading}>Priority Workflows</Text>
-              <View style={styles.formGrid}>
-                {[
-                  { _id: '1', title: 'Full Inspection', description: 'Comprehensive 3-wheeler safety audit.', responses: 12 },
-                  { _id: '3', title: 'Maintenance Check', description: 'Periodic mechanical health review.', responses: 142 }
-                ].map((form) => (
-                  <FormCard 
-                    key={form._id}
-                    id={form._id}
-                    title={form.title}
-                    description={form.description}
-                    responses={form.responses}
-                    onView={() => navigation.navigate('FormPreview', { id: form._id, title: form.title })}
-                    onAnalytics={() => navigation.navigate('FormAnalytics', { id: form._id, title: form.title })}
-                  />
-                ))}
-              </View>
+        {/* Forms Implementation on Dashboard */}
+        {!isSuperAdmin && (
+          <View style={styles.formsDashboardSection}>
+            <Text style={styles.sectionHeading}>Priority Workflows</Text>
+            <View style={styles.formGrid}>
+              {forms.slice(0, 4).map((form) => (
+                <FormCard 
+                  key={form._id || form.id}
+                  id={form.id || form._id}
+                  title={form.title}
+                  description={form.description}
+                  responses={form.responseCount || 0}
+                  onView={() => navigation.navigate('FormPreview', { id: form.id || form._id, title: form.title })}
+                  onAnalytics={() => navigation.navigate('FormAnalytics', { id: form.id || form._id, title: form.title })}
+                />
+              ))}
+              {forms.length === 0 && (
+                <View style={styles.emptyFormsCard}>
+                  <Text style={styles.emptyFormsText}>No active forms found</Text>
+                </View>
+              )}
             </View>
-          )}
+            {forms.length > 4 && (
+              <TouchableOpacity 
+                style={styles.seeAllBtn}
+                onPress={() => navigation.navigate('Forms')}
+              >
+                <Text style={styles.seeAllText}>VIEW ALL {forms.length} FORMS</Text>
+                <ChevronRight size={14} color="#3b82f6" />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
           {/* Inspector Wise Submissions */}
           {(isSubAdmin && tenantStats?.userWiseSubmissions && tenantStats.userWiseSubmissions.length > 0) && (
@@ -737,6 +751,40 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  emptyFormsCard: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyFormsText: {
+    color: '#94a3b8',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  seeAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    gap: 8,
+  },
+  seeAllText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#3b82f6',
+    letterSpacing: 1,
   },
 });
 

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
-  SafeAreaView,
   TouchableOpacity,
   Text,
   Platform,
@@ -11,6 +10,7 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronLeft, ChevronRight, CheckCircle, CircleDot, Square, CheckSquare } from 'lucide-react-native';
 import apiClient from '../api/config';
 import { useAuth } from '../context/AuthContext';

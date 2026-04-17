@@ -104,6 +104,28 @@ const ChatDetailScreen = () => {
     };
   }, [contactId, isGroup, tenantId]);
 
+  const groupMessagesByDate = (msgs: any[]) => {
+    const groups: any[] = [];
+    let currentDate = '';
+
+    msgs.forEach((msg) => {
+      const date = new Date(msg.createdAt).toDateString();
+      const today = new Date().toDateString();
+      const yesterday = new Date(Date.now() - 86400000).toDateString();
+      
+      let dateLabel = date;
+      if (date === today) dateLabel = 'Today';
+      else if (date === yesterday) dateLabel = 'Yesterday';
+
+      if (dateLabel !== currentDate) {
+        groups.push({ type: 'date', label: dateLabel });
+        currentDate = dateLabel;
+      }
+      groups.push({ ...msg, type: 'message' });
+    });
+    return groups;
+  };
+
   const handleSend = (isTYC = false) => {
     if (!newMessage.trim() || !user) return;
 
@@ -139,26 +161,13 @@ const ChatDetailScreen = () => {
     Keyboard.dismiss();
   };
 
-  const groupMessagesByDate = (msgs: any[]) => {
-    const groups: any[] = [];
-    let currentDate = '';
-
-    msgs.forEach((msg) => {
-      const date = new Date(msg.createdAt).toDateString();
-      const today = new Date().toDateString();
-      const yesterday = new Date(Date.now() - 86400000).toDateString();
-      
-      let dateLabel = date;
-      if (date === today) dateLabel = 'Today';
-      else if (date === yesterday) dateLabel = 'Yesterday';
-
-      if (dateLabel !== currentDate) {
-        groups.push({ type: 'date', label: dateLabel });
-        currentDate = dateLabel;
-      }
-      groups.push({ ...msg, type: 'message' });
-    });
-    return groups;
+  const getSenderColor = (name: string) => {
+    const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
   };
 
   const renderItem = ({ item }: any) => {
@@ -174,13 +183,16 @@ const ChatDetailScreen = () => {
 
     const senderId = typeof item.senderId === 'object' ? item.senderId._id : item.senderId;
     const isMine = senderId === user?._id;
-    const senderName = typeof item.senderId === 'object' ? `${item.senderId.firstName} (${item.senderId.role})` : '';
+    const senderName = typeof item.senderId === 'object' ? `${item.senderId.firstName} ${item.senderId.lastName || ''}` : 'User';
+    const senderRole = typeof item.senderId === 'object' ? item.senderId.role : '';
 
     return (
       <View style={[styles.messageRow, isMine ? styles.myRow : styles.theirRow]}>
         {!isMine && (
           <View style={styles.avatarMini}>
-            <UserCircle size={32} color={item.isTYC ? "#ef4444" : "#cbd5e1"} />
+            <View style={[styles.avatarCircle, { backgroundColor: getSenderColor(senderName) + '20' }]}>
+              <Text style={[styles.avatarLetter, { color: getSenderColor(senderName) }]}>{senderName[0]}</Text>
+            </View>
           </View>
         )}
         <View style={[
@@ -188,7 +200,14 @@ const ChatDetailScreen = () => {
           isMine ? styles.myBubble : styles.theirBubble,
           item.isTYC && styles.tycBubble
         ]}>
-          {isGroup && !isMine && <Text style={styles.groupSenderName}>{senderName}</Text>}
+          {isGroup && !isMine && (
+             <View style={styles.senderHeader}>
+               <Text style={[styles.groupSenderName, { color: getSenderColor(senderName) }]}>{senderName}</Text>
+               <View style={styles.roleBadge}>
+                 <Text style={styles.roleBadgeText}>{senderRole.toUpperCase()}</Text>
+               </View>
+             </View>
+          )}
           
           {item.replyTo && (
             <View style={styles.replyPreviewInside}>
@@ -209,12 +228,13 @@ const ChatDetailScreen = () => {
             {item.message}
           </Text>
           <View style={styles.messageFooterRow}>
-            <TouchableOpacity onPress={() => setReplyTo(item)}>
+            <TouchableOpacity onPress={() => setReplyTo(item)} style={styles.replyIcon}>
               <Reply size={12} color={isMine ? "#cbd5e1" : "#94a3b8"} />
             </TouchableOpacity>
             <Text style={[styles.messageTime, isMine ? styles.myTime : styles.theirTime]}>
               {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Text>
+            {isMine && <View style={styles.readChecks}><Text style={styles.checkText}>✓✓</Text></View>}
           </View>
         </View>
       </View>
@@ -223,27 +243,29 @@ const ChatDetailScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, isGroup && styles.groupHeader]}>
         <View style={styles.headerLeft}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <ChevronLeft size={24} color="#1e3a8a" />
+            <ChevronLeft size={24} color={isGroup ? "#fff" : "#1e3a8a"} />
           </TouchableOpacity>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>{name}</Text>
+            <Text style={[styles.userName, isGroup && styles.groupTitle]}>{name}</Text>
             <View style={styles.userStatus}>
-              <Circle size={8} color="#10b981" fill="#10b981" />
-              <Text style={styles.userRole}>{role.toUpperCase()} • ACTIVE</Text>
+              <Circle size={8} color={isGroup ? "#10b981" : "#10b981"} fill="#10b981" />
+              <Text style={[styles.userRole, isGroup && styles.groupSubTitle]}>
+                {isGroup ? `${members.length || '15+'} online members` : `${role.toUpperCase()} • ACTIVE`}
+              </Text>
             </View>
           </View>
         </View>
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.raiseTycHeaderBtn} onPress={() => setNewMessage("URGENT (TYC): ")}>
+          <TouchableOpacity style={[styles.raiseTycHeaderBtn, isGroup && styles.groupTycBtn]} onPress={() => setNewMessage("URGENT (TYC): ")}>
             <AlertTriangle size={14} color="#ef4444" />
             <Text style={styles.raiseTycHeaderText}>RAISE TYC</Text>
           </TouchableOpacity>
           {isGroup && (
-            <TouchableOpacity onPress={() => setShowMembers(true)} style={styles.memberBtn}>
-              <Users size={22} color="#1e3a8a" />
+            <TouchableOpacity onPress={() => setShowMembers(true)} style={styles.memberBtnMain}>
+              <Users size={22} color="#fff" />
             </TouchableOpacity>
           )}
         </View>
@@ -478,6 +500,62 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#94a3b8',
     fontStyle: 'italic',
+  },
+  avatarCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarLetter: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  senderHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  roleBadge: {
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  roleBadgeText: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: '#3b82f6',
+  },
+  readChecks: {
+    marginLeft: 4,
+  },
+  checkText: {
+    fontSize: 10,
+    color: '#3b82f6',
+    fontWeight: '700',
+    letterSpacing: -1,
+  },
+  groupHeader: {
+    backgroundColor: '#1e3a8a',
+    borderBottomWidth: 0,
+  },
+  groupTitle: {
+    color: '#fff',
+  },
+  groupSubTitle: {
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  groupTycBtn: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  memberBtnMain: {
+    padding: 8,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
   },
   footer: {
     padding: 16,

@@ -3,7 +3,6 @@ import {
   View, 
   Text, 
   StyleSheet, 
-  SafeAreaView, 
   TouchableOpacity, 
   ScrollView, 
   Dimensions, 
@@ -14,6 +13,7 @@ import {
   Modal,
   TextInput
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
   LogIn, 
   LogOut, 
@@ -48,7 +48,7 @@ const HRMSButton = ({ title, icon: Icon, color, onPress }: any) => (
   </TouchableOpacity>
 );
 
-const HRMSScreen = () => {
+const HRMSScreen = ({ navigation }: any) => {
   const { user, logout } = useAuth();
   const [lastCheck, setLastCheck] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -270,9 +270,15 @@ const HRMSScreen = () => {
         )}
 
         <View style={styles.menuSection}>
+          <Text style={styles.sectionTitle}>Employee Actions</Text>
+          <HRMSButton 
+            title="Attendance History" 
+            icon={Clock} 
+            color="#10b981" 
+            onPress={() => navigation.navigate('AttendanceManagement')}
+          />
           {canCheckIn && (
             <>
-              <Text style={styles.sectionTitle}>Employee Actions</Text>
               <HRMSButton 
                 title="Apply Permission" 
                 icon={ClipboardCheck} 

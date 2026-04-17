@@ -12,6 +12,7 @@ import FormListScreen from './src/screens/FormListScreen';
 import FormPreviewScreen from './src/screens/FormPreviewScreen';
 import FormAnalyticsScreen from './src/screens/FormAnalyticsScreen';
 import DemoFormListScreen from './src/screens/DemoFormListScreen';
+import AttendanceManagementScreen from './src/screens/AttendanceManagementScreen';
 import SplashScreen from './src/screens/SplashScreen';
 import { ActivityIndicator, View, StyleSheet, StatusBar, Platform } from 'react-native';
 import { LayoutDashboard, MessageSquareText, Briefcase, ClipboardList } from 'lucide-react-native';
@@ -109,6 +110,7 @@ const NavigationWrapper = () => {
             <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
             <Stack.Screen name="FormPreview" component={FormPreviewScreen} />
             <Stack.Screen name="FormAnalytics" component={FormAnalyticsScreen} />
+            <Stack.Screen name="AttendanceManagement" component={AttendanceManagementScreen} />
           </>
         ) : (
           <>
@@ -122,11 +124,15 @@ const NavigationWrapper = () => {
   );
 };
 
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+
 export default function App() {
   return (
-    <AuthProvider>
-      <NavigationWrapper />
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <NavigationWrapper />
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 

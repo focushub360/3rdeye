@@ -20,7 +20,12 @@ export const initializeSocket = (server) => {
     "http://127.0.0.1:5173",
     "http://127.0.0.1:5174",
     "http://localhost:8080",
-    "http://127.0.0.1:8080"
+    "http://127.0.0.1:8080",
+    "http://192.168.31.125:5173",
+    "http://192.168.31.125:5174",
+    "http://192.168.31.125:3000",
+    "http://192.168.31.125:5001",
+    "http://192.168.31.125:8081"
   ];
 
   const allOrigins = [...allowedOrigins, ...developmentOrigins];

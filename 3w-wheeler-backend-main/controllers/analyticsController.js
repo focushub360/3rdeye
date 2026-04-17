@@ -230,7 +230,10 @@ export const getDashboardStats = async (req, res) => {
           totalUsers,
           publicForms,
           formsInPeriod,
-          responsesInPeriod
+          responsesInPeriod,
+          compliance: totalResponses > 0 
+            ? Math.round(((statusDistribution.find(s => s._id === 'verified')?.count || 0) / totalResponses) * 100) + '%' 
+            : '0%'
         },
         statusDistribution: statusDistribution.reduce((acc, item) => {
           acc[item._id] = item.count;
@@ -431,16 +434,19 @@ export const getFormAnalytics = async (req, res) => {
         questionInsights: {
           sections: form.sections || [],
           followUpQuestions: form.followUpQuestions || [],
-          responses: allResponses.map((response) => ({
-            id: response.id,
-            questionId: response.questionId,
-            answers:
-              response.answers instanceof Map
-                ? Object.fromEntries(response.answers)
-                : response.answers,
-            status: response.status,
-            createdAt: response.createdAt,
-          })),
+          responses: allResponses.map((response) => {
+            const rAnswers = response.answers instanceof Map 
+              ? Object.fromEntries(response.answers) 
+              : (response.answers || {});
+            
+            return {
+              id: response.id,
+              questionId: response.questionId,
+              answers: rAnswers,
+              status: response.status,
+              createdAt: response.createdAt,
+            };
+          }),
         },
       },
     });

@@ -7,11 +7,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  SafeAreaView,
   Dimensions,
   Alert,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import apiClient, { BASE_URL } from '../api/config';
@@ -72,8 +72,8 @@ const FormCard = ({ id, title, description, responseCount = 0, published = true,
         <Text style={styles.primaryBtnText}>View</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.secondaryBtn} onPress={() => onAnalytics && onAnalytics(id, title)}>
-        <BarChart2 size={14} color="#1e3a8a" />
-        <Text style={styles.secondaryBtnText}>Stats</Text>
+        <BarChart2 size={12} color="#1e3a8a" />
+        <Text style={styles.secondaryBtnText}>Analytics</Text>
       </TouchableOpacity>
     </View>
   </View>
@@ -104,7 +104,14 @@ const FormListScreen = ({ navigation }: any) => {
         logout();
         return;
       }
-      console.error('Fetch Forms Error: ' + (error.message || 'Unknown Error'));
+      console.error('Fetch Forms Error:', error.message);
+      if (error.config) console.log('Requested URL:', error.config.baseURL + error.config.url);
+      if (error.response) {
+        console.log('Error Response Status:', error.response.status);
+        console.log('Error Response Data:', JSON.stringify(error.response.data));
+      } else if (error.request) {
+        console.log('No response received. Request details:', JSON.stringify(error.request).substring(0, 200));
+      }
       setNetworkError(true);
       // Keep existing forms if already loaded; don't wipe them out
     } finally {

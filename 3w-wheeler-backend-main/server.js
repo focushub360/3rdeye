@@ -67,6 +67,8 @@ const developmentOrigins = [
   "http://192.168.31.125:5173",
   "http://192.168.31.125:5174",
   "http://192.168.31.125:3000",
+  "http://192.168.31.125:5001",
+  "http://192.168.31.125:8081", // Expo default
 ];
 
 // Combine production and development origins
@@ -96,6 +98,12 @@ app.use(
 
 app.use(express.json({ limit: "200mb" }));
 app.use(express.urlencoded({ extended: true, limit: "200mb" }));
+
+// Request Logger
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Origin: ${req.get('origin') || 'None'}`);
+  next();
+});
 
 
 app.use('/api/upload', uploadRoutes);

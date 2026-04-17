@@ -146,26 +146,38 @@ const ChatListScreen = () => {
         <Text style={styles.title}>Messages</Text>
       </View>
 
-      {/* Group Chat Card */}
+      {/* Premium Group Chat Card */}
       {user?.tenant && (
         <TouchableOpacity 
-          style={styles.groupCard}
+          style={styles.premiumGroupCard}
           onPress={() => navigation.navigate('ChatDetail', { 
             isGroup: true,
             tenantId: user.tenant.id || user.tenantId,
-            name: `${user.tenant.name || 'Laxmi Metals'} Group`,
-            role: 'TEAM'
+            name: `${user.tenant.name || 'Laxmi Metals'} Official`,
+            role: 'ORGANIZATION'
           })}
         >
-          <View style={styles.groupIconBox}>
-            <Users size={28} color="#fff" />
+          <View style={styles.groupIconWrapper}>
+            <Users size={30} color="#fff" />
+            <View style={styles.onlinePing} />
           </View>
-          <View style={styles.groupInfo}>
-            <Text style={styles.groupName}>{user.tenant.name || 'Laxmi Metals'} Group</Text>
-            <Text style={styles.groupSubtitle}>Collaborative Team Channel</Text>
+          <View style={styles.groupInfoMain}>
+            <View style={styles.groupNameRow}>
+              <Text style={styles.groupTitleText}>{user.tenant.name || 'Laxmi Metals'} Family</Text>
+              <View style={styles.verifiedBadge}>
+                <ShieldCheck size={12} color="#fff" />
+              </View>
+            </View>
+            <Text style={styles.participantPreview}>
+              {contacts.slice(0, 2).map(c => c.firstName).join(', ')} 
+              {contacts.length > 2 ? ` + ${contacts.length} others` : ' • Team channel'}
+            </Text>
           </View>
-          <View style={styles.groupTag}>
-            <Text style={styles.groupTagText}>GROUP</Text>
+          <View style={styles.groupMeta}>
+             <View style={styles.groupBadge}>
+                <Text style={styles.groupBadgeText}>REAL TIME</Text>
+             </View>
+             <Text style={styles.groupTime}>Live</Text>
           </View>
         </TouchableOpacity>
       )}
@@ -252,53 +264,93 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#0f172a',
   },
-  groupCard: {
+  premiumGroupCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#1e3a8a',
     marginHorizontal: 20,
-    padding: 20,
-    borderRadius: 24,
-    marginBottom: 20,
-    elevation: 4,
+    padding: 24,
+    borderRadius: 32,
+    marginBottom: 24,
+    elevation: 12,
     shadowColor: '#1e3a8a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  groupIconBox: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  groupIconWrapper: {
+    width: 60,
+    height: 60,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginRight: 20,
+    position: 'relative',
   },
-  groupInfo: {
+  onlinePing: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#10b981',
+    borderWidth: 3,
+    borderColor: '#1e3a8a',
+  },
+  groupInfoMain: {
     flex: 1,
   },
-  groupName: {
+  groupNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  groupTitleText: {
     color: '#fff',
-    fontSize: 17,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: -0.5,
   },
-  groupSubtitle: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 12,
-    marginTop: 2,
-    fontWeight: '500',
+  verifiedBadge: {
+    backgroundColor: '#3b82f6',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  groupTag: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    paddingHorizontal: 8,
+  participantPreview: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 13,
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  groupMeta: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  groupBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
-  groupTagText: {
+  groupBadgeText: {
     color: '#fff',
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  groupTime: {
+    color: '#10b981',
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   searchBox: {
     flexDirection: 'row',
