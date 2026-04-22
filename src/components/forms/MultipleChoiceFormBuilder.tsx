@@ -22,7 +22,6 @@ interface FormSection {
   id: string;
   title: string;
   description: string;
-  weightage?: number;
   questions: FormQuestion[];
 }
 
@@ -46,11 +45,30 @@ interface FollowUpQuestion {
 interface FormQuestion {
   id: string;
   text: string;
-  type: "text" | "radio" | "paragraph" | "checkbox" | "select" | "search-select" | "yesNoNA" | "productNPSTGWBuckets";
+  type:
+    | "text"
+    | "radio"
+    | "paragraph"
+    | "checkbox"
+    | "select"
+    | "search-select"
+    | "yesNoNA"
+    | "productNPSTGWBuckets";
   required: boolean;
   trackResponseRank?: boolean;
   trackResponseRankLabel?: string;
   trackResponseRankType?: string;
+  trackResponseQuestion?: boolean;
+  trackResponseQuestionLabel?: string;
+  trackResponseQuestionType?: string;
+  selectedHierarchyValues?: {
+    level1?: string;
+    level2?: string;
+    level3?: string;
+    level4?: string;
+    level5?: string;
+    level6?: string;
+  };
 
   options?: string[];
   followUpQuestions?: FollowUpQuestion[];
@@ -106,7 +124,6 @@ const DEFAULT_FORM_DATA: FormData = {
       id: "section1",
       title: "Section 1: Basic Information",
       description: "Collect basic details and preferences",
-      weightage: 20,
       questions: [
         {
           id: "q1",
@@ -179,7 +196,6 @@ const DEFAULT_FORM_DATA: FormData = {
       id: "section2",
       title: "Section 2: Product/Service Evaluation",
       description: "Evaluate your satisfaction and experience",
-      weightage: 20,
       questions: [
         {
           id: "q6",
@@ -274,7 +290,6 @@ const DEFAULT_FORM_DATA: FormData = {
       id: "section3",
       title: "Section 3: Customer Support Experience",
       description: "Feedback on support services",
-      weightage: 20,
       questions: [
         {
           id: "q11",
@@ -334,7 +349,6 @@ const DEFAULT_FORM_DATA: FormData = {
       id: "section4",
       title: "Section 4: Purchase & Billing",
       description: "Questions about purchasing and billing experience",
-      weightage: 20,
       questions: [
         {
           id: "q16",
@@ -418,7 +432,6 @@ const DEFAULT_FORM_DATA: FormData = {
       id: "section5",
       title: "Section 5: Overall Feedback & Future",
       description: "Summary feedback and future engagement",
-      weightage: 20,
       questions: [
         {
           id: "q21",
@@ -506,14 +519,14 @@ export const MultipleChoiceFormBuilder: React.FC<
     }
     sectionRefs.current.length = formData.sections.length;
     setActiveSectionIndex((prev) =>
-      Math.min(prev, Math.max(formData.sections.length - 1, 0))
+      Math.min(prev, Math.max(formData.sections.length - 1, 0)),
     );
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
             const index = sectionRefs.current.findIndex(
-              (section) => section === entry.target
+              (section) => section === entry.target,
             );
             if (index !== -1) {
               setActiveSectionIndex(index);
@@ -521,7 +534,7 @@ export const MultipleChoiceFormBuilder: React.FC<
           }
         });
       },
-      { rootMargin: "-45% 0px -45% 0px", threshold: 0.1 }
+      { rootMargin: "-45% 0px -45% 0px", threshold: 0.1 },
     );
     sectionRefs.current.forEach((section) => {
       if (section) {
@@ -543,7 +556,7 @@ export const MultipleChoiceFormBuilder: React.FC<
 
   const handleFormFieldChange = <K extends keyof FormData>(
     field: K,
-    value: FormData[K]
+    value: FormData[K],
   ) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     setError(null);
@@ -552,28 +565,21 @@ export const MultipleChoiceFormBuilder: React.FC<
   const handleSectionChange = <K extends keyof FormSection>(
     sectionIndex: number,
     field: K,
-    value: FormSection[K]
+    value: FormSection[K],
   ) => {
     setFormData((prev) => ({
       ...prev,
       sections: prev.sections.map((section, index) =>
-        index === sectionIndex ? { ...section, [field]: value } : section
+        index === sectionIndex ? { ...section, [field]: value } : section,
       ),
     }));
   };
-
-  const totalWeightage = useMemo(() => {
-    return formData.sections.reduce(
-      (sum, section) => sum + (section.weightage || 0),
-      0
-    );
-  }, [formData.sections]);
 
   const handleQuestionChange = <K extends keyof FormQuestion>(
     sectionIndex: number,
     questionIndex: number,
     field: K,
-    value: FormQuestion[K]
+    value: FormQuestion[K],
   ) => {
     setFormData((prev) => ({
       ...prev,
@@ -584,10 +590,10 @@ export const MultipleChoiceFormBuilder: React.FC<
               questions: section.questions.map((question, qIndex) =>
                 qIndex === questionIndex
                   ? { ...question, [field]: value }
-                  : question
+                  : question,
               ),
             }
-          : section
+          : section,
       ),
     }));
   };
@@ -643,7 +649,7 @@ export const MultipleChoiceFormBuilder: React.FC<
               ...section,
               questions: [...section.questions, newQuestion],
             }
-          : section
+          : section,
       ),
     }));
   };
@@ -664,10 +670,10 @@ export const MultipleChoiceFormBuilder: React.FC<
           ? {
               ...sec,
               questions: sec.questions.filter(
-                (_, qIndex) => qIndex !== questionIndex
+                (_, qIndex) => qIndex !== questionIndex,
               ),
             }
-          : sec
+          : sec,
       ),
     }));
   };
@@ -694,10 +700,10 @@ export const MultipleChoiceFormBuilder: React.FC<
                         [newOption]: { hasFollowUp: false, required: false },
                       },
                     }
-                  : q
+                  : q,
               ),
             }
-          : section
+          : section,
       ),
     }));
   };
@@ -705,7 +711,7 @@ export const MultipleChoiceFormBuilder: React.FC<
   const removeOption = (
     sectionIndex: number,
     questionIndex: number,
-    optionIndex: number
+    optionIndex: number,
   ) => {
     const question = formData.sections[sectionIndex].questions[questionIndex];
     if (
@@ -721,7 +727,7 @@ export const MultipleChoiceFormBuilder: React.FC<
 
     const optionToRemove = question.options[optionIndex];
     const newOptions = question.options.filter(
-      (_, index) => index !== optionIndex
+      (_, index) => index !== optionIndex,
     );
     const newFollowUpConfig = { ...question.followUpConfig };
     delete newFollowUpConfig[optionToRemove];
@@ -739,10 +745,10 @@ export const MultipleChoiceFormBuilder: React.FC<
                       options: newOptions,
                       followUpConfig: newFollowUpConfig,
                     }
-                  : q
+                  : q,
               ),
             }
-          : section
+          : section,
       ),
     }));
   };
@@ -751,14 +757,14 @@ export const MultipleChoiceFormBuilder: React.FC<
     sectionIndex: number,
     questionIndex: number,
     optionIndex: number,
-    newValue: string
+    newValue: string,
   ) => {
     const question = formData.sections[sectionIndex].questions[questionIndex];
     if (!question.options) return;
 
     const oldValue = question.options[optionIndex];
     const newOptions = question.options.map((option, index) =>
-      index === optionIndex ? newValue : option
+      index === optionIndex ? newValue : option,
     );
 
     // Update follow-up config keys
@@ -781,10 +787,10 @@ export const MultipleChoiceFormBuilder: React.FC<
                       options: newOptions,
                       followUpConfig: newFollowUpConfig,
                     }
-                  : q
+                  : q,
               ),
             }
-          : section
+          : section,
       ),
     }));
   };
@@ -792,7 +798,7 @@ export const MultipleChoiceFormBuilder: React.FC<
   const addFollowUp = (
     sectionIndex: number,
     questionIndex: number,
-    option: string
+    option: string,
   ) => {
     const question = formData.sections[sectionIndex].questions[questionIndex];
 
@@ -829,10 +835,10 @@ export const MultipleChoiceFormBuilder: React.FC<
                         [option]: { hasFollowUp: true, required: false },
                       },
                     }
-                  : q
+                  : q,
               ),
             }
-          : section
+          : section,
       ),
     }));
   };
@@ -840,7 +846,7 @@ export const MultipleChoiceFormBuilder: React.FC<
   const linkFollowUpSection = (
     sectionIndex: number,
     questionIndex: number,
-    option: string
+    option: string,
   ) => {
     setFormData((prev) => ({
       ...prev,
@@ -862,7 +868,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                               linkedFormId: undefined,
                             },
                           }),
-                          {}
+                          {},
                         ),
                         [option]: {
                           hasFollowUp: true,
@@ -871,10 +877,10 @@ export const MultipleChoiceFormBuilder: React.FC<
                         },
                       },
                     }
-                  : q
+                  : q,
               ),
             }
-          : section
+          : section,
       ),
     }));
   };
@@ -883,7 +889,7 @@ export const MultipleChoiceFormBuilder: React.FC<
     sectionIndex: number,
     questionIndex: number,
     option: string,
-    linkedFormId: string
+    linkedFormId: string,
   ) => {
     setFormData((prev) => ({
       ...prev,
@@ -906,10 +912,10 @@ export const MultipleChoiceFormBuilder: React.FC<
                         },
                       },
                     }
-                  : q
+                  : q,
               ),
             }
-          : section
+          : section,
       ),
     }));
   };
@@ -918,7 +924,7 @@ export const MultipleChoiceFormBuilder: React.FC<
     sectionIndex: number,
     questionIndex: number,
     option: string,
-    targetSectionId: string
+    targetSectionId: string,
   ) => {
     setFormData((prev) => ({
       ...prev,
@@ -941,10 +947,10 @@ export const MultipleChoiceFormBuilder: React.FC<
                         },
                       },
                     }
-                  : q
+                  : q,
               ),
             }
-          : section
+          : section,
       ),
     }));
   };
@@ -954,7 +960,7 @@ export const MultipleChoiceFormBuilder: React.FC<
     questionIndex: number,
     followUpIndex: number,
     field: keyof FollowUpQuestion,
-    value: any
+    value: any,
   ) => {
     setFormData((prev) => ({
       ...prev,
@@ -970,13 +976,13 @@ export const MultipleChoiceFormBuilder: React.FC<
                         (fq, fqIndex) =>
                           fqIndex === followUpIndex
                             ? { ...fq, [field]: value }
-                            : fq
+                            : fq,
                       ),
                     }
-                  : q
+                  : q,
               ),
             }
-          : section
+          : section,
       ),
     }));
   };
@@ -984,7 +990,7 @@ export const MultipleChoiceFormBuilder: React.FC<
   const removeFollowUp = (
     sectionIndex: number,
     questionIndex: number,
-    followUpIndex: number
+    followUpIndex: number,
   ) => {
     const question = formData.sections[sectionIndex].questions[questionIndex];
     const followUpToRemove = question.followUpQuestions?.[followUpIndex];
@@ -1008,14 +1014,14 @@ export const MultipleChoiceFormBuilder: React.FC<
                   ? {
                       ...q,
                       followUpQuestions: q.followUpQuestions?.filter(
-                        (_, fqIndex) => fqIndex !== followUpIndex
+                        (_, fqIndex) => fqIndex !== followUpIndex,
                       ),
                       followUpConfig: newFollowUpConfig,
                     }
-                  : q
+                  : q,
               ),
             }
-          : section
+          : section,
       ),
     }));
   };
@@ -1047,12 +1053,12 @@ export const MultipleChoiceFormBuilder: React.FC<
                 question.type === "checkbox"
                   ? "Checkbox"
                   : question.type === "select" ||
-                    question.type === "search-select"
-                  ? "Dropdown"
-                  : question.type === "yesNoNA"
-                  ? "Yes/No/N/A"
-                  : "Multiple choice"
-              } questions must have at least 2 options`
+                      question.type === "search-select"
+                    ? "Dropdown"
+                    : question.type === "yesNoNA"
+                      ? "Yes/No/N/A"
+                      : "Multiple choice"
+              } questions must have at least 2 options`,
             );
             return false;
           }
@@ -1064,7 +1070,7 @@ export const MultipleChoiceFormBuilder: React.FC<
 
           // Check for duplicates
           const optionSet = new Set(
-            question.options.map((opt) => opt.trim().toLowerCase())
+            question.options.map((opt) => opt.trim().toLowerCase()),
           );
           if (optionSet.size !== question.options.length) {
             setError("All options must be unique");
@@ -1072,20 +1078,6 @@ export const MultipleChoiceFormBuilder: React.FC<
           }
         }
       }
-    }
-
-    // Validate section weightage (if any section has weightage, total must be 100)
-    const totalWeightage = formData.sections.reduce(
-      (sum, s) => sum + (s.weightage || 0),
-      0
-    );
-    if (totalWeightage > 0 && Math.abs(totalWeightage - 100) > 0.1) {
-      setError(
-        `Section weightage must add up to 100%. Current total: ${totalWeightage.toFixed(
-          1
-        )}%`
-      );
-      return false;
     }
 
     return true;
@@ -1127,28 +1119,9 @@ export const MultipleChoiceFormBuilder: React.FC<
         {formData.sections.length > 0 && (
           <nav className="md:w-28 md:flex-shrink-0">
             <div className="sticky top-1/2 -translate-y-1/2 transform bg-white dark:bg-gray-900/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-lg flex flex-col items-center gap-3">
-              <div className="w-full px-2 pb-3 border-b border-gray-200 dark:border-gray-700 text-center">
-                <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-                  Weightage
-                </p>
-                <p
-                  className={`mt-1 text-sm font-bold ${
-                    totalWeightage === 100
-                      ? "text-green-600"
-                      : totalWeightage > 0
-                      ? "text-orange-600"
-                      : "text-gray-500"
-                  }`}
-                >
-                  {totalWeightage.toFixed(1)}%
-                </p>
-              </div>
-
               <div className="w-full space-y-2">
                 {formData.sections.map((section, index) => {
-                  const sectionWeight = section.weightage || 0;
                   const isActive = activeSectionIndex === index;
-                  const hasWeight = sectionWeight > 0;
 
                   return (
                     <button
@@ -1158,47 +1131,25 @@ export const MultipleChoiceFormBuilder: React.FC<
                       title={section.title || `Section ${index + 1}`}
                       aria-label={section.title || `Section ${index + 1}`}
                       aria-current={isActive ? "step" : undefined}
-                      className={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition-all border ${
+                      className={`w-full flex items-center justify-center rounded-xl px-3 py-2 text-xs font-semibold transition-all border ${
                         isActive
                           ? "bg-blue-600 text-white border-blue-600 shadow-lg scale-[1.02]"
                           : "bg-white text-gray-700 border-gray-300 hover:bg-blue-50"
                       }`}
                     >
-                      <span className="flex items-center gap-2">
-                        <span
-                          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border ${
-                            isActive
-                              ? "bg-white text-blue-600 border-blue-500"
-                              : "bg-blue-50 text-blue-700 border-blue-200"
-                          }`}
-                        >
-                          {index + 1}
-                        </span>
-                        <span className="text-left line-clamp-2 leading-tight">
-                          {section.title || `Section ${index + 1}`}
-                        </span>
-                      </span>
                       <span
-                        className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                          hasWeight
-                            ? isActive
-                              ? "bg-white/20 text-white border border-white/60"
-                              : "bg-blue-50 text-blue-700 border border-blue-200"
-                            : "bg-gray-100 text-gray-500 border border-gray-200"
+                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border ${
+                          isActive
+                            ? "bg-white text-blue-600 border-blue-500"
+                            : "bg-blue-50 text-blue-700 border-blue-200"
                         }`}
                       >
-                        {hasWeight ? `${sectionWeight.toFixed(1)}%` : "0%"}
+                        {index + 1}
                       </span>
                     </button>
                   );
                 })}
               </div>
-
-              {totalWeightage !== 100 && totalWeightage > 0 && (
-                <div className="w-full mt-2 text-center text-[11px] font-medium text-orange-600">
-                  Adjust sections to total 100%
-                </div>
-              )}
             </div>
           </nav>
         )}
@@ -1306,7 +1257,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                           onChange={(e) =>
                             handleFormFieldChange(
                               "showMarksToCustomer",
-                              e.target.checked
+                              e.target.checked,
                             )
                           }
                           className="h-4 w-4 text-green-600 border-gray-300 dark:border-gray-600 rounded focus:ring-green-500"
@@ -1343,7 +1294,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                             onChange={(e) =>
                               handleFormFieldChange(
                                 "marksPerQuestion",
-                                Math.max(0, parseInt(e.target.value) || 1)
+                                Math.max(0, parseInt(e.target.value) || 1),
                               )
                             }
                             placeholder="1"
@@ -1366,7 +1317,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                               section.questions.filter(
                                 (q) =>
                                   !q.followUpQuestions ||
-                                  q.followUpQuestions.length === 0
+                                  q.followUpQuestions.length === 0,
                               ).length
                             );
                           }, 0) * (formData.marksPerQuestion || 1)}{" "}
@@ -1419,7 +1370,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                           handleSectionChange(
                             sectionIndex,
                             "title",
-                            e.target.value
+                            e.target.value,
                           )
                         }
                         placeholder={`Section title (e.g., "Personal Information", "Service Details")`}
@@ -1442,58 +1393,12 @@ export const MultipleChoiceFormBuilder: React.FC<
                           handleSectionChange(
                             sectionIndex,
                             "description",
-                            e.target.value
+                            e.target.value,
                           )
                         }
                         placeholder="Brief description of this section's purpose"
                         className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
-                    </div>
-
-                    <div>
-                      <label
-                        htmlFor={`section-${sectionIndex}-weightage`}
-                        className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-                      >
-                        Section Weightage (%)
-                      </label>
-                      <input
-                        id={`section-${sectionIndex}-weightage`}
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.1"
-                        value={section.weightage || 0}
-                        onChange={(e) =>
-                          handleSectionChange(
-                            sectionIndex,
-                            "weightage",
-                            parseFloat(e.target.value) || 0
-                          )
-                        }
-                        placeholder="e.g., 20 for 20%"
-                        className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                        Total weightage:{" "}
-                        {formData.sections
-                          .reduce((sum, s) => sum + (s.weightage || 0), 0)
-                          .toFixed(1)}
-                        %
-                        {Math.abs(
-                          formData.sections.reduce(
-                            (sum, s) => sum + (s.weightage || 0),
-                            0
-                          ) - 100
-                        ) > 0.1 &&
-                          formData.sections.some(
-                            (s) => (s.weightage || 0) > 0
-                          ) && (
-                            <span className="text-orange-600 ml-2">
-                              ⚠ Should total 100%
-                            </span>
-                          )}
-                      </p>
                     </div>
 
                     {/* Questions */}
@@ -1514,40 +1419,53 @@ export const MultipleChoiceFormBuilder: React.FC<
                               </span>
                             </div>
                             <div className="flex items-center space-x-3">
-                              <label className="flex items-center space-x-1 cursor-pointer px-2 py-1 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-md" title="Track Question">
+                              <label
+                                className="flex items-center space-x-1 cursor-pointer px-2 py-1 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-md"
+                                title="Track Question"
+                              >
                                 <input
                                   type="checkbox"
-                                  checked={question.trackResponseQuestion || false}
+                                  checked={
+                                    question.trackResponseQuestion || false
+                                  }
                                   disabled={question.trackResponseRank || false}
                                   onChange={(e) =>
                                     handleQuestionChange(
                                       sectionIndex,
                                       questionIndex,
                                       "trackResponseQuestion",
-                                      e.target.checked
+                                      e.target.checked,
                                     )
                                   }
                                   className="h-3.5 w-3.5 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 disabled:opacity-50"
                                 />
-                                <span className="text-xs font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">Track Question</span>
+                                <span className="text-xs font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                                  Track Question
+                                </span>
                               </label>
-                              <label className="flex items-center space-x-1 cursor-pointer px-2 py-1 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-md" title="Track Rank">
-
+                              <label
+                                className="flex items-center space-x-1 cursor-pointer px-2 py-1 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-md"
+                                title="Track Rank"
+                              >
                                 <input
                                   type="checkbox"
                                   checked={question.trackResponseRank || false}
-                                  disabled={question.trackResponseQuestion || false}
+                                  disabled={
+                                    question.trackResponseQuestion || false
+                                  }
                                   onChange={(e) =>
                                     handleQuestionChange(
                                       sectionIndex,
                                       questionIndex,
                                       "trackResponseRank",
-                                      e.target.checked
+                                      e.target.checked,
                                     )
                                   }
                                   className="h-3.5 w-3.5 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 disabled:opacity-50"
                                 />
-                                <span className="text-xs font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">Track Rank</span>
+                                <span className="text-xs font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                                  Track Rank
+                                </span>
                               </label>
                               {section.questions.length > 1 && (
                                 <button
@@ -1580,7 +1498,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                     sectionIndex,
                                     questionIndex,
                                     "text",
-                                    e.target.value
+                                    e.target.value,
                                   )
                                 }
                                 placeholder="What would you like to ask?"
@@ -1644,7 +1562,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                     sectionIndex,
                                     questionIndex,
                                     "type",
-                                    newType
+                                    newType,
                                   );
                                   if (needsOptions && !question.options) {
                                     handleQuestionChange(
@@ -1656,13 +1574,13 @@ export const MultipleChoiceFormBuilder: React.FC<
                                         "Option 2",
                                         "Option 3",
                                         "Option 4",
-                                      ]
+                                      ],
                                     );
                                     handleQuestionChange(
                                       sectionIndex,
                                       questionIndex,
                                       "followUpConfig",
-                                      {}
+                                      {},
                                     );
                                   }
                                 }}
@@ -1696,11 +1614,13 @@ export const MultipleChoiceFormBuilder: React.FC<
                               </select>
                             </div>
                           </div>
-                                                    {question.trackResponseRank && (
+                          {question.trackResponseRank && (
                             <div className="mt-4 p-4 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800 rounded-xl space-y-4 mb-4">
                               <div className="flex items-center gap-2 mb-1">
                                 <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                                <h4 className="text-xs font-bold text-blue-900 dark:text-blue-100 uppercase tracking-wider">Track Rank Configuration</h4>
+                                <h4 className="text-xs font-bold text-blue-900 dark:text-blue-100 uppercase tracking-wider">
+                                  Track Rank Configuration
+                                </h4>
                               </div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
@@ -1709,13 +1629,15 @@ export const MultipleChoiceFormBuilder: React.FC<
                                   </label>
                                   <input
                                     type="text"
-                                    value={question.trackResponseRankLabel || ""}
+                                    value={
+                                      question.trackResponseRankLabel || ""
+                                    }
                                     onChange={(e) =>
                                       handleQuestionChange(
                                         sectionIndex,
                                         questionIndex,
                                         "trackResponseRankLabel",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="w-full px-3 py-2 border border-blue-200 dark:border-blue-800 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white dark:bg-gray-900"
@@ -1727,19 +1649,24 @@ export const MultipleChoiceFormBuilder: React.FC<
                                     Track Rank Question Type
                                   </label>
                                   <select
-                                    value={question.trackResponseRankType || "text"}
+                                    value={
+                                      question.trackResponseRankType || "text"
+                                    }
                                     onChange={(e) =>
                                       handleQuestionChange(
                                         sectionIndex,
                                         questionIndex,
                                         "trackResponseRankType",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="w-full px-3 py-2 border border-blue-200 dark:border-blue-800 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white dark:bg-gray-900"
                                   >
                                     {TRACK_RANK_QUESTION_TYPES.map((type) => (
-                                      <option key={type.value} value={type.value}>
+                                      <option
+                                        key={type.value}
+                                        value={type.value}
+                                      >
                                         {type.label}
                                       </option>
                                     ))}
@@ -1753,7 +1680,9 @@ export const MultipleChoiceFormBuilder: React.FC<
                             <div className="mt-4 p-4 bg-indigo-50/50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-800 rounded-xl space-y-4 mb-4">
                               <div className="flex items-center gap-2 mb-1">
                                 <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
-                                <h4 className="text-xs font-bold text-indigo-900 dark:text-indigo-100 uppercase tracking-wider">Track Question Configuration</h4>
+                                <h4 className="text-xs font-bold text-indigo-900 dark:text-indigo-100 uppercase tracking-wider">
+                                  Track Question Configuration
+                                </h4>
                               </div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
@@ -1762,13 +1691,15 @@ export const MultipleChoiceFormBuilder: React.FC<
                                   </label>
                                   <input
                                     type="text"
-                                    value={question.trackResponseQuestionLabel || ""}
+                                    value={
+                                      question.trackResponseQuestionLabel || ""
+                                    }
                                     onChange={(e) =>
                                       handleQuestionChange(
                                         sectionIndex,
                                         questionIndex,
                                         "trackResponseQuestionLabel",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="w-full px-3 py-2 border border-indigo-200 dark:border-indigo-800 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm bg-white dark:bg-gray-900"
@@ -1780,19 +1711,25 @@ export const MultipleChoiceFormBuilder: React.FC<
                                     Track Question Type
                                   </label>
                                   <select
-                                    value={question.trackResponseQuestionType || "text"}
+                                    value={
+                                      question.trackResponseQuestionType ||
+                                      "text"
+                                    }
                                     onChange={(e) =>
                                       handleQuestionChange(
                                         sectionIndex,
                                         questionIndex,
                                         "trackResponseQuestionType",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="w-full px-3 py-2 border border-indigo-200 dark:border-indigo-800 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm bg-white dark:bg-gray-900"
                                   >
                                     {TRACK_RANK_QUESTION_TYPES.map((type) => (
-                                      <option key={type.value} value={type.value}>
+                                      <option
+                                        key={type.value}
+                                        value={type.value}
+                                      >
                                         {type.label}
                                       </option>
                                     ))}
@@ -1802,153 +1739,298 @@ export const MultipleChoiceFormBuilder: React.FC<
                             </div>
                           )}
 
-
-
-                          {(question.type === "productNPSTGWBuckets") && (
+                          {question.type === "productNPSTGWBuckets" && (
                             <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg">
                               <div className="flex items-center justify-between mb-2">
-                                <h4 className="font-semibold text-blue-900 dark:text-blue-100">Hierarchy Levels (Cascading)</h4>
-                                <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Up to 6 levels</span>
+                                <h4 className="font-semibold text-blue-900 dark:text-blue-100">
+                                  Hierarchy Levels (Cascading)
+                                </h4>
+                                <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                                  Up to 6 levels
+                                </span>
                               </div>
                               <div className="space-y-2">
                                 {(() => {
                                   const level1Options = getLevel1Options();
-                                  let selectedValues = question.selectedHierarchyValues || {};
-                                  
-                                  if (!selectedValues.level1 && level1Options.length > 0) {
+                                  let selectedValues =
+                                    question.selectedHierarchyValues || {};
+
+                                  if (
+                                    !selectedValues.level1 &&
+                                    level1Options.length > 0
+                                  ) {
                                     const defaultLevel1 = level1Options[0];
-                                    const level2Options = getLevel2Options(defaultLevel1);
+                                    const level2Options =
+                                      getLevel2Options(defaultLevel1);
                                     selectedValues = {
                                       level1: defaultLevel1,
-                                      level2: level2Options.length > 0 ? level2Options[0] : undefined,
+                                      level2:
+                                        level2Options.length > 0
+                                          ? level2Options[0]
+                                          : undefined,
                                     };
                                   }
-                                  
+
                                   const defaultLabels = [
                                     "Complaint Groups",
                                     "Sub-complaints",
                                     "Probing Questions",
                                     "Initial Answers",
                                     "Secondary Details",
-                                    "Final Options"
+                                    "Final Options",
                                   ];
 
-                                  const handleLevelChange = (levelNum: number, value: string) => {
+                                  const handleLevelChange = (
+                                    levelNum: number,
+                                    value: string,
+                                  ) => {
                                     const newValues = { ...selectedValues };
-                                    newValues[`level${levelNum}` as keyof typeof selectedValues] = value;
-                                    
+                                    newValues[
+                                      `level${levelNum}` as keyof typeof selectedValues
+                                    ] = value;
+
                                     for (let i = levelNum + 1; i <= 6; i++) {
-                                      newValues[`level${i}` as keyof typeof selectedValues] = undefined;
+                                      newValues[
+                                        `level${i}` as keyof typeof selectedValues
+                                      ] = undefined;
                                     }
-                                    
-                                    handleQuestionChange(sectionIndex, questionIndex, "selectedHierarchyValues", newValues);
+
+                                    handleQuestionChange(
+                                      sectionIndex,
+                                      questionIndex,
+                                      "selectedHierarchyValues",
+                                      newValues,
+                                    );
                                   };
 
                                   return (
                                     <>
                                       <div>
-                                        <label className="block text-xs font-bold text-blue-900 dark:text-blue-200 mb-1">L1: {defaultLabels[0]}</label>
+                                        <label className="block text-xs font-bold text-blue-900 dark:text-blue-200 mb-1">
+                                          L1: {defaultLabels[0]}
+                                        </label>
                                         <select
                                           value={selectedValues.level1 || ""}
-                                          onChange={(e) => handleLevelChange(1, e.target.value)}
+                                          onChange={(e) =>
+                                            handleLevelChange(1, e.target.value)
+                                          }
                                           className="w-full px-2 py-1 text-xs border border-blue-300 dark:border-blue-600 rounded bg-white dark:bg-blue-800 text-blue-900 dark:text-blue-100 focus:ring-2 focus:ring-blue-500"
                                         >
-                                          <option value="">Select Level 1</option>
-                                          {getLevel1Options().map((opt: string) => (
-                                            <option key={opt} value={opt}>{opt}</option>
-                                          ))}
+                                          <option value="">
+                                            Select Level 1
+                                          </option>
+                                          {getLevel1Options().map(
+                                            (opt: string) => (
+                                              <option key={opt} value={opt}>
+                                                {opt}
+                                              </option>
+                                            ),
+                                          )}
                                         </select>
                                       </div>
 
                                       {/* Level 2 */}
-                                      {selectedValues.level1 && getLevel2Options(selectedValues.level1).length > 0 && (
-                                        <div>
-                                          <label className="block text-xs font-bold text-blue-900 dark:text-blue-200 mb-1">L2: {defaultLabels[1]}</label>
-                                          <select
-                                            value={selectedValues.level2 || ""}
-                                            onChange={(e) => handleLevelChange(2, e.target.value)}
-                                            className="w-full px-2 py-1 text-xs border border-blue-300 dark:border-blue-600 rounded bg-white dark:bg-blue-800 text-blue-900 dark:text-blue-100 focus:ring-2 focus:ring-blue-500"
-                                          >
-                                            <option value="">Select Level 2</option>
-                                            {getLevel2Options(selectedValues.level1).map((opt: string) => (
-                                              <option key={opt} value={opt}>{opt}</option>
-                                            ))}
-                                          </select>
-                                        </div>
-                                      )}
+                                      {selectedValues.level1 &&
+                                        getLevel2Options(selectedValues.level1)
+                                          .length > 0 && (
+                                          <div>
+                                            <label className="block text-xs font-bold text-blue-900 dark:text-blue-200 mb-1">
+                                              L2: {defaultLabels[1]}
+                                            </label>
+                                            <select
+                                              value={
+                                                selectedValues.level2 || ""
+                                              }
+                                              onChange={(e) =>
+                                                handleLevelChange(
+                                                  2,
+                                                  e.target.value,
+                                                )
+                                              }
+                                              className="w-full px-2 py-1 text-xs border border-blue-300 dark:border-blue-600 rounded bg-white dark:bg-blue-800 text-blue-900 dark:text-blue-100 focus:ring-2 focus:ring-blue-500"
+                                            >
+                                              <option value="">
+                                                Select Level 2
+                                              </option>
+                                              {getLevel2Options(
+                                                selectedValues.level1,
+                                              ).map((opt: string) => (
+                                                <option key={opt} value={opt}>
+                                                  {opt}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        )}
 
                                       {/* Level 3 */}
-                                      {selectedValues.level2 && getLevel3Options(selectedValues.level1 || "", selectedValues.level2).length > 0 && (
-                                        <div>
-                                          <label className="block text-xs font-bold text-blue-900 dark:text-blue-200 mb-1">L3: {defaultLabels[2]}</label>
-                                          <select
-                                            value={selectedValues.level3 || ""}
-                                            onChange={(e) => handleLevelChange(3, e.target.value)}
-                                            className="w-full px-2 py-1 text-xs border border-blue-300 dark:border-blue-600 rounded bg-white dark:bg-blue-800 text-blue-900 dark:text-blue-100 focus:ring-2 focus:ring-blue-500"
-                                          >
-                                            <option value="">Select Level 3</option>
-                                            {getLevel3Options(selectedValues.level1 || "", selectedValues.level2).map((opt: string) => (
-                                              <option key={opt} value={opt}>{opt}</option>
-                                            ))}
-                                          </select>
-                                        </div>
-                                      )}
+                                      {selectedValues.level2 &&
+                                        getLevel3Options(
+                                          selectedValues.level1 || "",
+                                          selectedValues.level2,
+                                        ).length > 0 && (
+                                          <div>
+                                            <label className="block text-xs font-bold text-blue-900 dark:text-blue-200 mb-1">
+                                              L3: {defaultLabels[2]}
+                                            </label>
+                                            <select
+                                              value={
+                                                selectedValues.level3 || ""
+                                              }
+                                              onChange={(e) =>
+                                                handleLevelChange(
+                                                  3,
+                                                  e.target.value,
+                                                )
+                                              }
+                                              className="w-full px-2 py-1 text-xs border border-blue-300 dark:border-blue-600 rounded bg-white dark:bg-blue-800 text-blue-900 dark:text-blue-100 focus:ring-2 focus:ring-blue-500"
+                                            >
+                                              <option value="">
+                                                Select Level 3
+                                              </option>
+                                              {getLevel3Options(
+                                                selectedValues.level1 || "",
+                                                selectedValues.level2,
+                                              ).map((opt: string) => (
+                                                <option key={opt} value={opt}>
+                                                  {opt}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        )}
 
                                       {/* Level 4 */}
-                                      {selectedValues.level3 && getLevel4Options(selectedValues.level1 || "", selectedValues.level2 || "", selectedValues.level3).length > 0 && (
-                                        <div>
-                                          <label className="block text-xs font-bold text-blue-900 dark:text-blue-200 mb-1">L4: {defaultLabels[3]}</label>
-                                          <select
-                                            value={selectedValues.level4 || ""}
-                                            onChange={(e) => handleLevelChange(4, e.target.value)}
-                                            className="w-full px-2 py-1 text-xs border border-blue-300 dark:border-blue-600 rounded bg-white dark:bg-blue-800 text-blue-900 dark:text-blue-100 focus:ring-2 focus:ring-blue-500"
-                                          >
-                                            <option value="">Select Level 4</option>
-                                            {getLevel4Options(selectedValues.level1 || "", selectedValues.level2 || "", selectedValues.level3).map((opt: string) => (
-                                              <option key={opt} value={opt}>{opt}</option>
-                                            ))}
-                                          </select>
-                                        </div>
-                                      )}
+                                      {selectedValues.level3 &&
+                                        getLevel4Options(
+                                          selectedValues.level1 || "",
+                                          selectedValues.level2 || "",
+                                          selectedValues.level3,
+                                        ).length > 0 && (
+                                          <div>
+                                            <label className="block text-xs font-bold text-blue-900 dark:text-blue-200 mb-1">
+                                              L4: {defaultLabels[3]}
+                                            </label>
+                                            <select
+                                              value={
+                                                selectedValues.level4 || ""
+                                              }
+                                              onChange={(e) =>
+                                                handleLevelChange(
+                                                  4,
+                                                  e.target.value,
+                                                )
+                                              }
+                                              className="w-full px-2 py-1 text-xs border border-blue-300 dark:border-blue-600 rounded bg-white dark:bg-blue-800 text-blue-900 dark:text-blue-100 focus:ring-2 focus:ring-blue-500"
+                                            >
+                                              <option value="">
+                                                Select Level 4
+                                              </option>
+                                              {getLevel4Options(
+                                                selectedValues.level1 || "",
+                                                selectedValues.level2 || "",
+                                                selectedValues.level3,
+                                              ).map((opt: string) => (
+                                                <option key={opt} value={opt}>
+                                                  {opt}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        )}
 
                                       {/* Level 5 */}
-                                      {selectedValues.level4 && getLevel5Options(selectedValues.level1 || "", selectedValues.level2 || "", selectedValues.level3 || "", selectedValues.level4).length > 0 && (
-                                        <div>
-                                          <label className="block text-xs font-bold text-blue-900 dark:text-blue-200 mb-1">L5: {defaultLabels[4]}</label>
-                                          <select
-                                            value={selectedValues.level5 || ""}
-                                            onChange={(e) => handleLevelChange(5, e.target.value)}
-                                            className="w-full px-2 py-1 text-xs border border-blue-300 dark:border-blue-600 rounded bg-white dark:bg-blue-800 text-blue-900 dark:text-blue-100 focus:ring-2 focus:ring-blue-500"
-                                          >
-                                            <option value="">Select Level 5</option>
-                                            {getLevel5Options(selectedValues.level1 || "", selectedValues.level2 || "", selectedValues.level3 || "", selectedValues.level4).map((opt: string) => (
-                                              <option key={opt} value={opt}>{opt}</option>
-                                            ))}
-                                          </select>
-                                        </div>
-                                      )}
+                                      {selectedValues.level4 &&
+                                        getLevel5Options(
+                                          selectedValues.level1 || "",
+                                          selectedValues.level2 || "",
+                                          selectedValues.level3 || "",
+                                          selectedValues.level4,
+                                        ).length > 0 && (
+                                          <div>
+                                            <label className="block text-xs font-bold text-blue-900 dark:text-blue-200 mb-1">
+                                              L5: {defaultLabels[4]}
+                                            </label>
+                                            <select
+                                              value={
+                                                selectedValues.level5 || ""
+                                              }
+                                              onChange={(e) =>
+                                                handleLevelChange(
+                                                  5,
+                                                  e.target.value,
+                                                )
+                                              }
+                                              className="w-full px-2 py-1 text-xs border border-blue-300 dark:border-blue-600 rounded bg-white dark:bg-blue-800 text-blue-900 dark:text-blue-100 focus:ring-2 focus:ring-blue-500"
+                                            >
+                                              <option value="">
+                                                Select Level 5
+                                              </option>
+                                              {getLevel5Options(
+                                                selectedValues.level1 || "",
+                                                selectedValues.level2 || "",
+                                                selectedValues.level3 || "",
+                                                selectedValues.level4,
+                                              ).map((opt: string) => (
+                                                <option key={opt} value={opt}>
+                                                  {opt}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        )}
 
                                       {/* Level 6 */}
-                                      {selectedValues.level5 && getLevel6Options(selectedValues.level1 || "", selectedValues.level2 || "", selectedValues.level3 || "", selectedValues.level4 || "", selectedValues.level5).length > 0 && (
-                                        <div>
-                                          <label className="block text-xs font-bold text-blue-900 dark:text-blue-200 mb-1">L6: {defaultLabels[5]}</label>
-                                          <select
-                                            value={selectedValues.level6 || ""}
-                                            onChange={(e) => handleLevelChange(6, e.target.value)}
-                                            className="w-full px-2 py-1 text-xs border border-blue-300 dark:border-blue-600 rounded bg-white dark:bg-blue-800 text-blue-900 dark:text-blue-100 focus:ring-2 focus:ring-blue-500"
-                                          >
-                                            <option value="">Select Level 6</option>
-                                            {getLevel6Options(selectedValues.level1 || "", selectedValues.level2 || "", selectedValues.level3 || "", selectedValues.level4 || "", selectedValues.level5).map((opt: string) => (
-                                              <option key={opt} value={opt}>{opt}</option>
-                                            ))}
-                                          </select>
-                                        </div>
-                                      )}
+                                      {selectedValues.level5 &&
+                                        getLevel6Options(
+                                          selectedValues.level1 || "",
+                                          selectedValues.level2 || "",
+                                          selectedValues.level3 || "",
+                                          selectedValues.level4 || "",
+                                          selectedValues.level5,
+                                        ).length > 0 && (
+                                          <div>
+                                            <label className="block text-xs font-bold text-blue-900 dark:text-blue-200 mb-1">
+                                              L6: {defaultLabels[5]}
+                                            </label>
+                                            <select
+                                              value={
+                                                selectedValues.level6 || ""
+                                              }
+                                              onChange={(e) =>
+                                                handleLevelChange(
+                                                  6,
+                                                  e.target.value,
+                                                )
+                                              }
+                                              className="w-full px-2 py-1 text-xs border border-blue-300 dark:border-blue-600 rounded bg-white dark:bg-blue-800 text-blue-900 dark:text-blue-100 focus:ring-2 focus:ring-blue-500"
+                                            >
+                                              <option value="">
+                                                Select Level 6
+                                              </option>
+                                              {getLevel6Options(
+                                                selectedValues.level1 || "",
+                                                selectedValues.level2 || "",
+                                                selectedValues.level3 || "",
+                                                selectedValues.level4 || "",
+                                                selectedValues.level5,
+                                              ).map((opt: string) => (
+                                                <option key={opt} value={opt}>
+                                                  {opt}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        )}
                                     </>
                                   );
                                 })()}
                               </div>
-                              <p className="text-xs text-blue-700 dark:text-blue-300 mt-2 italic">Select Level 1 first, then each subsequent level will show only available options based on your selection.</p>
+                              <p className="text-xs text-blue-700 dark:text-blue-300 mt-2 italic">
+                                Select Level 1 first, then each subsequent level
+                                will show only available options based on your
+                                selection.
+                              </p>
                             </div>
                           )}
 
@@ -1963,7 +2045,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                     sectionIndex,
                                     questionIndex,
                                     "required",
-                                    e.target.checked
+                                    e.target.checked,
                                   )
                                 }
                                 className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
@@ -2015,7 +2097,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                   sectionIndex,
                                                   questionIndex,
                                                   optionIndex,
-                                                  e.target.value
+                                                  e.target.value,
                                                 )
                                               }
                                               placeholder={`Option ${
@@ -2033,7 +2115,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                     removeOption(
                                                       sectionIndex,
                                                       questionIndex,
-                                                      optionIndex
+                                                      optionIndex,
                                                     )
                                                   }
                                                   className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
@@ -2053,7 +2135,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                 setOpenOptionMenu(
                                                   openOptionMenu === menuId
                                                     ? null
-                                                    : menuId
+                                                    : menuId,
                                                 );
                                               }}
                                               className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 rounded-lg transition-colors relative"
@@ -2071,7 +2153,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                     addFollowUp(
                                                       sectionIndex,
                                                       questionIndex,
-                                                      option
+                                                      option,
                                                     );
                                                     setOpenOptionMenu(null);
                                                   }}
@@ -2084,11 +2166,11 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                   onClick={() => {
                                                     console.log(
                                                       "Opening section modal for option:",
-                                                      option
+                                                      option,
                                                     );
                                                     console.log(
                                                       "Available sections:",
-                                                      formData.sections.length
+                                                      formData.sections.length,
                                                     );
                                                     setSectionModal({
                                                       isOpen: true,
@@ -2112,7 +2194,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                         ?.hasFollowUp;
                                                     if (!isLinked) {
                                                       alert(
-                                                        "Please link a follow-up section first before linking a form"
+                                                        "Please link a follow-up section first before linking a form",
                                                       );
                                                       return;
                                                     }
@@ -2124,23 +2206,23 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                         .availableForms || [];
                                                     if (forms.length === 0) {
                                                       alert(
-                                                        "No other forms available to link"
+                                                        "No other forms available to link",
                                                       );
                                                       return;
                                                     }
                                                     const selectedFormId =
                                                       prompt(
-                                                        "Enter the ID of the form to link (or paste form ID)"
+                                                        "Enter the ID of the form to link (or paste form ID)",
                                                       );
                                                     if (selectedFormId) {
                                                       linkFollowUpForm(
                                                         sectionIndex,
                                                         questionIndex,
                                                         option,
-                                                        selectedFormId
+                                                        selectedFormId,
                                                       );
                                                       alert(
-                                                        "Form linked successfully!"
+                                                        "Form linked successfully!",
                                                       );
                                                     }
                                                     setOpenOptionMenu(null);
@@ -2168,25 +2250,25 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                     {formData.sections.findIndex(
                                                       (s) =>
                                                         s.id ===
-                                                        currentGoToSection
+                                                        currentGoToSection,
                                                     ) !== -1
                                                       ? `Section ${
                                                           formData.sections.findIndex(
                                                             (s) =>
                                                               s.id ===
-                                                              currentGoToSection
+                                                              currentGoToSection,
                                                           ) + 1
                                                         }${
                                                           formData.sections.find(
                                                             (s) =>
                                                               s.id ===
-                                                              currentGoToSection
+                                                              currentGoToSection,
                                                           )?.title
                                                             ? `: ${
                                                                 formData.sections.find(
                                                                   (s) =>
                                                                     s.id ===
-                                                                    currentGoToSection
+                                                                    currentGoToSection,
                                                                 )?.title
                                                               }`
                                                             : ""
@@ -2219,7 +2301,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                           </div>
                                         </div>
                                       );
-                                    }
+                                    },
                                   )}
                                 </div>
 
@@ -2266,44 +2348,60 @@ export const MultipleChoiceFormBuilder: React.FC<
                                               <div className="flex items-start justify-between mb-2">
                                                 <div className="flex items-center space-x-3">
                                                   <span className="text-xs font-medium text-blue-600">
-                                                    Shown when: "{followUp.showWhen?.value}"
+                                                    Shown when: "
+                                                    {followUp.showWhen?.value}"
                                                   </span>
                                                 </div>
                                                 <div className="flex items-center space-x-2">
-                                                                                                    <label className="flex items-center space-x-1 cursor-pointer px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-md" title="Track Question">
+                                                  <label
+                                                    className="flex items-center space-x-1 cursor-pointer px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-md"
+                                                    title="Track Question"
+                                                  >
                                                     <input
                                                       type="checkbox"
-                                                      checked={followUp.trackResponseRank || false}
+                                                      checked={
+                                                        followUp.trackResponseRank ||
+                                                        false
+                                                      }
                                                       onChange={(e) =>
                                                         updateFollowUp(
                                                           sectionIndex,
                                                           questionIndex,
                                                           followUpIndex,
                                                           "trackResponseRank",
-                                                          e.target.checked
+                                                          e.target.checked,
                                                         )
                                                       }
                                                       className="h-3 w-3 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
                                                     />
-                                                    <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">Track Question</span>
+                                                    <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                                                      Track Question
+                                                    </span>
                                                   </label>
-                                                  <label className="flex items-center space-x-1 cursor-pointer px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-md" title="Track Rank">
-
+                                                  <label
+                                                    className="flex items-center space-x-1 cursor-pointer px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-md"
+                                                    title="Track Rank"
+                                                  >
                                                     <input
                                                       type="checkbox"
-                                                      checked={followUp.trackResponseRank || false}
+                                                      checked={
+                                                        followUp.trackResponseRank ||
+                                                        false
+                                                      }
                                                       onChange={(e) =>
                                                         updateFollowUp(
                                                           sectionIndex,
                                                           questionIndex,
                                                           followUpIndex,
                                                           "trackResponseRank",
-                                                          e.target.checked
+                                                          e.target.checked,
                                                         )
                                                       }
                                                       className="h-3 w-3 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
                                                     />
-                                                    <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">Track Rank</span>
+                                                    <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                                                      Track Rank
+                                                    </span>
                                                   </label>
                                                   <button
                                                     type="button"
@@ -2311,7 +2409,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                       removeFollowUp(
                                                         sectionIndex,
                                                         questionIndex,
-                                                        followUpIndex
+                                                        followUpIndex,
                                                       )
                                                     }
                                                     className="text-red-600 hover:text-red-800 p-1 hover:bg-red-50 rounded"
@@ -2331,7 +2429,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                     questionIndex,
                                                     followUpIndex,
                                                     "text",
-                                                    e.target.value
+                                                    e.target.value,
                                                   )
                                                 }
                                                 placeholder="Follow-up question text"
@@ -2347,7 +2445,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                       questionIndex,
                                                       followUpIndex,
                                                       "type",
-                                                      e.target.value
+                                                      e.target.value,
                                                     )
                                                   }
                                                   className="p-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm"
@@ -2385,7 +2483,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                         questionIndex,
                                                         followUpIndex,
                                                         "required",
-                                                        e.target.checked
+                                                        e.target.checked,
                                                       )
                                                     }
                                                     className="h-4 w-4 text-blue-600"
@@ -2395,12 +2493,14 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                   </span>
                                                 </label>
                                               </div>
-                                              
+
                                               {followUp.trackResponseRank && (
                                                 <div className="mt-2 p-2 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800 rounded-lg space-y-2 mb-2">
                                                   <div className="flex items-center gap-1.5 mb-0.5">
                                                     <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
-                                                    <h4 className="text-[10px] font-bold text-blue-900 dark:text-blue-100 uppercase tracking-wider">Track Rank Config</h4>
+                                                    <h4 className="text-[10px] font-bold text-blue-900 dark:text-blue-100 uppercase tracking-wider">
+                                                      Track Rank Config
+                                                    </h4>
                                                   </div>
                                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                     <div>
@@ -2409,14 +2509,17 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                       </label>
                                                       <input
                                                         type="text"
-                                                        value={followUp.trackResponseRankLabel || ""}
+                                                        value={
+                                                          followUp.trackResponseRankLabel ||
+                                                          ""
+                                                        }
                                                         onChange={(e) =>
                                                           updateFollowUp(
                                                             sectionIndex,
                                                             questionIndex,
                                                             followUpIndex,
                                                             "trackResponseRankLabel",
-                                                            e.target.value
+                                                            e.target.value,
                                                           )
                                                         }
                                                         className="w-full px-2 py-1 border border-blue-200 dark:border-blue-800 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-transparent text-[11px] bg-white dark:bg-gray-900"
@@ -2428,31 +2531,38 @@ export const MultipleChoiceFormBuilder: React.FC<
                                                         Rank Question Type
                                                       </label>
                                                       <select
-                                                        value={followUp.trackResponseRankType || "text"}
+                                                        value={
+                                                          followUp.trackResponseRankType ||
+                                                          "text"
+                                                        }
                                                         onChange={(e) =>
                                                           updateFollowUp(
                                                             sectionIndex,
                                                             questionIndex,
                                                             followUpIndex,
                                                             "trackResponseRankType",
-                                                            e.target.value
+                                                            e.target.value,
                                                           )
                                                         }
                                                         className="w-full px-2 py-1 border border-blue-200 dark:border-blue-800 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-transparent text-[11px] bg-white dark:bg-gray-900"
                                                       >
-                                                        {TRACK_RANK_QUESTION_TYPES.map((type) => (
-                                                          <option key={type.value} value={type.value}>
-                                                            {type.label}
-                                                          </option>
-                                                        ))}
+                                                        {TRACK_RANK_QUESTION_TYPES.map(
+                                                          (type) => (
+                                                            <option
+                                                              key={type.value}
+                                                              value={type.value}
+                                                            >
+                                                              {type.label}
+                                                            </option>
+                                                          ),
+                                                        )}
                                                       </select>
                                                     </div>
                                                   </div>
                                                 </div>
                                               )}
-
                                             </div>
-                                          )
+                                          ),
                                         )}
                                       </div>
                                     </div>
@@ -2548,7 +2658,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                             sectionModal.sectionIndex,
                             sectionModal.questionIndex,
                             sectionModal.option,
-                            ""
+                            "",
                           );
                           setSectionModal(null);
                         }}
@@ -2579,7 +2689,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                                 sectionModal.sectionIndex,
                                 sectionModal.questionIndex,
                                 sectionModal.option,
-                                section.id
+                                section.id,
                               );
                               setSectionModal(null);
                             }}
@@ -2627,7 +2737,7 @@ export const MultipleChoiceFormBuilder: React.FC<
                             sectionModal.sectionIndex,
                             sectionModal.questionIndex,
                             sectionModal.option,
-                            "submit"
+                            "submit",
                           );
                           setSectionModal(null);
                         }}

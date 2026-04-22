@@ -223,7 +223,6 @@ export function exportFormStructureToExcel(form: Question) {
       SectionId: section.id,
       SectionTitle: section.title,
       SectionDescription: section.description || "",
-      SectionWeightage: (section as any).weightage || 0,
       LinkedToOption: section.linkedToOption || "",
       LinkedToQuestionId: section.linkedToQuestionId || "",
     }))
@@ -305,7 +304,6 @@ export function createSampleFormData() {
       "Section Number": "1",
       "Section Title": "Basic Bike Information",
       "Section Description": "Basic details about the bike",
-      "Section Weightage": "30",
       "Section Merging": "",
       Question: "What is your bike make and model?",
       "Question Description": "Manufacturer and specific model",
@@ -316,7 +314,6 @@ export function createSampleFormData() {
       SubParam2: "Identification",
     },
     {
-      "Section Weightage": "30",
       Question: "What is the bike's registration number?",
       "Question Description": "Official registration/plate number",
       "Question Type": "shortText",
@@ -326,7 +323,6 @@ export function createSampleFormData() {
       SubParam2: "Legal Info",
     },
     {
-      "Section Weightage": "30",
       Question: "What is the current odometer reading?",
       "Question Description": "Total kilometers/miles ridden",
       "Question Type": "number",
@@ -339,7 +335,6 @@ export function createSampleFormData() {
       "Section Number": "2",
       "Section Title": "Service Requirements Assessment",
       "Section Description": "Evaluate what service the bike needs",
-      "Section Weightage": "80",
       "Section Merging": "",
 
       // ========== MAIN QUESTION 1: ENGINE ISSUES (WITH NESTED FOLLOW-UPS) ==========
@@ -423,7 +418,6 @@ export function createSampleFormData() {
       "FU5: Question Text": "Any other engine symptoms?",
     },
     {
-      "Section Weightage": "80",
 
       // ========== MAIN QUESTION 2: BRAKE SYSTEM (WITH NESTED FOLLOW-UPS) ==========
       Question: "Are there any brake system problems?",
@@ -507,7 +501,6 @@ export function createSampleFormData() {
       "FU5: Question Text": "Any vibration during braking?",
     },
     {
-      "Section Weightage": "80",
 
       // ========== MAIN QUESTION 3: TIRE CONDITION (SIMPLE FOLLOW-UPS - NO NESTING) ==========
       Question: "Are there any tire issues?",
@@ -562,7 +555,6 @@ export function createSampleFormData() {
       "FU5: Question Text": "Any recent impacts on tires?",
     },
     {
-      "Section Weightage": "80",
 
       // ========== MAIN QUESTION 4: ELECTRICAL SYSTEM (SIMPLE FOLLOW-UPS - NO NESTING) ==========
       Question: "Are there any electrical problems?",
@@ -616,7 +608,6 @@ export function createSampleFormData() {
       "FU5: Question Text": "Any recent electrical modifications?",
     },
     {
-      "Section Weightage": "80",
 
       // ========== MAIN QUESTION 5: SUSPENSION & HANDLING (SIMPLE FOLLOW-UPS - NO NESTING) ==========
       Question: "Are there any suspension or handling issues?",
@@ -674,7 +665,6 @@ export function createSampleFormData() {
       "Section Number": "3",
       "Section Title": "Service History & Preferences",
       "Section Description": "Previous service records and preferences",
-      "Section Weightage": "30",
       "Section Merging": "",
       Question: "When was your last full service?",
       "Question Description": "Complete professional service",
@@ -685,7 +675,6 @@ export function createSampleFormData() {
       SubParam2: "Maintenance",
     },
     {
-      "Section Weightage": "30",
       Question: "What type of service do you prefer?",
       "Question Description": "Service package preference",
       "Question Type": "multipleChoice",
@@ -696,7 +685,6 @@ export function createSampleFormData() {
       SubParam2: "Package",
     },
     {
-      "Section Weightage": "30",
       Question: "Do you need a pickup/drop service?",
       "Question Description": "Transportation assistance",
       "Question Type": "yesNoNA",
@@ -914,7 +902,6 @@ export function downloadNestedFormImportTemplate() {
       "Section Title": "Section 1: Basic Screening",
       "Section Description":
         "Initial qualification questions - no follow-ups required",
-      "Section Weightage": "30",
       "Section Merging": "",
       Question: "Are you 18 years or older?",
       "Question Type": "yesNoNA",
@@ -927,7 +914,6 @@ export function downloadNestedFormImportTemplate() {
       "Correct Answers": "",
     },
     {
-      "Section Weightage": "30",
       "Section Merging": "",
       Question: "Do you have valid identification documents?",
       "Question Type": "yesNoNA",
@@ -940,7 +926,6 @@ export function downloadNestedFormImportTemplate() {
       "Correct Answers": "",
     },
     {
-      "Section Weightage": "30",
       "Section Merging": "",
       Question: "Have you previously used our service before?",
       "Question Type": "yesNoNA",
@@ -953,7 +938,6 @@ export function downloadNestedFormImportTemplate() {
       "Correct Answers": "",
     },
     {
-      "Section Weightage": "30",
       "Section Merging": "",
       Question: "Are you available for a follow-up appointment if needed?",
       "Question Type": "yesNoNA",
@@ -970,7 +954,6 @@ export function downloadNestedFormImportTemplate() {
       "Section Title": "Section 2: Service Experience & Nested Follow-ups",
       "Section Description":
         "Questions about service experience with multi-level follow-ups",
-      "Section Weightage": "40",
       "Section Merging": "",
       Question: "Are you satisfied with our service quality?",
       "Question Type": "yesNoNA",
@@ -983,7 +966,6 @@ export function downloadNestedFormImportTemplate() {
       "Correct Answers": "",
     },
     {
-      "Section Weightage": "40",
       "Section Merging": "",
       Question: "Did you complete your desired goal with our help?",
       "Question Type": "yesNoNA",
@@ -996,7 +978,6 @@ export function downloadNestedFormImportTemplate() {
       "Correct Answers": "",
     },
     {
-      "Section Weightage": "40",
       "Section Merging": "",
       Question: "Would you recommend us to others?",
       "Question Type": "yesNoNA",
@@ -1033,7 +1014,6 @@ export function downloadNestedFormImportTemplate() {
       "FU3: Correct Answer": "",
     },
     {
-      "Section Weightage": "40",
       "Section Merging": "",
       Question: "Will you use our service again in the future?",
       "Question Type": "yesNoNA",
@@ -1072,7 +1052,6 @@ export function downloadNestedFormImportTemplate() {
       "FU3: Correct Answer": "",
     },
     {
-      "Section Weightage": "40",
       "Section Merging": "",
       Question: "Is your issue completely resolved?",
       "Question Type": "yesNoNA",
@@ -1113,7 +1092,6 @@ export function downloadNestedFormImportTemplate() {
       "Section Title": "Section 3: Follow-up Support & Feedback",
       "Section Description":
         "Final section with yes/no/n/a questions and follow-ups",
-      "Section Weightage": "30",
       "Section Merging": "",
       Question: "Do you need additional support or resources?",
       "Question Type": "yesNoNA",
@@ -1142,7 +1120,6 @@ export function downloadNestedFormImportTemplate() {
       "FU2: Correct Answer": "",
     },
     {
-      "Section Weightage": "30",
       "Section Merging": "",
       Question: "Can we contact you with service updates?",
       "Question Type": "yesNoNA",
@@ -1163,7 +1140,6 @@ export function downloadNestedFormImportTemplate() {
       "FU1: Correct Answer": "",
     },
     {
-      "Section Weightage": "30",
       "Section Merging": "",
       Question: "Will you provide feedback on your experience?",
       "Question Type": "yesNoNA",
@@ -1232,7 +1208,6 @@ export function downloadNestedFormImportTemplate() {
       "FU1: Correct Answer": "",
     },
     {
-      "Section Weightage": "30",
       "Section Merging": "",
       Question: "Please upload any supporting documents (optional)",
       "Question Type": "file",
@@ -1659,7 +1634,6 @@ export function downloadFormImportTemplate() {
       "Section Title": "Section 1: Basic Screening",
       "Section Description":
         "Initial qualification questions",
-      "Section Weightage": "30",
       "Section Merging": "",
       Question: "Are you 18 years or older?",
       "Question Type": "yesNoNA",
@@ -1676,7 +1650,6 @@ export function downloadFormImportTemplate() {
       "Section Title": "Section 2: Service Experience",
       "Section Description":
         "Questions about service experience with many follow-ups",
-      "Section Weightage": "40",
       "Section Merging": "",
       Question: "Are you satisfied with our service quality?",
       "Question Type": "yesNoNA",
@@ -1717,7 +1690,6 @@ export function downloadFormImportTemplate() {
       "Section Number": "3",
       "Section Title": "Section 3: Final Feedback",
       "Section Description": "Final thoughts and submission",
-      "Section Weightage": "30",
       "Section Merging": "",
       Question: "Any other comments?",
       "Question Type": "longText",
@@ -2374,7 +2346,6 @@ function parseNewTemplateFormat(
 
     if (sectionNo) {
       currentSectionNo = sectionNo;
-      const sectionWeightage = parseNumber(row["Section Weightage"]);
       const sectionMerging = row[mergingColumnName]?.toString().trim() || "";
       const nextSection = row[nextSectionColumnName]?.toString().trim() || "";
 
@@ -2401,7 +2372,6 @@ function parseNewTemplateFormat(
           id: generateId(),
           title: sectionTitle || `Section ${sectionNo}`,
           description: sectionDesc || "Section description",
-          weightage: sectionWeightage ?? 0,
           questions: [],
           merging: sectionMerging || undefined,
           parentSectionId: undefined,
@@ -2417,9 +2387,6 @@ function parseNewTemplateFormat(
       } else {
         const existingSection = sectionsMap.get(sectionNo);
         if (existingSection) {
-          if (sectionWeightage !== undefined) {
-            existingSection.weightage = sectionWeightage;
-          }
           if (sectionMerging) {
             existingSection.merging = sectionMerging;
             console.log(

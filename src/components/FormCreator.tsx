@@ -56,7 +56,6 @@ interface FormSection {
   id: string;
   title: string;
   description?: string;
-  weightage?: number;
   questions: Question[];
   parentSectionId?: string; // For subsections
   isSubsection?: boolean; // Mark if this is a subsection
@@ -211,16 +210,12 @@ export default function FormCreator() {
         id: crypto.randomUUID(),
         title: "Section 1",
         description: "",
-        weightage: 0,
         questions: [],
       },
     ] as FormSection[],
     followUpQuestions: [] as FollowUpQuestion[],
     chassisNumbers: [] as Array<{ chassisNumber: string; partDescription: string }>,
   });
-  const [sectionWeightageDrafts, setSectionWeightageDrafts] = useState<
-    Record<string, string>
-  >({});
   const [formSectionBranching, setFormSectionBranching] = useState<any[]>([]);
   const [showFormRoutingConfig, setShowFormRoutingConfig] = useState(false);
   const [formRoutingConfigQuestion, setFormRoutingConfigQuestion] = useState<{
@@ -394,6 +389,7 @@ export default function FormCreator() {
               typeof cn === 'string' ? { chassisNumber: cn, partDescription: '' } : cn
             ),
           });
+
           if (backendForm.sectionBranching) {
             setFormSectionBranching(backendForm.sectionBranching);
             console.log(
@@ -444,7 +440,6 @@ export default function FormCreator() {
               id: section.id || crypto.randomUUID(),
               title: section.title || "",
               description: section.description || "",
-              weightage: section.weightage || 0,
               questions: (section.questions || []).map((question: any) => ({
                 id: question.id || crypto.randomUUID(),
                 text: question.text || "",
@@ -483,7 +478,6 @@ export default function FormCreator() {
                 id: crypto.randomUUID(),
                 title: "Section 1",
                 description: "",
-                weightage: 0,
                 questions: [],
               },
             ],
@@ -504,37 +498,6 @@ export default function FormCreator() {
       }
     }
   }, [id, location.state, location.pathname]);
-
-  useEffect(() => {
-    setSectionWeightageDrafts((prev) => {
-      const currentIds = new Set(form.sections.map((section) => section.id));
-      const next = { ...prev };
-      let changed = false;
-
-      Object.keys(next).forEach((key) => {
-        if (!currentIds.has(key)) {
-          delete next[key];
-          changed = true;
-        }
-      });
-
-      form.sections.forEach((section) => {
-        if (next[section.id] === undefined) {
-          if (
-            typeof section.weightage === "number" &&
-            !Number.isNaN(section.weightage)
-          ) {
-            next[section.id] = section.weightage.toString();
-          } else {
-            next[section.id] = "";
-          }
-          changed = true;
-        }
-      });
-
-      return changed ? next : prev;
-    });
-  }, [form.sections]);
 
   // Fetch tenants when chassis modal opens
   useEffect(() => {
@@ -733,7 +696,6 @@ export default function FormCreator() {
                 id: crypto.randomUUID(),
                 title: "Process Overview",
                 description: "Initial assessment of the manufacturing process",
-                weightage: 25,
                 questions: [
                   {
                     id: crypto.randomUUID(),
@@ -823,7 +785,6 @@ export default function FormCreator() {
                 id: crypto.randomUUID(),
                 title: "Compliance Check",
                 description: "Verification of regulatory and safety compliance",
-                weightage: 35,
                 questions: [
                   {
                     id: crypto.randomUUID(),
@@ -854,7 +815,6 @@ export default function FormCreator() {
                 id: crypto.randomUUID(),
                 title: "Final Assessment",
                 description: "Overall evaluation and recommendations",
-                weightage: 40,
                 questions: [
                   {
                     id: crypto.randomUUID(),
@@ -1284,7 +1244,6 @@ export default function FormCreator() {
           id: crypto.randomUUID(),
           title: "Section 1",
           description: "",
-          weightage: 0,
           questions: [],
         },
       ] as FormSection[],
@@ -1305,7 +1264,6 @@ export default function FormCreator() {
         "Section Number": "1",
         "Section Title": "Basic Bike Information",
         "Section Description": "Basic details about the bike",
-        "Section Weightage": "20",
         "Section Merging": "",
         "After Section Action": "",
         Question: "What is your bike make and model?",
@@ -1319,7 +1277,6 @@ export default function FormCreator() {
         SubParam2: "Identification",
       },
       {
-        "Section Weightage": "20",
         Question: "What is the bike's registration number?",
         "Question Description": "Official registration/plate number",
         "Question Type": "shortText",
@@ -1329,7 +1286,6 @@ export default function FormCreator() {
         SubParam2: "Legal Info",
       },
       {
-        "Section Weightage": "20",
         Question: "What is the current odometer reading?",
         "Question Description": "Total kilometers/miles ridden",
         "Question Type": "number",
@@ -1342,7 +1298,6 @@ export default function FormCreator() {
         "Section Number": "1.1",
         "Section Title": "Owner Details",
         "Section Description": "Details about the bike owner",
-        "Section Weightage": "10",
         "Subsection Of": "1",
         "After Section Action": "",
         Question: "Owner Name",
@@ -1356,7 +1311,6 @@ export default function FormCreator() {
         "Section Number": "2",
         "Section Title": "Service Requirements Assessment",
         "Section Description": "Evaluate what service the bike needs",
-        "Section Weightage": "40",
         "Section Merging": "",
         "After Section Action": "3",
 
@@ -1429,7 +1383,6 @@ export default function FormCreator() {
         // FU4: ADDITIONAL ENGINE QUESTION
       },
       {
-        "Section Weightage": "40",
         // ========== MAIN QUESTION 2: BRAKE SYSTEM (WITH NESTED FOLLOW-UPS) ==========
         Question: "Are there any brake system problems?",
         "Question Description": "Issues with braking performance",
@@ -1496,8 +1449,6 @@ export default function FormCreator() {
         "FU3: Question Text": "Why are brakes not applicable?",
       },
       {
-        "Section Weightage": "40",
-
         // ========== MAIN QUESTION 3: TIRE CONDITION (SIMPLE FOLLOW-UPS - NO NESTING) ==========
         Question: "Are there any tire issues?",
         "Question Description": "Problems with tires and wheels",
@@ -1536,8 +1487,6 @@ export default function FormCreator() {
         // FU4: ADDITIONAL TIRE QUESTION
       },
       {
-        "Section Weightage": "40",
-
         // ========== MAIN QUESTION 4: ELECTRICAL SYSTEM (SIMPLE FOLLOW-UPS - NO NESTING) ==========
         Question: "Are there any electrical problems?",
         "Question Description": "Issues with lights, battery, electronics",
@@ -1576,8 +1525,6 @@ export default function FormCreator() {
         // FU4: ADDITIONAL ELECTRICAL QUESTION
       },
       {
-        "Section Weightage": "40",
-
         // ========== MAIN QUESTION 5: SUSPENSION & HANDLING (SIMPLE FOLLOW-UPS - NO NESTING) ==========
         Question: "Are there any suspension or handling issues?",
         "Question Description": "Problems with ride comfort and control",
@@ -1617,7 +1564,6 @@ export default function FormCreator() {
         "Section Number": "3",
         "Section Title": "Service History & Preferences",
         "Section Description": "Previous service records and preferences",
-        "Section Weightage": "30",
         "Section Merging": "",
         Question: "When was your last full service?",
         "Question Description": "Complete professional service",
@@ -1628,7 +1574,6 @@ export default function FormCreator() {
         SubParam2: "Maintenance",
       },
       {
-        "Section Weightage": "30",
         Question: "What type of service do you prefer?",
         "Question Description": "Service package preference",
         "Question Type": "multipleChoice",
@@ -1639,7 +1584,6 @@ export default function FormCreator() {
         SubParam2: "Package",
       },
       {
-        "Section Weightage": "30",
         Question: "Do you need a pickup/drop service?",
         "Question Description": "Transportation assistance",
         "Question Type": "yesNoNA",
@@ -1724,7 +1668,6 @@ export default function FormCreator() {
           title:
             sectionTitle || `Section ${sectionNumber || sections.length + 1}`,
           description: getString(row["Section Description"]),
-          weightage: getNumber(row["Section Weightage"], 0),
           questions: [],
         };
       }
@@ -1978,7 +1921,6 @@ export default function FormCreator() {
           id: crypto.randomUUID(),
           title: `Section ${prev.sections.length + 1}`,
           description: "",
-          weightage: 0,
           questions: [],
           isSubsection: false,
         },
@@ -2113,72 +2055,6 @@ export default function FormCreator() {
         section.id === sectionId ? { ...section, ...updates } : section
       ),
     }));
-  };
-
-  const resolveSectionWeightageDraft = (section: FormSection) => {
-    if (sectionWeightageDrafts[section.id] !== undefined) {
-      return sectionWeightageDrafts[section.id];
-    }
-    if (
-      typeof section.weightage === "number" &&
-      !Number.isNaN(section.weightage)
-    ) {
-      return section.weightage.toString();
-    }
-    return "";
-  };
-
-  const handleSaveSectionWeightage = (sectionId: string) => {
-    const rawDraft = sectionWeightageDrafts[sectionId];
-    const trimmedDraft = (rawDraft ?? "").trim();
-    const valueToParse = trimmedDraft === "" ? "0" : trimmedDraft;
-    const parsed = Number(valueToParse);
-
-    if (Number.isNaN(parsed)) {
-      showError("Section weightage must be a number", "Validation Error");
-      return;
-    }
-
-    if (parsed < 0 || parsed > 100) {
-      showError(
-        "Section weightage must be between 0 and 100",
-        "Validation Error"
-      );
-      return;
-    }
-
-    const rounded = Math.round(parsed * 10) / 10;
-
-    updateSection(sectionId, { weightage: rounded });
-    setSectionWeightageDrafts((prev) => ({
-      ...prev,
-      [sectionId]: rounded.toString(),
-    }));
-  };
-
-  const getSavedSectionWeightage = (section: FormSection) => {
-    if (
-      typeof section.weightage === "number" &&
-      !Number.isNaN(section.weightage)
-    ) {
-      return Math.round(section.weightage * 10) / 10;
-    }
-    return 0;
-  };
-
-  const formatWeightageDisplay = (value: number) =>
-    value.toFixed(1).replace(/\.0$/, "");
-
-  const hasPendingWeightageChange = (section: FormSection) => {
-    const draft = resolveSectionWeightageDraft(section).trim();
-    if (!draft.length) {
-      return getSavedSectionWeightage(section) !== 0;
-    }
-    const parsed = Number(draft);
-    if (Number.isNaN(parsed)) {
-      return true;
-    }
-    return Math.abs(parsed - getSavedSectionWeightage(section)) > 0.05;
   };
 
   const deleteSection = (sectionId: string) => {
@@ -2378,7 +2254,6 @@ export default function FormCreator() {
       id: crypto.randomUUID(),
       title: `Section ${form.sections.length + 1}`,
       description: "",
-      weightage: 0,
       questions: questionsForNewSection,
       isSubsection: false,
     };
@@ -4458,51 +4333,6 @@ export default function FormCreator() {
                             placeholder="Brief description for respondents"
                           />
                         </div>
-
-                        {!section.isSubsection && (
-                          <div>
-                            <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5 uppercase tracking-wide">
-                              Section Weightage (%)
-                            </label>
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="number"
-                                min={0}
-                                max={100}
-                                step={0.1}
-                                value={resolveSectionWeightageDraft(section)}
-                                onChange={(e) =>
-                                  setSectionWeightageDrafts((prev) => ({
-                                    ...prev,
-                                    [section.id]: e.target.value,
-                                  }))
-                                }
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm"
-                                placeholder="Enter weightage for this section"
-                              />
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleSaveSectionWeightage(section.id)
-                                }
-                                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${hasPendingWeightageChange(section)
-                                  ? "bg-blue-600 text-white hover:bg-blue-700"
-                                  : "bg-gray-200 text-gray-600 cursor-not-allowed"
-                                  }`}
-                                disabled={!hasPendingWeightageChange(section)}
-                              >
-                                Save
-                              </button>
-                            </div>
-                            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                              Saved:{" "}
-                              {formatWeightageDisplay(
-                                getSavedSectionWeightage(section)
-                              )}
-                              %
-                            </p>
-                          </div>
-                        )}
                       </div>
                     </div>
 
@@ -5759,12 +5589,6 @@ export default function FormCreator() {
                             0
                           );
 
-                          const sectionWeightage =
-                            typeof mainSection?.weightage === "number" &&
-                              !Number.isNaN(mainSection.weightage)
-                              ? mainSection.weightage
-                              : null;
-
                           return (
                             <button
                               key={pageIndex}
@@ -5815,20 +5639,6 @@ export default function FormCreator() {
                                       ? "question"
                                       : "questions"}
                                   </p>
-                                  {sectionWeightage !== null && (
-                                    <p
-                                      className={`text-xs font-medium ${isCurrent
-                                        ? "text-blue-100"
-                                        : "text-blue-500"
-                                        }`}
-                                    >
-                                      Weightage:{" "}
-                                      {Number(sectionWeightage)
-                                        .toFixed(1)
-                                        .replace(/\.0$/, "")}
-                                      %
-                                    </p>
-                                  )}
                                   {page.filter((s) => s.isSubsection).length >
                                     0 && (
                                       <div
@@ -5971,19 +5781,6 @@ export default function FormCreator() {
 
                       return total + countQuestions(section.questions);
                     }, 0)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Total weightage</span>
-                  <span>
-                    {form.sections
-                      .reduce(
-                        (sum, section) => sum + (section.weightage || 0),
-                        0
-                      )
-                      .toFixed(1)
-                      .replace(/\.0$/, "")}
-                    %
                   </span>
                 </div>
               </div>
