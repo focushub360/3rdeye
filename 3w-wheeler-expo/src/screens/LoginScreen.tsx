@@ -6,358 +6,337 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Image,
   Dimensions,
   StatusBar,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import apiClient from '../api/config';
-import { Mail, Lock, Building, ArrowRight, ShieldCheck, UserCircle, ChevronDown, ChevronRight } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 
-const { width } = Dimensions.get('window');
+const { height } = Dimensions.get('window');
 
 const LoginScreen = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [tenantSlug, setTenantSlug] = useState('laxmi-metals-tvs');
+  const [tenantSlug, setTenantSlug] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [showDemoUsers, setShowDemoUsers] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { login } = useAuth();
   const navigation = useNavigation<any>();
 
   const demoUsers = [
-    { name: 'Admin (Main)', email: 'lmadmin@focus.com', role: 'Admin' },
-    { name: 'Pavithra', email: 'pavithra@gmail.com', role: 'Sub-Admin' },
-    { name: 'Tilak Tilak', email: 'thilak20219929@gmail.com', role: 'Sub-Admin' },
-    { name: 'Santha Kumari', email: 'pradeepdon135@gmail.com', role: 'Sub-Admin' },
+    { name: 'Super Admin', email: 'superadmin@focus.com', role: 'SuperAdmin' },
+    { name: 'System Admin', email: 'admin@focus.com', role: 'SystemAdmin' },
+    { name: 'Admin (Laxmi)', email: 'lmadmin@focus.com', role: 'Admin' },
     { name: 'Santhosh Kumar', email: 'santhoshkumar101993@gmail.com', role: 'Inspector' },
     { name: 'Vel Murugan', email: 'velmurugan@gmail.com', role: 'Inspector' },
   ];
 
   const fillUserDetails = (user: any) => {
-    setTenantSlug('laxmi-metals-tvs');
     setEmail(user.email);
-    setPassword('admin123'); // Standard demo password
+    setPassword(user.email === 'superadmin@focus.com' ? 'superadmin123#' : 'admin123#'); 
+    setTenantSlug(''); 
     setShowDemoUsers(false);
+    setError(null);
   };
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please enter your credentials');
+      setError('Please enter your details to sign in.');
       return;
     }
 
     setLoading(true);
+    setError(null);
     try {
-      const response = await apiClient.post('/auth/login', {
-        email,
-        password,
-        tenantSlug,
-      });
+      const loginPayload: any = { email, password };
+      if (tenantSlug) loginPayload.tenantSlug = tenantSlug;
+
+      const response = await apiClient.post('/auth/login', loginPayload);
 
       if (response.data.success) {
         const { token, user, tenant } = response.data.data;
         const userWithTenant = { ...user, tenant };
         await login({ token, user: userWithTenant });
       } else {
-        Alert.alert('Login Failed', response.data.message || 'Invalid credentials');
+        setError(response.data.message || 'Incorrect email or password.');
       }
     } catch (error: any) {
       console.error('Login error:', error);
-      const message = error.response?.data?.message || 'Network error or incorrect credentials';
-      Alert.alert('Login Error', message);
+      setError(error.response?.data?.message || 'Incorrect email or password. Check your connection.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
-      <StatusBar barStyle="dark-content" />
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <View style={styles.brandBox}>
-            <ShieldCheck size={32} color="#1e3a8a" />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#1e3a8a" />
+      
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent} 
+        bounces={false}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.topPanel}>
+          <View style={styles.welcomeContent}>
+            <Text style={styles.welcomeTitle}>Hello, Welcome!</Text>
+            <Text style={styles.welcomeSubtitle}>
+              Access your dashboard and manage your forms with ease.
+            </Text>
           </View>
-          <Text style={styles.title}>Laxmi Metals</Text>
-          <Text style={styles.subtitle}>Enterprise Service Portal</Text>
+          <View style={styles.webCurveDecoration} />
         </View>
 
-        <View style={styles.formCard}>
-          <Text style={styles.formHeading}>SECURE SIGN IN</Text>
-          
-          <View style={styles.inputGroup}>
-            <View style={styles.inputContainer}>
-              <Mail size={18} color="#94a3b8" style={styles.inputIcon} />
+        <View style={styles.bottomPanel}>
+          <View style={styles.formHeader}>
+            <Text style={styles.loginTitle}>Login</Text>
+            <Text style={styles.loginSubtitle}>Please enter your details to sign in.</Text>
+          </View>
+
+          <View style={styles.form}>
+            <View style={styles.inputWrapper}>
+              <Text style={styles.fieldIcon}>👤</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Work Email"
+                placeholder="Email Address"
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(text) => { setEmail(text); setError(null); }}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 placeholderTextColor="#94a3b8"
               />
             </View>
 
-            <View style={styles.inputContainer}>
-              <Lock size={18} color="#94a3b8" style={styles.inputIcon} />
+            <View style={styles.inputWrapper}>
+              <Text style={styles.fieldIcon}>🔒</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Password"
                 value={password}
-                onChangeText={setPassword}
-                secureTextEntry
+                onChangeText={(text) => { setPassword(text); setError(null); }}
+                secureTextEntry={!showPassword}
                 placeholderTextColor="#94a3b8"
               />
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                <Text style={styles.eyeBtnText}>{showPassword ? '🐵' : '🙈'}</Text>
+              </TouchableOpacity>
             </View>
-          </View>
 
-          <TouchableOpacity
-            style={[styles.loginBtn, loading && styles.btnDisabled]}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Text style={styles.loginBtnText}>Access Dashboard</Text>
-                <ChevronRight size={18} color="#fff" />
-              </>
+            {error && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
             )}
-          </TouchableOpacity>
-        </View>
 
-        {/* Demo Account Selector for client presentation */}
-        <View style={styles.demoSection}>
-          <TouchableOpacity 
-            style={styles.demoToggle}
-            onPress={() => setShowDemoUsers(!showDemoUsers)}
-          >
-            <UserCircle size={20} color="#64748b" />
-            <Text style={styles.demoToggleText}>Switch Management Account</Text>
-            <ChevronDown size={18} color="#64748b" style={{ transform: [{ rotate: showDemoUsers ? '180deg' : '0deg' }] }} />
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.loginBtn, loading && styles.btnDisabled]}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.loginBtnText}>Login</Text>
+              )}
+            </TouchableOpacity>
 
-          {showDemoUsers && (
-            <View style={styles.demoList}>
-              {demoUsers.map((u, i) => (
-                <TouchableOpacity 
-                  key={i} 
-                  style={[styles.demoItem, i === demoUsers.length - 1 && { borderBottomWidth: 0 }]}
-                  onPress={() => fillUserDetails(u)}
-                >
-                  <View style={styles.demoItemInfo}>
-                    <Text style={styles.demoItemName}>{u.name}</Text>
-                    <Text style={styles.demoItemRole}>{u.role}</Text>
-                  </View>
-                  <Text style={styles.demoItemEmail}>{u.email}</Text>
+            <View style={styles.signupBox}>
+              <Text style={styles.signupText}>Don't have an account? </Text>
+              <TouchableOpacity>
+                <Text style={styles.signupLink}>Sign up Free</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.dividerBox}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or social login</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <View style={styles.socialRow}>
+              {['🌐', '💬', '💻', '💼'].map((symbol, idx) => (
+                <TouchableOpacity key={idx} style={styles.socialBtn}>
+                  <Text style={{ fontSize: 24 }}>{symbol}</Text>
                 </TouchableOpacity>
               ))}
             </View>
-          )}
-        </View>
+          </View>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Powered by Focus Engineering v1.0.4</Text>
-          <View style={styles.footerBadge}>
-             <Text style={styles.footerBadgeText}>ENCRYPTED SESSION</Text>
+          <View style={styles.demoSection}>
+            <TouchableOpacity 
+              style={styles.demoToggle}
+              onPress={() => setShowDemoUsers(!showDemoUsers)}
+            >
+              <Text style={styles.demoToggleText}>Developer Accounts {showDemoUsers ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+
+            {showDemoUsers && (
+              <View style={styles.demoList}>
+                {demoUsers.map((u, i) => (
+                  <TouchableOpacity 
+                    key={i} 
+                    style={[styles.demoItem, i === demoUsers.length - 1 && { borderBottomWidth: 0 }]}
+                    onPress={() => fillUserDetails(u)}
+                  >
+                    <View style={styles.demoItemInfo}>
+                      <Text style={styles.demoItemName}>{u.name}</Text>
+                      <Text style={styles.demoItemRole}>{u.role}</Text>
+                    </View>
+                    <Text style={styles.demoItemEmail}>{u.email}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  container: { flex: 1, backgroundColor: '#fff' },
+  scrollContent: { flexGrow: 1, backgroundColor: '#fff' },
+  topPanel: {
+    backgroundColor: '#1e3a8a',
+    height: height * 0.38,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    borderBottomRightRadius: 100,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  welcomeContent: { alignItems: 'center', zIndex: 10, marginTop: -20 },
+  welcomeTitle: {
+    fontSize: 34,
+    fontWeight: '900',
+    color: '#fff',
+    marginBottom: 12,
+    textAlign: 'center',
+    letterSpacing: -0.5,
+  },
+  welcomeSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.8)',
+    textAlign: 'center',
+    lineHeight: 24,
+    fontWeight: '500',
+  },
+  webCurveDecoration: {
+    position: 'absolute',
+    right: -100,
+    top: -50,
+    width: 300,
+    height: height * 0.5,
+    borderRadius: 150,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    zIndex: 1,
+  },
+  bottomPanel: {
     flex: 1,
     backgroundColor: '#fff',
+    paddingHorizontal: 35,
+    paddingTop: 45,
+    paddingBottom: 40,
   },
-  scrollContent: {
-    flexGrow: 1,
-    padding: 24,
-    paddingTop: Platform.OS === 'ios' ? 80 : 60,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 44,
-  },
-  brandBox: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: '#eff6ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#dbeafe',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#0f172a',
+  formHeader: { marginBottom: 35 },
+  loginTitle: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: '#1e293b',
+    marginBottom: 6,
     letterSpacing: -1,
   },
-  subtitle: {
-    fontSize: 15,
-    color: '#64748b',
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  formCard: {
-    backgroundColor: '#fff',
-    borderRadius: 32,
-    padding: 32,
-    shadowColor: '#1e3a8a',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
-    elevation: 8,
-    borderWidth: 1,
-    borderColor: '#f1f5f9',
-  },
-  formHeading: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#94a3b8',
-    letterSpacing: 1.5,
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  inputGroup: {
-    gap: 16,
-    marginBottom: 32,
-  },
-  inputContainer: {
+  loginSubtitle: { fontSize: 15, color: '#94a3b8', fontWeight: '500' },
+  form: { gap: 22 },
+  inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f8fafc',
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    paddingHorizontal: 16,
-    height: 60,
+    borderColor: '#f1f5f9',
+    height: 64,
+    paddingHorizontal: 20,
   },
-  inputIcon: {
-    marginRight: 12,
+  fieldIcon: { fontSize: 20, marginRight: 12 },
+  input: { flex: 1, fontSize: 16, color: '#1e293b', fontWeight: '600' },
+  eyeBtnText: { fontSize: 20 },
+  forgotBtn: { alignSelf: 'flex-end', marginTop: -12 },
+  forgotText: { fontSize: 14, color: '#94a3b8', fontWeight: '600' },
+  errorBox: {
+    backgroundColor: '#fff1f2',
+    borderWidth: 1,
+    borderColor: '#ffe4e6',
+    borderRadius: 14,
+    padding: 15,
+    marginTop: 5,
   },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    color: '#0f172a',
+  errorText: {
+    color: '#e11d48',
+    fontSize: 13,
     fontWeight: '600',
+    textAlign: 'center',
   },
   loginBtn: {
-    flexDirection: 'row',
     backgroundColor: '#1e3a8a',
-    borderRadius: 16,
-    height: 60,
+    borderRadius: 18,
+    height: 64,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
     shadowColor: '#1e3a8a',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 4,
+    shadowRadius: 12,
+    elevation: 6,
+    marginTop: 10,
   },
-  btnDisabled: {
-    backgroundColor: '#94a3b8',
-  },
-  loginBtnText: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '800',
+  btnDisabled: { opacity: 0.7 },
+  loginBtnText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  signupBox: { flexDirection: 'row', justifyContent: 'center', marginTop: 15 },
+  signupText: { fontSize: 15, color: '#64748b', fontWeight: '500' },
+  signupLink: { fontSize: 15, color: '#1e3a8a', fontWeight: '700' },
+  dividerBox: { flexDirection: 'row', alignItems: 'center', marginVertical: 25, gap: 12 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#f1f5f9' },
+  dividerText: { fontSize: 13, color: '#94a3b8', fontWeight: '600' },
+  socialRow: { flexDirection: 'row', justifyContent: 'center', gap: 20, marginBottom: 30 },
+  socialBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
   demoSection: {
-    marginTop: 32,
+    marginTop: 20,
     backgroundColor: '#f8fafc',
-    borderRadius: 24,
+    borderRadius: 20,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#f1f5f9',
   },
-  demoToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 18,
-    gap: 12,
-  },
-  demoToggleText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#64748b',
-  },
-  demoList: {
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
-  },
-  demoItem: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f8fafc',
-  },
-  demoItemInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  demoItemName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1e293b',
-  },
-  demoItemRole: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#3b82f6',
-    backgroundColor: '#eff6ff',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  demoItemEmail: {
-    fontSize: 12,
-    color: '#94a3b8',
-    fontWeight: '500',
-  },
-  footer: {
-    marginTop: 40,
-    alignItems: 'center',
-    paddingBottom: 24,
-  },
-  footerText: {
-    fontSize: 11,
-    color: '#cbd5e1',
-    fontWeight: '600',
-  },
-  footerBadge: {
-    marginTop: 8,
-    backgroundColor: '#f1f5f9',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  footerBadgeText: {
-    fontSize: 8,
-    fontWeight: '900',
-    color: '#94a3b8',
-    letterSpacing: 1,
-  }
+  demoToggle: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 10 },
+  demoToggleText: { flex: 1, fontSize: 13, fontWeight: '700', color: '#94a3b8' },
+  demoList: { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+  demoItem: { padding: 14, borderBottomWidth: 1, borderBottomColor: '#f8fafc' },
+  demoItemInfo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
+  demoItemName: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
+  demoItemRole: { fontSize: 9, fontWeight: '800', color: '#3b82f6', backgroundColor: '#eff6ff', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  demoItemEmail: { fontSize: 11, color: '#94a3b8', fontWeight: '500' },
 });
 
 export default LoginScreen;

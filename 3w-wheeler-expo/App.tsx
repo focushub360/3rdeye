@@ -15,7 +15,7 @@ import DemoFormListScreen from './src/screens/DemoFormListScreen';
 import AttendanceManagementScreen from './src/screens/AttendanceManagementScreen';
 import SplashScreen from './src/screens/SplashScreen';
 import { ActivityIndicator, View, StyleSheet, StatusBar, Platform } from 'react-native';
-import { LayoutDashboard, MessageSquareText, Briefcase, ClipboardList } from 'lucide-react-native';
+// import { LayoutDashboard, MessageSquareText, Briefcase, ClipboardList } from 'lucide-react-native';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -53,7 +53,7 @@ const TabNavigator = () => {
         component={ServiceAnalyticsScreen} 
         options={{
           tabBarLabel: 'DASHBOARD',
-          tabBarIcon: ({ color, size }) => <LayoutDashboard size={22} color={color} />
+          tabBarIcon: ({ color, size }) => <Text style={{ fontSize: 22, color }}>🏠</Text>
         }}
       />
       <Tab.Screen 
@@ -61,7 +61,7 @@ const TabNavigator = () => {
         component={FormListScreen} 
         options={{
           tabBarLabel: 'FORMS',
-          tabBarIcon: ({ color, size }) => <ClipboardList size={22} color={color} />
+          tabBarIcon: ({ color, size }) => <Text style={{ fontSize: 22, color }}>📋</Text>
         }}
       />
       <Tab.Screen 
@@ -69,7 +69,7 @@ const TabNavigator = () => {
         component={HRMSScreen} 
         options={{
           tabBarLabel: 'HRMS',
-          tabBarIcon: ({ color, size }) => <Briefcase size={22} color={color} />
+          tabBarIcon: ({ color, size }) => <Text style={{ fontSize: 22, color }}>💼</Text>
         }}
       />
       <Tab.Screen 
@@ -77,7 +77,7 @@ const TabNavigator = () => {
         component={ChatListScreen} 
         options={{
           tabBarLabel: 'MESSAGE',
-          tabBarIcon: ({ color, size }) => <MessageSquareText size={22} color={color} />
+          tabBarIcon: ({ color, size }) => <Text style={{ fontSize: 22, color }}>💬</Text>
         }}
       />
     </Tab.Navigator>

@@ -153,7 +153,7 @@ const ChatListScreen = () => {
           onPress={() => navigation.navigate('ChatDetail', { 
             isGroup: true,
             tenantId: user.tenant.id || user.tenantId,
-            name: `${user.tenant.name || 'Laxmi Metals'} Official`,
+            name: `${user.tenant.name || 'Organization'} Official`,
             role: 'ORGANIZATION'
           })}
         >
@@ -163,7 +163,7 @@ const ChatListScreen = () => {
           </View>
           <View style={styles.groupInfoMain}>
             <View style={styles.groupNameRow}>
-              <Text style={styles.groupTitleText}>{user.tenant.name || 'Laxmi Metals'} Family</Text>
+              <Text style={styles.groupTitleText}>{user.tenant.name || 'Organization'} Family</Text>
               <View style={styles.verifiedBadge}>
                 <ShieldCheck size={12} color="#fff" />
               </View>

@@ -333,7 +333,7 @@ const ServiceAnalyticsScreen = () => {
               <View style={styles.orgMetaList}>
                 <View style={styles.orgMetaRow}>
                   <Text style={styles.orgMetaLabel}>Business Unit</Text>
-                  <Text style={styles.orgMetaValue}>{user?.tenant?.name || 'Laxmi Metals TVS'}</Text>
+                  <Text style={styles.orgMetaValue}>{user?.tenant?.name || 'Authorized Center'}</Text>
                 </View>
                 <View style={styles.orgMetaDivider} />
                 <View style={styles.orgMetaRow}>
@@ -350,7 +350,7 @@ const ServiceAnalyticsScreen = () => {
               <View style={styles.portalBox}>
                 <Text style={styles.portalLabel}>Customer Portal Endpoint</Text>
                 <Text style={styles.portalLink} numberOfLines={1}>
-                  https://forms.focusengineeringapp.com/{user?.tenant?.slug || 'laxmi-metals-tvs'}
+                  https://forms.focusengineeringapp.com/{user?.tenant?.slug || 'portal'}
                 </Text>
               </View>
             </View>
