@@ -20,7 +20,12 @@ export const questionTypes = [
   { value: "slider-feedback", label: "Slider Feedback (1-10)" },
   { value: "emoji-star-feedback", label: "Star Rating Feedback" },
   { value: "emoji-reaction-feedback", label: "Emoji Reaction Feedback" },
+  { value: "satisfaction-rating", label: "Satisfaction Rating" },
+  { value: "chassis-with-zone", label: "Chassis with Zone" },
+  { value: "chassis-without-zone", label: "Chassis without Zone" },
+  { value: "zone-in", label: "Zone In" },
+  { value: "zone-out", label: "Zone Out" },
   { value: "productNPSTGWBuckets", label: "Product NPS TGW Buckets" },
-] as const;
+],
 
 export type QuestionType = (typeof questionTypes)[number]["value"];
