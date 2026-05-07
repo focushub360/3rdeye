@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { LogOut, User, Settings, Shield, Bell } from 'lucide-react-native';
 
@@ -12,7 +13,8 @@ const AccountScreen = () => {
         <User size={32} color="#3b82f6" />
         <View>
           <Text style={styles.userName}>{user?.name || user?.email}</Text>
-          <Text style={styles.userRole}>{user?.role?.toUpperCase()}</Text>
+          <Text style={styles.userRole}>{user?.role?.toUpperCase() || 'USER'}</Text>
+
         </View>
       </View>
 

@@ -10,12 +10,18 @@ import {
   ScrollView,
   Dimensions,
   StatusBar,
+  Image,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import apiClient from '../api/config';
 import { useNavigation } from '@react-navigation/native';
+import { User, Lock, Eye, EyeOff, Phone } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 
 const { height } = Dimensions.get('window');
+
+import * as Location from 'expo-location';
 
 const LoginScreen = () => {
   const [email, setEmail] = useState('');
@@ -23,49 +29,73 @@ const LoginScreen = () => {
   const [tenantSlug, setTenantSlug] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showDemoUsers, setShowDemoUsers] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { login } = useAuth();
   const navigation = useNavigation<any>();
 
-  const demoUsers = [
-    { name: 'Super Admin', email: 'superadmin@focus.com', role: 'SuperAdmin' },
-    { name: 'System Admin', email: 'admin@focus.com', role: 'SystemAdmin' },
-    { name: 'Admin (Laxmi)', email: 'lmadmin@focus.com', role: 'Admin' },
-    { name: 'Santhosh Kumar', email: 'santhoshkumar101993@gmail.com', role: 'Inspector' },
-    { name: 'Vel Murugan', email: 'velmurugan@gmail.com', role: 'Inspector' },
-  ];
-
-  const fillUserDetails = (user: any) => {
-    setEmail(user.email);
-    setPassword(user.email === 'superadmin@focus.com' ? 'superadmin123#' : 'admin123#'); 
-    setTenantSlug(''); 
-    setShowDemoUsers(false);
-    setError(null);
-  };
 
   const handleLogin = async () => {
     if (!email || !password) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError('Please enter your details to sign in.');
       return;
     }
 
     setLoading(true);
     setError(null);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // Get user location
+    let locationData: { status: string; latitude?: number; longitude?: number } = { status: 'unknown' };
+    
     try {
-      const loginPayload: any = { email, password };
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        const position = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        locationData = {
+          status: 'granted',
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        };
+      } else {
+        locationData = { status: 'denied' };
+      }
+    } catch (err) {
+      console.warn('Location access error:', err);
+      locationData = { status: 'error' };
+    }
+
+    try {
+      const loginPayload: any = { 
+        email, 
+        username: email, // Send as username too to support case-sensitive usernames
+        password,
+        location: locationData 
+      };
       if (tenantSlug) loginPayload.tenantSlug = tenantSlug;
 
       const response = await apiClient.post('/auth/login', loginPayload);
 
       if (response.data.success) {
-        const { token, user, tenant } = response.data.data;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        const { token, user, tenant, sessionLogId } = response.data.data;
         const userWithTenant = { ...user, tenant };
-        await login({ token, user: userWithTenant });
+        await login({ token, user: userWithTenant, sessionLogId });
+        
+        // Navigation based on role
+        if (user.role === 'inspector') {
+          navigation.replace('MainTabs');
+        } else {
+          navigation.replace('MainTabs');
+        }
       } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setError(response.data.message || 'Incorrect email or password.');
       }
     } catch (error: any) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error('Login error:', error);
       setError(error.response?.data?.message || 'Incorrect email or password. Check your connection.');
     } finally {
@@ -77,14 +107,24 @@ const LoginScreen = () => {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1e3a8a" />
       
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent} 
-        bounces={false}
-        showsVerticalScrollIndicator={false}
-      >
+      <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : -100}
+        >
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent} 
+          bounces={false}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
         <View style={styles.topPanel}>
           <View style={styles.welcomeContent}>
-            <Text style={styles.welcomeTitle}>Hello, Welcome!</Text>
+            <Image 
+              source={require('../../assets/logo.jpeg')} 
+              style={styles.welcomeLogo} 
+              resizeMode="contain" 
+            />
             <Text style={styles.welcomeSubtitle}>
               Access your dashboard and manage your forms with ease.
             </Text>
@@ -100,20 +140,24 @@ const LoginScreen = () => {
 
           <View style={styles.form}>
             <View style={styles.inputWrapper}>
-              <Text style={styles.fieldIcon}>👤</Text>
+              {/^\d+$/.test(email) ? (
+                <Phone size={18} color="#94a3b8" style={styles.fieldIcon} />
+              ) : (
+                <User size={18} color="#94a3b8" style={styles.fieldIcon} />
+              )}
               <TextInput
                 style={styles.input}
-                placeholder="Email Address"
+                placeholder="Email, Username or Mobile No"
                 value={email}
                 onChangeText={(text) => { setEmail(text); setError(null); }}
-                keyboardType="email-address"
                 autoCapitalize="none"
                 placeholderTextColor="#94a3b8"
+                keyboardType={/^\d+$/.test(email) ? "phone-pad" : "default"}
               />
             </View>
 
             <View style={styles.inputWrapper}>
-              <Text style={styles.fieldIcon}>🔒</Text>
+              <Lock size={18} color="#94a3b8" style={styles.fieldIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Password"
@@ -123,7 +167,7 @@ const LoginScreen = () => {
                 placeholderTextColor="#94a3b8"
               />
               <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                <Text style={styles.eyeBtnText}>{showPassword ? '🐵' : '🙈'}</Text>
+                {showPassword ? <EyeOff size={20} color="#94a3b8" /> : <Eye size={20} color="#94a3b8" />}
               </TouchableOpacity>
             </View>
 
@@ -144,57 +188,11 @@ const LoginScreen = () => {
                 <Text style={styles.loginBtnText}>Login</Text>
               )}
             </TouchableOpacity>
-
-            <View style={styles.signupBox}>
-              <Text style={styles.signupText}>Don't have an account? </Text>
-              <TouchableOpacity>
-                <Text style={styles.signupLink}>Sign up Free</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.dividerBox}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or social login</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            <View style={styles.socialRow}>
-              {['🌐', '💬', '💻', '💼'].map((symbol, idx) => (
-                <TouchableOpacity key={idx} style={styles.socialBtn}>
-                  <Text style={{ fontSize: 24 }}>{symbol}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
           </View>
 
-          <View style={styles.demoSection}>
-            <TouchableOpacity 
-              style={styles.demoToggle}
-              onPress={() => setShowDemoUsers(!showDemoUsers)}
-            >
-              <Text style={styles.demoToggleText}>Developer Accounts {showDemoUsers ? '▲' : '▼'}</Text>
-            </TouchableOpacity>
-
-            {showDemoUsers && (
-              <View style={styles.demoList}>
-                {demoUsers.map((u, i) => (
-                  <TouchableOpacity 
-                    key={i} 
-                    style={[styles.demoItem, i === demoUsers.length - 1 && { borderBottomWidth: 0 }]}
-                    onPress={() => fillUserDetails(u)}
-                  >
-                    <View style={styles.demoItemInfo}>
-                      <Text style={styles.demoItemName}>{u.name}</Text>
-                      <Text style={styles.demoItemRole}>{u.role}</Text>
-                    </View>
-                    <Text style={styles.demoItemEmail}>{u.email}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </View>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 };
@@ -204,15 +202,24 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1, backgroundColor: '#fff' },
   topPanel: {
     backgroundColor: '#1e3a8a',
-    height: height * 0.38,
+    height: height * 0.3,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
-    borderBottomRightRadius: 100,
+    borderBottomRightRadius: 80,
     overflow: 'hidden',
     position: 'relative',
   },
-  welcomeContent: { alignItems: 'center', zIndex: 10, marginTop: -20 },
+  welcomeContent: { alignItems: 'center', zIndex: 10, marginTop: 10 },
+  welcomeLogo: {
+    width: 120,
+    height: 120,
+    backgroundColor: '#fff',
+    borderRadius: 60,
+    marginBottom: 20,
+    borderWidth: 4,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
   welcomeTitle: {
     fontSize: 34,
     fontWeight: '900',
@@ -265,9 +272,8 @@ const styles = StyleSheet.create({
     height: 64,
     paddingHorizontal: 20,
   },
-  fieldIcon: { fontSize: 20, marginRight: 12 },
+  fieldIcon: { marginRight: 12 },
   input: { flex: 1, fontSize: 16, color: '#1e293b', fontWeight: '600' },
-  eyeBtnText: { fontSize: 20 },
   forgotBtn: { alignSelf: 'flex-end', marginTop: -12 },
   forgotText: { fontSize: 14, color: '#94a3b8', fontWeight: '600' },
   errorBox: {
@@ -299,44 +305,7 @@ const styles = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.7 },
   loginBtnText: { color: '#fff', fontSize: 18, fontWeight: '800' },
-  signupBox: { flexDirection: 'row', justifyContent: 'center', marginTop: 15 },
-  signupText: { fontSize: 15, color: '#64748b', fontWeight: '500' },
-  signupLink: { fontSize: 15, color: '#1e3a8a', fontWeight: '700' },
-  dividerBox: { flexDirection: 'row', alignItems: 'center', marginVertical: 25, gap: 12 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#f1f5f9' },
-  dividerText: { fontSize: 13, color: '#94a3b8', fontWeight: '600' },
-  socialRow: { flexDirection: 'row', justifyContent: 'center', gap: 20, marginBottom: 30 },
-  socialBtn: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  demoSection: {
-    marginTop: 20,
-    backgroundColor: '#f8fafc',
-    borderRadius: 20,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#f1f5f9',
-  },
-  demoToggle: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 10 },
-  demoToggleText: { flex: 1, fontSize: 13, fontWeight: '700', color: '#94a3b8' },
-  demoList: { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#f1f5f9' },
-  demoItem: { padding: 14, borderBottomWidth: 1, borderBottomColor: '#f8fafc' },
-  demoItemInfo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
-  demoItemName: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
-  demoItemRole: { fontSize: 9, fontWeight: '800', color: '#3b82f6', backgroundColor: '#eff6ff', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  demoItemEmail: { fontSize: 11, color: '#94a3b8', fontWeight: '500' },
+
 });
 
 export default LoginScreen;

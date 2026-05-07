@@ -7,20 +7,35 @@ import LoginScreen from './src/screens/LoginScreen';
 import ServiceAnalyticsScreen from './src/screens/ServiceAnalyticsScreen';
 import ChatListScreen from './src/screens/ChatbotScreen'; // Renamed to ChatList
 import ChatDetailScreen from './src/screens/ChatDetailScreen';
-import HRMSScreen from './src/screens/HRMSScreen';
+import AttendanceScreen from './src/screens/AttendanceScreen';
 import FormListScreen from './src/screens/FormListScreen';
 import FormPreviewScreen from './src/screens/FormPreviewScreen';
 import FormAnalyticsScreen from './src/screens/FormAnalyticsScreen';
 import DemoFormListScreen from './src/screens/DemoFormListScreen';
 import AttendanceManagementScreen from './src/screens/AttendanceManagementScreen';
+import LeaveManagementScreen from './src/screens/LeaveManagementScreen';
+import PermissionManagementScreen from './src/screens/PermissionManagementScreen';
+import ShiftManagementScreen from './src/screens/ShiftManagementScreen';
+import AdminShiftManagementScreen from './src/screens/AdminShiftManagementScreen';
 import SplashScreen from './src/screens/SplashScreen';
-import { ActivityIndicator, View, StyleSheet, StatusBar, Platform } from 'react-native';
-// import { LayoutDashboard, MessageSquareText, Briefcase, ClipboardList } from 'lucide-react-native';
+import { ActivityIndicator, View, StyleSheet, StatusBar, Platform, Text } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { LayoutDashboard, MessageSquareText, Clock, ClipboardList, CalendarDays, ShieldCheck, BarChart3 } from 'lucide-react-native';
+import DashboardScreen from './src/screens/DashboardScreen';
+
+import ResponseFeedbackScreen from './src/screens/ResponseFeedbackScreen';
+import AccountScreen from './src/screens/AccountScreen';
 
 const Stack = createNativeStackNavigator();
+
 const Tab = createBottomTabNavigator();
 
 const TabNavigator = () => {
+  const { user, isCheckedIn } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'subadmin' || user?.role === 'lmadmin';
+
+  const isInspector = user?.role === 'inspector';
+
   return (
     <Tab.Navigator
       screenOptions={{
@@ -39,45 +54,51 @@ const TabNavigator = () => {
           shadowRadius: 10,
         },
         tabBarActiveTintColor: '#1e3a8a',
-        tabBarInactiveTintColor: '#cbd5e1',
+        tabBarInactiveTintColor: '#94a3b8',
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: 9,
           fontWeight: '800',
-          letterSpacing: 0.5,
-          marginTop: 4,
+          letterSpacing: 0.2,
+          marginTop: 2,
         }
       }}
     >
       <Tab.Screen 
         name="Dashboard" 
-        component={ServiceAnalyticsScreen} 
+        component={DashboardScreen} 
         options={{
           tabBarLabel: 'DASHBOARD',
-          tabBarIcon: ({ color, size }) => <Text style={{ fontSize: 22, color }}>🏠</Text>
+          tabBarIcon: ({ color }) => <LayoutDashboard size={20} color={color} />
         }}
       />
+      
+      {(isAdmin || (isInspector && isCheckedIn)) && (
+        <Tab.Screen 
+          name="Forms" 
+          component={FormListScreen} 
+          options={{
+            tabBarLabel: 'FORMS',
+            tabBarIcon: ({ color }) => <ClipboardList size={20} color={color} />
+          }}
+        />
+      )}
+
+      {/* Analytics tab removed as per request */}
+
       <Tab.Screen 
-        name="Forms" 
-        component={FormListScreen} 
+        name="Attendance" 
+        component={AttendanceScreen} 
         options={{
-          tabBarLabel: 'FORMS',
-          tabBarIcon: ({ color, size }) => <Text style={{ fontSize: 22, color }}>📋</Text>
-        }}
-      />
-      <Tab.Screen 
-        name="HRMS" 
-        component={HRMSScreen} 
-        options={{
-          tabBarLabel: 'HRMS',
-          tabBarIcon: ({ color, size }) => <Text style={{ fontSize: 22, color }}>💼</Text>
+          tabBarLabel: isInspector ? 'ATTENDANCE' : 'HR MGMT',
+          tabBarIcon: ({ color }) => <Clock size={20} color={color} />
         }}
       />
       <Tab.Screen 
         name="Chat" 
         component={ChatListScreen} 
         options={{
-          tabBarLabel: 'MESSAGE',
-          tabBarIcon: ({ color, size }) => <Text style={{ fontSize: 22, color }}>💬</Text>
+          tabBarLabel: 'CHAT SYSTEM',
+          tabBarIcon: ({ color }) => <MessageSquareText size={20} color={color} />
         }}
       />
     </Tab.Navigator>
@@ -86,18 +107,11 @@ const TabNavigator = () => {
 
 const NavigationWrapper = () => {
   const { token, isLoading } = useAuth();
-  const [showSplash, setShowSplash] = useState(true);
+  const [splashFinished, setSplashFinished] = useState(false);
 
-  if (showSplash) {
-    return <SplashScreen onFinish={() => setShowSplash(false)} />;
-  }
-
-  if (isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#1e3a8a" />
-      </View>
-    );
+  // Seemless Transition: Keep splash until BOTH animation is done AND auth is checked
+  if (!splashFinished || isLoading) {
+    return <SplashScreen onFinish={() => setSplashFinished(true)} />;
   }
 
   return (
@@ -111,7 +125,14 @@ const NavigationWrapper = () => {
             <Stack.Screen name="FormPreview" component={FormPreviewScreen} />
             <Stack.Screen name="FormAnalytics" component={FormAnalyticsScreen} />
             <Stack.Screen name="AttendanceManagement" component={AttendanceManagementScreen} />
+            <Stack.Screen name="LeaveManagement" component={LeaveManagementScreen} />
+            <Stack.Screen name="PermissionManagement" component={PermissionManagementScreen} />
+            <Stack.Screen name="ShiftManagement" component={ShiftManagementScreen} />
+            <Stack.Screen name="AdminShiftManagement" component={AdminShiftManagementScreen} />
+            <Stack.Screen name="ResponseFeedback" component={ResponseFeedbackScreen} />
+            <Stack.Screen name="Account" component={AccountScreen} />
           </>
+
         ) : (
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
@@ -124,7 +145,7 @@ const NavigationWrapper = () => {
   );
 };
 
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+
 
 export default function App() {
   return (

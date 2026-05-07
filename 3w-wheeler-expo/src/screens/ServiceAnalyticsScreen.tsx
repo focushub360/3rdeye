@@ -7,11 +7,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  SafeAreaView,
   Dimensions,
   Alert,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import ViewShot, { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import { useAuth } from '../context/AuthContext';
@@ -57,7 +57,7 @@ const StatCard = ({ title, value, icon: Icon, color, subValue }: any) => (
 const FormCard = ({ id, title, description, responses = 0, onView, onAnalytics }: any) => (
   <View style={styles.formCard}>
     <View style={styles.formCardHeader}>
-      <FileText size={20} color="#3b82f6" />
+      <FileText size={20} color="#6366f1" />
       <View style={styles.publishedBadge}>
         <Text style={styles.publishedText}>LIVE</Text>
       </View>
@@ -76,7 +76,7 @@ const FormCard = ({ id, title, description, responses = 0, onView, onAnalytics }
         <Text style={styles.viewBtnTextStyle}>View</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.analyticsBtnStyle} onPress={() => onAnalytics && onAnalytics(id, title)}>
-        <BarChart2 size={12} color="#1e3a8a" />
+        <BarChart2 size={12} color="#4f46e5" />
         <Text style={styles.analyticsBtnTextStyle}>Analytics</Text>
       </TouchableOpacity>
     </View>
@@ -201,14 +201,14 @@ const ServiceAnalyticsScreen = () => {
   if (loading && !refreshing) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#3b82f6" />
+        <ActivityIndicator size="large" color="#6366f1" />
         <Text style={styles.loadingText}>Loading Analytics...</Text>
       </View>
     );
   }
 
   const isSuperAdmin = user?.role === 'superadmin';
-  const isSubAdmin = user?.role === 'subadmin' || user?.role === 'admin';
+  const isSubAdmin = user?.role === 'subadmin' || user?.role === 'admin' || user?.role === 'lmadmin';
   const isInspector = user?.role === 'inspector';
 
   return (
@@ -223,10 +223,10 @@ const ServiceAnalyticsScreen = () => {
           </View>
           <View style={styles.headerActions}>
             <TouchableOpacity style={styles.actionIconButton} onPress={handleCaptureAndShare}>
-              <Camera size={18} color="#1e3a8a" />
+              <Camera size={18} color="#4f46e5" />
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionIconButton} onPress={onRefresh}>
-              <RefreshCw size={18} color="#1e3a8a" />
+              <RefreshCw size={18} color="#4f46e5" />
             </TouchableOpacity>
           </View>
         </View>
@@ -243,7 +243,7 @@ const ServiceAnalyticsScreen = () => {
                 title={isSuperAdmin ? "Tenants" : "Forms"} 
                 value={stats?.overview?.totalForms ?? (isSuperAdmin ? 12 : 0)} 
                 icon={isSuperAdmin ? Globe : FileText} 
-                color="#3b82f6" 
+                color="#6366f1" 
               />
               <StatCard 
                 title={isSuperAdmin ? "Assets" : "Entries"} 
@@ -252,12 +252,12 @@ const ServiceAnalyticsScreen = () => {
                 color="#10b981" 
               />
             </View>
-          <StatCard 
-            title={isSuperAdmin ? "Global Score" : "Compliance Score"} 
-            value={stats?.overview?.compliance || "0%"} 
-            icon={TrendingUp} 
-            color="#8b5cf6" 
-          />
+            <StatCard 
+              title={isSuperAdmin ? "Global Activity" : "Active Sessions"} 
+              value={isSuperAdmin ? "Live" : `${stats?.overview?.totalResponses || 0}`} 
+              icon={TrendingUp} 
+              color="#8b5cf6" 
+            />
         </View>
 
         {/* Forms Implementation on Dashboard */}
@@ -288,7 +288,7 @@ const ServiceAnalyticsScreen = () => {
                 onPress={() => navigation.navigate('Forms')}
               >
                 <Text style={styles.seeAllText}>VIEW ALL {forms.length} FORMS</Text>
-                <ChevronRight size={14} color="#3b82f6" />
+                <ChevronRight size={14} color="#6366f1" />
               </TouchableOpacity>
             )}
           </View>
@@ -302,7 +302,7 @@ const ServiceAnalyticsScreen = () => {
                 {tenantStats.userWiseSubmissions.map((item: any, index: number) => (
                   <View key={index} style={styles.inspectorCard}>
                     <View style={styles.inspectorInfo}>
-                      <View style={[styles.avatar, { backgroundColor: index === 0 ? '#1e3a8a' : '#f1f5f9' }]}>
+                      <View style={[styles.avatar, { backgroundColor: index === 0 ? '#4f46e5' : '#f1f5f9' }]}>
                         <Text style={[styles.avatarText, { color: index === 0 ? '#fff' : '#64748b' }]}>
                           {item.userName?.[0] || 'I'}
                         </Text>
@@ -453,7 +453,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: '#f1f5f9',
-    shadowColor: '#1e3a8a',
+    shadowColor: '#4f46e5',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 10,
@@ -558,7 +558,7 @@ const styles = StyleSheet.create({
   },
   portalLink: {
     fontSize: 13,
-    color: '#3b82f6',
+    color: '#6366f1',
     fontWeight: '700',
     textDecorationLine: 'underline',
   },
@@ -663,7 +663,7 @@ const styles = StyleSheet.create({
   viewBtnStyle: {
     flex: 1.2,
     flexDirection: 'row',
-    backgroundColor: '#1e3a8a',
+    backgroundColor: '#4f46e5',
     paddingVertical: 10,
     borderRadius: 12,
     alignItems: 'center',
@@ -688,7 +688,7 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
   },
   analyticsBtnTextStyle: {
-    color: '#1e3a8a',
+    color: '#4f46e5',
     fontSize: 11,
     fontWeight: '800',
   },
@@ -744,7 +744,7 @@ const styles = StyleSheet.create({
   countText: {
     fontSize: 18,
     fontWeight: '900',
-    color: '#1e3a8a',
+    color: '#4f46e5',
   },
   countLabel: {
     fontSize: 8,
@@ -783,7 +783,7 @@ const styles = StyleSheet.create({
   seeAllText: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#3b82f6',
+    color: '#6366f1',
     letterSpacing: 1,
   },
 });

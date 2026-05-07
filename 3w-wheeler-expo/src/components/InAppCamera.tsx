@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, Modal, SafeAreaView, Dimensions } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, Modal, Dimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { X, Camera, RefreshCw, Zap, ZapOff } from 'lucide-react-native';
 

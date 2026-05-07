@@ -3,7 +3,6 @@ import {
   View, 
   Text, 
   StyleSheet, 
-  SafeAreaView, 
   FlatList, 
   TextInput, 
   TouchableOpacity, 
@@ -11,10 +10,13 @@ import {
   Platform, 
   ActivityIndicator,
   Keyboard,
-  Alert 
+  Alert,
+  Image as RNImage
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { Send, ChevronLeft, UserCircle, Circle, AlertTriangle, MessageSquare, Users, X, Reply } from 'lucide-react-native';
+import { Send, ChevronLeft, UserCircle, Circle, AlertTriangle, MessageSquare, Users, X, Reply, Camera, Image as ImageIcon, Plus, Filter } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Modal } from 'react-native';
 import { io } from 'socket.io-client';
 import { useAuth } from '../context/AuthContext';
@@ -25,7 +27,7 @@ const SOCKET_URL = BASE_URL.replace('/api', '');
 const ChatDetailScreen = () => {
   const route = useRoute<any>();
   const navigation = useNavigation();
-  const { contactId, name, role, isGroup, tenantId } = route.params;
+  const { contactId, name, role, isGroup, tenantId, title, formTitle } = route.params;
   const { user } = useAuth();
   
   const [messages, setMessages] = useState<any[]>([]);
@@ -35,12 +37,20 @@ const ChatDetailScreen = () => {
   const [members, setMembers] = useState<any[]>([]);
   const [showMembers, setShowMembers] = useState(false);
   const [replyTo, setReplyTo] = useState<any>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const socketRef = useRef<any>(null);
   const flatListRef = useRef<any>(null);
 
   const fetchMessages = async () => {
     try {
-      const endpoint = isGroup ? '/chat/group-messages' : `/chat/messages/${contactId}`;
+      let endpoint = '';
+      if (isGroup) {
+        endpoint = '/messages/tenant-messages';
+      } else {
+        endpoint = `/messages/response/${contactId}`;
+      }
+      
       const response = await apiClient.get(endpoint);
       if (response.data.success) {
         setMessages(response.data.data);
@@ -54,9 +64,9 @@ const ChatDetailScreen = () => {
 
   const fetchMembers = async () => {
     try {
-      const response = await apiClient.get('/chat/contacts');
+      const response = await apiClient.get('/users?role=admin&role=superadmin&role=subadmin');
       if (response.data.success) {
-        setMembers(response.data.data);
+        setMembers(response.data.data.users || []);
       }
     } catch (error) {
       console.error('Fetch members error:', error);
@@ -70,26 +80,33 @@ const ChatDetailScreen = () => {
   useEffect(() => {
     fetchMessages();
 
-    // Initialize socket
     socketRef.current = io(SOCKET_URL);
-    
+
+    // Join appropriate room
     if (isGroup) {
-      socketRef.current.emit('join-group-chat', tenantId);
-      socketRef.current.on('receive-group-message', (data: any) => {
-        setMessages((prev) => [...prev, data]);
-      });
-      socketRef.current.on('tyc-raised', (data: any) => {
-        console.log('TYC Raised in group:', data);
-        Alert.alert('📍 New TYC Raised', `${data.senderName}: ${data.message}`);
-      });
+      socketRef.current.emit('join-group-chat', user?.tenantId || tenantId);
+      console.log('💬 Joined group chat room:', user?.tenantId || tenantId);
     } else {
-      socketRef.current.emit('join-chat', user?._id);
-      socketRef.current.on('receive-message', (data: any) => {
-        if (data.senderId === contactId) {
-          setMessages((prev) => [...prev, data]);
-        }
-      });
+      socketRef.current.emit('join-chat', user?._id); 
+      console.log('💬 Joined private chat room:', user?._id);
     }
+
+    // Listen for new messages
+    socketRef.current.on('receive-group-message', (data: any) => {
+      console.log('📩 Received group message:', data);
+      setMessages((prev) => {
+        if (prev.some(m => m._id === data._id)) return prev;
+        return [...prev, data];
+      });
+    });
+
+    socketRef.current.on('receive-message', (data: any) => {
+      console.log('📩 Received private message:', data);
+      setMessages((prev) => {
+        if (prev.some(m => m._id === data._id)) return prev;
+        return [...prev, data];
+      });
+    });
 
     socketRef.current.on('user-typing', (data: any) => {
       if (data.senderId === contactId) setIsTyping(true);
@@ -126,38 +143,117 @@ const ChatDetailScreen = () => {
     return groups;
   };
 
-  const handleSend = (isTYC = false) => {
-    if (!newMessage.trim() || !user) return;
-
-    const finalIsTYC = isTYC || newMessage.includes("URGENT (TYC):");
-
-    const messageData: any = {
-      senderId: user._id,
-      message: newMessage.trim(),
-      tenantId: user.tenantId,
-      isTYC: finalIsTYC,
-      replyTo: replyTo?._id || null
-    };
-
-    if (isGroup) {
-      socketRef.current.emit('send-group-message', messageData);
-    } else {
-      messageData.receiverId = contactId;
-      socketRef.current.emit('send-message', messageData);
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Needed', 'We need access to your photos to upload evidence.');
+      return;
     }
 
-    // Update locally
-    const optimisticMessage = {
-      _id: Date.now().toString(),
-      senderId: isGroup ? { _id: user._id, firstName: user.name?.split(' ')[0] || 'Me', role: user.role } : user._id,
-      message: newMessage.trim(),
-      isTYC: finalIsTYC,
-      replyTo: replyTo,
-      createdAt: new Date().toISOString()
-    };
-    setMessages((prev) => [...prev, optimisticMessage]);
-    setNewMessage('');
-    setReplyTo(null);
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setSelectedImage(result.assets[0].uri);
+    }
+  };
+
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Needed', 'We need access to your camera to take photos.');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setSelectedImage(result.assets[0].uri);
+    }
+  };
+
+  const uploadImage = async (uri: string) => {
+    try {
+      setUploadingImage(true);
+      const formData = new FormData();
+      const filename = uri.split('/').pop() || 'upload.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : `image`;
+
+      formData.append('file', {
+        uri,
+        name: filename,
+        type
+      } as any);
+
+      const resp = await apiClient.post('/files/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (resp.data?.success) {
+        return resp.data.data.filename || resp.data.data.path || resp.data.data.id;
+      }
+      throw new Error('Upload failed');
+    } catch (err) {
+      console.error('Image upload error:', err);
+      throw err;
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleSend = async (isTYC = false) => {
+    if ((!newMessage.trim() && !selectedImage) || !user) return;
+
+    try {
+      let attachmentUrl = null;
+      if (selectedImage) {
+        attachmentUrl = await uploadImage(selectedImage);
+      }
+
+      const messageData: any = {
+        from: user._id,
+        message: newMessage.trim() || (attachmentUrl ? "Sent an image." : ""),
+        tenantId: user.tenantId,
+        isTYC: isTYC,
+        responseId: isGroup ? null : contactId,
+        replyTo: replyTo?._id || null,
+        attachments: attachmentUrl ? [attachmentUrl] : []
+      };
+
+      const res = await apiClient.post('/messages/send', {
+        ...messageData,
+        toEmail: isGroup ? 'group' : 'admin' 
+      });
+
+      if (res.data.success) {
+        const savedMsg = res.data.data;
+        if (isGroup) {
+          socketRef.current.emit('send-group-message', savedMsg);
+        } else {
+          socketRef.current.emit('send-message', {
+            ...savedMsg,
+            receiverId: contactId 
+          });
+        }
+        
+        setMessages((prev) => [...prev, savedMsg]);
+        setNewMessage('');
+        setSelectedImage(null);
+        setReplyTo(null);
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      Alert.alert('Error', 'Failed to send message. Please try again.');
+    }
     Keyboard.dismiss();
   };
 
@@ -204,7 +300,7 @@ const ChatDetailScreen = () => {
              <View style={styles.senderHeader}>
                <Text style={[styles.groupSenderName, { color: getSenderColor(senderName) }]}>{senderName}</Text>
                <View style={styles.roleBadge}>
-                 <Text style={styles.roleBadgeText}>{senderRole.toUpperCase()}</Text>
+                 <Text style={styles.roleBadgeText}>{(senderRole || 'USER').toUpperCase()}</Text>
                </View>
              </View>
           )}
@@ -218,23 +314,78 @@ const ChatDetailScreen = () => {
             </View>
           )}
 
-          {item.isTYC && (
-            <View style={styles.tycHeader}>
-              <AlertTriangle size={12} color="#ef4444" />
-              <Text style={styles.tycLabel}>PRIORITY QUERY (TYC)</Text>
+          {item.questionContexts && item.questionContexts.length > 0 ? (
+            <View style={styles.contextContainer}>
+              {item.questionContexts.map((ctx: any, idx: number) => (
+                <View key={idx} style={styles.contextItem}>
+                  <Text style={[styles.contextTitle, isMine ? styles.myContextTitle : styles.theirContextTitle]}>
+                    {ctx.title}
+                  </Text>
+                  
+                  {ctx.suggestion && (
+                    <View style={styles.adminInstructionsBox}>
+                       <View style={styles.adminInstructionsHeader}>
+                         <Text style={styles.adminInstructionsTitle}>ADMIN INSTRUCTIONS</Text>
+                       </View>
+                       <View style={styles.suggestionBadge}>
+                         <Text style={styles.suggestionBadgeText}>
+                           SUGGESTED: {(() => {
+                              const s = ctx.suggestion;
+                              if (!s) return 'N/A';
+                              
+                              let val = s;
+                              if (typeof s === 'string' && s.includes('{')) {
+                                try { val = JSON.parse(s); } catch(e) { val = s; }
+                              }
+
+                              if (typeof val === 'object' && val !== null) {
+                                return val.suggestion || val.value || val.text || val.status || val.message || JSON.stringify(val);
+                              }
+                              return String(val);
+                            })()}
+                         </Text>
+                       </View>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          ) : item.questionTitles && item.questionTitles.length > 0 && (
+            <View style={styles.titlesContainer}>
+               <View style={styles.linkedHeader}>
+                  <Filter size={10} color={isMine ? "#86efac" : "#6366f1"} />
+                  <Text style={[styles.linkedLabel, isMine ? styles.myLinkLabel : styles.theirLinkLabel]}>
+                    LINKED QUESTIONS
+                  </Text>
+               </View>
+               <View style={styles.titlesRow}>
+                 {item.questionTitles.map((title: string, idx: number) => (
+                   <View key={idx} style={[styles.titleTag, isMine ? styles.myTitleTag : styles.theirTitleTag]}>
+                     <Text style={[styles.titleTagText, isMine ? styles.myTitleTagText : styles.theirTitleTagText]}>
+                       {title}
+                     </Text>
+                   </View>
+                 ))}
+               </View>
             </View>
           )}
+
+          {item.attachments && item.attachments.map((file: string, fidx: number) => {
+             const imageUrl = file.startsWith('http') ? file : `${BASE_URL}/files/${file}`;
+             return (
+               <TouchableOpacity key={fidx} style={styles.attachmentContainer} onPress={() => {}}>
+                 <RNImage source={{ uri: imageUrl }} style={styles.attachmentImage} resizeMode="cover" />
+               </TouchableOpacity>
+             );
+          })}
+
           <Text style={[styles.messageText, isMine ? styles.myText : styles.theirText]}>
             {item.message}
           </Text>
           <View style={styles.messageFooterRow}>
-            <TouchableOpacity onPress={() => setReplyTo(item)} style={styles.replyIcon}>
-              <Reply size={12} color={isMine ? "#cbd5e1" : "#94a3b8"} />
-            </TouchableOpacity>
             <Text style={[styles.messageTime, isMine ? styles.myTime : styles.theirTime]}>
-              {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {isMine ? 'You' : senderName.split(' ')[0]} • {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Text>
-            {isMine && <View style={styles.readChecks}><Text style={styles.checkText}>✓✓</Text></View>}
           </View>
         </View>
       </View>
@@ -246,23 +397,31 @@ const ChatDetailScreen = () => {
       <View style={[styles.header, isGroup && styles.groupHeader]}>
         <View style={styles.headerLeft}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <ChevronLeft size={24} color={isGroup ? "#fff" : "#1e3a8a"} />
+            <ChevronLeft size={24} color={isGroup ? "#fff" : "#4f46e5"} />
           </TouchableOpacity>
+          <View style={styles.headerIconContainer}>
+            <UserCircle size={36} color={isGroup ? "#fff" : "#4f46e5"} />
+          </View>
           <View style={styles.userInfo}>
-            <Text style={[styles.userName, isGroup && styles.groupTitle]}>{name}</Text>
+            <Text style={[styles.userName, isGroup && styles.groupTitle]} numberOfLines={1}>
+              {isGroup ? name : (title || 'General Message')}
+            </Text>
             <View style={styles.userStatus}>
-              <Circle size={8} color={isGroup ? "#10b981" : "#10b981"} fill="#10b981" />
-              <Text style={[styles.userRole, isGroup && styles.groupSubTitle]}>
-                {isGroup ? `${members.length || '15+'} online members` : `${role.toUpperCase()} • ACTIVE`}
+              <Text style={[styles.userRole, isGroup && styles.groupSubTitle]} numberOfLines={1}>
+                {isGroup ? `${members.length || '15+'} online members` : `Form: ${formTitle || 'Service'} • Ref: ${String(contactId).substring(0, 10)}...`}
               </Text>
             </View>
           </View>
         </View>
         <View style={styles.headerRight}>
-          <TouchableOpacity style={[styles.raiseTycHeaderBtn, isGroup && styles.groupTycBtn]} onPress={() => setNewMessage("URGENT (TYC): ")}>
-            <AlertTriangle size={14} color="#ef4444" />
-            <Text style={styles.raiseTycHeaderText}>RAISE TYC</Text>
-          </TouchableOpacity>
+          {!isGroup && (
+            <TouchableOpacity 
+              style={styles.openDashboardBtn} 
+              onPress={() => navigation.navigate('FormAnalytics', { responseId: contactId })}
+            >
+              <Text style={styles.openDashboardText}>Open Dashboard</Text>
+            </TouchableOpacity>
+          )}
           {isGroup && (
             <TouchableOpacity onPress={() => setShowMembers(true)} style={styles.memberBtnMain}>
               <Users size={22} color="#fff" />
@@ -309,27 +468,43 @@ const ChatDetailScreen = () => {
             </TouchableOpacity>
           </View>
         )}
+        {selectedImage && (
+          <View style={styles.previewContainer}>
+            <RNImage source={{ uri: selectedImage }} style={styles.previewImage} />
+            <TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImage(null)}>
+              <X size={16} color="#fff" />
+            </TouchableOpacity>
+            {uploadingImage && (
+              <View style={styles.uploadOverlay}>
+                <ActivityIndicator size="small" color="#fff" />
+              </View>
+            )}
+          </View>
+        )}
         <View style={styles.inputBox}>
-          <TouchableOpacity 
-            style={[styles.tycBtn, newMessage.length > 0 && styles.tycBtnActive]} 
-            onPress={() => handleSend(true)}
-            disabled={!newMessage.trim()}
-          >
-            <AlertTriangle size={20} color={newMessage.length > 0 ? "#ef4444" : "#cbd5e1"} />
+          <TouchableOpacity style={styles.attachBtn} onPress={pickImage}>
+            <ImageIcon size={20} color="#64748b" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.attachBtn} onPress={takePhoto}>
+            <Camera size={20} color="#64748b" />
           </TouchableOpacity>
           <TextInput
             style={styles.input}
-            placeholder={isGroup ? "Message group..." : "Write your message..."}
+            placeholder={isGroup ? "Chat with group..." : "Type your reply..."}
             value={newMessage}
             onChangeText={setNewMessage}
             multiline
           />
           <TouchableOpacity 
-            style={[styles.sendBtn, !newMessage.trim() && styles.sendBtnDisabled]} 
+            style={[styles.sendBtn, (!newMessage.trim() && !selectedImage) && styles.sendBtnDisabled]} 
             onPress={() => handleSend(false)}
-            disabled={!newMessage.trim()}
+            disabled={!newMessage.trim() && !selectedImage}
           >
-            <Send size={20} color="#fff" />
+            {uploadingImage ? (
+               <ActivityIndicator size="small" color="#fff" />
+            ) : (
+               <Send size={18} color="#fff" />
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -356,7 +531,7 @@ const ChatDetailScreen = () => {
                   <UserCircle size={40} color="#cbd5e1" />
                   <View>
                     <Text style={styles.memberName}>{item.firstName} {item.lastName}</Text>
-                    <Text style={styles.memberRole}>{item.role.toUpperCase()}</Text>
+                    <Text style={styles.memberRole}>{(item.role || 'USER').toUpperCase()}</Text>
                   </View>
                 </View>
               )}
@@ -372,7 +547,7 @@ const ChatDetailScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f8fafc', 
     paddingTop: Platform.OS === 'android' ? 40 : 0,
   },
   header: {
@@ -387,23 +562,23 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
   },
   raiseTycHeaderBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fef2f2',
-    borderWidth: 1,
+    backgroundColor: '#fff1f2',
+    borderWidth: 1.5,
     borderColor: '#fecaca',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
     gap: 6,
   },
   raiseTycHeaderText: {
     fontSize: 10,
-    fontWeight: '800',
-    color: '#ef4444',
+    fontWeight: '900',
+    color: '#e11d48',
     letterSpacing: 0.5,
   },
   headerLeft: {
@@ -414,11 +589,6 @@ const styles = StyleSheet.create({
   backBtn: {
     marginRight: 12,
     padding: 4,
-  },
-  memberBtn: {
-    padding: 8,
-    backgroundColor: '#eff6ff',
-    borderRadius: 12,
   },
   userInfo: {
     flex: 1,
@@ -436,8 +606,8 @@ const styles = StyleSheet.create({
   },
   userRole: {
     fontSize: 10,
-    fontWeight: '700',
-    color: '#3b82f6',
+    fontWeight: '600',
+    color: '#64748b',
   },
   messageList: {
     padding: 16,
@@ -445,8 +615,8 @@ const styles = StyleSheet.create({
   },
   messageRow: {
     flexDirection: 'row',
-    marginBottom: 16,
-    maxWidth: '85%',
+    marginBottom: 8,
+    maxWidth: '88%',
     alignItems: 'flex-end',
   },
   myRow: {
@@ -460,45 +630,64 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   bubble: {
-    padding: 12,
-    borderRadius: 20,
+    padding: 10,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
   },
   myBubble: {
-    backgroundColor: '#1e3a8a',
+    backgroundColor: '#fff', 
     borderBottomRightRadius: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   theirBubble: {
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#ffffff',
     borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   messageText: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 14.5,
+    lineHeight: 21,
+    color: '#1e293b',
   },
   myText: {
-    color: '#fff',
+    color: '#0f172a',
   },
   theirText: {
     color: '#1e293b',
   },
   messageTime: {
     fontSize: 10,
-    marginTop: 4,
-    alignSelf: 'flex-end',
+    fontWeight: '600',
+    marginTop: 2,
   },
   myTime: {
-    color: '#cbd5e1',
+    color: '#64748b',
   },
   theirTime: {
     color: '#94a3b8',
   },
+  messageFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginTop: 4,
+  },
   typingBox: {
     paddingHorizontal: 20,
-    paddingBottom: 8,
+    paddingBottom: 10,
+    backgroundColor: 'transparent',
   },
   typingText: {
     fontSize: 12,
-    color: '#94a3b8',
+    color: '#64748b',
+    fontWeight: '500',
     fontStyle: 'italic',
   },
   avatarCircle: {
@@ -509,83 +698,71 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarLetter: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '900',
   },
   senderHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 4,
+    marginBottom: 6,
   },
   roleBadge: {
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    backgroundColor: '#eef2ff',
     paddingHorizontal: 6,
     paddingVertical: 1,
-    borderRadius: 4,
+    borderRadius: 6,
+    borderWidth: 0.5,
+    borderColor: '#c7d2fe',
   },
   roleBadgeText: {
     fontSize: 8,
     fontWeight: '900',
-    color: '#3b82f6',
-  },
-  readChecks: {
-    marginLeft: 4,
-  },
-  checkText: {
-    fontSize: 10,
-    color: '#3b82f6',
-    fontWeight: '700',
-    letterSpacing: -1,
+    color: '#4f46e5',
   },
   groupHeader: {
-    backgroundColor: '#1e3a8a',
+    backgroundColor: '#4f46e5',
     borderBottomWidth: 0,
   },
   groupTitle: {
     color: '#fff',
   },
   groupSubTitle: {
-    color: 'rgba(255, 255, 255, 0.7)',
-  },
-  groupTycBtn: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderColor: 'rgba(255,255,255,0.2)',
+    color: 'rgba(255, 255, 255, 0.8)',
   },
   memberBtnMain: {
-    padding: 8,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 12,
+    padding: 10,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 14,
   },
   footer: {
     padding: 16,
-    paddingBottom: 32,
-    backgroundColor: '#fff',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    backgroundColor: '#ffffff',
     borderTopWidth: 1,
     borderTopColor: '#f1f5f9',
   },
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    borderRadius: 25,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: '#f1f5f9',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   input: {
     flex: 1,
-    fontSize: 15,
-    maxHeight: 100,
-    paddingTop: 8,
-    paddingBottom: 8,
+    fontSize: 14,
+    maxHeight: 120,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#1e293b',
   },
   sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#3b82f6',
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#4f46e5',
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
@@ -597,114 +774,93 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#efe7dd',
   },
   groupSenderName: {
     fontSize: 10,
-    fontWeight: '800',
-    color: '#3b82f6',
+    fontWeight: '900',
+    color: '#4f46e5',
     marginBottom: 4,
     textTransform: 'uppercase',
   },
-  tycBtn: {
-    padding: 8,
-    marginRight: 4,
-  },
-  tycBtnActive: {
-    transform: [{ scale: 1.1 }],
-  },
   tycBubble: {
-    borderWidth: 1.5,
-    borderColor: '#fee2e2',
-    backgroundColor: '#fff1f2',
-  },
-  tycHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#fecaca',
-    paddingBottom: 4,
-  },
-  tycLabel: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#ef4444',
-    letterSpacing: 0.5,
+    borderWidth: 2,
+    borderColor: '#fecaca',
+    backgroundColor: '#fff5f5',
   },
   dateHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 20,
+    marginVertical: 24,
     paddingHorizontal: 20,
   },
   dateLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#f1f5f9',
+    backgroundColor: 'rgba(0,0,0,0.05)',
   },
   dateLabel: {
-    marginHorizontal: 12,
+    marginHorizontal: 16,
     fontSize: 11,
-    fontWeight: '800',
-    color: '#94a3b8',
+    fontWeight: '900',
+    color: '#64748b',
     textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  messageFooterRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 4,
+    letterSpacing: 1.5,
+    backgroundColor: '#e2e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 10,
+    overflow: 'hidden',
   },
   replyBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f8fafc',
-    padding: 12,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    padding: 14,
+    marginHorizontal: 12,
+    marginBottom: 8,
+    borderRadius: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#4f46e5',
+    elevation: 2,
   },
   replyContent: {
     flex: 1,
-    borderLeftWidth: 3,
-    borderLeftColor: '#1e3a8a',
-    paddingLeft: 10,
   },
   replyTitle: {
     fontSize: 12,
-    fontWeight: '800',
-    color: '#1e3a8a',
+    fontWeight: '900',
+    color: '#4f46e5',
     marginBottom: 2,
   },
   replyText: {
     fontSize: 13,
     color: '#64748b',
+    fontWeight: '500',
   },
   replyPreviewInside: {
-    backgroundColor: 'rgba(0,0,0,0.05)',
-    padding: 8,
-    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+    padding: 10,
+    borderRadius: 12,
     marginBottom: 8,
-    borderLeftWidth: 2,
-    borderLeftColor: '#1e3a8a',
+    borderLeftWidth: 3,
+    borderLeftColor: '#4f46e5',
   },
   replyAuthorInside: {
     fontSize: 10,
-    fontWeight: '800',
-    color: '#1e3a8a',
-    marginBottom: 2,
+    fontWeight: '900',
+    color: '#4f46e5',
+    marginBottom: 4,
+    textTransform: 'uppercase',
   },
   replyTextInside: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#64748b',
+    fontStyle: 'italic',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(15, 23, 42, 0.4)',
     justifyContent: 'flex-end',
   },
   modalContent: {
@@ -723,29 +879,211 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f1f5f9',
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: '800',
+    fontSize: 22,
+    fontWeight: '900',
     color: '#0f172a',
   },
   memberItem: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    gap: 12,
+    gap: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#f8fafc',
   },
   memberName: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '800',
     color: '#1e293b',
   },
   memberRole: {
     fontSize: 10,
-    fontWeight: '800',
-    color: '#3b82f6',
+    fontWeight: '900',
+    color: '#6366f1',
     marginTop: 2,
-  }
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  contextContainer: {
+    marginBottom: 8,
+    gap: 4,
+  },
+  contextItem: {
+    gap: 2,
+  },
+  contextTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    borderBottomWidth: 1,
+    paddingBottom: 2,
+    color: '#4f46e5',
+    borderBottomColor: '#f1f5f9',
+  },
+  myContextTitle: {
+    color: '#166534',
+    borderBottomColor: 'rgba(22, 101, 52, 0.1)',
+  },
+  theirContextTitle: {
+    color: '#4f46e5',
+    borderBottomColor: '#f1f5f9',
+  },
+  adminInstructionsBox: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 12,
+    marginTop: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  adminInstructionsHeader: {
+    marginBottom: 8,
+  },
+  adminInstructionsTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#6366f1',
+    letterSpacing: 0.5,
+  },
+  suggestionBadge: {
+    backgroundColor: '#6366f1',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    alignSelf: 'flex-start',
+  },
+  suggestionBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  attachmentContainer: {
+    marginVertical: 8,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  attachmentImage: {
+    width: '100%',
+    height: 200,
+  },
+  attachBtn: {
+    padding: 8,
+    marginRight: 4,
+  },
+  previewContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    marginBottom: 12,
+    position: 'relative',
+    backgroundColor: '#f1f5f9',
+    marginLeft: 12,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  removeImageBtn: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#ef4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  uploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titlesContainer: {
+    backgroundColor: 'rgba(0,0,0,0.03)',
+    padding: 8,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  linkedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 6,
+  },
+  linkedLabel: {
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  myLinkLabel: {
+    color: '#166534',
+  },
+  theirLinkLabel: {
+    color: '#4f46e5',
+  },
+  titlesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  titleTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 0.5,
+  },
+  myTitleTag: {
+    backgroundColor: '#bbf7d0',
+    borderColor: '#86efac',
+  },
+  theirTitleTag: {
+    backgroundColor: '#fff',
+    borderColor: '#e2e8f0',
+  },
+  titleTagText: {
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  myTitleTagText: {
+    color: '#166534',
+  },
+  theirTitleTagText: {
+    color: '#4f46e5',
+  },
+  headerIconContainer: {
+    marginRight: 8,
+  },
+  openDashboardBtn: {
+    backgroundColor: '#6366f1',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  openDashboardText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
 });
 
 export default ChatDetailScreen;

@@ -7,8 +7,8 @@ A comprehensive form management and analytics system for 3W Wheeler TVS, featuri
 This repository is organized into the following main components:
 
 - **Root Directory**: The primary web frontend project (React + Vite).
-- **`3w-wheeler-backend-main/`**: Node.js/Express backend server with MongoDB integration.
-- **`3W-WHEELERTVS-FRONTEND-main/`**: Secondary/Legacy frontend source folder.
+- **`3w-wheeler-backend/`**: Node.js/Express backend server with MongoDB integration.
+- **`3W-WHEELERTVS-FRONTEND/`**: Primary frontend source folder.
 - **`3w-wheeler-expo/`**: Mobile application built with Expo.
 
 ---
@@ -18,7 +18,7 @@ This repository is organized into the following main components:
 ### 1. Backend Setup
 Navigate to the backend directory and start the server:
 ```powershell
-cd 3w-wheeler-backend-main
+cd 3w-wheeler-backend
 npm install
 npm run init       # Initialize database roles and users
 node server.js     # Start the backend server
@@ -57,3 +57,4 @@ npm run dev
 - **Frontend**: React, Vite, TailwindCSS, Lucide Icons, Chart.js.
 - **Backend**: Node.js, Express, MongoDB/Mongoose, Socket.io.
 - **Services**: Twilio (SMS), Nodemailer (Email), AWS/S3 (Storage).
+https://expo.dev/accounts/bharathan25/projects/3w-wheeler-expo/builds/45b6db1a-a2f2-48fc-9ca9-4309ee2ebc4c

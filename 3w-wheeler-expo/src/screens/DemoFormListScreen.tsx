@@ -5,14 +5,14 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
   Platform,
   Image,
   Dimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { 
-  FileText, 
+  ClipboardCheck, 
   ChevronLeft, 
   Eye, 
   BarChart2, 
@@ -21,6 +21,7 @@ import {
   MessageSquare, 
   Users 
 } from 'lucide-react-native';
+
 
 const { width } = Dimensions.get('window');
 
@@ -58,7 +59,8 @@ const demoForms = [
 const FormCard = ({ id, title, description, responses = 0, published = true, onView, onAnalytics }: any) => (
   <View style={styles.formCard}>
     <View style={styles.formCardHeader}>
-      <FileText size={20} color="#3b82f6" />
+      <ClipboardCheck size={20} color="#3b82f6" />
+
       {published && (
         <View style={styles.publishedBadge}>
           <Text style={styles.publishedText}>Published</Text>
@@ -89,9 +91,11 @@ const FormCard = ({ id, title, description, responses = 0, published = true, onV
 
     <View style={styles.actionButtons}>
       <TouchableOpacity style={styles.viewBtn} onPress={() => onView && onView(id, title)}>
-        <Eye size={14} color="#fff" style={{ marginRight: 6 }} />
+        <ClipboardCheck size={14} color="#fff" style={{ marginRight: 6 }} />
+
         <Text style={styles.viewBtnText}>View</Text>
       </TouchableOpacity>
+
       <TouchableOpacity style={styles.analyticsBtn} onPress={() => onAnalytics && onAnalytics(id, title)}>
         <BarChart2 size={14} color="#1e3a8a" style={{ marginRight: 6 }} />
         <Text style={styles.analyticsBtnText}>Analytics</Text>

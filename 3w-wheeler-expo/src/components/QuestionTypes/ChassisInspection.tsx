@@ -4,8 +4,16 @@ import { CheckCircle2, ChevronDown, ChevronUp, Check, Layers, Image as ImageIcon
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import InAppCamera from '../InAppCamera';
+import { BASE_URL } from '../../api/config';
 
 const { height, width } = Dimensions.get('window');
+
+// Helper to normalize image URLs
+const getImageUrl = (url: string) => {
+  if (!url) return '';
+  if (url.startsWith('http') || url.startsWith('data:') || url.startsWith('file:')) return url;
+  return `${BASE_URL}/files/${url}`;
+};
 
 interface ChassisInspectionProps {
   question: any;
@@ -181,35 +189,48 @@ export default function ChassisInspection({
         </View>
       </View>
 
-      {/* Accepted Status - Evidence Photos Only */}
-      {status === "Accepted" && (
-        <View style={styles.section}>
-          <View style={styles.iconLabelRow}><ImageIcon size={14} color="#94a3b8" /><Text style={styles.label}>EVIDENCE PHOTOS</Text></View>
-          {evidencePhotos.length > 0 && (
-            <ScrollView horizontal style={styles.photoScroll}>
-                {evidencePhotos.map((p: string, i: number) => (
-                    <View key={i} style={styles.photoBox}>
-                        <Image source={{ uri: p }} style={styles.photo} />
-                        {!readOnly && (
-                            <TouchableOpacity style={styles.removeEvidence} onPress={() => updateValue({ evidencePhotos: evidencePhotos.filter((_: any, idx: number) => idx !== i) })}>
-                                <X size={12} color="#fff" />
-                            </TouchableOpacity>
-                        )}
-                    </View>
-                ))}
-            </ScrollView>
-          )}
-          {!readOnly && (
-              <View style={styles.actionGrid}>
-                  <TouchableOpacity style={styles.actionBtn} onPress={() => setCameraVisible(true)}><Camera size={18} color="#64748b" /><Text style={styles.actionText}>Camera</Text></TouchableOpacity>
-                  <TouchableOpacity style={styles.actionBtn} onPress={async () => {
-                      const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
-                      if (!res.canceled) updateValue({ evidencePhotos: [...evidencePhotos, res.assets[0].uri] });
-                  }}><Upload size={18} color="#64748b" /><Text style={styles.actionText}>Upload</Text></TouchableOpacity>
-              </View>
-          )}
+      {/* Evidence Photos Section - Always Visible */}
+      <View style={styles.section}>
+        <View style={styles.iconLabelRow}>
+          <ImageIcon size={14} color="#94a3b8" />
+          <Text style={styles.label}>EVIDENCE PHOTOS</Text>
         </View>
-      )}
+        {evidencePhotos.length > 0 && (
+          <ScrollView horizontal style={styles.photoScroll} showsHorizontalScrollIndicator={false}>
+            {evidencePhotos.map((p: string, i: number) => (
+              <View key={i} style={styles.photoBox}>
+                <Image source={{ uri: getImageUrl(p) }} style={styles.photo} />
+                {!readOnly && (
+                  <TouchableOpacity 
+                    style={styles.removeEvidence} 
+                    onPress={() => updateValue({ evidencePhotos: evidencePhotos.filter((_: any, idx: number) => idx !== i) })}
+                  >
+                    <X size={12} color="#fff" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))}
+          </ScrollView>
+        )}
+        {!readOnly && (
+          <View style={styles.actionGrid}>
+            <TouchableOpacity style={styles.actionBtn} onPress={() => setCameraVisible(true)}>
+              <Camera size={18} color="#3b82f6" />
+              <Text style={[styles.actionText, { color: '#3b82f6' }]}>Camera</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.actionBtn} 
+              onPress={async () => {
+                const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
+                if (!res.canceled) updateValue({ evidencePhotos: [...evidencePhotos, res.assets[0].uri] });
+              }}
+            >
+              <Upload size={18} color="#64748b" />
+              <Text style={styles.actionText}>Upload</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
 
       {/* REWORK & REJECTED MODE */}
       {(status === "Rework" || status === "Rejected") && (
@@ -290,7 +311,7 @@ export default function ChassisInspection({
                                                     <View style={styles.evidenceActions}>
                                                         {details.evidence ? (
                                                             <View style={styles.evidencePreview}>
-                                                                <Image source={{ uri: details.evidence }} style={styles.evidenceThumb} />
+                                                                <Image source={{ uri: getImageUrl(details.evidence) }} style={styles.evidenceThumb} />
                                                                 <TouchableOpacity style={styles.removeEvidence} onPress={() => updateDefectDetail('zone', z, cat, defName, { evidence: "" })}>
                                                                     <X size={12} color="#fff" />
                                                                 </TouchableOpacity>
@@ -375,7 +396,7 @@ export default function ChassisInspection({
                                       <View style={styles.evidenceBox}>
                                           {details.evidence ? (
                                               <View style={styles.evidencePreview}>
-                                                  <Image source={{ uri: details.evidence }} style={styles.evidenceThumb} />
+                                                  <Image source={{ uri: getImageUrl(details.evidence) }} style={styles.evidenceThumb} />
                                                   <TouchableOpacity style={styles.removeEvidence} onPress={() => updateDefectDetail('rejected', 'global', cat, defName, { evidence: "" })}>
                                                       <X size={12} color="#fff" />
                                                   </TouchableOpacity>

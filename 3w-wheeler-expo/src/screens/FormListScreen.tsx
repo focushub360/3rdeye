@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { io } from 'socket.io-client';
 import {
   StyleSheet,
   View,
@@ -27,7 +28,10 @@ import {
   Users,
   TrendingUp,
   Clock,
-  ShieldCheck
+  ShieldCheck,
+  Link,
+  Calendar,
+  Layers
 } from 'lucide-react-native';
 
 const { width } = Dimensions.get('window');
@@ -42,45 +46,65 @@ const StatCard = ({ title, value, icon: Icon, color }: any) => (
   </View>
 );
 
-const FormCard = ({ id, title, description, responseCount = 0, published = true, onView, onAnalytics }: any) => (
-  <View style={styles.formCard}>
-    <View style={styles.formCardMain}>
-      <View style={styles.formIconBox}>
-        <FileText size={20} color="#3b82f6" />
+const FormCard = ({ id, title, description, responseCount = 0, isActive = true, isGlobal, parentFormId, date, onView, onAnalytics }: any) => {
+  const isChild = !!parentFormId;
+  
+  return (
+    <View style={[styles.formCard, isChild && styles.childFormCard]}>
+      <View style={styles.formCardTop}>
+        <View style={styles.formInfoContainer}>
+          <View style={styles.titleRow}>
+            {isChild && <Link size={14} color="#6366f1" style={{ marginRight: 6 }} />}
+            <Text style={styles.formTitle} numberOfLines={1}>{title}</Text>
+          </View>
+          <Text style={styles.formDesc} numberOfLines={2}>{description}</Text>
+        </View>
+        <View style={styles.badgeColumn}>
+          {isGlobal && (
+             <View style={[styles.statusBadge, { backgroundColor: '#eff6ff' }]}>
+                <Text style={[styles.statusBadgeText, { color: '#1e40af' }]}>GLOBAL</Text>
+             </View>
+          )}
+          {isChild ? (
+            <View style={[styles.statusBadge, { backgroundColor: '#fdf2f8', borderColor: '#fbcfe8', borderWidth: 0.5 }]}>
+               <Text style={[styles.statusBadgeText, { color: '#be185d' }]}>CHILD</Text>
+            </View>
+          ) : (
+            <View style={[styles.statusBadge, { backgroundColor: '#f0fdf4' }]}>
+               <Text style={[styles.statusBadgeText, { color: '#166534' }]}>PARENT</Text>
+            </View>
+          )}
+        </View>
       </View>
-      <View style={styles.formDetails}>
-        <Text style={styles.formTitle} numberOfLines={1}>{title}</Text>
-        <Text style={styles.formDesc} numberOfLines={2}>{description}</Text>
-      </View>
-    </View>
-    
-    <View style={styles.formMetaRow}>
-       <View style={styles.metaBadge}>
-         <Users size={12} color="#64748b" />
-         <Text style={styles.metaBadgeText}>{responseCount} Responses</Text>
-       </View>
-       {published && (
-         <View style={styles.statusBadge}>
-            <Text style={styles.statusBadgeText}>LIVE</Text>
-         </View>
-       )}
-    </View>
+      
+      <View style={styles.divider} />
 
-    <View style={styles.formActions}>
-      <TouchableOpacity style={styles.primaryBtn} onPress={() => onView && onView(id, title)}>
-        <Eye size={14} color="#fff" />
-        <Text style={styles.primaryBtnText}>View</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.secondaryBtn} onPress={() => onAnalytics && onAnalytics(id, title)}>
-        <BarChart2 size={12} color="#1e3a8a" />
-        <Text style={styles.secondaryBtnText}>Analytics</Text>
-      </TouchableOpacity>
+      <View style={styles.formMetaRow}>
+         <View style={styles.metaItem}>
+           <Users size={12} color="#64748b" />
+           <Text style={styles.metaText}>{responseCount} Responses</Text>
+         </View>
+         <View style={styles.metaItem}>
+           <Calendar size={12} color="#64748b" />
+           <Text style={styles.metaText}>{date ? new Date(date).toLocaleDateString() : 'Active'}</Text>
+         </View>
+      </View>
+
+      <View style={styles.formActions}>
+        <TouchableOpacity style={styles.viewBtn} onPress={() => onView && onView(id, title)}>
+          <Eye size={16} color="#fff" />
+          <Text style={styles.viewBtnText}>Preview</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.analyticsBtn} onPress={() => onAnalytics && onAnalytics(id, title)}>
+          <BarChart2 size={16} color="#4f46e5" />
+        </TouchableOpacity>
+      </View>
     </View>
-  </View>
-);
+  );
+};
 
 const FormListScreen = ({ navigation }: any) => {
-  const { user, logout } = useAuth();
+  const { user, logout, isCheckedIn } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [forms, setForms] = useState<any[]>([]);
@@ -127,13 +151,34 @@ const FormListScreen = ({ navigation }: any) => {
     }, [])
   );
 
+  useEffect(() => {
+    const SOCKET_URL = BASE_URL.replace('/api', '');
+    const socket = io(SOCKET_URL);
+
+    socket.on('connect', () => {
+      console.log('✅ FormList connected to socket');
+      socket.emit('join-dashboard-analytics');
+    });
+
+    socket.on('response-created', (data: any) => {
+      console.log('🔔 Live Update: New response detected, refreshing form counts');
+      fetchForms();
+    });
+
+    socket.on('response-deleted', () => fetchForms());
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchForms();
   }, []);
 
   const handleFormPreview = (id: string, title: string) => {
-    navigation.navigate('FormPreview', { id, title });
+    navigation.navigate('FormPreview', { id, title, readOnly: isInspector });
   };
 
   const handleFormAnalytics = (id: string, title: string) => {
@@ -142,10 +187,39 @@ const FormListScreen = ({ navigation }: any) => {
 
   const isInspector = user?.role === 'inspector';
 
+  if (isInspector && !isCheckedIn) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.premiumHeader}>
+          <View style={styles.headerInfo}>
+            <Text style={styles.welcomeText}>ACCESS DENIED,</Text>
+            <Text style={styles.headerTitle}>Check-In Required</Text>
+          </View>
+          <View style={[styles.headerIconBox, { backgroundColor: '#fef2f2' }]}>
+             <Clock size={24} color="#ef4444" />
+          </View>
+        </View>
+        <View style={styles.centered}>
+          <Clock size={64} color="#cbd5e1" style={{ marginBottom: 16 }} />
+          <Text style={[styles.emptyText, { fontSize: 18, fontWeight: '800', color: '#1e293b' }]}>Check-In to Start Working</Text>
+          <Text style={[styles.emptyText, { marginTop: 8, paddingHorizontal: 40 }]}>
+            Inspectors must be actively checked in to access field assets and form checklists.
+          </Text>
+          <TouchableOpacity 
+            style={{ marginTop: 24, backgroundColor: '#4f46e5', paddingVertical: 14, paddingHorizontal: 32, borderRadius: 16, shadowColor: '#4f46e5', shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}
+            onPress={() => navigation.navigate('Attendance')}
+          >
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Go to Attendance</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (loading && !refreshing) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#3b82f6" />
+        <ActivityIndicator size="large" color="#6366f1" />
         <Text style={styles.loadingText}>Synchronizing Forms...</Text>
       </View>
     );
@@ -161,38 +235,30 @@ const FormListScreen = ({ navigation }: any) => {
           <Text style={styles.headerRole}>{user?.tenant?.name || 'Laxmi Metals TVS'}</Text>
         </View>
         <View style={styles.headerIconBox}>
-           <ShieldCheck size={24} color="#1e3a8a" />
+           <ShieldCheck size={24} color="#4f46e5" />
         </View>
       </View>
 
       <ScrollView 
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#3b82f6']} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#6366f1']} />}
         showsVerticalScrollIndicator={false}
       >
         {/* Top Summary Widgets */}
         <View style={styles.metricsContainer}>
           <View style={styles.metricsRow}>
             <StatCard 
-              title={isInspector ? "Assigned" : "Active"} 
+              title="Total Forms" 
               value={forms.length} 
               icon={FileText} 
-              color="#3b82f6" 
+              color="#6366f1" 
             />
             <StatCard 
-              title="Recent" 
-              value={isInspector ? 12 : 154} 
-              icon={Users} 
+              title="Total Responses" 
+              value={forms.reduce((acc, f) => acc + (f.responseCount || 0), 0)} 
+              icon={ClipboardList} 
               color="#10b981" 
             />
-          </View>
-          <View style={styles.fullMetricRow}>
-             <StatCard 
-                title="Service Compliance Index" 
-                value={isInspector ? "96%" : "92%"} 
-                icon={TrendingUp} 
-                color="#8b5cf6" 
-             />
           </View>
         </View>
 
@@ -216,7 +282,10 @@ const FormListScreen = ({ navigation }: any) => {
               id={form.id || form._id}
               title={form.title}
               description={form.description}
-              published={form.published}
+              isActive={form.isActive}
+              isGlobal={form.isGlobal}
+              parentFormId={form.parentFormId}
+              date={form.createdAt}
               responseCount={form.responseCount}
               onView={handleFormPreview}
               onAnalytics={handleFormAnalytics}
@@ -229,10 +298,10 @@ const FormListScreen = ({ navigation }: any) => {
             <Text style={{ fontSize: 40, marginBottom: 12 }}>📡</Text>
             <Text style={[styles.emptyText, { color: '#ef4444', fontWeight: '700' }]}>Cannot reach server</Text>
             <Text style={[styles.emptyText, { fontSize: 13, marginTop: 6 }]}>
-              Ensure your phone is on the same Wi-Fi as your PC{`\n`}Server: 192.168.31.125:5001
+              Ensure your phone is on the same Wi-Fi as your PC{`\n`}Server: 10.180.155.247:5001
             </Text>
             <TouchableOpacity
-              style={{ marginTop: 16, backgroundColor: '#1e3a8a', paddingVertical: 10, paddingHorizontal: 24, borderRadius: 10 }}
+              style={{ marginTop: 16, backgroundColor: '#4f46e5', paddingVertical: 10, paddingHorizontal: 24, borderRadius: 10 }}
               onPress={() => { setLoading(true); fetchForms(); }}
             >
               <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Retry</Text>
@@ -331,7 +400,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: '#f1f5f9',
-    shadowColor: '#1e3a8a',
+    shadowColor: '#4f46e5',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 10,
@@ -356,7 +425,7 @@ const styles = StyleSheet.create({
   },
   inspectorAlert: {
     flexDirection: 'row',
-    backgroundColor: '#1e3a8a',
+    backgroundColor: '#4f46e5',
     padding: 16,
     borderRadius: 16,
     marginBottom: 28,
@@ -378,114 +447,112 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   formGrid: {
-    gap: 16,
+    gap: 12,
   },
   formCard: {
     backgroundColor: '#fff',
-    borderRadius: 24,
-    padding: 20,
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#f1f5f9',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
   },
-  formCardMain: {
+  childFormCard: {
+    marginLeft: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: '#6366f1',
+    backgroundColor: '#f8fafc',
+  },
+  formCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  formInfoContainer: {
+    flex: 1,
+    marginRight: 12,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  formTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1e293b',
+    flex: 1,
+  },
+  formDesc: {
+    fontSize: 12,
+    color: '#64748b',
+    lineHeight: 16,
+    fontWeight: '500',
+  },
+  badgeColumn: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginVertical: 12,
+  },
+  formMetaRow: {
     flexDirection: 'row',
     gap: 16,
     marginBottom: 16,
   },
-  formIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: '#eff6ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  formDetails: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  formTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1e293b',
-    marginBottom: 4,
-  },
-  formDesc: {
-    fontSize: 13,
-    color: '#64748b',
-    fontWeight: '500',
-    lineHeight: 18,
-  },
-  formMetaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  metaBadge: {
+  metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#f8fafc',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
   },
-  metaBadgeText: {
+  metaText: {
     fontSize: 11,
     color: '#64748b',
     fontWeight: '700',
   },
   statusBadge: {
-    backgroundColor: '#dcfce7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   statusBadgeText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
-    color: '#166534',
   },
   formActions: {
     flexDirection: 'row',
-    gap: 12,
-  },
-  primaryBtn: {
-    flex: 2,
-    flexDirection: 'row',
-    backgroundColor: '#1e3a8a',
-    paddingVertical: 12,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
     gap: 8,
   },
-  primaryBtnText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  secondaryBtn: {
+  viewBtn: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: '#f1f5f9',
-    paddingVertical: 12,
-    borderRadius: 14,
+    backgroundColor: '#4f46e5',
+    paddingVertical: 10,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+  },
+  viewBtnText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  analyticsBtn: {
+    width: 44,
+    height: 44,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-  },
-  secondaryBtnText: {
-    color: '#1e3a8a',
-    fontSize: 14,
-    fontWeight: '800',
   },
   emptyState: {
     alignItems: 'center',

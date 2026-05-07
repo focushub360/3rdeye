@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -9,135 +9,82 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  KeyboardAvoidingView,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, ChevronRight, CheckCircle, CircleDot, Square, CheckSquare } from 'lucide-react-native';
+import { 
+  ChevronLeft, 
+  ChevronRight, 
+  CheckCircle, 
+  CircleDot, 
+  Square, 
+  CheckSquare, 
+  Send, 
+  Zap, 
+  Camera, 
+  X, 
+  MapPin, 
+  ClipboardCheck,
+  Upload,
+  AlertCircle
+} from 'lucide-react-native';
+
+
+
+import { StatusBar } from 'react-native';
 import apiClient from '../api/config';
 import { useAuth } from '../context/AuthContext';
+import QuestionRenderer from '../components/QuestionRenderer';
+import { BASE_URL } from '../api/config';
+// import * as Location from 'expo-location';
 
-// ─── Question renderer helpers ───────────────────────────────────────────────
-
-const YesNoNAQuestion = ({ question, value, onChange }: any) => {
-  const options = ['Yes', 'No', 'N/A'];
-  return (
-    <View style={qStyles.row}>
-      {options.map((opt) => (
-        <TouchableOpacity
-          key={opt}
-          style={[qStyles.pill, value === opt && qStyles.pillSelected]}
-          onPress={() => onChange(opt)}
-        >
-          <Text style={[qStyles.pillText, value === opt && qStyles.pillTextSelected]}>{opt}</Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-};
-
-const RadioQuestion = ({ question, value, onChange }: any) => {
-  const options = question.options || [];
-  return (
-    <View>
-      {options.map((opt: any) => {
-        const label = typeof opt === 'string' ? opt : opt.label || opt.value || '';
-        const selected = value === label;
-        return (
-          <TouchableOpacity key={label} style={qStyles.optionRow} onPress={() => onChange(label)}>
-            <View style={[qStyles.radio, selected && qStyles.radioSelected]}>
-              {selected && <View style={qStyles.radioDot} />}
-            </View>
-            <Text style={qStyles.optionLabel}>{label}</Text>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-};
-
-const CheckboxQuestion = ({ question, value = [], onChange }: any) => {
-  const options = question.options || [];
-  const toggle = (label: string) => {
-    const current = Array.isArray(value) ? value : [];
-    onChange(current.includes(label) ? current.filter((v: string) => v !== label) : [...current, label]);
-  };
-  return (
-    <View>
-      {options.map((opt: any) => {
-        const label = typeof opt === 'string' ? opt : opt.label || opt.value || '';
-        const checked = Array.isArray(value) && value.includes(label);
-        return (
-          <TouchableOpacity key={label} style={qStyles.optionRow} onPress={() => toggle(label)}>
-            {checked
-              ? <CheckSquare size={20} color="#1e3a8a" />
-              : <Square size={20} color="#94a3b8" />}
-            <Text style={qStyles.optionLabel}>{label}</Text>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-};
-
-const TextQuestion = ({ question, value, onChange }: any) => (
-  <TextInput
-    style={qStyles.input}
-    value={value || ''}
-    onChangeText={onChange}
-    placeholder={question.placeholder || 'Type your answer...'}
-    placeholderTextColor="#94a3b8"
-    multiline={question.type === 'paragraph' || question.type === 'textarea'}
-    numberOfLines={question.type === 'paragraph' || question.type === 'textarea' ? 4 : 1}
-  />
-);
-
-const RatingQuestion = ({ question, value, onChange }: any) => {
-  const max = question.max || 5;
-  return (
-    <View style={qStyles.row}>
-      {Array.from({ length: max }, (_, i) => i + 1).map((n) => (
-        <TouchableOpacity
-          key={n}
-          style={[qStyles.ratingBtn, Number(value) === n && qStyles.ratingBtnSelected]}
-          onPress={() => onChange(String(n))}
-        >
-          <Text style={[qStyles.ratingText, Number(value) === n && qStyles.ratingTextSelected]}>{n}</Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-};
-
-const QuestionRenderer = ({ question, value, onChange }: any) => {
-  const type = (question.type || '').toLowerCase();
-
-  if (type === 'yesnona' || type === 'yes_no_na' || type === 'yesno') {
-    return <YesNoNAQuestion question={question} value={value} onChange={onChange} />;
+// Helper to normalize image URLs for reference images
+const getReferenceImageUrl = (url: string) => {
+  if (!url) return '';
+  
+  // Data URIs and local file paths can be used directly
+  if (url.startsWith('data:') || url.startsWith('file:')) {
+    return url;
   }
-  if (type === 'radio' || type === 'multiplechoice') {
-    return <RadioQuestion question={question} value={value} onChange={onChange} />;
+  
+  // External URLs (like Google Drive or direct web links)
+  // We route these through our proxy endpoint to handle conversion and CORS
+  if (url.startsWith('http')) {
+    return `${BASE_URL}/files/proxy?url=${encodeURIComponent(url)}`;
   }
-  if (type === 'checkbox' || type === 'checkboxes') {
-    return <CheckboxQuestion question={question} value={value} onChange={onChange} />;
-  }
-  if (type === 'rating' || type === 'scale') {
-    return <RatingQuestion question={question} value={value} onChange={onChange} />;
-  }
-  // Default: text input
-  return <TextQuestion question={question} value={value} onChange={onChange} />;
+  
+  // If it's just a filename or ID, point to our backend files endpoint
+  return `${BASE_URL}/files/${url}`;
 };
+
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
 const FormPreviewScreen = ({ route, navigation }: any) => {
-  const { title, id } = route.params || {};
+  const { title, id, answers: initialAnswers, readOnly = false, chassisNumber, shift, status } = route.params || {};
   const { user } = useAuth();
 
   const [form, setForm] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, any>>({});
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [answers, setAnswers] = useState<Record<string, any>>(initialAnswers || {});
   const [submitted, setSubmitted] = useState(false);
+  const [startTime] = useState(new Date());
+  const [submitting, setSubmitting] = useState(false);
+  const [locationName, setLocationName] = useState<string>('');
+  const [submittingProgress, setSubmittingProgress] = useState('');
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
+  const [selectedChassis, setSelectedChassis] = useState<string>(chassisNumber || '');
+  const [trackingValues, setTrackingValues] = useState<Record<string, string>>({});
+  const [availableChassis, setAvailableChassis] = useState<any[]>([]);
+
+  // Location fetching removed as per request
+  useEffect(() => {
+    setLocationName('');
+  }, []);
 
   const fetchForm = useCallback(async () => {
     if (!id) return;
@@ -147,6 +94,24 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
       const response = await apiClient.get(`/forms/${id}`);
       const formData = response.data?.data?.form || response.data?.data || response.data?.form || response.data;
       setForm(formData);
+
+      // Extract available chassis based on tenant assignments
+      if (formData.chassisNumbers && formData.chassisNumbers.length > 0) {
+        let list = formData.chassisNumbers;
+        
+        // Filter by tenant assignment if applicable
+        if (formData.chassisTenantAssignments && user?.tenantId) {
+          const tenantIdStr = user.tenantId.toString();
+          const assigned = formData.chassisTenantAssignments
+            .filter((a: any) => a.assignedTenants && a.assignedTenants.includes(tenantIdStr))
+            .map((a: any) => a.chassisNumber);
+          
+          if (assigned.length > 0) {
+            list = list.filter((c: any) => assigned.includes(c.chassisNumber));
+          }
+        }
+        setAvailableChassis(list);
+      }
     } catch (err: any) {
       console.error('FormPreview fetch error:', err.message);
       setError('Could not load form. Please try again.');
@@ -166,28 +131,274 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
     setAnswers(prev => ({ ...prev, [questionId]: value }));
   };
 
+  const handleTrackingAnswer = (questionId: string, trackingVal: string) => {
+    setTrackingValues(prev => ({ ...prev, [questionId]: trackingVal }));
+    setAnswers(prev => ({ ...prev, [`${questionId}_tracking`]: trackingVal }));
+  };
+
   const handleNext = () => {
-    if (!isLast) setCurrentSectionIndex(i => i + 1);
+    // Validate current section required questions
+    const missing: string[] = [];
+    if (currentSection) {
+      (currentSection.questions || []).forEach((q: any) => {
+        if (q.required) {
+          const ans = answers[q.id];
+          const isAnswered = ans !== undefined && ans !== null && ans !== '' && (!Array.isArray(ans) || ans.length > 0);
+          
+          // Special check for tracking-based questions or chassis selector
+          const isTrackingAnswered = answers[`${q.id}_tracking`] !== undefined && answers[`${q.id}_tracking`] !== '';
+          const isChassisFilled = (q.type === 'chassisNumber' || q.text?.toLowerCase().includes('chassis number')) && selectedChassis;
+          
+          if (!isAnswered && !isTrackingAnswered && !isChassisFilled) {
+             missing.push(q.text || q.label || 'Unknown Question');
+          }
+        }
+      });
+    }
+
+    if (missing.length > 0) {
+      Alert.alert(
+        "Required Fields Missing",
+        "Please complete all required fields in this section before proceeding:\n\n• " + missing.join("\n• "),
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    if (!isLast) {
+      setCurrentSectionIndex(i => i + 1);
+      // Scroll to top of the new section
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    }
   };
 
   const handlePrev = () => {
     if (!isFirst) setCurrentSectionIndex(i => i - 1);
   };
 
+  const uploadImage = async (uri: string) => {
+    try {
+      const formData = new FormData();
+      const filename = uri.split('/').pop() || 'upload.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : `image`;
+
+      formData.append('file', {
+        uri,
+        name: filename,
+        type
+      } as any);
+
+      const resp = await apiClient.post('/files/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (resp.data?.success) {
+        // Return the full URL or filename that the backend uses
+        return resp.data.data.filename || resp.data.data.path || resp.data.data.id;
+      }
+      throw new Error('Upload failed');
+    } catch (err) {
+      console.error('Image upload error:', err);
+      throw err;
+    }
+  };
+
   const handleSubmit = () => {
+    // 1. Check for required questions across all sections
+    const missingRequired = [];
+    for (const section of sections) {
+      for (const q of section.questions) {
+        if (q.required) {
+          const ans = answers[q.id];
+          const isAnswered = ans !== undefined && ans !== null && ans !== '' && (!Array.isArray(ans) || ans.length > 0);
+          
+          // Special check for tracking-based questions
+          const isTrackingAnswered = answers[`${q.id}_tracking`] !== undefined && answers[`${q.id}_tracking`] !== '';
+          
+          if (!isAnswered && !isTrackingAnswered) {
+            missingRequired.push(q.text || q.label || 'Unknown Question');
+          }
+        }
+      }
+    }
+
+    if (missingRequired.length > 0) {
+      Alert.alert(
+        "Required Questions Missing",
+        "Please answer the following required questions before submitting:\n\n• " + missingRequired.join("\n• "),
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    if (Object.keys(answers).length === 0) {
+      Alert.alert("Warning", "You haven't answered any questions yet. Do you still want to submit?", [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Submit Anyway', onPress: executeSubmit }
+      ]);
+      return;
+    }
+
     Alert.alert(
-      'Submit Form',
-      'Are you sure you want to submit this form?',
+      'Submit Response',
+      'Are you sure you want to submit this inspection report? This action cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Submit',
-          onPress: () => {
-            setSubmitted(true);
-          },
+          text: 'Confirm & Submit',
+          onPress: executeSubmit,
         },
       ]
     );
+  };
+
+  const executeSubmit = async () => {
+    try {
+      setSubmitting(true);
+      setSubmittingProgress('Initializing...');
+      
+      // 1. Process and upload any local images first
+      // Deep clone to prevent mutating frozen React state objects
+      const processedAnswers = JSON.parse(JSON.stringify(answers));
+      
+      // Collect all upload tasks
+      const uploadTasks: { qid: string, type: 'single' | 'photos' | 'defects' | 'zones', path?: string[], key?: string, subKey?: string, index?: number }[] = [];
+      
+      Object.entries(processedAnswers).forEach(([qid, val]) => {
+        if (typeof val === 'string' && val.startsWith('file://')) {
+          uploadTasks.push({ qid, type: 'single', path: [val] });
+        } else if (typeof val === 'object' && val !== null) {
+          const v = val as any;
+          if (Array.isArray(v.evidencePhotos)) {
+             v.evidencePhotos.forEach((p: string, idx: number) => {
+               if (p && p.startsWith('file://')) uploadTasks.push({ qid, type: 'photos', path: [p], index: idx });
+             });
+          }
+          if (v.rejectedDefects) {
+             for (const cat in v.rejectedDefects) {
+               v.rejectedDefects[cat].forEach((def: any, idx: number) => {
+                 if (def.evidence && def.evidence.startsWith('file://')) {
+                   uploadTasks.push({ qid, type: 'defects', key: cat, index: idx, path: [def.evidence] });
+                 }
+               });
+             }
+          }
+          if (v.evidenceUrl && v.evidenceUrl.startsWith('file://')) {
+             uploadTasks.push({ qid, type: 'single', key: 'evidenceUrl', path: [v.evidenceUrl] });
+          }
+          if (v.zoneData) {
+            for (const z in v.zoneData) {
+              if (v.zoneData[z].defects) {
+                for (const cat in v.zoneData[z].defects) {
+                  v.zoneData[z].defects[cat].forEach((def: any, idx: number) => {
+                    if (def.evidence && def.evidence.startsWith('file://')) {
+                      uploadTasks.push({ qid, type: 'zones', key: z, subKey: cat, index: idx, path: [def.evidence] });
+                    }
+                  });
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (uploadTasks.length > 0) {
+        setUploadProgress({ current: 0, total: uploadTasks.length });
+        
+        // Upload images STRICTLY SEQUENTIALLY to prevent native bridge memory crashes
+        for (let i = 0; i < uploadTasks.length; i++) {
+          const task = uploadTasks[i];
+          setUploadProgress({ current: i + 1, total: uploadTasks.length });
+          setSubmittingProgress(`Uploading image ${i + 1} of ${uploadTasks.length}...`);
+          
+          try {
+            const uploadedUrl = await uploadImage(task.path![0]);
+            
+            if (task.type === 'single') {
+              if (task.key) {
+                processedAnswers[task.qid][task.key] = uploadedUrl;
+              } else {
+                processedAnswers[task.qid] = uploadedUrl;
+              }
+            } else if (task.type === 'photos') {
+              processedAnswers[task.qid].evidencePhotos[task.index!] = uploadedUrl;
+            } else if (task.type === 'defects') {
+              processedAnswers[task.qid].rejectedDefects[task.key!][task.index!].evidence = uploadedUrl;
+            } else if (task.type === 'zones') {
+              processedAnswers[task.qid].zoneData[task.key!].defects[task.subKey!][task.index!].evidence = uploadedUrl;
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 300));
+          } catch (uploadErr: any) {
+            console.error('Failed to upload image:', task.path![0], uploadErr);
+            throw new Error(`Image ${i + 1} upload failed: ${uploadErr.message || 'Network error'}`);
+          }
+        }
+      }
+      setUploadProgress({ current: 0, total: 0 });
+
+      // Location capture removed as per request
+      let locationData = null;
+
+      const payload = {
+        answers: processedAnswers,
+        location: locationData,
+        startedAt: startTime.toISOString(),
+        completedAt: new Date().toISOString(),
+        submittedBy: user?.name || (user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Mobile Inspector'),
+        submitterContact: {
+          email: user?.email,
+          phone: user?.phone || user?.mobile
+        },
+        metadata: {
+          submittedVia: 'mobile-app',
+          platform: Platform.OS,
+          timestamp: new Date().toISOString()
+        },
+        chassisNumber: selectedChassis || chassisNumber
+      };
+
+      setSubmittingProgress('Sending report...');
+      const response = await apiClient.post(`/responses/${id}`, payload);
+
+      if (response.data.success) {
+        setSubmitted(true);
+      } else {
+        Alert.alert('Submission Failed', response.data.message || 'Failed to submit response.');
+      }
+    } catch (err: any) {
+      console.error('Submission error:', err);
+      const errorMessage = err.response?.data?.message || err.message || 'Unknown error';
+      console.error('Detailed Error Context:', {
+        status: err.response?.status,
+        data: err.response?.data,
+        message: errorMessage
+      });
+      
+      Alert.alert(
+        'Submission Error', 
+        `The submission could not be completed. \n\nDetails: ${errorMessage}\n\nPlease check your internet connection and try again.`,
+        [{ text: 'Retry' }]
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const loadSampleAnswers = () => {
+    const sample: Record<string, any> = {};
+    sections.forEach((sec: any) => {
+      sec.questions?.forEach((q: any) => {
+        if (q.type === 'rating' || q.type === 'scale') sample[q.id] = String(Math.floor(Math.random() * (q.max || 5)) + (q.min || 1));
+        if (q.type === 'yesnona') sample[q.id] = 'Yes';
+        if (q.type === 'text' || q.type === 'paragraph') sample[q.id] = 'Sample text response';
+      });
+    });
+    setAnswers(prev => ({ ...prev, ...sample }));
+    Alert.alert('Success', 'Sample answers loaded successfully.');
   };
 
   // Loading state
@@ -195,14 +406,18 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <ChevronLeft size={24} color="#1e3a8a" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle} numberOfLines={1}>{title || 'Form Preview'}</Text>
+          <View style={styles.headerTop}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+              <X size={24} color="#64748b" />
+            </TouchableOpacity>
+            <View style={styles.titleGroup}>
+              <Text style={styles.formTitle} numberOfLines={1}>{title || 'Form Preview'}</Text>
+            </View>
+          </View>
         </View>
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#1e3a8a" />
-          <Text style={styles.loadingText}>Loading form...</Text>
+          <ActivityIndicator size="large" color="#4f46e5" />
+          <Text style={styles.loadingText}>Fetching form structure...</Text>
         </View>
       </SafeAreaView>
     );
@@ -213,15 +428,20 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <ChevronLeft size={24} color="#1e3a8a" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{title || 'Form Preview'}</Text>
+          <View style={styles.headerTop}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+              <X size={24} color="#64748b" />
+            </TouchableOpacity>
+            <View style={styles.titleGroup}>
+              <Text style={styles.formTitle} numberOfLines={1}>{title || 'Form Preview'}</Text>
+            </View>
+          </View>
         </View>
         <View style={styles.centered}>
-          <Text style={styles.errorText}>{error}</Text>
+          <AlertCircle size={48} color="#ef4444" />
+          <Text style={[styles.errorText, { marginTop: 16 }]}>{error}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={fetchForm}>
-            <Text style={styles.retryBtnText}>Try Again</Text>
+            <Text style={styles.retryBtnText}>Retry Fetch</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -232,225 +452,793 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
   if (submitted) {
     return (
       <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" />
         <View style={styles.centered}>
-          <CheckCircle size={64} color="#10b981" />
-          <Text style={styles.successTitle}>Form Submitted!</Text>
-          <Text style={styles.successSubtitle}>Thank you for completing this form.</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={() => navigation.goBack()}>
-            <Text style={styles.retryBtnText}>Go Back</Text>
+          <View style={styles.successIconContainer}>
+            <CheckCircle size={80} color="#10b981" />
+          </View>
+          <Text style={styles.successTitle}>Inspection Complete!</Text>
+          <Text style={styles.successSubtitle}>
+            Your report for chassis {selectedChassis || chassisNumber || 'N/A'} has been securely submitted and synced with the dashboard.
+          </Text>
+          
+          <TouchableOpacity 
+            style={styles.viewDetailsBtn} 
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.viewDetailsBtnText}>BACK TO DASHBOARD</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.historyBtn} 
+            onPress={() => navigation.navigate('FormsList')}
+          >
+            <Text style={styles.historyBtnText}>START NEW INSPECTION</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
+  const isSectionValid = () => {
+    if (!currentSection) return true;
+    return currentSection.questions.every((q: any) => {
+      if (!q.required) return true;
+      const ans = answers[q.id];
+      const isAnswered = ans !== undefined && ans !== null && ans !== '' && (!Array.isArray(ans) || ans.length > 0);
+      const isTrackingAnswered = answers[`${q.id}_tracking`] !== undefined && answers[`${q.id}_tracking`] !== '';
+      const isChassisFilled = (q.type === 'chassisNumber' || q.text?.toLowerCase().includes('chassis number')) && selectedChassis;
+      return isAnswered || isTrackingAnswered || isChassisFilled;
+    });
+  };
+
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" />
+      
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <ChevronLeft size={24} color="#1e3a8a" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{form?.title || title}</Text>
+        <View style={styles.headerTop}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <X size={24} color="#64748b" />
+          </TouchableOpacity>
+          <View style={styles.titleGroup}>
+            <Text style={styles.formTitle} numberOfLines={1}>{form?.title || title || 'Form Preview'}</Text>
+            <View style={[styles.previewBadge, readOnly && { backgroundColor: '#f1f5f9', borderColor: '#e2e8f0' }]}>
+              <Text style={[styles.previewBadgeText, readOnly && { color: '#64748b' }]}>{readOnly ? 'VIEW ONLY' : 'PREVIEW MODE'}</Text>
+            </View>
+          </View>
+          <View style={styles.headerRight}>
+            <Text style={styles.progressText}>
+              {sections.length > 0 ? Math.round(((currentSectionIndex + 1) / sections.length) * 100) : 0}%
+            </Text>
+            <Text style={styles.pageCount}>
+              {currentSectionIndex + 1}/{sections.length || 1}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.progressBarContainer}>
+          <View style={[styles.progressBar, { width: `${sections.length > 0 ? ((currentSectionIndex + 1) / sections.length) * 100 : 0}%` }]} />
+        </View>
       </View>
 
-      {/* Section progress bar */}
-      {sections.length > 1 && (
-        <View style={styles.progressBar}>
-          {sections.map((_: any, i: number) => (
-            <View
-              key={i}
-              style={[
-                styles.progressDot,
-                i <= currentSectionIndex && styles.progressDotActive,
-                i < currentSectionIndex && styles.progressDotDone,
-              ]}
-            />
-          ))}
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
+         <ScrollView 
+           ref={scrollViewRef}
+           style={styles.content} 
+           contentContainerStyle={styles.contentInner}
+           showsVerticalScrollIndicator={false}
+           keyboardShouldPersistTaps="handled"
+         >
+            {/* Chassis Selection - Web Parity */}
+            {!readOnly && availableChassis.length > 0 && (
+              <View style={styles.chassisSelectionContainer}>
+          <View style={styles.chassisHeader}>
+            <View style={styles.chassisIconBox}>
+              <View style={styles.innerIconBox}>
+                <ClipboardCheck size={18} color="#4f46e5" />
+              </View>
+            </View>
+            <View>
+              <Text style={styles.chassisMainTitle}>Select Chassis Number *</Text>
+              <Text style={styles.chassisSubTitle}>Please identify the vehicle you are inspecting</Text>
+            </View>
+          </View>
+
+                <View style={styles.chassisGrid}>
+                  {availableChassis.map((item, idx) => {
+                    const isSelected = selectedChassis === item.chassisNumber;
+                    return (
+                      <TouchableOpacity 
+                        key={idx} 
+                        style={[styles.chassisCard, isSelected && styles.chassisCardSelected]}
+                        onPress={() => setSelectedChassis(item.chassisNumber)}
+                      >
+                         <View style={styles.chassisCardTop}>
+                            <Text style={[styles.chassisCardId, isSelected && styles.chassisCardIdSelected]}>
+                              {item.chassisNumber}
+                            </Text>
+                            <View style={[styles.statusIndicator, { backgroundColor: isSelected ? '#fff' : '#10b981' }]} />
+                         </View>
+                         <Text style={[styles.chassisCardDesc, isSelected && styles.chassisCardDescSelected]}>
+                           {item.partDescription || 'Standard Chassis Unit'}
+                         </Text>
+                         <Text style={[styles.chassisStatus, isSelected && styles.chassisStatusSelected]}>
+                           {isSelected ? 'SELECTED' : 'AVAILABLE'}
+                         </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+           {/* Response Summary (Web Parity) */}
+           {readOnly && (
+             <View style={styles.responseSummaryCard}>
+               <View style={styles.summaryHeader}>
+                 <View style={styles.summaryIconBox}>
+                   <ClipboardCheck size={20} color="#4f46e5" />
+                 </View>
+                 <View>
+                   <Text style={styles.summaryHeaderTitle}>RESPONSE SUMMARY</Text>
+                   <Text style={styles.summaryHeaderSub}>Submission Metadata</Text>
+                 </View>
+               </View>
+               <View style={styles.summaryGrid}>
+                 <View style={styles.summaryItem}>
+                   <Text style={styles.summaryLabel}>CHASSIS NUMBER</Text>
+                   <Text style={styles.summaryValue}>{chassisNumber || 'N/A'}</Text>
+                 </View>
+                 <View style={styles.summaryDivider} />
+                 <View style={styles.summaryItem}>
+                   <Text style={styles.summaryLabel}>SHIFT</Text>
+                   <Text style={styles.summaryValue}>{shift || 'N/A'}</Text>
+                 </View>
+                 <View style={styles.summaryDivider} />
+                 <View style={styles.summaryItem}>
+                   <Text style={styles.summaryLabel}>STATUS</Text>
+                   <View style={[
+                     styles.summaryStatusBadge,
+                     { backgroundColor: String(status).toLowerCase().includes('accepted') ? '#ecfdf5' : String(status).toLowerCase().includes('rejected') ? '#fef2f2' : '#fff7ed' }
+                   ]}>
+                     <Text style={[
+                       styles.summaryStatusText,
+                       { color: String(status).toLowerCase().includes('accepted') ? '#059669' : String(status).toLowerCase().includes('rejected') ? '#ef4444' : '#d97706' }
+                     ]}>
+                       {(status || 'PENDING').toString().toUpperCase()}
+                     </Text>
+                   </View>
+                 </View>
+               </View>
+             </View>
+           )}
+ 
+           {/* Phase Badge */}
+           <View style={styles.phaseContainer}>
+             <View style={styles.phaseIcon}>
+               <Text style={styles.phaseIconText}>{currentSectionIndex + 1}</Text>
+             </View>
+             <View>
+               <Text style={styles.phaseLabel}>CURRENT PHASE</Text>
+               <Text style={styles.phaseCount}>0{currentSectionIndex + 1} of 0{sections.length || 1}</Text>
+             </View>
+           </View>
+ 
+           <Text style={styles.sectionTitle}>{currentSection?.title || `Section ${currentSectionIndex + 1}`}</Text>
+           {currentSection?.description && (
+             <Text style={styles.sectionDesc}>{currentSection.description}</Text>
+           )}
+ 
+           <View style={styles.questionsList}>
+             {(currentSection?.questions || []).map((question: any) => (
+               <View key={question.id} style={styles.questionCard}>
+                 <View style={styles.questionHeaderRow}>
+                   <Text style={styles.questionText}>
+                     {question.text}
+                     {question.required && <Text style={{ color: '#ef4444' }}> *</Text>}
+                   </Text>
+                   {question.subParam1 && (
+                     <View style={styles.subParamBadge}>
+                       <Text style={styles.subParamText}>{question.subParam1.toUpperCase()}</Text>
+                     </View>
+                   )}
+                 </View>
+                 
+                 {question.description && (
+                   <Text style={styles.questionDescription}>{question.description}</Text>
+                 )}
+
+                 {question.imageUrl && (
+                   <View style={styles.referenceImageContainer}>
+                     <Image 
+                       source={{ uri: getReferenceImageUrl(question.imageUrl) }} 
+                       style={styles.referenceImage}
+                       resizeMode="contain"
+                     />
+                   </View>
+                 )}
+
+                 <QuestionRenderer
+                   question={question}
+                   value={answers[question.id] || ( (question.type === 'chassisNumber' || question.text?.toLowerCase().includes('chassis number')) ? selectedChassis : undefined )}
+                   onChange={(val: any) => handleAnswer(question.id, val)}
+                   readOnly={readOnly}
+                   formId={id}
+                   trackingValue={trackingValues[question.id] || ( (question.trackResponseRank === true && question.text?.toLowerCase().includes('chassis number')) ? selectedChassis : answers[`${question.id}_tracking`] || '' )}
+                   onTrackingChange={(tv: string) => handleTrackingAnswer(question.id, tv)}
+                   hideLabel={true}
+                 />
+               </View>
+             ))}
+           </View>
+         </ScrollView>
+       </KeyboardAvoidingView>
+
+      {/* Footer */}
+      <View style={styles.footer}>
+        <TouchableOpacity 
+          style={styles.backPortalBtn} 
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.backPortalText}>BACK TO PORTAL</Text>
+        </TouchableOpacity>
+
+        {/* Location badge removed as per request */}
+        <View style={{ flex: 1 }} />
+
+        <TouchableOpacity 
+          style={[
+            styles.submitBtn, 
+            (submitting || (isLast && readOnly)) && styles.submitBtnDisabled,
+            (isLast && readOnly) && { backgroundColor: '#94a3b8' }
+          ]}
+          onPress={isLast ? (readOnly ? null : handleSubmit) : handleNext}
+          disabled={submitting || (isLast && readOnly)}
+        >
+          {submitting ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <>
+              {isLast ? (
+                readOnly ? <ClipboardCheck size={16} color="#fff" /> : <CheckCircle size={16} color="#fff" />
+              ) : (
+                <ChevronRight size={16} color="#fff" />
+              )}
+              <Text style={styles.submitBtnText}>
+                {isLast ? (readOnly ? 'SUBMISSION DISABLED' : 'SUBMIT RESPONSE') : 'NEXT SECTION'}
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Submission Overlay for Smooth Experience */}
+      {submitting && (
+        <View style={styles.submissionOverlay}>
+          <View style={styles.overlayContent}>
+            <ActivityIndicator size="large" color="#4f46e5" />
+            <Text style={styles.overlayTitle}>{submittingProgress || 'Submitting Report...'}</Text>
+            {uploadProgress.total > 0 && (
+              <View style={styles.overlayProgressContainer}>
+                <View style={[styles.overlayProgressBar, { width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }]} />
+                <Text style={styles.overlayProgressText}>Step {uploadProgress.current} of {uploadProgress.total}</Text>
+              </View>
+            )}
+            <Text style={styles.overlaySub}>
+              {uploadProgress.total > 0 
+                ? 'Uploading inspection evidence to secure cloud...' 
+                : 'Finalizing and synchronizing your report with the dashboard...'}
+            </Text>
+          </View>
         </View>
       )}
-
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Section title */}
-        {currentSection && (
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionCounter}>
-              Section {currentSectionIndex + 1} of {sections.length}
-            </Text>
-            <Text style={styles.sectionTitle}>{currentSection.title}</Text>
-            {currentSection.description ? (
-              <Text style={styles.sectionDescription}>{currentSection.description}</Text>
-            ) : null}
-          </View>
-        )}
-
-        {/* Questions */}
-        {(currentSection?.questions || []).map((question: any, qi: number) => (
-          <View key={question.id || qi} style={styles.questionCard}>
-            <View style={styles.questionHeader}>
-              <View style={styles.questionBadge}>
-                <Text style={styles.questionBadgeText}>{qi + 1}</Text>
-              </View>
-              <Text style={styles.questionText}>
-                {question.text}
-                {question.required && <Text style={styles.required}> *</Text>}
-              </Text>
-            </View>
-            {question.description ? (
-              <Text style={styles.questionDescription}>{question.description}</Text>
-            ) : null}
-            <View style={styles.questionAnswer}>
-              <QuestionRenderer
-                question={question}
-                value={answers[question.id]}
-                onChange={(val: any) => handleAnswer(question.id, val)}
-              />
-            </View>
-          </View>
-        ))}
-
-        {/* Nav buttons */}
-        <View style={styles.navRow}>
-          {!isFirst && (
-            <TouchableOpacity style={styles.navBtnSecondary} onPress={handlePrev}>
-              <ChevronLeft size={18} color="#1e3a8a" />
-              <Text style={styles.navBtnSecondaryText}>Previous</Text>
-            </TouchableOpacity>
-          )}
-          <View style={{ flex: 1 }} />
-          {!isLast ? (
-            <TouchableOpacity style={styles.navBtnPrimary} onPress={handleNext}>
-              <Text style={styles.navBtnPrimaryText}>Next</Text>
-              <ChevronRight size={18} color="#fff" />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity style={[styles.navBtnPrimary, { backgroundColor: '#10b981' }]} onPress={handleSubmit}>
-              <Text style={styles.navBtnPrimaryText}>Submit</Text>
-              <CheckCircle size={18} color="#fff" />
-            </TouchableOpacity>
-          )}
-        </View>
-      </ScrollView>
     </SafeAreaView>
   );
 };
 
-// ─── Question styles ──────────────────────────────────────────────────────────
-
-const qStyles = StyleSheet.create({
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  pill: {
-    paddingVertical: 8, paddingHorizontal: 16,
-    borderRadius: 20, borderWidth: 1.5, borderColor: '#cbd5e1',
-    backgroundColor: '#f8fafc',
-  },
-  pillSelected: { borderColor: '#1e3a8a', backgroundColor: '#eff6ff' },
-  pillText: { fontSize: 14, color: '#475569', fontWeight: '600' },
-  pillTextSelected: { color: '#1e3a8a' },
-  optionRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 6 },
-  radio: {
-    width: 22, height: 22, borderRadius: 11,
-    borderWidth: 2, borderColor: '#cbd5e1',
-    justifyContent: 'center', alignItems: 'center',
-  },
-  radioSelected: { borderColor: '#1e3a8a' },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#1e3a8a' },
-  optionLabel: { fontSize: 14, color: '#374151', flex: 1 },
-  input: {
-    borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 10,
-    fontSize: 14, color: '#1e293b', backgroundColor: '#f8fafc',
-    minHeight: 44, textAlignVertical: 'top',
-  },
-  ratingBtn: {
-    width: 42, height: 42, borderRadius: 21,
-    borderWidth: 1.5, borderColor: '#cbd5e1',
-    backgroundColor: '#f8fafc',
-    justifyContent: 'center', alignItems: 'center',
-  },
-  ratingBtnSelected: { borderColor: '#1e3a8a', backgroundColor: '#1e3a8a' },
-  ratingText: { fontSize: 14, fontWeight: '700', color: '#64748b' },
-  ratingTextSelected: { color: '#fff' },
-});
-
-// ─── Screen styles ────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1, backgroundColor: '#f8fafc',
-    paddingTop: Platform.OS === 'android' ? 36 : 0,
+  container: { flex: 1, backgroundColor: '#fcfcfd' },
+  header: { 
+    backgroundColor: '#fff', 
+    borderBottomWidth: 1, 
+    borderColor: '#f1f5f9' 
   },
-  header: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingVertical: 14,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1, borderBottomColor: '#e2e8f0',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
+  headerTop: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingHorizontal: 20, 
+    paddingVertical: 14,
+    gap: 12
   },
-  backButton: { padding: 8, marginRight: 8 },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a', flex: 1 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
-  loadingText: { marginTop: 14, color: '#1e3a8a', fontSize: 15, fontWeight: '600' },
-  errorText: { color: '#ef4444', fontSize: 15, textAlign: 'center', marginBottom: 16 },
-  successTitle: { fontSize: 24, fontWeight: '800', color: '#059669', marginTop: 20 },
-  successSubtitle: { fontSize: 15, color: '#64748b', marginTop: 8, textAlign: 'center' },
-  retryBtn: {
-    marginTop: 20, backgroundColor: '#1e3a8a',
-    paddingVertical: 12, paddingHorizontal: 28, borderRadius: 12,
+  backBtn: { padding: 4 },
+  titleGroup: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  formTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
+  previewBadge: { 
+    backgroundColor: '#fffbeb', 
+    paddingHorizontal: 6, 
+    paddingVertical: 2, 
+    borderRadius: 4, 
+    borderWidth: 1, 
+    borderColor: '#fef3c7' 
   },
-  retryBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  progressBar: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    paddingVertical: 10, backgroundColor: '#fff', gap: 6,
-    borderBottomWidth: 1, borderBottomColor: '#f1f5f9',
+  previewBadgeText: { fontSize: 7, fontWeight: '900', color: '#d97706' },
+  headerRight: { alignItems: 'flex-end' },
+  progressText: { fontSize: 10, fontWeight: '900', color: '#3b82f6' },
+  pageCount: { fontSize: 10, fontWeight: '600', color: '#94a3b8' },
+  progressBarContainer: { height: 2, backgroundColor: '#f1f5f9', width: '100%' },
+  progressBar: { height: '100%', backgroundColor: '#3b82f6' },
+
+  content: { flex: 1 },
+  contentInner: { padding: 20, paddingBottom: 40 },
+  
+  phaseContainer: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 24 },
+  phaseIcon: { 
+    width: 32, 
+    height: 32, 
+    borderRadius: 8, 
+    backgroundColor: '#2563eb', 
+    alignItems: 'center', 
+    justifyContent: 'center' 
   },
-  progressDot: {
-    width: 8, height: 8, borderRadius: 4, backgroundColor: '#e2e8f0',
+  phaseIconText: { color: '#fff', fontSize: 12, fontWeight: '900' },
+  phaseLabel: { fontSize: 8, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.5 },
+  phaseCount: { fontSize: 10, fontWeight: '800', color: '#2563eb' },
+
+  sectionTitle: { fontSize: 22, fontWeight: '800', color: '#0f172a', marginBottom: 4 },
+  sectionDesc: { fontSize: 13, color: '#64748b', marginBottom: 32 },
+  
+  questionsList: { gap: 24 },
+  questionCard: { gap: 8, marginBottom: 24 },
+  questionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12
   },
-  progressDotActive: { backgroundColor: '#93c5fd', width: 10, height: 10, borderRadius: 5 },
-  progressDotDone: { backgroundColor: '#1e3a8a' },
-  scroll: { padding: 16, paddingBottom: 40 },
-  sectionHeader: {
-    backgroundColor: '#fff', borderRadius: 14, padding: 18, marginBottom: 14,
-    borderLeftWidth: 4, borderLeftColor: '#1e3a8a',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05, shadowRadius: 4, elevation: 1,
+  questionText: { fontSize: 14, fontWeight: '800', color: '#334155', flex: 1 },
+  questionDescription: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: -4,
+    lineHeight: 18,
   },
-  sectionCounter: { fontSize: 11, fontWeight: '700', color: '#94a3b8', letterSpacing: 1, marginBottom: 4 },
-  sectionTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
-  sectionDescription: { fontSize: 13, color: '#64748b', marginTop: 6, lineHeight: 18 },
-  questionCard: {
-    backgroundColor: '#fff', borderRadius: 14, padding: 16, marginBottom: 12,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05, shadowRadius: 3, elevation: 1,
+  subParamBadge: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#dbeafe',
   },
-  questionHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
-  questionBadge: {
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: '#eff6ff', justifyContent: 'center', alignItems: 'center', flexShrink: 0,
+  subParamText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#1e40af',
   },
-  questionBadgeText: { fontSize: 12, fontWeight: '800', color: '#1e3a8a' },
-  questionText: { fontSize: 14, fontWeight: '600', color: '#1e293b', flex: 1, lineHeight: 20 },
-  required: { color: '#ef4444' },
-  questionDescription: { fontSize: 12, color: '#94a3b8', marginBottom: 10, marginLeft: 36 },
-  questionAnswer: { marginLeft: 0 },
-  navRow: {
-    flexDirection: 'row', alignItems: 'center', marginTop: 8,
-    gap: 12, paddingTop: 8,
-  },
-  navBtnPrimary: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#1e3a8a', paddingVertical: 13, paddingHorizontal: 22,
+  referenceImageContainer: {
+    width: '100%',
+    height: 200,
+    backgroundColor: '#f8fafc',
     borderRadius: 12,
+    overflow: 'hidden',
+    marginVertical: 8,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
   },
-  navBtnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  navBtnSecondary: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#fff', paddingVertical: 12, paddingHorizontal: 16,
-    borderRadius: 12, borderWidth: 1.5, borderColor: '#e2e8f0',
+  referenceImage: {
+    width: '100%',
+    height: '100%',
   },
-  navBtnSecondaryText: { color: '#1e3a8a', fontWeight: '700', fontSize: 14 },
+
+  footer: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    padding: 16, 
+    backgroundColor: '#fff', 
+    borderTopWidth: 1, 
+    borderColor: '#f1f5f9',
+    gap: 10
+  },
+  backPortalBtn: { 
+    backgroundColor: '#f1f5f9', 
+    paddingHorizontal: 12, 
+    paddingVertical: 10, 
+    borderRadius: 8 
+  },
+  backPortalText: { fontSize: 9, fontWeight: '800', color: '#64748b' },
+  locationBadge: { 
+    flex: 1, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 6, 
+    backgroundColor: '#f0fdf4', 
+    paddingHorizontal: 8, 
+    paddingVertical: 8, 
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dcfce7'
+  },
+  locationText: { fontSize: 8, fontWeight: '700', color: '#166534' },
+  submitBtn: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#059669', 
+    paddingHorizontal: 12, 
+    paddingVertical: 10, 
+    borderRadius: 8, 
+    gap: 6 
+  },
+  submitBtnDisabled: { opacity: 0.7 },
+  submitBtnText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
+  loadingText: { marginTop: 12, color: '#64748b', fontSize: 14 },
+  errorText: { color: '#ef4444', textAlign: 'center', marginBottom: 16 },
+  retryBtn: { backgroundColor: '#1e3a8a', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
+  retryBtnText: { color: '#fff', fontWeight: '600' },
+  successTitle: { fontSize: 24, fontWeight: '800', color: '#1e293b', marginTop: 24, marginBottom: 8 },
+  successSubtitle: { fontSize: 15, color: '#64748b', textAlign: 'center', marginBottom: 40, paddingHorizontal: 20, lineHeight: 22 },
+  successIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#f0fdf4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#dcfce7',
+  },
+  viewDetailsBtn: {
+    backgroundColor: '#1e3a8a',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  viewDetailsBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  historyBtn: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
+    width: '100%',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  historyBtnText: {
+    color: '#64748b',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  
+  // Response Summary Styles
+  responseSummaryCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  summaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 12,
+  },
+  summaryIconBox: {
+    width: 40,
+    height: 40,
+    backgroundColor: '#eff6ff',
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  summaryHeaderTitle: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#1e293b',
+    letterSpacing: 1,
+  },
+  summaryHeaderSub: {
+    fontSize: 10,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  summaryItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  summaryDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: '#f1f5f9',
+  },
+  summaryLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#94a3b8',
+    marginBottom: 4,
+  },
+  summaryValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1e3a8a',
+  },
+  summaryStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  summaryStatusText: {
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  // Submission Overlay
+  submissionOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    zIndex: 1000,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  overlayContent: {
+    alignItems: 'center',
+    padding: 30,
+  },
+  overlayTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1e293b',
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  overlaySub: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginTop: 8,
+  },
+  overlayProgressContainer: {
+    width: 240,
+    height: 4,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 2,
+    marginVertical: 16,
+    overflow: 'visible',
+  },
+  overlayProgressBar: {
+    height: '100%',
+    backgroundColor: '#4f46e5',
+    borderRadius: 2,
+  },
+  overlayProgressText: {
+    position: 'absolute',
+    top: 8,
+    width: '100%',
+    textAlign: 'center',
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#94a3b8',
+  },
+  chassisSection: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 24,
+    marginBottom: 32,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  chassisHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginBottom: 20,
+  },
+  chassisIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chassisSectionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  chassisSectionSub: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  chassisGrid: {
+    gap: 12,
+  },
+  chassisCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+  },
+  chassisCardSelected: {
+    backgroundColor: '#6366f1',
+    borderColor: '#6366f1',
+  },
+  chassisCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  chassisCardId: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1e293b',
+  },
+  chassisCardIdSelected: {
+    color: '#fff',
+  },
+  statusIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  chassisCardDesc: {
+    fontSize: 11,
+    color: '#64748b',
+    marginBottom: 8,
+  },
+  chassisCardDescSelected: {
+    color: 'rgba(255,255,255,0.8)',
+  },
+  chassisStatus: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#10b981',
+    letterSpacing: 0.5,
+  },
+  chassisStatusSelected: {
+    color: '#fff',
+  },
+  chassisSelectionContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#64748b',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  chassisHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  chassisIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  innerIconBox: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#4f46e5',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  chassisMainTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1e293b',
+    letterSpacing: -0.5,
+  },
+  chassisSubTitle: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  chassisGrid: {
+    gap: 12,
+  },
+  chassisCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  chassisCardSelected: {
+    backgroundColor: '#f5f7ff',
+    borderColor: '#4f46e5',
+    borderWidth: 1.5,
+  },
+  chassisCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  chassisCardId: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  chassisCardIdSelected: {
+    color: '#4f46e5',
+  },
+  statusIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  chassisCardDesc: {
+    fontSize: 12,
+    color: '#64748b',
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  chassisCardDescSelected: {
+    color: '#6366f1',
+  },
+  chassisStatus: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#10b981',
+    letterSpacing: 1,
+  },
+  chassisStatusSelected: {
+    color: '#4f46e5',
+  },
 });
 
 export default FormPreviewScreen;
