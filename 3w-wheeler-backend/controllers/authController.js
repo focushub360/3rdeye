@@ -202,70 +202,64 @@ export const login = async (req, res) => {
       });
     }
 
-    // Update last login
-    user.lastLogin = new Date();
-    await user.save();
-
     // Generate token
     const token = generateToken(user._id);
 
-    // Get IP address for location lookup
+    // Create LoginLog entry with a pre-generated ID so we can return it immediately
+    const sessionLogId = new mongoose.Types.ObjectId();
     const ipAddress = req.ip || req.connection?.remoteAddress || req.headers['x-forwarded-for'];
 
-    // Enhance location data with IP-based lookup
-    const enhancedLocation = await enhanceLocationData(location, ipAddress);
-
-    // Create LoginLog entry
-    const newLog = new LoginLog({
-      userId: user._id,
-      tenantId: user.tenantId,
-      location: enhancedLocation,
-      ipAddress: ipAddress,
-      userAgent: req.headers['user-agent']
-    });
-    let sessionLogId = null;
-    try {
-      await newLog.save();
-      sessionLogId = newLog._id;
-    } catch (logErr) {
-      console.error('Failed to save login log:', logErr);
-    }
-
-    const responseData = {
-      token,
-      sessionLogId,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-        tenantId: user.tenantId,
-        mobile: user.mobile || null,
-        lastLogin: user.lastLogin,
-        permissions: user.permissions || []
-      }
-    };
-
-    // Add tenant info for non-superadmin users (including admin)
-    if (tenant) {
-      responseData.tenant = {
-        id: tenant._id,
-        _id: tenant._id,
-        name: tenant.name,
-        slug: tenant.slug,
-        companyName: tenant.companyName,
-        settings: tenant.settings,
-        subscription: tenant.subscription
-      };
-      responseData.user.tenantId = tenant._id;
-    }
-
+    // Respond immediately to the user
     res.json({
       success: true,
       message: 'Login successful',
-      data: responseData
+      data: {
+        token,
+        sessionLogId,
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+          tenantId: user.tenantId,
+          mobile: user.mobile || null,
+          lastLogin: user.lastLogin,
+          permissions: user.permissions || []
+        },
+        tenant: tenant ? {
+          id: tenant._id,
+          _id: tenant._id,
+          name: tenant.name,
+          slug: tenant.slug,
+          companyName: tenant.companyName,
+          settings: tenant.settings,
+          subscription: tenant.subscription
+        } : null
+      }
+    });
+
+    // Run heavy logging/location tasks in the background AFTER responding
+    setImmediate(async () => {
+      try {
+        const enhancedLocation = await enhanceLocationData(location, ipAddress);
+        const newLog = new LoginLog({
+          _id: sessionLogId,
+          userId: user._id,
+          tenantId: user.tenantId,
+          location: enhancedLocation,
+          ipAddress: ipAddress,
+          userAgent: req.headers['user-agent']
+        });
+        await newLog.save();
+        
+        // Update last login
+        user.lastLogin = new Date();
+        await user.save();
+      } catch (logErr) {
+        console.error('Background login logging failed:', logErr);
+      }
     });
 
   } catch (error) {

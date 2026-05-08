@@ -45,20 +45,34 @@ const LoginScreen = () => {
     setError(null);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    // Get user location
+    // Get user location (Non-blocking or fast-fail)
     let locationData: { status: string; latitude?: number; longitude?: number } = { status: 'unknown' };
     
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
-        const position = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        locationData = {
-          status: 'granted',
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude
-        };
+        // Try to get last known location first (instant)
+        const lastKnown = await Location.getLastKnownPositionAsync({});
+        if (lastKnown) {
+          locationData = {
+            status: 'granted',
+            latitude: lastKnown.coords.latitude,
+            longitude: lastKnown.coords.longitude
+          };
+        } else {
+          // Fast fallback for current position
+          const position = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Low,
+          }).catch(() => null);
+          
+          if (position) {
+            locationData = {
+              status: 'granted',
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude
+            };
+          }
+        }
       } else {
         locationData = { status: 'denied' };
       }
