@@ -44,7 +44,15 @@ import { useQuestionLogic } from '../hooks/useQuestionLogic';
 // Helper to normalize image URLs for reference images
 const getReferenceImageUrl = (path: string) => {
   if (!path) return '';
-  if (path.startsWith('http')) return path;
+  
+  // If it's already a full URL
+  if (path.startsWith('http')) {
+    // If it's already on our server, return as is
+    if (path.includes(ROOT_URL)) return path;
+    // Otherwise proxy it (handles Google Drive, redirects, etc.)
+    const cleanBase = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
+    return `${cleanBase}/files/proxy?url=${encodeURIComponent(path)}`;
+  }
   
   // Remove leading slash if exists
   const cleanPath = path.startsWith('/') ? path.substring(1) : path;

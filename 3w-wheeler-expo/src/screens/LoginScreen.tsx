@@ -139,19 +139,14 @@ const LoginScreen = () => {
 
           <View style={styles.form}>
             <View style={styles.inputWrapper}>
-              {/^\d+$/.test(email) ? (
-                <Phone size={18} color="#94a3b8" style={styles.fieldIcon} />
-              ) : (
-                <User size={18} color="#94a3b8" style={styles.fieldIcon} />
-              )}
+              <User size={18} color="#94a3b8" style={styles.fieldIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Email, Username or Mobile No"
+                placeholder="Login ID"
                 value={email}
                 onChangeText={(text) => { setEmail(text); setError(null); }}
                 autoCapitalize="none"
                 placeholderTextColor="#94a3b8"
-                keyboardType={/^\d+$/.test(email) ? "phone-pad" : "default"}
               />
             </View>
 

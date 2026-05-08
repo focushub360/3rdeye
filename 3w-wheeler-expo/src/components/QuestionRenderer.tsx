@@ -34,7 +34,8 @@ const getImageUrl = (url: string) => {
   if (trimmed.startsWith('http')) {
     // If it's already a full URL to our server, don't proxy it
     if (trimmed.includes(ROOT_URL)) return trimmed;
-    return `${BASE_URL}/files/proxy?url=${encodeURIComponent(trimmed)}`;
+    const cleanBase = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
+    return `${cleanBase}/files/proxy?url=${encodeURIComponent(trimmed)}`;
   }
   
   // Internal backend files
