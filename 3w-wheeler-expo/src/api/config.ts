@@ -17,7 +17,7 @@ console.log('🔗 Mobile API Base URL:', IS_DEV ? DEV_URL : 'Production URL');
 
 export const BASE_URL = IS_DEV 
   ? DEV_URL
-  : 'https://3wheelertvsbackend.focusengineeringapp.com/api/';
+  : 'https://threew-vu4v.onrender.com/api/';
 
 console.log(`🔗 Mobile API Base URL: ${BASE_URL} (Mode: ${IS_DEV ? 'Development' : 'Production'})`);
 
