@@ -9,15 +9,15 @@ const IS_DEV = __DEV__;
 
 // Use localhost for web to avoid CORS/Network issues on the same machine
 const DEV_URL = Platform.OS === 'web' 
-  ? `http://localhost:5000/api` 
-  : `http://${LOCAL_IP}:5000/api`;
+  ? `http://localhost:5001/api/` 
+  : `http://${LOCAL_IP}:5001/api/`;
 
 console.log('🛡️ API Client Module Loading...');
 console.log('🔗 Mobile API Base URL:', IS_DEV ? DEV_URL : 'Production URL');
 
 export const BASE_URL = IS_DEV 
   ? DEV_URL
-  : 'https://3wheelertvsbackend.focusengineeringapp.com/api';
+  : 'https://3wheelertvsbackend.focusengineeringapp.com/api/';
 
 console.log(`🔗 Mobile API Base URL: ${BASE_URL} (Mode: ${IS_DEV ? 'Development' : 'Production'})`);
 
@@ -25,7 +25,7 @@ console.log(`🔗 Mobile API Base URL: ${BASE_URL} (Mode: ${IS_DEV ? 'Developmen
 const apiClient = axios.create({
   baseURL: BASE_URL,
   headers: {
-    'Content-Type': 'application/json',
+    'Accept': 'application/json',
   },
   timeout: 120000, // Increased to 2 minutes for large form submissions
 });
@@ -65,6 +65,12 @@ apiClient.interceptors.request.use(
     
     // Add app type header for backend debugging
     config.headers['X-App-Type'] = 'mobile-app';
+    
+    // Ensure URL doesn't have leading slash when using baseURL with trailing slash
+    // This prevents Axios from stripping the '/api' part of the URL
+    if (config.url?.startsWith('/')) {
+      config.url = config.url.substring(1);
+    }
     
     return config;
   },

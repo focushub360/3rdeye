@@ -146,7 +146,7 @@ const ChatListScreen = () => {
     </TouchableOpacity>
   );
 
-  if (loading && !refreshing) {
+  if (loading && !refreshing && conversations.length === 0) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#1e3a8a" />
@@ -199,13 +199,7 @@ const ChatListScreen = () => {
         }
       />
 
-      {/* Floating Action Button */}
-      <TouchableOpacity 
-        style={styles.fab}
-        onPress={() => setIsModalVisible(true)}
-      >
-        <Plus size={28} color="#fff" />
-      </TouchableOpacity>
+      {/* Floating Action Button removed as per request */}
 
       {/* Select Higher Authority Modal */}
       <Modal

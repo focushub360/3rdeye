@@ -11,6 +11,7 @@ import {
   Dimensions,
   Alert,
   Platform,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -187,55 +188,26 @@ const FormListScreen = ({ navigation }: any) => {
 
   const isInspector = user?.role === 'inspector';
 
-  if (isInspector && !isCheckedIn) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.premiumHeader}>
-          <View style={styles.headerInfo}>
-            <Text style={styles.welcomeText}>ACCESS DENIED,</Text>
-            <Text style={styles.headerTitle}>Check-In Required</Text>
-          </View>
-          <View style={[styles.headerIconBox, { backgroundColor: '#fef2f2' }]}>
-             <Clock size={24} color="#ef4444" />
-          </View>
-        </View>
-        <View style={styles.centered}>
-          <Clock size={64} color="#cbd5e1" style={{ marginBottom: 16 }} />
-          <Text style={[styles.emptyText, { fontSize: 18, fontWeight: '800', color: '#1e293b' }]}>Check-In to Start Working</Text>
-          <Text style={[styles.emptyText, { marginTop: 8, paddingHorizontal: 40 }]}>
-            Inspectors must be actively checked in to access field assets and form checklists.
-          </Text>
-          <TouchableOpacity 
-            style={{ marginTop: 24, backgroundColor: '#4f46e5', paddingVertical: 14, paddingHorizontal: 32, borderRadius: 16, shadowColor: '#4f46e5', shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}
-            onPress={() => navigation.navigate('Attendance')}
-          >
-            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Go to Attendance</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#6366f1" />
-        <Text style={styles.loadingText}>Synchronizing Forms...</Text>
-      </View>
-    );
-  }
+  const isInitialLoading = loading && !refreshing && forms.length === 0;
 
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" />
       {/* Header Matching Dashboard */}
       <View style={styles.premiumHeader}>
         <View style={styles.headerInfo}>
-          <Text style={styles.welcomeText}>RESOURCES,</Text>
+          <Text style={styles.welcomeText}>
+            {isInitialLoading ? 'SYNCING...' : isInspector && !isCheckedIn ? 'ACTION REQUIRED,' : 'RESOURCES,'}
+          </Text>
           <Text style={styles.headerTitle}>{isInspector ? 'Field Assets' : 'Form Repository'}</Text>
           <Text style={styles.headerRole}>{user?.tenant?.name || 'Laxmi Metals TVS'}</Text>
         </View>
         <View style={styles.headerIconBox}>
-           <ShieldCheck size={24} color="#4f46e5" />
+           {isInspector && !isCheckedIn ? (
+             <ShieldCheck size={24} color="#ef4444" />
+           ) : (
+             <ClipboardList size={24} color="#4f46e5" />
+           )}
         </View>
       </View>
 
@@ -244,76 +216,99 @@ const FormListScreen = ({ navigation }: any) => {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#6366f1']} />}
         showsVerticalScrollIndicator={false}
       >
-        {/* Top Summary Widgets */}
-        <View style={styles.metricsContainer}>
-          <View style={styles.metricsRow}>
-            <StatCard 
-              title="Total Forms" 
-              value={forms.length} 
-              icon={FileText} 
-              color="#6366f1" 
-            />
-            <StatCard 
-              title="Total Responses" 
-              value={forms.reduce((acc, f) => acc + (f.responseCount || 0), 0)} 
-              icon={ClipboardList} 
-              color="#10b981" 
-            />
-          </View>
-        </View>
-
-        {isInspector && (
-          <View style={styles.inspectorAlert}>
-            <Clock size={16} color="#fff" />
-            <Text style={styles.inspectorAlertText}>
-              Submissions are currently being processed in Field Mode.
+        {isInspector && !isCheckedIn ? (
+          <View style={[styles.centered, { marginTop: 40 }]}>
+            <Clock size={64} color="#cbd5e1" style={{ marginBottom: 16 }} />
+            <Text style={[styles.emptyText, { fontSize: 18, fontWeight: '800', color: '#1e293b' }]}>Check-In Required</Text>
+            <Text style={[styles.emptyText, { marginTop: 8, paddingHorizontal: 40 }]}>
+              Inspectors must be actively checked in to access field assets and form checklists.
             </Text>
-          </View>
-        )}
-
-        <Text style={styles.sectionHeading}>
-          {isInspector ? 'Priority Checklists' : 'Organization Inventory'}
-        </Text>
-        
-        <View style={styles.formGrid}>
-          {forms.map((form: any) => (
-            <FormCard 
-              key={form._id || form.id}
-              id={form.id || form._id}
-              title={form.title}
-              description={form.description}
-              isActive={form.isActive}
-              isGlobal={form.isGlobal}
-              parentFormId={form.parentFormId}
-              date={form.createdAt}
-              responseCount={form.responseCount}
-              onView={handleFormPreview}
-              onAnalytics={handleFormAnalytics}
-            />
-          ))}
-        </View>
-
-        {networkError && forms.length === 0 && (
-          <View style={styles.emptyState}>
-            <Text style={{ fontSize: 40, marginBottom: 12 }}>📡</Text>
-            <Text style={[styles.emptyText, { color: '#ef4444', fontWeight: '700' }]}>Cannot reach server</Text>
-            <Text style={[styles.emptyText, { fontSize: 13, marginTop: 6 }]}>
-              Ensure your phone is on the same Wi-Fi as your PC{`\n`}Server: 10.180.155.247:5001
-            </Text>
-            <TouchableOpacity
-              style={{ marginTop: 16, backgroundColor: '#4f46e5', paddingVertical: 10, paddingHorizontal: 24, borderRadius: 10 }}
-              onPress={() => { setLoading(true); fetchForms(); }}
+            <TouchableOpacity 
+              style={{ marginTop: 24, backgroundColor: '#4f46e5', paddingVertical: 14, paddingHorizontal: 32, borderRadius: 16, shadowColor: '#4f46e5', shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}
+              onPress={() => navigation.navigate('Attendance')}
             >
-              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Retry</Text>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Go to Attendance</Text>
             </TouchableOpacity>
           </View>
-        )}
-
-        {!networkError && forms.length === 0 && (
-          <View style={styles.emptyState}>
-            <FileText size={48} color="#cbd5e1" />
-            <Text style={styles.emptyText}>No forms available for your current role priority.</Text>
+        ) : isInitialLoading ? (
+          <View style={[styles.centered, { marginTop: 100 }]}>
+            <ActivityIndicator size="large" color="#6366f1" />
+            <Text style={styles.loadingText}>Synchronizing Forms...</Text>
           </View>
+        ) : (
+          <>
+            {/* Top Summary Widgets */}
+            <View style={styles.metricsContainer}>
+              <View style={styles.metricsRow}>
+                <StatCard 
+                  title="Total Forms" 
+                  value={forms.length} 
+                  icon={FileText} 
+                  color="#6366f1" 
+                />
+                <StatCard 
+                  title="Total Responses" 
+                  value={forms.reduce((acc, f) => acc + (f.responseCount || 0), 0)} 
+                  icon={ClipboardList} 
+                  color="#10b981" 
+                />
+              </View>
+            </View>
+
+            {isInspector && (
+              <View style={styles.inspectorAlert}>
+                <Clock size={16} color="#fff" />
+                <Text style={styles.inspectorAlertText}>
+                  Submissions are currently being processed in Field Mode.
+                </Text>
+              </View>
+            )}
+
+            <Text style={styles.sectionHeading}>
+              {isInspector ? 'Priority Checklists' : 'Organization Inventory'}
+            </Text>
+            
+            <View style={styles.formGrid}>
+              {forms.map((form: any) => (
+                <FormCard 
+                  key={form._id || form.id}
+                  id={form.id || form._id}
+                  title={form.title}
+                  description={form.description}
+                  isActive={form.isActive}
+                  isGlobal={form.isGlobal}
+                  parentFormId={form.parentFormId}
+                  date={form.createdAt}
+                  responseCount={form.responseCount}
+                  onView={handleFormPreview}
+                  onAnalytics={handleFormAnalytics}
+                />
+              ))}
+            </View>
+
+            {forms.length === 0 && !networkError && (
+              <View style={styles.emptyState}>
+                <FileText size={48} color="#cbd5e1" />
+                <Text style={styles.emptyText}>No forms available for your current role priority.</Text>
+              </View>
+            )}
+
+            {networkError && forms.length === 0 && (
+              <View style={styles.emptyState}>
+                <Text style={{ fontSize: 40, marginBottom: 12 }}>📡</Text>
+                <Text style={[styles.emptyText, { color: '#ef4444', fontWeight: '700' }]}>Cannot reach server</Text>
+                <Text style={[styles.emptyText, { fontSize: 13, marginTop: 6 }]}>
+                  Check your internet connection or server status.
+                </Text>
+                <TouchableOpacity
+                  style={{ marginTop: 16, backgroundColor: '#4f46e5', paddingVertical: 10, paddingHorizontal: 24, borderRadius: 10 }}
+                  onPress={() => { setLoading(true); fetchForms(); }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Retry Sync</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>

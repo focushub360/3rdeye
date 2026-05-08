@@ -198,7 +198,7 @@ const ServiceAnalyticsScreen = () => {
     }
   };
 
-  if (loading && !refreshing) {
+  if (loading && !refreshing && !stats) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#6366f1" />

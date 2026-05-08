@@ -192,11 +192,7 @@ const ChatDetailScreen = () => {
         type
       } as any);
 
-      const resp = await apiClient.post('/files/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const resp = await apiClient.post('/files/upload', formData);
 
       if (resp.data?.success) {
         return resp.data.data.filename || resp.data.data.path || resp.data.data.id;

@@ -37,6 +37,9 @@ import apiClient from '../api/config';
 import { useAuth } from '../context/AuthContext';
 import QuestionRenderer from '../components/QuestionRenderer';
 import { BASE_URL } from '../api/config';
+import NetInfo from '@react-native-community/netinfo';
+import { offlineQueue } from '../api/OfflineQueue';
+import { useQuestionLogic } from '../hooks/useQuestionLogic';
 // import * as Location from 'expo-location';
 
 // Helper to normalize image URLs for reference images
@@ -121,11 +124,103 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
   }, [id]);
 
   useEffect(() => { fetchForm(); }, [fetchForm]);
+  
+  const { getOrderedVisibleQuestions } = useQuestionLogic();
 
-  const sections = form?.sections || [];
-  const currentSection = sections[currentSectionIndex];
+  const getMainSections = useCallback(() => {
+    if (!form) return [];
+    const baseSections = form.sections.filter((s: any) => !s.isSubsection);
+
+    const effectiveViewType = form?.viewType || form?.view_type || "section-wise";
+
+    if (effectiveViewType === "question-wise") {
+      const virtualSections: any[] = [];
+      baseSections.forEach((section: any, sIdx: number) => {
+        const visibleQs = getOrderedVisibleQuestions(section.questions || [], answers);
+        if (visibleQs.length === 0) {
+          virtualSections.push({
+            ...section,
+            questions: [],
+            isVirtual: true,
+            originalSectionId: section.id,
+            originalSectionIndex: sIdx,
+            totalOriginalSections: baseSections.length,
+            questionIndex: 0,
+            totalQuestionsInSection: 0,
+          });
+        } else {
+          visibleQs.forEach((q: any, qIdx: number) => {
+            virtualSections.push({
+              ...section,
+              id: `${section.id}_v${qIdx}`,
+              title: section.title,
+              description: qIdx === 0 ? section.description : "",
+              questions: [q],
+              isVirtual: true,
+              originalSectionId: section.id,
+              originalSectionIndex: sIdx,
+              totalOriginalSections: baseSections.length,
+              questionIndex: qIdx,
+              totalQuestionsInSection: visibleQs.length,
+            });
+          });
+        }
+      });
+      return virtualSections;
+    }
+
+    // Build section hierarchy for section-wise view
+    const sectionsMap = new Map<string, any>();
+    const rootSections: any[] = [];
+
+    baseSections.forEach((section: any) => {
+      sectionsMap.set(section.id || section._id, { ...section, subsections: [] });
+    });
+
+    form.sections.forEach((section: any) => {
+      const parentId = section.parentSectionId;
+      const isSub = section.isSubsection === true || section.isSubsection === 'true' || (parentId && parentId !== '');
+
+      if (isSub && parentId) {
+        const mappedSection = { ...section, subsections: [] };
+        const parent = sectionsMap.get(parentId);
+        if (parent) {
+          parent.subsections.push(mappedSection);
+        } else {
+          // If parent not found, treat as root
+          if (!sectionsMap.has(section.id || section._id)) {
+            rootSections.push(mappedSection);
+          }
+        }
+      } else {
+        const mappedSection = sectionsMap.get(section.id || section._id);
+        if (mappedSection && !rootSections.find(rs => rs.id === mappedSection.id)) {
+          rootSections.push(mappedSection);
+        }
+      }
+    });
+
+    return rootSections;
+  }, [form, answers, getOrderedVisibleQuestions]);
+
+  const mainSections = getMainSections();
+  const currentSection = mainSections[currentSectionIndex];
+  const effectiveViewType = form?.viewType || form?.view_type || "section-wise";
+
   const isFirst = currentSectionIndex === 0;
-  const isLast = currentSectionIndex === sections.length - 1;
+  const isLast = currentSectionIndex === mainSections.length - 1;
+
+  // For section-wise view, we also need to get visible questions for subsections
+  const getVisibleQuestionsForSection = (section: any) => {
+    if (!section) return [];
+    let qs = getOrderedVisibleQuestions(section.questions || [], answers);
+    return qs;
+  };
+
+  const visibleQuestions = getVisibleQuestionsForSection(currentSection);
+
+  // Get subsections for display in section-wise view
+  const subsections = (effectiveViewType === "section-wise" && currentSection?.subsections) ? currentSection.subsections : [];
 
   const handleAnswer = (questionId: string, value: any) => {
     setAnswers(prev => ({ ...prev, [questionId]: value }));
@@ -140,12 +235,16 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
     // Validate current section required questions
     const missing: string[] = [];
     if (currentSection) {
-      (currentSection.questions || []).forEach((q: any) => {
+      visibleQuestions.forEach((q: any) => {
         if (q.required) {
           const ans = answers[q.id];
-          const isAnswered = ans !== undefined && ans !== null && ans !== '' && (!Array.isArray(ans) || ans.length > 0);
+          let isAnswered = ans !== undefined && ans !== null && ans !== '' && (!Array.isArray(ans) || ans.length > 0);
           
-          // Special check for tracking-based questions or chassis selector
+          // Enhanced check for object-based responses (Chassis/Zone types)
+          if (isAnswered && typeof ans === 'object' && !Array.isArray(ans)) {
+            if (ans.status === '' || ans.status === undefined) isAnswered = false;
+          }
+
           const isTrackingAnswered = answers[`${q.id}_tracking`] !== undefined && answers[`${q.id}_tracking`] !== '';
           const isChassisFilled = (q.type === 'chassisNumber' || q.text?.toLowerCase().includes('chassis number')) && selectedChassis;
           
@@ -179,9 +278,13 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
   const uploadImage = async (uri: string) => {
     try {
       const formData = new FormData();
-      const filename = uri.split('/').pop() || 'upload.jpg';
+      const filename = uri.split('/').pop() || `upload_${Date.now()}.jpg`;
       const match = /\.(\w+)$/.exec(filename);
-      const type = match ? `image/${match[1]}` : `image`;
+      let type = match ? `image/${match[1].toLowerCase()}` : `image/jpeg`;
+      
+      // Standardize common types
+      if (type === 'image/jpg') type = 'image/jpeg';
+      if (!type.includes('/')) type = 'image/jpeg';
 
       formData.append('file', {
         uri,
@@ -189,36 +292,50 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
         type
       } as any);
 
+      console.log(`[UPLOAD] Sending image: ${filename} (${type}) to ${BASE_URL}/files/upload`);
+
       const resp = await apiClient.post('/files/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
+        transformRequest: (data) => data, // Ensure Axios doesn't stringify FormData
       });
 
       if (resp.data?.success) {
-        // Return the full URL or filename that the backend uses
-        return resp.data.data.filename || resp.data.data.path || resp.data.data.id;
+        console.log(`[UPLOAD] Successfully uploaded: ${filename}`);
+        return resp.data.data.url || resp.data.data.filename || resp.data.data.path || resp.data.data.id;
       }
-      throw new Error('Upload failed');
-    } catch (err) {
-      console.error('Image upload error:', err);
+      throw new Error(resp.data?.message || 'Upload failed');
+    } catch (err: any) {
+      console.error('Image upload error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status,
+        url: err.config?.url
+      });
       throw err;
     }
   };
 
   const handleSubmit = () => {
     // 1. Check for required questions across all sections
-    const missingRequired = [];
-    for (const section of sections) {
-      for (const q of section.questions) {
+    const missingRequired: string[] = [];
+    for (const section of mainSections) {
+      const sectionQuestions = getOrderedVisibleQuestions(section.questions || [], answers);
+      for (const q of sectionQuestions) {
         if (q.required) {
           const ans = answers[q.id];
-          const isAnswered = ans !== undefined && ans !== null && ans !== '' && (!Array.isArray(ans) || ans.length > 0);
+          let isAnswered = ans !== undefined && ans !== null && ans !== '' && (!Array.isArray(ans) || ans.length > 0);
           
-          // Special check for tracking-based questions
+          // Enhanced check for object-based responses (Chassis/Zone types)
+          if (isAnswered && typeof ans === 'object' && !Array.isArray(ans)) {
+            if (ans.status === '' || ans.status === undefined) isAnswered = false;
+          }
+
           const isTrackingAnswered = answers[`${q.id}_tracking`] !== undefined && answers[`${q.id}_tracking`] !== '';
+          const isChassisFilled = (q.type === 'chassisNumber' || q.text?.toLowerCase().includes('chassis number')) && selectedChassis;
           
-          if (!isAnswered && !isTrackingAnswered) {
+          if (!isAnswered && !isTrackingAnswered && !isChassisFilled) {
             missingRequired.push(q.text || q.label || 'Unknown Question');
           }
         }
@@ -256,110 +373,134 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
   };
 
   const executeSubmit = async () => {
-    try {
-      setSubmitting(true);
-      setSubmittingProgress('Initializing...');
-      
-      // 1. Process and upload any local images first
-      // Deep clone to prevent mutating frozen React state objects
-      const processedAnswers = JSON.parse(JSON.stringify(answers));
-      
-      // Collect all upload tasks
-      const uploadTasks: { qid: string, type: 'single' | 'photos' | 'defects' | 'zones', path?: string[], key?: string, subKey?: string, index?: number }[] = [];
-      
-      Object.entries(processedAnswers).forEach(([qid, val]) => {
-        if (typeof val === 'string' && val.startsWith('file://')) {
-          uploadTasks.push({ qid, type: 'single', path: [val] });
-        } else if (typeof val === 'object' && val !== null) {
-          const v = val as any;
-          if (Array.isArray(v.evidencePhotos)) {
-             v.evidencePhotos.forEach((p: string, idx: number) => {
-               if (p && p.startsWith('file://')) uploadTasks.push({ qid, type: 'photos', path: [p], index: idx });
-             });
-          }
-          if (v.rejectedDefects) {
-             for (const cat in v.rejectedDefects) {
-               v.rejectedDefects[cat].forEach((def: any, idx: number) => {
-                 if (def.evidence && def.evidence.startsWith('file://')) {
-                   uploadTasks.push({ qid, type: 'defects', key: cat, index: idx, path: [def.evidence] });
-                 }
-               });
-             }
-          }
-          if (v.evidenceUrl && v.evidenceUrl.startsWith('file://')) {
-             uploadTasks.push({ qid, type: 'single', key: 'evidenceUrl', path: [v.evidenceUrl] });
-          }
-          if (v.zoneData) {
-            for (const z in v.zoneData) {
-              if (v.zoneData[z].defects) {
-                for (const cat in v.zoneData[z].defects) {
-                  v.zoneData[z].defects[cat].forEach((def: any, idx: number) => {
-                    if (def.evidence && def.evidence.startsWith('file://')) {
-                      uploadTasks.push({ qid, type: 'zones', key: z, subKey: cat, index: idx, path: [def.evidence] });
-                    }
-                  });
-                }
-              }
-            }
-          }
+    let processedAnswers = JSON.parse(JSON.stringify(answers));
+    const uploadTasks: { qid: string, type: 'single' | 'photos' | 'defects' | 'zones', path?: string[], key?: string, subKey?: string, index?: number }[] = [];
+    
+    // Preparation of upload tasks... (same as before)
+    Object.entries(processedAnswers).forEach(([qid, val]) => {
+      if (typeof val === 'string' && val.startsWith('file://')) {
+        uploadTasks.push({ qid, type: 'single', path: [val] });
+      } else if (typeof val === 'object' && val !== null) {
+        const v = val as any;
+        if (Array.isArray(v.evidencePhotos)) {
+           v.evidencePhotos.forEach((p: string, idx: number) => {
+             if (p && p.startsWith('file://')) uploadTasks.push({ qid, type: 'photos', path: [p], index: idx });
+           });
         }
-      });
-
-      if (uploadTasks.length > 0) {
-        setUploadProgress({ current: 0, total: uploadTasks.length });
-        
-        // Upload images STRICTLY SEQUENTIALLY to prevent native bridge memory crashes
-        for (let i = 0; i < uploadTasks.length; i++) {
-          const task = uploadTasks[i];
-          setUploadProgress({ current: i + 1, total: uploadTasks.length });
-          setSubmittingProgress(`Uploading image ${i + 1} of ${uploadTasks.length}...`);
-          
-          try {
-            const uploadedUrl = await uploadImage(task.path![0]);
-            
-            if (task.type === 'single') {
-              if (task.key) {
-                processedAnswers[task.qid][task.key] = uploadedUrl;
-              } else {
-                processedAnswers[task.qid] = uploadedUrl;
+        if (v.rejectedDefects) {
+           for (const cat in v.rejectedDefects) {
+             v.rejectedDefects[cat].forEach((def: any, idx: number) => {
+               if (def.evidence && def.evidence.startsWith('file://')) {
+                 uploadTasks.push({ qid, type: 'defects', key: cat, index: idx, path: [def.evidence] });
+               }
+             });
+           }
+        }
+        if (v.evidenceUrl && v.evidenceUrl.startsWith('file://')) {
+           uploadTasks.push({ qid, type: 'single', key: 'evidenceUrl', path: [v.evidenceUrl] });
+        }
+        if (v.zoneData) {
+          for (const z in v.zoneData) {
+            if (v.zoneData[z].defects) {
+              for (const cat in v.zoneData[z].defects) {
+                v.zoneData[z].defects[cat].forEach((def: any, idx: number) => {
+                  if (def.evidence && def.evidence.startsWith('file://')) {
+                    uploadTasks.push({ qid, type: 'zones', key: z, subKey: cat, index: idx, path: [def.evidence] });
+                  }
+                });
               }
-            } else if (task.type === 'photos') {
-              processedAnswers[task.qid].evidencePhotos[task.index!] = uploadedUrl;
-            } else if (task.type === 'defects') {
-              processedAnswers[task.qid].rejectedDefects[task.key!][task.index!].evidence = uploadedUrl;
-            } else if (task.type === 'zones') {
-              processedAnswers[task.qid].zoneData[task.key!].defects[task.subKey!][task.index!].evidence = uploadedUrl;
             }
-            
-            await new Promise(resolve => setTimeout(resolve, 300));
-          } catch (uploadErr: any) {
-            console.error('Failed to upload image:', task.path![0], uploadErr);
-            throw new Error(`Image ${i + 1} upload failed: ${uploadErr.message || 'Network error'}`);
           }
         }
       }
+    });
+
+    const payload = {
+      answers: processedAnswers,
+      location: null,
+      startedAt: startTime.toISOString(),
+      completedAt: new Date().toISOString(),
+      submittedBy: user?.name || (user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Mobile Inspector'),
+      submitterContact: {
+        email: user?.email,
+        phone: user?.phone || user?.mobile
+      },
+      metadata: {
+        submittedVia: 'mobile-app',
+        platform: Platform.OS,
+        timestamp: new Date().toISOString()
+      },
+      chassisNumber: selectedChassis || chassisNumber
+    };
+
+    try {
+      setSubmitting(true);
+      setSubmittingProgress('Initializing...');
+
+      // Check internet first
+      const netState = await NetInfo.fetch();
+
+      if (!netState.isConnected) {
+        setSubmittingProgress('Offline. Saving to queue...');
+        await offlineQueue.addToQueue(id, payload);
+        setSubmitting(false);
+        setSubmitted(true);
+        Alert.alert(
+          'Saved Offline',
+          'You are currently offline. Your report has been saved locally and will be automatically uploaded once your internet connection is restored.',
+          [{ text: 'Great' }]
+        );
+        return;
+      }
+      
+      // 1. Process and upload any local images
+      if (uploadTasks.length > 0) {
+        setUploadProgress({ current: 0, total: uploadTasks.length });
+        
+        // Use a batch size (concurrency) to speed up uploads without crashing the device
+        const CONCURRENCY = 3;
+        for (let i = 0; i < uploadTasks.length; i += CONCURRENCY) {
+          const batch = uploadTasks.slice(i, i + CONCURRENCY);
+          setSubmittingProgress(`Uploading images ${i + 1}-${Math.min(i + CONCURRENCY, uploadTasks.length)} of ${uploadTasks.length}...`);
+          
+          await Promise.all(batch.map(async (task, index) => {
+            try {
+              const uploadedUrl = await uploadImage(task.path![0]);
+              
+              if (task.type === 'single') {
+                if (task.key) processedAnswers[task.qid][task.key] = uploadedUrl;
+                else processedAnswers[task.qid] = uploadedUrl;
+              } else if (task.type === 'photos') {
+                processedAnswers[task.qid].evidencePhotos[task.index!] = uploadedUrl;
+              } else if (task.type === 'defects') {
+                processedAnswers[task.qid].rejectedDefects[task.key!][task.index!].evidence = uploadedUrl;
+              } else if (task.type === 'zones') {
+                processedAnswers[task.qid].zoneData[task.key!].defects[task.subKey!][task.index!].evidence = uploadedUrl;
+              }
+              
+              // Update progress state
+              setUploadProgress(prev => ({ ...prev, current: prev.current + 1 }));
+            } catch (uploadErr: any) {
+              console.error('Failed to upload image during batch:', task.path![0], uploadErr);
+              throw uploadErr; // Rethrow to trigger the outer catch
+            }
+          })).catch(async (err) => {
+            console.error('Batch upload failed, queuing whole report:', err);
+            setSubmittingProgress('Upload failed. Queuing for later...');
+            await offlineQueue.addToQueue(id, payload);
+            setSubmitting(false);
+            setSubmitted(true);
+            Alert.alert(
+              'Upload Interrupted',
+              'One or more images failed to upload. The report has been saved to your offline queue and will retry syncing later.',
+              [{ text: 'OK' }]
+            );
+            // Since we already handled the error and queued it, we throw a special "handled" error
+            throw new Error('HANDLED_BY_QUEUE');
+          });
+        }
+      }
       setUploadProgress({ current: 0, total: 0 });
-
-      // Location capture removed as per request
-      let locationData = null;
-
-      const payload = {
-        answers: processedAnswers,
-        location: locationData,
-        startedAt: startTime.toISOString(),
-        completedAt: new Date().toISOString(),
-        submittedBy: user?.name || (user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Mobile Inspector'),
-        submitterContact: {
-          email: user?.email,
-          phone: user?.phone || user?.mobile
-        },
-        metadata: {
-          submittedVia: 'mobile-app',
-          platform: Platform.OS,
-          timestamp: new Date().toISOString()
-        },
-        chassisNumber: selectedChassis || chassisNumber
-      };
 
       setSubmittingProgress('Sending report...');
       const response = await apiClient.post(`/responses/${id}`, payload);
@@ -367,22 +508,25 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
       if (response.data.success) {
         setSubmitted(true);
       } else {
-        Alert.alert('Submission Failed', response.data.message || 'Failed to submit response.');
+        throw new Error(response.data.message || 'Server rejected submission');
       }
     } catch (err: any) {
+      if (err.message === 'HANDLED_BY_QUEUE') return;
       console.error('Submission error:', err);
-      const errorMessage = err.response?.data?.message || err.message || 'Unknown error';
-      console.error('Detailed Error Context:', {
-        status: err.response?.status,
-        data: err.response?.data,
-        message: errorMessage
-      });
       
-      Alert.alert(
-        'Submission Error', 
-        `The submission could not be completed. \n\nDetails: ${errorMessage}\n\nPlease check your internet connection and try again.`,
-        [{ text: 'Retry' }]
-      );
+      // If it's a network error or the server is down, queue it
+      if (!err.response || err.response.status >= 500) {
+        await offlineQueue.addToQueue(id, payload);
+        setSubmitted(true);
+        Alert.alert(
+          'Sync Pending',
+          'Server is currently unreachable. Your report is saved safely on your device and will sync automatically when possible.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        const errorMessage = err.response?.data?.message || err.message || 'Unknown error';
+        Alert.alert('Submission Error', `The submission could not be completed. \n\nDetails: ${errorMessage}\n\nPlease try again.`, [{ text: 'Retry' }]);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -390,7 +534,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
 
   const loadSampleAnswers = () => {
     const sample: Record<string, any> = {};
-    sections.forEach((sec: any) => {
+    mainSections.forEach((sec: any) => {
       sec.questions?.forEach((q: any) => {
         if (q.type === 'rating' || q.type === 'scale') sample[q.id] = String(Math.floor(Math.random() * (q.max || 5)) + (q.min || 1));
         if (q.type === 'yesnona') sample[q.id] = 'Yes';
@@ -448,6 +592,20 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
     );
   }
 
+  const handleStartNew = () => {
+    setAnswers({});
+    setCurrentSectionIndex(0);
+    setSubmitted(false);
+    setSelectedChassis('');
+    setTrackingValues({});
+    setSubmittingProgress('');
+    setUploadProgress({ current: 0, total: 0 });
+    // Scroll to top
+    setTimeout(() => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+    }, 100);
+  };
+
   // Submitted state
   if (submitted) {
     return (
@@ -471,7 +629,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
 
           <TouchableOpacity 
             style={styles.historyBtn} 
-            onPress={() => navigation.navigate('FormsList')}
+            onPress={handleStartNew}
           >
             <Text style={styles.historyBtnText}>START NEW INSPECTION</Text>
           </TouchableOpacity>
@@ -510,15 +668,15 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
           </View>
           <View style={styles.headerRight}>
             <Text style={styles.progressText}>
-              {sections.length > 0 ? Math.round(((currentSectionIndex + 1) / sections.length) * 100) : 0}%
+              {mainSections.length > 0 ? Math.round(((currentSectionIndex + 1) / mainSections.length) * 100) : 0}%
             </Text>
             <Text style={styles.pageCount}>
-              {currentSectionIndex + 1}/{sections.length || 1}
+              {currentSectionIndex + 1}/{mainSections.length || 1}
             </Text>
           </View>
         </View>
         <View style={styles.progressBarContainer}>
-          <View style={[styles.progressBar, { width: `${sections.length > 0 ? ((currentSectionIndex + 1) / sections.length) * 100 : 0}%` }]} />
+          <View style={[styles.progressBar, { width: `${mainSections.length > 0 ? ((currentSectionIndex + 1) / mainSections.length) * 100 : 0}%` }]} />
         </View>
       </View>
 
@@ -535,7 +693,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
            keyboardShouldPersistTaps="handled"
          >
             {/* Chassis Selection - Web Parity */}
-            {!readOnly && availableChassis.length > 0 && (
+            {!readOnly && availableChassis.length > 0 && currentSectionIndex === 0 && (
               <View style={styles.chassisSelectionContainer}>
           <View style={styles.chassisHeader}>
             <View style={styles.chassisIconBox}>
@@ -605,76 +763,99 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                      styles.summaryStatusBadge,
                      { backgroundColor: String(status).toLowerCase().includes('accepted') ? '#ecfdf5' : String(status).toLowerCase().includes('rejected') ? '#fef2f2' : '#fff7ed' }
                    ]}>
-                     <Text style={[
-                       styles.summaryStatusText,
-                       { color: String(status).toLowerCase().includes('accepted') ? '#059669' : String(status).toLowerCase().includes('rejected') ? '#ef4444' : '#d97706' }
-                     ]}>
-                       {(status || 'PENDING').toString().toUpperCase()}
-                     </Text>
-                   </View>
-                 </View>
-               </View>
-             </View>
-           )}
+                      <Text style={[
+                        styles.summaryStatusText,
+                        { color: String(status).toLowerCase().includes('accepted') ? '#059669' : String(status).toLowerCase().includes('rejected') ? '#ef4444' : '#d97706' }
+                      ]}>
+                        {(status || 'PENDING').toString().toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            )}
  
-           {/* Phase Badge */}
-           <View style={styles.phaseContainer}>
-             <View style={styles.phaseIcon}>
-               <Text style={styles.phaseIconText}>{currentSectionIndex + 1}</Text>
-             </View>
-             <View>
-               <Text style={styles.phaseLabel}>CURRENT PHASE</Text>
-               <Text style={styles.phaseCount}>0{currentSectionIndex + 1} of 0{sections.length || 1}</Text>
-             </View>
-           </View>
- 
-           <Text style={styles.sectionTitle}>{currentSection?.title || `Section ${currentSectionIndex + 1}`}</Text>
+            {/* Phase Badge */}
+            <View style={styles.phaseContainer}>
+              <View style={styles.phaseIcon}>
+                <Text style={styles.phaseIconText}>{currentSectionIndex + 1}</Text>
+              </View>
+              <View>
+                <Text style={styles.phaseLabel}>
+                  {effectiveViewType === "question-wise" && currentSection?.isVirtual
+                    ? `SECTION ${currentSection.originalSectionIndex + 1}`
+                    : "CURRENT PHASE"}
+                </Text>
+                <Text style={styles.phaseCount}>
+                  {effectiveViewType === "question-wise" && currentSection?.isVirtual ? (
+                    `Question ${currentSection.questionIndex + 1} of ${currentSection.totalQuestionsInSection}`
+                  ) : (
+                    `0${currentSectionIndex + 1} of 0${mainSections.length || 1}`
+                  )}
+          <Text style={styles.sectionTitle}>{currentSection?.title || `Section ${currentSectionIndex + 1}`}</Text>
            {currentSection?.description && (
              <Text style={styles.sectionDesc}>{currentSection.description}</Text>
            )}
  
-           <View style={styles.questionsList}>
-             {(currentSection?.questions || []).map((question: any) => (
-               <View key={question.id} style={styles.questionCard}>
-                 <View style={styles.questionHeaderRow}>
-                   <Text style={styles.questionText}>
-                     {question.text}
-                     {question.required && <Text style={{ color: '#ef4444' }}> *</Text>}
-                   </Text>
-                   {question.subParam1 && (
-                     <View style={styles.subParamBadge}>
-                       <Text style={styles.subParamText}>{question.subParam1.toUpperCase()}</Text>
-                     </View>
-                   )}
-                 </View>
-                 
-                 {question.description && (
-                   <Text style={styles.questionDescription}>{question.description}</Text>
-                 )}
+            <View style={styles.questionsList}>
+              {(() => {
+                const renderQuestion = (question: any) => (
+                  <View key={question.id} style={styles.questionCard}>
+                    <View style={styles.questionHeaderRow}>
+                      <Text style={styles.questionText}>
+                        {question.text || question.label || "Untitled Question"}
+                        {question.required && <Text style={styles.requiredAsterisk}> *</Text>}
+                      </Text>
+                      {question.subParam1 && (
+                        <View style={styles.subParamBadge}>
+                          <Text style={styles.subParamText}>{question.subParam1.toUpperCase()}</Text>
+                        </View>
+                      )}
+                    </View>
+                    
+                    {question.description && (
+                      <Text style={styles.questionDescription}>{question.description}</Text>
+                    )}
 
-                 {question.imageUrl && (
-                   <View style={styles.referenceImageContainer}>
-                     <Image 
-                       source={{ uri: getReferenceImageUrl(question.imageUrl) }} 
-                       style={styles.referenceImage}
-                       resizeMode="contain"
-                     />
-                   </View>
-                 )}
+                    {question.imageUrl && (
+                      <View style={styles.referenceImageContainer}>
+                        <Image 
+                          source={{ uri: getReferenceImageUrl(question.imageUrl) }} 
+                          style={styles.referenceImage}
+                          resizeMode="contain"
+                        />
+                      </View>
+                    )}
 
-                 <QuestionRenderer
-                   question={question}
-                   value={answers[question.id] || ( (question.type === 'chassisNumber' || question.text?.toLowerCase().includes('chassis number')) ? selectedChassis : undefined )}
-                   onChange={(val: any) => handleAnswer(question.id, val)}
-                   readOnly={readOnly}
-                   formId={id}
-                   trackingValue={trackingValues[question.id] || ( (question.trackResponseRank === true && question.text?.toLowerCase().includes('chassis number')) ? selectedChassis : answers[`${question.id}_tracking`] || '' )}
-                   onTrackingChange={(tv: string) => handleTrackingAnswer(question.id, tv)}
-                   hideLabel={true}
-                 />
-               </View>
-             ))}
-           </View>
+                    <QuestionRenderer
+                      question={question}
+                      value={answers[question.id] || ( (question.type === 'chassisNumber' || question.text?.toLowerCase().includes('chassis number')) ? selectedChassis : undefined )}
+                      onChange={(val: any) => handleAnswer(question.id, val)}
+                      readOnly={readOnly}
+                      formId={id}
+                      trackingValue={trackingValues[question.id] || ( (question.trackResponseRank === true && question.text?.toLowerCase().includes('chassis number')) ? selectedChassis : answers[`${question.id}_tracking`] || '' )}
+                      onTrackingChange={(tv: string) => handleTrackingAnswer(question.id, tv)}
+                      hideLabel={true}
+                    />
+                  </View>
+                );
+
+                return (
+                  <>
+                    {visibleQuestions.map(renderQuestion)}
+                    {subsections.map((sub: any) => (
+                      <View key={sub.id || sub._id} style={styles.subsectionContainer}>
+                        <View style={styles.subsectionHeader}>
+                          <Text style={styles.subsectionTitle}>{sub.title}</Text>
+                          {sub.description && <Text style={styles.subsectionDesc}>{sub.description}</Text>}
+                        </View>
+                        {getVisibleQuestionsForSection(sub).map(renderQuestion)}
+                      </View>
+                    ))}
+                  </>
+                );
+              })()}
+            </View>
          </ScrollView>
        </KeyboardAvoidingView>
 
@@ -800,6 +981,11 @@ const styles = StyleSheet.create({
     gap: 12
   },
   questionText: { fontSize: 14, fontWeight: '800', color: '#334155', flex: 1 },
+  requiredAsterisk: {
+    color: '#ef4444',
+    fontWeight: '900',
+    fontSize: 16,
+  },
   questionDescription: {
     fontSize: 12,
     color: '#64748b',
@@ -880,8 +1066,23 @@ const styles = StyleSheet.create({
   errorText: { color: '#ef4444', textAlign: 'center', marginBottom: 16 },
   retryBtn: { backgroundColor: '#1e3a8a', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
   retryBtnText: { color: '#fff', fontWeight: '600' },
-  successTitle: { fontSize: 24, fontWeight: '800', color: '#1e293b', marginTop: 24, marginBottom: 8 },
-  successSubtitle: { fontSize: 15, color: '#64748b', textAlign: 'center', marginBottom: 40, paddingHorizontal: 20, lineHeight: 22 },
+  successTitle: { 
+    fontSize: 28, 
+    fontWeight: '800', 
+    color: '#1e293b', 
+    marginTop: 24, 
+    marginBottom: 8,
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif' // Serif for premium feel
+  },
+  successSubtitle: { 
+    fontSize: 15, 
+    color: '#64748b', 
+    textAlign: 'center', 
+    marginBottom: 40, 
+    paddingHorizontal: 20, 
+    lineHeight: 22,
+    fontStyle: 'italic'
+  },
   successIconContainer: {
     width: 120,
     height: 120,
@@ -919,8 +1120,10 @@ const styles = StyleSheet.create({
   },
   historyBtnText: {
     color: '#64748b',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
+    letterSpacing: 1,
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif'
   },
   
   // Response Summary Styles
@@ -1238,6 +1441,32 @@ const styles = StyleSheet.create({
   },
   chassisStatusSelected: {
     color: '#4f46e5',
+  },
+  subsectionContainer: {
+    marginTop: 24,
+    marginBottom: 8,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    overflow: 'hidden',
+  },
+  subsectionHeader: {
+    padding: 16,
+    backgroundColor: '#f8fafc',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  subsectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  subsectionDesc: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 4,
+    fontWeight: '500',
   },
 });
 

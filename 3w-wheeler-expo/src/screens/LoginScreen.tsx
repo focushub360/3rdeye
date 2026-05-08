@@ -70,7 +70,6 @@ const LoginScreen = () => {
     try {
       const loginPayload: any = { 
         email, 
-        username: email, // Send as username too to support case-sensitive usernames
         password,
         location: locationData 
       };

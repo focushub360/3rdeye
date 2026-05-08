@@ -55,35 +55,50 @@ const DashboardScreen = () => {
   const fetchData = async (isBackground = false) => {
     try {
       if (!isBackground) setLoading(true);
-      const perfRes = await apiClient.get('/analytics/inspectors/performance');
-      if (perfRes.data.success) {
-        setPerformance(perfRes.data.data || []);
-        if (perfRes.data.summary) {
-          setSummary(perfRes.data.summary);
-        }
+      
+      const apiCalls = [
+        apiClient.get('/analytics/dashboard'),
+        apiClient.get('/analytics/inspector-summary'),
+        apiClient.get('/analytics/my-review-stats')
+      ];
+
+      if (isAdmin) {
+        apiCalls.push(apiClient.get('/analytics/performance-table'));
       }
 
-      // Fetch Inspector Summary Table Data
-      const summaryRes = await apiClient.get('/analytics/inspector-summary');
+      const results = await Promise.all(apiCalls);
+      
+      const perfRes = results[0];
+      const summaryRes = results[1];
+      const reviewStatsRes = results[2];
+      const tableRes = isAdmin ? results[3] : null;
+
+      if (perfRes.data.success) {
+        if (perfRes.data.data.overview) {
+          const overview = perfRes.data.data.overview;
+          const dist = perfRes.data.data.statusDistribution || {};
+          setSummary({
+            totalForms: overview.totalForms,
+            accepted: (dist.verified || 0) + (dist['Direct Ok'] || 0) + (dist.Accepted || 0) + (dist.OK || 0),
+            rejected: dist.Rejected || dist.rejected || 0,
+            rework: (dist.Rework || 0) + (dist['Rework Required'] || 0) + (dist.rework || 0),
+          });
+        }
+        setPerformance(perfRes.data.data.topForms || []);
+      }
+
       if (summaryRes.data.success) {
         setInspectorSummary(summaryRes.data.data.summary || []);
         setSummaryStatuses(summaryRes.data.data.allStatuses || []);
       }
 
-      // Fetch Performance Table Data (Admin only)
-      if (isAdmin) {
-        const tableRes = await apiClient.get('/analytics/performance-table');
-        if (tableRes.data.success) {
-          setPerformanceTableData(tableRes.data.data || []);
-        }
-      }
-
-      // Fetch My Review Stats
-      const reviewStatsRes = await apiClient.get('/analytics/my-review-stats');
       if (reviewStatsRes.data.success) {
         setMyReviewStats(reviewStatsRes.data.data);
       }
 
+      if (isAdmin && tableRes && tableRes.data.success) {
+        setPerformanceTableData(tableRes.data.data || []);
+      }
     } catch (error) {
       console.error('Dashboard fetch error:', error);
     } finally {
@@ -94,7 +109,8 @@ const DashboardScreen = () => {
 
   useFocusEffect(
     useCallback(() => {
-      fetchData();
+      // First load fetches in background so the UI doesn't blank out on tab switch
+      fetchData(Object.keys(summary).length > 0);
       
       // Socket real-time integration
       const SOCKET_URL = apiClient.defaults.baseURL?.replace('/api', '') || '';
@@ -130,13 +146,7 @@ const DashboardScreen = () => {
   const totalRejected = summary.rejected || 0;
   const totalRework = summary.rework || 0;
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#4f46e5" />
-      </View>
-    );
-  }
+  const isInitialLoading = loading && !refreshing && Object.keys(summary).length === 0;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -170,7 +180,13 @@ const DashboardScreen = () => {
           </View>
         </View>
 
-        <View style={styles.content}>
+        {isInitialLoading ? (
+          <View style={[styles.centered, { marginTop: 100 }]}>
+            <ActivityIndicator size="large" color="#4f46e5" />
+            <Text style={{ marginTop: 16, color: '#64748b', fontSize: 14 }}>Loading your dashboard...</Text>
+          </View>
+        ) : (
+          <View style={styles.content}>
           {/* Performance Pulse - Shared for all */}
           <View style={styles.pulseContainer}>
             <View style={styles.pulseHeader}>
@@ -574,7 +590,7 @@ const DashboardScreen = () => {
             </>
           )}
         </View>
-
+        )}
       </ScrollView>
     </SafeAreaView>
   );

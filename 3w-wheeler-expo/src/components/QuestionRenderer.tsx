@@ -453,7 +453,7 @@ export default function QuestionRenderer({
                   style={[styles.imageBtn, { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }, readOnly && styles.disabledOpacity]}
                   disabled={readOnly}
                   onPress={async () => {
-                    const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
+                    const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.5 });
                     if (!res.canceled) onChange(res.assets[0].uri);
                   }}
                 >
@@ -484,7 +484,7 @@ export default function QuestionRenderer({
       {!hideLabel && (
         <View style={styles.labelRow}>
           <Text style={styles.label}>
-            {question.text || question.label}
+            {question.text || question.label || question.title || "Untitled Question"}
             {question.required && <Text style={styles.requiredAsterisk}> *</Text>}
           </Text>
         </View>
@@ -554,6 +554,7 @@ const styles = StyleSheet.create({
   requiredAsterisk: {
     color: '#ef4444',
     fontWeight: '900',
+    fontSize: 16,
   },
   // Track Rank styles
   trackRankContainer: {

@@ -11,6 +11,7 @@ import {
   RefreshControl,
   Image,
   Modal,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
@@ -41,7 +42,8 @@ import {
   Eye,
   AlertTriangle,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  Check
 } from 'lucide-react-native';
 import { io } from 'socket.io-client';
 import apiClient, { BASE_URL } from '../api/config';
@@ -56,7 +58,9 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
   const [refreshing, setRefreshing] = useState(false);
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'questions' | 'sections' | 'responses'>('dashboard');
+  const { user } = useAuth();
+  const isInspector = user?.role === 'inspector';
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'questions' | 'sections' | 'responses'>(isInspector ? 'responses' : 'sections');
   const [zoomImage, setZoomImage] = useState<string | null>(null);
   const [isZoomVisible, setIsZoomVisible] = useState(false);
   
@@ -79,6 +83,7 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
       if (!isBackground) setLoading(true);
       setError(null);
       const response = await apiClient.get(`/analytics/form/${id}`);
+      console.log(`[FormAnalytics] API Response Success: ${response.data.success}, Data: ${!!response.data.data}`);
       if (response.data.success) {
         setData(response.data.data);
       }
@@ -90,6 +95,22 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
       setRefreshing(false);
     }
   }, [id]);
+  
+  const toggleDispatch = async (responseId: string, currentStatus: boolean) => {
+    try {
+      const response = await apiClient.put(`/responses/${responseId}`, {
+        isDispatched: !currentStatus
+      });
+      
+      if (response.data.success) {
+        // Optimistically update local state or just refetch
+        fetchAnalytics(true);
+      }
+    } catch (err: any) {
+      console.error('Failed to toggle dispatch:', err.message);
+      Alert.alert('Error', 'Failed to update dispatch status');
+    }
+  };
 
   useEffect(() => {
     fetchAnalytics();
@@ -121,7 +142,7 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
     fetchAnalytics();
   }, [fetchAnalytics]);
 
-  if (loading && !refreshing) {
+  if (loading && !refreshing && !data) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
@@ -157,6 +178,7 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
     
     // Debug: log to trace question data
     console.log('=== ANALYTICS DEBUG ===');
+    console.log('Form Title:', stats.form?.title);
     console.log('Sections count:', sections.length);
     console.log('Responses count:', responses.length);
     if (sections.length > 0) {
@@ -384,7 +406,7 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
          if (!obj || typeof obj !== 'object') return;
          
          // Detect Evidence
-         const evidenceFields = ['evidence', 'fileUrl', 'url', 'image', 'photo', 'evidencePhotos', 'path'];
+         const evidenceFields = ['evidence', 'evidenceUrl', 'fileUrl', 'url', 'image', 'photo', 'evidencePhotos', 'path'];
          for (const field of evidenceFields) {
             const val = obj[field];
             if (val && typeof val === 'string' && (val.startsWith('http') || val.includes('uploads/') || val.startsWith('data:') || val.match(/\.(jpg|jpeg|png|gif|webp)$/i))) {
@@ -645,12 +667,16 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
                 style={styles.tableRow}
               >
                 {/* DISPATCH (A) */}
-                <View style={[styles.tableCell, { width: 100, flexShrink: 0 }]}>
-                  <View style={[styles.statusBadgeSmall, { backgroundColor: resp.isDispatched ? '#ecfdf5' : '#f1f5f9' }]}>
-                    <Text style={[styles.statusBadgeTextSmall, { color: resp.isDispatched ? '#059669' : '#64748b' }]}>
-                      {resp.isDispatched ? 'ENABLED' : 'DISABLED'}
-                    </Text>
-                  </View>
+                <View style={[styles.tableCell, { width: 100, flexShrink: 0, alignItems: 'center' }]}>
+                  <TouchableOpacity 
+                    onPress={() => toggleDispatch(resp.id || resp._id, !!resp.isDispatched)}
+                    style={[
+                      styles.dispatchCheckbox, 
+                      resp.isDispatched && styles.dispatchCheckboxChecked
+                    ]}
+                  >
+                    {resp.isDispatched && <Check size={10} color="#fff" strokeWidth={4} />}
+                  </TouchableOpacity>
                 </View>
 
                 <View style={[styles.tableCell, { width: 220, flexDirection: 'row', gap: 10, alignItems: 'center' }]}>
@@ -676,16 +702,25 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
                   >
                     <Eye size={12} color="#64748b" />
                   </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={[styles.actionIconBtn, { backgroundColor: '#e0e7ff' }]}
-                    onPress={() => navigation.navigate('ResponseFeedback', { response: resp, formTitle: title, sections: stats.questionInsights?.sections })}
-                  >
-                    <MessageSquareText size={12} color="#4f46e5" />
-                  </TouchableOpacity>
+                  {resp.isDispatched && (
+                    <TouchableOpacity 
+                      style={[styles.actionIconBtn, { backgroundColor: '#e0e7ff' }]}
+                      onPress={() => navigation.navigate('ResponseFeedback', { response: resp, formTitle: title, sections: stats.questionInsights?.sections })}
+                    >
+                      <MessageSquareText size={12} color="#4f46e5" />
+                    </TouchableOpacity>
+                  )}
                 </View>
 
                 <View style={[styles.tableCell, { width: 160, marginLeft: 10 }]}>
-                  <Text style={styles.tableTextMain}>{resp.inspectorName || 'Inspector'}</Text>
+                  <Text style={styles.tableTextMain}>
+                    {resp.submittedBy || resp.inspectorName || 'Anonymous'}
+                  </Text>
+                  {resp.inspectorMobile ? (
+                    <Text style={[styles.tableTextSub, { fontSize: 9, color: '#6366f1', marginTop: 2 }]}>
+                      📞 {resp.inspectorMobile}
+                    </Text>
+                  ) : null}
                 </View>
 
                 <View style={[styles.tableCell, { width: 110 }]}>
@@ -713,7 +748,9 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
                 </View>
 
                 <View style={[styles.tableCell, { width: 150 }]}>
-                   <Text style={styles.tableTextMain}>{resp.chassisNumber || '-'}</Text>
+                   <Text style={styles.tableTextMain}>
+                    {resp.answers?.chassis_number || resp.chassisNumber || (resp.answers instanceof Map ? (resp.answers.get('chassisNumber') || resp.answers.get('chassis_number')) : (resp.answers?.chassisNumber)) || '-'}
+                   </Text>
                 </View>
 
                 {/* REVIEW COLUMN (Web Parity) */}
@@ -745,10 +782,19 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
                 </View>
 
                 <View style={[styles.tableCell, { width: 100 }]}>
-                  <View style={styles.timeTakenRow}>
-                     <History size={10} color="#3b82f6" />
-                     <Text style={[styles.tableTextMain, { color: '#3b82f6', marginLeft: 4 }]}>{resp.timeTaken || '-'}</Text>
-                  </View>
+                  {(() => {
+                    const timeSpent = resp.timeSpent ?? resp.totalTimeSpent;
+                    return timeSpent ? (
+                      <View style={styles.timeTakenRow}>
+                        <History size={10} color="#3b82f6" />
+                        <Text style={[styles.tableTextMain, { color: '#3b82f6', marginLeft: 4 }]}>
+                          {timeSpent > 60 ? `${Math.floor(timeSpent / 60)}m ${timeSpent % 60}s` : `${timeSpent}s`}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.tableTextSub}>-</Text>
+                    );
+                  })()}
                 </View>
 
                 {/* Dynamic Question Cells */}
@@ -1001,27 +1047,31 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
 
       <View style={styles.tabBar}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBarScroll}>
-          <TouchableOpacity 
-            style={[styles.tabItem, activeTab === 'dashboard' && styles.activeTabItem]} 
-            onPress={() => setActiveTab('dashboard')}
-          >
-            <LayoutDashboard size={18} color={activeTab === 'dashboard' ? '#1e3a8a' : '#64748b'} />
-            <Text style={[styles.tabText, activeTab === 'dashboard' && styles.activeTabText]}>Dashboard</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.tabItem, activeTab === 'questions' && styles.activeTabItem]} 
-            onPress={() => setActiveTab('questions')}
-          >
-            <TrendingUp size={18} color={activeTab === 'questions' ? '#1e3a8a' : '#64748b'} />
-            <Text style={[styles.tabText, activeTab === 'questions' && styles.activeTabText]}>Questions</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.tabItem, activeTab === 'sections' && styles.activeTabItem]} 
-            onPress={() => setActiveTab('sections')}
-          >
-            <PieChart size={18} color={activeTab === 'sections' ? '#1e3a8a' : '#64748b'} />
-            <Text style={[styles.tabText, activeTab === 'sections' && styles.activeTabText]}>Sections</Text>
-          </TouchableOpacity>
+          {!isInspector && (
+            <>
+              <TouchableOpacity 
+                style={[styles.tabItem, activeTab === 'dashboard' && styles.activeTabItem]} 
+                onPress={() => setActiveTab('dashboard')}
+              >
+                <LayoutDashboard size={18} color={activeTab === 'dashboard' ? '#1e3a8a' : '#64748b'} />
+                <Text style={[styles.tabText, activeTab === 'dashboard' && styles.activeTabText]}>Dashboard</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.tabItem, activeTab === 'questions' && styles.activeTabItem]} 
+                onPress={() => setActiveTab('questions')}
+              >
+                <TrendingUp size={18} color={activeTab === 'questions' ? '#1e3a8a' : '#64748b'} />
+                <Text style={[styles.tabText, activeTab === 'questions' && styles.activeTabText]}>Questions</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.tabItem, activeTab === 'sections' && styles.activeTabItem]} 
+                onPress={() => setActiveTab('sections')}
+              >
+                <PieChart size={18} color={activeTab === 'sections' ? '#1e3a8a' : '#64748b'} />
+                <Text style={[styles.tabText, activeTab === 'sections' && styles.activeTabText]}>Sections</Text>
+              </TouchableOpacity>
+            </>
+          )}
           <TouchableOpacity 
             style={[styles.tabItem, activeTab === 'responses' && styles.activeTabItem]} 
             onPress={() => setActiveTab('responses')}
@@ -2199,6 +2249,20 @@ const styles = StyleSheet.create({
     borderColor: '#cbd5e1',
     backgroundColor: '#fff',
     marginRight: 4,
+  },
+  dispatchCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dispatchCheckboxChecked: {
+    backgroundColor: '#4f46e5',
+    borderColor: '#4f46e5',
   },
   actionIconBtn: {
     padding: 6,

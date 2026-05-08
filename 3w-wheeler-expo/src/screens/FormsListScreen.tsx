@@ -142,7 +142,7 @@ export default function FormsListScreen() {
     </View>
   );
 
-  if (loading && !refreshing) {
+  if (loading && !refreshing && forms.length === 0) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#1e3a8a" />

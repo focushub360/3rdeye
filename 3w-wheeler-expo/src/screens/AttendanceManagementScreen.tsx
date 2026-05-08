@@ -63,7 +63,7 @@ const AttendanceManagementScreen = ({ navigation }: any) => {
           }
         }),
         apiClient.get('/hr/attendance/summary'),
-        apiClient.get('/analytics/inspectors/performance', {
+        apiClient.get('/analytics/performance-table', {
           params: {
             startDate: startOfMonth.toISOString(),
             endDate: endOfMonth.toISOString()

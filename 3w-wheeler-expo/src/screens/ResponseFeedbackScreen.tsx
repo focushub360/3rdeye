@@ -174,11 +174,7 @@ const ResponseFeedbackScreen = ({ route, navigation }: any) => {
         type
       } as any);
 
-      const resp = await apiClient.post('/files/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const resp = await apiClient.post('/files/upload', formData);
 
       if (resp.data?.success) {
         // Prefer the full URL from backend (Cloudinary)

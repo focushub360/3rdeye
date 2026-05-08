@@ -68,7 +68,7 @@ const HRMSButton = ({ title, icon: Icon, color, onPress }: any) => (
 );
 
 const AttendanceScreen = ({ navigation }: any) => {
-  const { user, logout, setIsCheckedIn } = useAuth();
+  const { user, logout, setIsCheckedIn, refreshProfile } = useAuth();
   const [lastCheck, setLastCheck] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -92,8 +92,9 @@ const AttendanceScreen = ({ navigation }: any) => {
   const [hrStatus, setHrStatus] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
 
-  const OFFICE_LOCATION = { lat: 12.9455, lng: 78.8754 };
-  const ALLOWED_RADIUS_METERS = 100; // Increased for mobile GPS drift
+  const [officeLocation, setOfficeLocation] = useState<{ lat: number, lng: number, radius: number } | null>(null);
+  const DEFAULT_LOCATION = { lat: 12.9455, lng: 78.8754 };
+  const DEFAULT_RADIUS = 100;
 
   const getDistance = (lat1: number, lng1: number, lat2: number, lng2: number) => {
     const R = 6371e3;
@@ -107,7 +108,12 @@ const AttendanceScreen = ({ navigation }: any) => {
   };
 
   const isWithinRadius = location 
-    ? getDistance(location.lat, location.lng, OFFICE_LOCATION.lat, OFFICE_LOCATION.lng) <= ALLOWED_RADIUS_METERS 
+    ? getDistance(
+        location.lat, 
+        location.lng, 
+        officeLocation?.lat || DEFAULT_LOCATION.lat, 
+        officeLocation?.lng || DEFAULT_LOCATION.lng
+      ) <= (officeLocation?.radius || DEFAULT_RADIUS) 
     : false;
 
   // Role Checks
@@ -155,10 +161,17 @@ const AttendanceScreen = ({ navigation }: any) => {
       });
       
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Location timeout')), 5000)
+        setTimeout(() => reject(new Error('Location timeout')), 10000)
       );
 
-      const loc: any = await Promise.race([locationPromise, timeoutPromise]);
+      let loc: any;
+      try {
+        loc = await Promise.race([locationPromise, timeoutPromise]);
+      } catch (raceErr) {
+        // console.warn('Current position timeout, trying last known position...');
+        loc = await Location.getLastKnownPositionAsync();
+        if (!loc) throw new Error('Could not determine location');
+      }
       
       setLocation({
         lat: loc.coords.latitude,
@@ -171,9 +184,24 @@ const AttendanceScreen = ({ navigation }: any) => {
     }
   };
 
+  const fetchOfficeLocation = async () => {
+    try {
+      const response = await apiClient.get('tenants/office-location');
+      if (response.data.success && response.data.data) {
+        setOfficeLocation({
+          lat: response.data.data.lat,
+          lng: response.data.data.lng,
+          radius: response.data.data.radius || 100
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching office location:', error);
+    }
+  };
+
   const fetchAttendanceSummary = async () => {
     try {
-      const response = await apiClient.get('/attendance/summary');
+      const response = await apiClient.get('attendance/summary');
       if (response.data.success) {
         const raw = response.data.data;
         // Normalise: ensure .users is always an array regardless of server field name
@@ -194,39 +222,71 @@ const AttendanceScreen = ({ navigation }: any) => {
   };
 
   const detectSim = async () => {
-      const simTimer = setTimeout(async () => {
-        try {
-          const carrier = await Cellular.getCarrierNameAsync();
-          if (user?.mobile || user?.phone) {
-            if (!carrier) {
-              setSimInfo('NO PHYSICAL SIM FOUND');
-              setIsSimMatched(false);
-            } else {
-              // Distinguish between profile match and physical detection
-              setSimInfo(`${carrier.toUpperCase()} NETWORK`);
-              setIsSimMatched(true);
-            }
-          } else {
-            setSimInfo('SIM NOT REGISTERED');
-            setIsSimMatched(false);
-          }
-        } catch (e) {
-          setSimInfo('HARDWARE ERROR');
-          setIsSimMatched(false);
-        }
-      }, 1500);
+    setSimInfo('DETECTING SIM...');
+    setIsSimMatched(false);
+    
+    try {
+      // 1. Check if inspector has a registered phone number
+      const registeredNumber = user?.mobile || user?.phone;
+      if (!registeredNumber) {
+        setSimInfo('NO NUMBER REGISTERED');
+        setIsSimMatched(false);
+        return;
+      }
+
+      // 2. Check if a physical SIM is present via carrier detection
+      const carrier = await Cellular.getCarrierNameAsync();
+      
+      if (!carrier) {
+        // No SIM card detected in the device
+        setSimInfo('NO SIM DETECTED');
+        setIsSimMatched(false);
+        return;
+      }
+
+      // 3. SIM is present + number is registered = match
+      // Format: show last 4 digits of registered number + carrier
+      const maskedNumber = '****' + registeredNumber.slice(-4);
+      setSimInfo(`${carrier.toUpperCase()} · ${maskedNumber}`);
+      setIsSimMatched(true);
+      
+    } catch (e) {
+      console.error('SIM detection error:', e);
+      setSimInfo('SIM READ ERROR');
+      setIsSimMatched(false);
+    }
+  };
+
+  const loadAllData = async () => {
+    setLoading(true);
+    try {
+      await refreshProfile(); // Ensure we have the latest mobile number for SIM matching
+      await Promise.all([
+        fetchAttendanceSummary(),
+        fetchHRData(),
+        requestLocation(),
+        detectSim(),
+        fetchOfficeLocation()
+      ]);
+    } catch (err) {
+      console.error('Error loading attendance data:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
   useFocusEffect(
     useCallback(() => {
-      fetchAttendanceSummary();
-      fetchHRData();
-      requestLocation();
-
-      // Initial SIM "Detection" sequence
-      const simTimer = setTimeout(detectSim, 1500);
+      loadAllData();
       
-      return () => clearTimeout(simTimer);
+      // Setup periodic refresh every 30 seconds for live feel
+      const interval = setInterval(() => {
+        fetchAttendanceSummary();
+        fetchHRData();
+      }, 30000);
+
+      return () => clearInterval(interval);
     }, [user])
   );
 
@@ -237,12 +297,22 @@ const AttendanceScreen = ({ navigation }: any) => {
 
   const handleAttendance = async (type: 'IN' | 'OUT') => {
     if (type === 'IN') {
-      if (!user?.phone && !user?.mobile) { // Support both user.phone and user.mobile based on backend usage
-        Alert.alert('Phone Required', 'Please register your phone number in your profile first.');
+      if (!user?.phone && !user?.mobile) {
+        Alert.alert('Phone Required', 'Your admin must register a phone number for your account before you can clock in.');
         return;
       }
       
-      // Verification sequence
+      // SIM verification - must have physical SIM matching registered number
+      if (!isSimMatched) {
+        Alert.alert(
+          'SIM Verification Failed', 
+          'The registered phone number SIM must be present in this device to clock in. Please insert the correct SIM card and tap "FETCH SIM" to retry.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
+      // GPS verification
       if (!location) {
         Alert.alert('GPS Verification Failed', 'GPS signal not found. Please enable location services.');
         return;
@@ -258,7 +328,7 @@ const AttendanceScreen = ({ navigation }: any) => {
     setIsVerifying(true);
     
     try {
-      const response = await apiClient.post('/hr/attendance/send-otp', { type });
+      const response = await apiClient.post('hr/attendance/send-otp', { type });
       if (response.data.success) {
         setShowOTPModal(true);
       } else {
@@ -280,7 +350,7 @@ const AttendanceScreen = ({ navigation }: any) => {
 
     setIsVerifying(true);
     try {
-      const endpoint = otpType === 'IN' ? '/hr/attendance/verify-otp' : '/hr/attendance/checkout';
+      const endpoint = otpType === 'IN' ? 'hr/attendance/verify-otp' : 'hr/attendance/checkout';
       const response = await apiClient.post(endpoint, {
         otp: otpCode,
         ...(otpType === 'OUT' ? { lat: location?.lat, lng: location?.lng, accuracy: location?.accuracy } : {})
@@ -322,9 +392,9 @@ const AttendanceScreen = ({ navigation }: any) => {
   };
 
   const startShift = async () => {
-     setIsVerifying(true);
-     try {
-       const response = await apiClient.post('/hr/attendance/checkin', {
+    setIsVerifying(true);
+    try {
+      const response = await apiClient.post('hr/attendance/checkin', {
           otp: null, // Already verified
           lat: location?.lat,
           lng: location?.lng,
@@ -363,6 +433,7 @@ const AttendanceScreen = ({ navigation }: any) => {
       console.log('🔄 Live Sync Triggered: Web change detected');
       fetchHRData();
       fetchAttendanceSummary();
+      fetchOfficeLocation();
     });
 
     return () => {
@@ -513,7 +584,14 @@ const AttendanceScreen = ({ navigation }: any) => {
                   </View>
                   <View style={styles.geoItem}>
                     <View style={[styles.geoDot, { backgroundColor: isWithinRadius ? '#22c55e' : '#ef4444' }]} />
-                    <Text style={styles.geoText}>GEOSYNC: {isWithinRadius ? 'IN RANGE' : 'OUTSIDE'}</Text>
+                    <Text style={styles.geoText}>
+                      GEOSYNC: {isWithinRadius ? 'IN RANGE' : 'OUTSIDE'}
+                      {!isWithinRadius && location && officeLocation && (
+                        <Text style={{ color: '#ef4444', fontWeight: 'bold' }}>
+                          {' '}({Math.round(getDistance(location.lat, location.lng, officeLocation.lat, officeLocation.lng) - officeLocation.radius)}m away)
+                        </Text>
+                      )}
+                    </Text>
                   </View>
                   <View style={styles.geoItem}>
                     <View style={[styles.geoDot, { backgroundColor: (user?.phone || user?.mobile) ? '#22c55e' : '#f59e0b' }]} />
@@ -536,7 +614,8 @@ const AttendanceScreen = ({ navigation }: any) => {
                    {(() => {
                      const conditions = [];
                      if (!hrStatus?.shift) conditions.push('No Shift Assigned');
-                     if (!(user?.phone || user?.mobile)) conditions.push('SIM NOT PRESENT');
+                     if (!(user?.phone || user?.mobile)) conditions.push('No Phone Registered');
+                     else if (!isSimMatched) conditions.push('SIM Not Matched');
                      if (!location) conditions.push('GPS Not Active');
                      else if (!isWithinRadius) conditions.push('Outside Geofence');
                      

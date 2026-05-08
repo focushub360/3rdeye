@@ -29,6 +29,7 @@ interface AuthContextType {
   setIsCheckedIn: (val: boolean) => void;
   login: (data: { token: string; user: User; sessionLogId?: string }) => Promise<void>;
   logout: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -72,20 +73,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           apiClient.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
           apiClient.defaults.headers.common['X-App-Type'] = 'mobile';
 
-          // Background sync to get latest user profile
-          try {
-            const profileRes = await apiClient.get('/auth/profile');
-            if (profileRes.data.success && profileRes.data.data.user) {
-              const freshUser = profileRes.data.data.user;
-              setUser(freshUser);
-              await SecureStore.setItemAsync('user_data', JSON.stringify(freshUser));
-            }
-          } catch (e) {
-            console.log('Background profile sync failed', e);
-          }
+          // Background sync to get latest user profile - DO NOT AWAIT to keep startup fast
+          apiClient.get('/auth/profile')
+            .then(async (profileRes) => {
+              if (profileRes.data.success && profileRes.data.data.user) {
+                const freshUser = profileRes.data.data.user;
+                setUser(freshUser);
+                await SecureStore.setItemAsync('user_data', JSON.stringify(freshUser));
+              }
+            })
+            .catch((e) => {
+            });
         }
       } catch (error) {
-        console.error('Error loading auth state:', error);
       } finally {
         setIsLoading(false);
       }
@@ -105,7 +105,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsCheckedIn(isChecked);
           }
         } catch (error) {
-          console.log('Failed to fetch initial check-in status:', error);
+          // console.log('Failed to fetch initial check-in status:', error);
         }
       }
     };
@@ -160,6 +160,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     delete apiClient.defaults.headers.common['Authorization'];
   };
 
+  const refreshProfile = async () => {
+    try {
+      const res = await apiClient.get('/auth/profile');
+      if (res.data.success && res.data.data.user) {
+        const freshUser = res.data.data.user;
+        setUser(freshUser);
+        if (Platform.OS === 'web') {
+          localStorage.setItem('user_data', JSON.stringify(freshUser));
+        }
+        await SecureStore.setItemAsync('user_data', JSON.stringify(freshUser));
+      }
+    } catch (e) {
+      console.error('❌ Failed to refresh profile:', e);
+    }
+  };
+
   return (
     <AuthContext.Provider value={{ 
       token, 
@@ -169,7 +185,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isLoading, 
       setIsCheckedIn, 
       login, 
-      logout 
+      logout,
+      refreshProfile
     }}>
       {children}
     </AuthContext.Provider>

@@ -148,6 +148,27 @@ const NavigationWrapper = () => {
 
 
 export default function App() {
+  useEffect(() => {
+    // Process offline queue on startup and periodically
+    const initQueue = async () => {
+      try {
+        const { offlineQueue } = await import('./src/api/OfflineQueue');
+        // Initial process
+        await offlineQueue.processQueue();
+        
+        // Setup interval to check every 2 minutes
+        const interval = setInterval(() => {
+          offlineQueue.processQueue();
+        }, 120000);
+
+        return () => clearInterval(interval);
+      } catch (err) {
+        console.error('Failed to initialize offline queue:', err);
+      }
+    };
+    initQueue();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <AuthProvider>

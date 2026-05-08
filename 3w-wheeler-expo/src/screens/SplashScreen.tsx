@@ -9,16 +9,16 @@ const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 1500,
+        duration: 800, // Reduced from 1500
         useNativeDriver: true,
       }),
       Animated.spring(scaleAnim, {
         toValue: 1,
-        friction: 4,
+        friction: 6, // Adjusted for slightly snappier feel
         useNativeDriver: true,
       }),
     ]).start(() => {
-      setTimeout(onFinish, 1000); // Hold for 1 second after animation
+      setTimeout(onFinish, 300); // Reduced from 1000
     });
   }, []);
 
