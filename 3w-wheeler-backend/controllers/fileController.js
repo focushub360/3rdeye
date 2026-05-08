@@ -129,13 +129,6 @@ export const uploadFile = async (req, res) => {
 
     await file.save();
 
-    // Remove file from local storage after successful upload to Cloudinary
-    // But wait, the user might want to keep it on disk as a fallback!
-    // Actually, Cloudinary is the primary source.
-    // If the user wants local fallback, we should keep it.
-    // Given the issues with Cloudinary, let's keep the local file too.
-    // fs.unlinkSync(req.file.path);
-
     res.status(201).json({
       success: true,
       message: 'File uploaded successfully',
@@ -163,7 +156,6 @@ export const getFile = async (req, res) => {
     });
 
     if (!fileRecord || !fileRecord.cloudinaryUrl) {
-      // Fallback: Check if file exists in local uploads directory
       const localPath = path.join(__dirname, '../uploads', filename);
       
       if (fs.existsSync(localPath)) {
@@ -180,6 +172,29 @@ export const getFile = async (req, res) => {
 
   } catch (error) {
     console.error('Get file error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+export const getFileInfo = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const file = await File.findById(id);
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        message: 'File not found'
+      });
+    }
+    res.json({
+      success: true,
+      data: file
+    });
+  } catch (error) {
+    console.error('Get file info error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'
