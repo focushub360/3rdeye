@@ -30,7 +30,7 @@ import { useAuth } from '../context/AuthContext';
 const { width } = Dimensions.get('window');
 
 export default function FormsListScreen() {
-  const [forms, setForms] = useState([]);
+  const [forms, setForms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');

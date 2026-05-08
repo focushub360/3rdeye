@@ -98,7 +98,7 @@ const ResponseFeedbackScreen = ({ route, navigation }: any) => {
       if (resp.data?.success) {
         setMessages(resp.data.data || []);
       }
-    } catch (err) {
+    } catch (err: any) {
       if (err.response?.status !== 404) {
         console.error('Failed to fetch response chat:', err);
       }

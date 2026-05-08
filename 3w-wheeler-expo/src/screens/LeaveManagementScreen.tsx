@@ -103,6 +103,22 @@ const LeaveManagementScreen = ({ navigation }: any) => {
     }
   };
 
+  const getStatusBg = (status: string) => {
+    switch(status?.toLowerCase()) {
+      case 'approved': return '#f0fdf4';
+      case 'rejected': return '#fef2f2';
+      default: return '#fff7ed';
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch(status?.toLowerCase()) {
+      case 'approved': return '#10b981';
+      case 'rejected': return '#ef4444';
+      default: return '#d97706';
+    }
+  };
+
   const handleUpdateStatus = async (id: string, status: 'approved' | 'rejected') => {
     try {
       const response = await apiClient.put(`/hr/leaves/${id}/status`, { status });

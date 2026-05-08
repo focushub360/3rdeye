@@ -420,7 +420,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
       location: null,
       startedAt: startTime.toISOString(),
       completedAt: new Date().toISOString(),
-      submittedBy: user?.name || (user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Mobile Inspector'),
+      submittedBy: user?.name || ((user as any)?.firstName ? `${(user as any).firstName} ${(user as any).lastName || ''}` : 'Mobile Inspector'),
       submitterContact: {
         email: user?.email,
         phone: user?.phone || user?.mobile
@@ -792,10 +792,14 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                   ) : (
                     `0${currentSectionIndex + 1} of 0${mainSections.length || 1}`
                   )}
-          <Text style={styles.sectionTitle}>{currentSection?.title || `Section ${currentSectionIndex + 1}`}</Text>
-           {currentSection?.description && (
-             <Text style={styles.sectionDesc}>{currentSection.description}</Text>
-           )}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.sectionTitle}>{currentSection?.title || `Section ${currentSectionIndex + 1}`}</Text>
+            {currentSection?.description && (
+              <Text style={styles.sectionDesc}>{currentSection.description}</Text>
+            )}
  
             <View style={styles.questionsList}>
               {(() => {
@@ -877,7 +881,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
             (submitting || (isLast && readOnly)) && styles.submitBtnDisabled,
             (isLast && readOnly) && { backgroundColor: '#94a3b8' }
           ]}
-          onPress={isLast ? (readOnly ? null : handleSubmit) : handleNext}
+          onPress={isLast ? (readOnly ? undefined : handleSubmit) : handleNext}
           disabled={submitting || (isLast && readOnly)}
         >
           {submitting ? (
@@ -1249,93 +1253,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     color: '#94a3b8',
-  },
-  chassisSection: {
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    padding: 24,
-    marginBottom: 32,
-    borderWidth: 1,
-    borderColor: '#f1f5f9',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.03,
-    shadowRadius: 12,
-    elevation: 2,
-  },
-  chassisHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    marginBottom: 20,
-  },
-  chassisIconBg: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: '#eef2ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chassisSectionTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  chassisSectionSub: {
-    fontSize: 11,
-    color: '#64748b',
-    marginTop: 2,
-  },
-  chassisGrid: {
-    gap: 12,
-  },
-  chassisCard: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1.5,
-    borderColor: '#f1f5f9',
-  },
-  chassisCardSelected: {
-    backgroundColor: '#6366f1',
-    borderColor: '#6366f1',
-  },
-  chassisCardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  chassisCardId: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#1e293b',
-  },
-  chassisCardIdSelected: {
-    color: '#fff',
-  },
-  statusIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  chassisCardDesc: {
-    fontSize: 11,
-    color: '#64748b',
-    marginBottom: 8,
-  },
-  chassisCardDescSelected: {
-    color: 'rgba(255,255,255,0.8)',
-  },
-  chassisStatus: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#10b981',
-    letterSpacing: 0.5,
-  },
-  chassisStatusSelected: {
-    color: '#fff',
   },
   chassisSelectionContainer: {
     backgroundColor: '#fff',
