@@ -212,9 +212,18 @@ export const getFile = async (req, res) => {
     }
 
     if (!fileRecord || !fileRecord.cloudinaryUrl) {
+      // Fallback: Check if file exists in local uploads directory
+      // This is important for reference images or files uploaded during development
+      const localPath = path.join(__dirname, '../uploads', filename);
+      
+      if (fs.existsSync(localPath)) {
+        return res.sendFile(localPath);
+      }
+
+      // If it's not on disk either, then return 404
       return res.status(404).json({
         success: false,
-        message: 'File not found'
+        message: 'File not found on cloud or local storage'
       });
     }
 

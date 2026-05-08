@@ -17,7 +17,7 @@ import ProductNPSTGWBuckets from './QuestionTypes/ProductNPSTGWBuckets';
 import SearchSelect from './QuestionTypes/SearchSelect';
 import SliderFeedback from './QuestionTypes/SliderFeedback';
 import InAppCamera from './InAppCamera';
-import apiClient, { BASE_URL } from '../api/config';
+import apiClient, { BASE_URL, ROOT_URL } from '../api/config';
 
 const { height } = Dimensions.get('window');
 
@@ -32,12 +32,19 @@ const getImageUrl = (url: string) => {
   
   // Use proxy for ALL external http/https URLs to handle redirects/CORS/Google Drive
   if (trimmed.startsWith('http')) {
+    // If it's already a full URL to our server, don't proxy it
+    if (trimmed.includes(ROOT_URL)) return trimmed;
     return `${BASE_URL}/files/proxy?url=${encodeURIComponent(trimmed)}`;
   }
   
   // Internal backend files
-  if (trimmed.startsWith('/')) return `${BASE_URL}${trimmed}`;
-  return `${BASE_URL}/files/${trimmed}`;
+  // If it already includes 'uploads/', point to root
+  if (trimmed.startsWith('uploads/')) return `${ROOT_URL}/${trimmed}`;
+  if (trimmed.startsWith('/uploads/')) return `${ROOT_URL}${trimmed}`;
+  
+  // Default to static uploads folder for simple filenames
+  if (trimmed.startsWith('/')) return `${ROOT_URL}${trimmed}`;
+  return `${ROOT_URL}/uploads/${trimmed}`;
 };
 
 interface QuestionRendererProps {

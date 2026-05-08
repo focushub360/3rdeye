@@ -33,32 +33,27 @@ import {
 
 
 import { StatusBar } from 'react-native';
-import apiClient from '../api/config';
+import apiClient, { BASE_URL, ROOT_URL } from '../api/config';
 import { useAuth } from '../context/AuthContext';
 import QuestionRenderer from '../components/QuestionRenderer';
-import { BASE_URL } from '../api/config';
 import NetInfo from '@react-native-community/netinfo';
 import { offlineQueue } from '../api/OfflineQueue';
 import { useQuestionLogic } from '../hooks/useQuestionLogic';
 // import * as Location from 'expo-location';
 
 // Helper to normalize image URLs for reference images
-const getReferenceImageUrl = (url: string) => {
-  if (!url) return '';
+const getReferenceImageUrl = (path: string) => {
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
   
-  // Data URIs and local file paths can be used directly
-  if (url.startsWith('data:') || url.startsWith('file:')) {
-    return url;
-  }
+  // Remove leading slash if exists
+  const cleanPath = path.startsWith('/') ? path.substring(1) : path;
   
-  // External URLs (like Google Drive or direct web links)
-  // We route these through our proxy endpoint to handle conversion and CORS
-  if (url.startsWith('http')) {
-    return `${BASE_URL}/files/proxy?url=${encodeURIComponent(url)}`;
-  }
+  // If it already includes 'uploads/', point to root
+  if (cleanPath.startsWith('uploads/')) return `${ROOT_URL}/${cleanPath}`;
   
-  // If it's just a filename or ID, point to our backend files endpoint
-  return `${BASE_URL}/files/${url}`;
+  // Otherwise assume it's in the uploads folder
+  return `${ROOT_URL}/uploads/${cleanPath}`;
 };
 
 
@@ -457,16 +452,26 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
       if (uploadTasks.length > 0) {
         setUploadProgress({ current: 0, total: uploadTasks.length });
         
-        // Use a batch size (concurrency) to speed up uploads without crashing the device
-        const CONCURRENCY = 3;
+        // Concurrency control: batch images to avoid overwhelming the network
+        const CONCURRENCY = 2; // Reduced for maximum reliability
         for (let i = 0; i < uploadTasks.length; i += CONCURRENCY) {
           const batch = uploadTasks.slice(i, i + CONCURRENCY);
-          setSubmittingProgress(`Uploading images ${i + 1}-${Math.min(i + CONCURRENCY, uploadTasks.length)} of ${uploadTasks.length}...`);
+          const currentBatchNums = `${i + 1}-${Math.min(i + CONCURRENCY, uploadTasks.length)}`;
+          setSubmittingProgress(`Uploading images ${currentBatchNums} of ${uploadTasks.length}...`);
           
-          await Promise.all(batch.map(async (task, index) => {
+          await Promise.all(batch.map(async (task) => {
             try {
-              const uploadedUrl = await uploadImage(task.path![0]);
+              // Try upload with a built-in simple retry
+              let uploadedUrl;
+              try {
+                uploadedUrl = await uploadImage(task.path![0]);
+              } catch (firstErr) {
+                console.warn('First upload attempt failed, retrying...', task.path![0]);
+                await new Promise(r => setTimeout(r, 1000));
+                uploadedUrl = await uploadImage(task.path![0]);
+              }
               
+              // Apply the URL back to the processedAnswers structure
               if (task.type === 'single') {
                 if (task.key) processedAnswers[task.qid][task.key] = uploadedUrl;
                 else processedAnswers[task.qid] = uploadedUrl;
@@ -478,26 +483,29 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                 processedAnswers[task.qid].zoneData[task.key!].defects[task.subKey!][task.index!].evidence = uploadedUrl;
               }
               
-              // Update progress state
               setUploadProgress(prev => ({ ...prev, current: prev.current + 1 }));
             } catch (uploadErr: any) {
-              console.error('Failed to upload image during batch:', task.path![0], uploadErr);
-              throw uploadErr; // Rethrow to trigger the outer catch
+              console.error('Final upload failure:', task.path![0], uploadErr);
+              throw uploadErr; // Trigger the catch below
             }
           })).catch(async (err) => {
-            console.error('Batch upload failed, queuing whole report:', err);
-            setSubmittingProgress('Upload failed. Queuing for later...');
+            console.error('Batch upload process failed:', err);
+            // On any unrecoverable upload error, we move to offline queue
             await offlineQueue.addToQueue(id, payload);
             setSubmitting(false);
             setSubmitted(true);
             Alert.alert(
               'Upload Interrupted',
-              'One or more images failed to upload. The report has been saved to your offline queue and will retry syncing later.',
+              'One or more images failed to upload even after retries. The report has been saved to your offline queue and will sync automatically later.',
               [{ text: 'OK' }]
             );
-            // Since we already handled the error and queued it, we throw a special "handled" error
             throw new Error('HANDLED_BY_QUEUE');
           });
+
+          // Small pause between batches
+          if (i + CONCURRENCY < uploadTasks.length) {
+            await new Promise(r => setTimeout(r, 500));
+          }
         }
       }
       setUploadProgress({ current: 0, total: 0 });

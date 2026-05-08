@@ -19,6 +19,8 @@ export const BASE_URL = IS_DEV
   ? DEV_URL
   : 'https://threew-vu4v.onrender.com/api/';
 
+export const ROOT_URL = BASE_URL.replace('/api/', '');
+
 console.log(`🔗 Mobile API Base URL: ${BASE_URL} (Mode: ${IS_DEV ? 'Development' : 'Production'})`);
 
 
