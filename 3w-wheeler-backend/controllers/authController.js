@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 import User from '../models/User.js';
 import Tenant from '../models/Tenant.js';
 import LoginLog from '../models/LoginLog.js';
