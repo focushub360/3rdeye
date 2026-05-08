@@ -832,20 +832,6 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                         </View>
                       )}
                     </View>
-                    
-                    {question.description && (
-                      <Text style={styles.questionDescription}>{question.description}</Text>
-                    )}
-
-                    {question.imageUrl && (
-                      <View style={styles.referenceImageContainer}>
-                        <Image 
-                          source={{ uri: getReferenceImageUrl(question.imageUrl) }} 
-                          style={styles.referenceImage}
-                          resizeMode="contain"
-                        />
-                      </View>
-                    )}
 
                     <QuestionRenderer
                       question={question}

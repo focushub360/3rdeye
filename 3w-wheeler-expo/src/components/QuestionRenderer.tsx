@@ -495,7 +495,16 @@ export default function QuestionRenderer({
             {question.text || question.label || question.title || "Untitled Question"}
             {question.required && <Text style={styles.requiredAsterisk}> *</Text>}
           </Text>
+          {question.subParam1 && (
+            <View style={styles.subParamBadge}>
+              <Text style={styles.subParamText}>{question.subParam1.toUpperCase()}</Text>
+            </View>
+          )}
         </View>
+      )}
+
+      {question.description && (
+        <Text style={styles.descriptionText}>{question.description}</Text>
       )}
 
       {/* Reference Image Support (Parity with Web) */}
@@ -563,6 +572,27 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     fontWeight: '900',
     fontSize: 16,
+  },
+  descriptionText: {
+    fontSize: 13,
+    color: '#64748b',
+    marginBottom: 12,
+    lineHeight: 18,
+    fontStyle: 'italic',
+  },
+  subParamBadge: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginLeft: 10,
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+  },
+  subParamText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#3b82f6',
   },
   // Track Rank styles
   trackRankContainer: {
