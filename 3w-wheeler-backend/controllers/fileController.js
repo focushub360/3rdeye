@@ -2,7 +2,7 @@ import File from '../models/File.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { uploadToCloudinary, deleteFromCloudinary } from '../services/cloudinaryService.js';
+import { uploadToS3, deleteFromS3 } from '../services/s3Service.js';
 import axios from 'axios';
 import https from 'https';
 
@@ -108,17 +108,18 @@ export const uploadFile = async (req, res) => {
     const associatedType = typeMap[rawAssociatedType] || 'form';
     const associatedId = normalizeValue(bodyAssociatedId) || normalizeValue(queryAssociatedId);
 
-    // Upload to Cloudinary
-    const result = await uploadToCloudinary(req.file.path, associatedType);
+    // Upload to S3 (Replaces Cloudinary)
+    const result = await uploadToS3(req.file.buffer, req.file.originalname, associatedType);
 
     // Create file record
     const file = new File({
-      filename: req.file.filename,
+      filename: result.s3_key || req.file.originalname,
       originalName: req.file.originalname,
-      mimeType: req.file.mimetype,
+      mimetype: req.file.mimetype,
       size: req.file.size,
-      cloudinaryUrl: result.url,
-      cloudinaryPublicId: result.public_id,
+      url: result.secure_url, // Primary URL
+      cloudinaryUrl: result.secure_url, // For compatibility
+      cloudinaryPublicId: result.public_id, // Store S3 key here
       uploadedBy: req.user._id,
       tenantId: req.user.tenantId,
       associatedWith: {
@@ -136,10 +137,13 @@ export const uploadFile = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Upload file error:', error);
+    console.error(`[UPLOAD] ❌ Failed to upload ${req.file?.originalname}:`, error.message);
+    if (error.stack) console.error(error.stack);
+
     res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: error.message || 'Internal server error during file upload',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -155,7 +159,7 @@ export const getFile = async (req, res) => {
       ]
     });
 
-    if (!fileRecord || !fileRecord.cloudinaryUrl) {
+    if (!fileRecord || (!fileRecord.url && !fileRecord.cloudinaryUrl)) {
       const localPath = path.join(__dirname, '../uploads', filename);
       
       if (fs.existsSync(localPath)) {
@@ -168,7 +172,7 @@ export const getFile = async (req, res) => {
       });
     }
 
-    res.redirect(fileRecord.cloudinaryUrl);
+    res.redirect(fileRecord.url || fileRecord.cloudinaryUrl);
 
   } catch (error) {
     console.error('Get file error:', error);
@@ -226,9 +230,9 @@ export const deleteFile = async (req, res) => {
 
     if (fileRecord.cloudinaryPublicId) {
       try {
-        await deleteFromCloudinary(fileRecord.cloudinaryPublicId);
-      } catch (cloudinaryError) {
-        console.warn('Cloudinary delete warning:', cloudinaryError);
+        await deleteFromS3(fileRecord.cloudinaryPublicId);
+      } catch (s3Error) {
+        console.warn('S3 delete warning:', s3Error);
       }
     }
 

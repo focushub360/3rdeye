@@ -1,7 +1,6 @@
 import axios from 'axios';
 import https from 'https';  
-import { uploadToS3 } from './s3Service.js'; // Add this import at top
-import { uploadToCloudinary } from './cloudinaryService.js';
+import { uploadToS3 } from './s3Service.js';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 import { cpus } from 'os';
 import sharp from 'sharp';
@@ -448,17 +447,11 @@ const bulkUpload = async (images, folder = 'focus_forms/response_images', driveF
       const filename = `response-${Date.now()}-${index}.jpg`;
       console.log(`Processing: ${filename}`);
       
-      // 1. UPLOAD TO CLOUDINARY (PRIMARY)
-     /* const cloudinaryResult = await uploadToCloudinary(
+      const s3Result = await uploadToS3(
         finalBuffer,
         filename,
-        folder
-      );*/
-      const s3Result = await uploadToS3(
-  finalBuffer,
-  filename,
-  'focus_forms/response_images' // Your folder structure
-);
+        'focus_forms/response_images' // Your folder structure
+      );
       
       // 2. UPLOAD TO GOOGLE DRIVE (BACKUP) - USING OAUTH 2.0
       let driveResult = null;
@@ -470,25 +463,15 @@ const bulkUpload = async (images, folder = 'focus_forms/response_images', driveF
         );
       }
       
-     /* const uploadResult = {
+      const uploadResult = {
         originalUrl: image.url,
-        cloudinaryUrl: cloudinaryResult.secure_url,
-        cloudinaryPublicId: cloudinaryResult.public_id,
+        cloudinaryUrl: s3Result.secure_url, // Now S3/CloudFront URL
+        cloudinaryPublicId: s3Result.public_id, // Now S3 key
         driveUrl: driveResult?.driveUrl || null,
         driveFileId: driveResult?.driveFileId || null,
         drivePath: driveFolderInfo?.fullPath ? `${driveFolderInfo.fullPath}${filename}` : null,
         success: true
       };
-      */
-     const uploadResult = {
-  originalUrl: image.url,
-  cloudinaryUrl: s3Result.secure_url, // Now S3/CloudFront URL
-  cloudinaryPublicId: s3Result.public_id, // Now S3 key
-  driveUrl: driveResult?.driveUrl || null,
-  driveFileId: driveResult?.driveFileId || null,
-  drivePath: driveFolderInfo?.fullPath ? `${driveFolderInfo.fullPath}${filename}` : null,
-  success: true
-};
       
       processedCache.set(cacheKey, {
         data: uploadResult,

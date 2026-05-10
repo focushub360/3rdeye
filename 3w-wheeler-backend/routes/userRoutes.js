@@ -31,6 +31,16 @@ router.use(authenticate);
 // Performance scores routes - bypass tenant filter for cross-tenant visibility
 router.get('/performance-scores', inspectorOrAdmin, getPerformanceScores);
 
+// @route   GET /api/users/available-admins
+// @desc    Get available admins for chat/contact
+// @access  Private (Inspector or Admin)
+router.get('/available-admins', inspectorOrAdmin, addTenantFilter, getAvailableAdmins);
+
+// @route   GET /api/users
+// @desc    Get all users with pagination and filtering
+// @access  Private (Inspector or Admin)
+router.get('/', inspectorOrAdmin, addTenantFilter, getAllUsers);
+
 router.use(addTenantFilter);
 router.use(adminOnly);
 
@@ -39,13 +49,6 @@ router.use(adminOnly);
 // @access  Private (Admin only)
 router.post('/', validateUserCreation, createUser);
 
-// @route   GET /api/users
-// @desc    Get all users with pagination and filtering
-// @access  Private (Admin only)
-router.get('/', getAllUsers);
-
-// Add these new routes
-router.get('/available-admins', getAvailableAdmins);
 router.get('/activity-logs', getUserActivityLogs); // Fixed: Added route matching frontend endpoint
 router.get('/:userId/activity', getUserActivityLogs);
 router.get('/hierarchy', getUsersHierarchy);
