@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, Modal, Dimensions } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, Modal, Dimensions, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { X, Camera, RefreshCw, Zap, ZapOff } from 'lucide-react-native';
@@ -18,13 +18,29 @@ export default function InAppCamera({ visible, onClose, onCapture }: InAppCamera
   const [flash, setFlash] = useState<'off' | 'on'>('off');
   const cameraRef = useRef<any>(null);
 
-  if (!permission) return <View />;
+  // Auto-request if undetermined
+  React.useEffect(() => {
+    if (visible && permission && !permission.granted && permission.canAskAgain) {
+      requestPermission();
+    }
+  }, [visible, permission]);
+
+  if (!permission) {
+    return (
+      <Modal visible={visible} transparent>
+        <View style={styles.permissionContainer}>
+          <ActivityIndicator size="large" color="#fff" />
+        </View>
+      </Modal>
+    );
+  }
 
   if (!permission.granted) {
     return (
       <Modal visible={visible} animationType="fade">
         <SafeAreaView style={styles.permissionContainer}>
-          <Text style={styles.permissionText}>We need your permission to show the camera</Text>
+          <Camera color="#fff" size={48} style={{ marginBottom: 20 }} />
+          <Text style={styles.permissionText}>Camera access is required to capture evidence.</Text>
           <TouchableOpacity onPress={requestPermission} style={styles.permissionBtn}>
              <Text style={styles.permissionBtnText}>Grant Permission</Text>
           </TouchableOpacity>

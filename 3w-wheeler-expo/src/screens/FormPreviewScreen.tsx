@@ -34,6 +34,8 @@ import {
 
 import { StatusBar } from 'react-native';
 import apiClient, { BASE_URL, ROOT_URL } from '../api/config';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useAuth } from '../context/AuthContext';
 import QuestionRenderer from '../components/QuestionRenderer';
 import NetInfo from '@react-native-community/netinfo';
@@ -69,7 +71,7 @@ const getReferenceImageUrl = (path: string) => {
 
 const FormPreviewScreen = ({ route, navigation }: any) => {
   const { title, id, answers: initialAnswers, readOnly = false, chassisNumber, shift, status } = route.params || {};
-  const { user } = useAuth();
+  const { user, token } = useAuth();
 
   const [form, setForm] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -78,6 +80,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const [answers, setAnswers] = useState<Record<string, any>>(initialAnswers || {});
   const [submitted, setSubmitted] = useState(false);
+  const [wasQueued, setWasQueued] = useState(false);
   const [startTime] = useState(new Date());
   const [submitting, setSubmitting] = useState(false);
   const [locationName, setLocationName] = useState<string>('');
@@ -130,19 +133,25 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
   
   const { getOrderedVisibleQuestions } = useQuestionLogic();
 
-  const getMainSections = useCallback(() => {
-    if (!form) return [];
-    const baseSections = form.sections.filter((s: any) => !s.isSubsection);
+  const mainSections = React.useMemo(() => {
+    if (!form?.sections) return [];
 
-    const effectiveViewType = form?.viewType || form?.view_type || "section-wise";
+    // Pre-filter visible root sections
+    const baseSections = form.sections.filter((s: any) => {
+      const isSub = s.isSubsection === true || s.isSubsection === 'true' || (s.parentSectionId && s.parentSectionId !== '');
+      return !isSub;
+    });
 
-    if (effectiveViewType === "question-wise") {
+    if (form.viewType === "question-wise" || form.view_type === "question-wise") {
       const virtualSections: any[] = [];
       baseSections.forEach((section: any, sIdx: number) => {
         const visibleQs = getOrderedVisibleQuestions(section.questions || [], answers);
+        
         if (visibleQs.length === 0) {
+          // Keep the section even if empty for navigation stability if it's the only one
           virtualSections.push({
             ...section,
+            id: `${section.id || sIdx}_empty`,
             questions: [],
             isVirtual: true,
             originalSectionId: section.id,
@@ -155,7 +164,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
           visibleQs.forEach((q: any, qIdx: number) => {
             virtualSections.push({
               ...section,
-              id: `${section.id}_v${qIdx}`,
+              id: `${section.id || sIdx}_v${qIdx}`,
               title: section.title,
               description: qIdx === 0 ? section.description : "",
               questions: [q],
@@ -176,11 +185,13 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
     const sectionsMap = new Map<string, any>();
     const rootSections: any[] = [];
 
-    baseSections.forEach((section: any) => {
-      sectionsMap.set(section.id || section._id, { ...section, subsections: [] });
+    baseSections.forEach((section: any, idx: number) => {
+      const sId = section.id || section._id || `root_${idx}`;
+      sectionsMap.set(sId, { ...section, subsections: [] });
     });
 
-    form.sections.forEach((section: any) => {
+    form.sections.forEach((section: any, idx: number) => {
+      const sId = section.id || section._id || `sec_${idx}`;
       const parentId = section.parentSectionId;
       const isSub = section.isSubsection === true || section.isSubsection === 'true' || (parentId && parentId !== '');
 
@@ -189,15 +200,13 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
         const parent = sectionsMap.get(parentId);
         if (parent) {
           parent.subsections.push(mappedSection);
-        } else {
-          // If parent not found, treat as root
-          if (!sectionsMap.has(section.id || section._id)) {
-            rootSections.push(mappedSection);
-          }
+        } else if (!sectionsMap.has(sId)) {
+           // Fallback for orphaned subsections
+           rootSections.push(mappedSection);
         }
       } else {
-        const mappedSection = sectionsMap.get(section.id || section._id);
-        if (mappedSection && !rootSections.find(rs => rs.id === mappedSection.id)) {
+        const mappedSection = sectionsMap.get(sId);
+        if (mappedSection && !rootSections.find(rs => (rs.id || rs._id) === (mappedSection.id || mappedSection._id))) {
           rootSections.push(mappedSection);
         }
       }
@@ -206,12 +215,18 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
     return rootSections;
   }, [form, answers, getOrderedVisibleQuestions]);
 
-  const mainSections = getMainSections();
-  const currentSection = mainSections[currentSectionIndex];
+  // Safety Effect: Ensure index is always valid when sections change dynamically
+  useEffect(() => {
+    if (mainSections.length > 0 && currentSectionIndex >= mainSections.length) {
+      setCurrentSectionIndex(mainSections.length - 1);
+    }
+  }, [mainSections.length]);
+
+  const currentSection = mainSections[currentSectionIndex] || mainSections[0];
   const effectiveViewType = form?.viewType || form?.view_type || "section-wise";
 
   const isFirst = currentSectionIndex === 0;
-  const isLast = currentSectionIndex === mainSections.length - 1;
+  const isLast = mainSections.length > 0 && currentSectionIndex >= mainSections.length - 1;
 
   // For section-wise view, we also need to get visible questions for subsections
   const getVisibleQuestionsForSection = (section: any) => {
@@ -267,10 +282,12 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
       return;
     }
 
-    if (!isLast) {
+    if (!isLast && currentSectionIndex < mainSections.length - 1) {
       setCurrentSectionIndex(i => i + 1);
       // Scroll to top of the new section
-      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+      }, 50);
     }
   };
 
@@ -278,43 +295,64 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
     if (!isFirst) setCurrentSectionIndex(i => i - 1);
   };
 
-  const uploadImage = async (uri: string) => {
+  const uploadImage = async (uri: string, attempt = 1): Promise<string> => {
+    const MAX_RETRIES = 3;
     try {
-      const formData = new FormData();
-      const filename = uri.split('/').pop() || `upload_${Date.now()}.jpg`;
-      const match = /\.(\w+)$/.exec(filename);
-      let type = match ? `image/${match[1].toLowerCase()}` : `image/jpeg`;
+      const uploadUrl = `${BASE_URL}files/upload`;
       
-      // Standardize common types
-      if (type === 'image/jpg') type = 'image/jpeg';
-      if (!type.includes('/')) type = 'image/jpeg';
+      console.log(`[UPLOAD] Attempt ${attempt}/${MAX_RETRIES} for: ${uri}`);
+      
+      // Check if file exists first
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) {
+        console.error(`[UPLOAD] File does not exist: ${uri}`);
+        throw new Error('FILE_NOT_FOUND');
+      }
 
-      formData.append('file', {
+      // Compress image before upload
+      const manipulatedImage = await ImageManipulator.manipulateAsync(
         uri,
-        name: filename,
-        type
-      } as any);
+        [{ resize: { width: 1080 } }], // Slightly smaller for better reliability
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      
+      const targetUri = manipulatedImage.uri;
+      console.log(`[UPLOAD] Starting FileSystem upload: ${targetUri}`);
 
-      console.log(`[UPLOAD] Sending image: ${filename} (${type}) to ${BASE_URL}/files/upload`);
-
-      const resp = await apiClient.post('/files/upload', formData, {
+      const uploadResult = await FileSystem.uploadAsync(uploadUrl, targetUri, {
+        httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+        fieldName: 'file',
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+          'X-App-Type': 'mobile-app'
         },
-        transformRequest: (data) => data, // Ensure Axios doesn't stringify FormData
       });
 
-      if (resp.data?.success) {
-        console.log(`[UPLOAD] Successfully uploaded: ${filename}`);
-        return resp.data.data.url || resp.data.data.filename || resp.data.data.path || resp.data.data.id;
+      const responseData = JSON.parse(uploadResult.body);
+
+      if (uploadResult.status === 200 || uploadResult.status === 201) {
+        if (responseData.success) {
+          console.log(`[UPLOAD] Successfully uploaded: ${uri}`);
+          return responseData.data.url || responseData.data.filename || responseData.data.path || responseData.data.id;
+        }
       }
-      throw new Error(resp.data?.message || 'Upload failed');
+      
+      throw new Error(responseData.message || `Upload failed with status ${uploadResult.status}`);
     } catch (err: any) {
-      console.error('Image upload error details:', {
+      if (err.message === 'FILE_NOT_FOUND') throw err;
+
+      if (attempt < MAX_RETRIES) {
+        const delay = attempt * 2000; // Exponential backoff: 2s, 4s...
+        console.warn(`[UPLOAD] Attempt ${attempt} failed, retrying in ${delay}ms...`, err.message);
+        await new Promise(r => setTimeout(r, delay));
+        return uploadImage(uri, attempt + 1);
+      }
+      
+      console.error('Final image upload error:', {
         message: err.message,
-        response: err.response?.data,
-        status: err.response?.status,
-        url: err.config?.url
+        uri
       });
       throw err;
     }
@@ -446,13 +484,9 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
       if (!netState.isConnected) {
         setSubmittingProgress('Offline. Saving to queue...');
         await offlineQueue.addToQueue(id, payload);
+        setWasQueued(true);
         setSubmitting(false);
         setSubmitted(true);
-        Alert.alert(
-          'Saved Offline',
-          'You are currently offline. Your report has been saved locally and will be automatically uploaded once your internet connection is restored.',
-          [{ text: 'Great' }]
-        );
         return;
       }
       
@@ -461,59 +495,45 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
         setUploadProgress({ current: 0, total: uploadTasks.length });
         
         // Concurrency control: batch images to avoid overwhelming the network
-        const CONCURRENCY = 2; // Reduced for maximum reliability
-        for (let i = 0; i < uploadTasks.length; i += CONCURRENCY) {
-          const batch = uploadTasks.slice(i, i + CONCURRENCY);
-          const currentBatchNums = `${i + 1}-${Math.min(i + CONCURRENCY, uploadTasks.length)}`;
-          setSubmittingProgress(`Uploading images ${currentBatchNums} of ${uploadTasks.length}...`);
+        const CONCURRENCY = 1; // Sequential for maximum reliability on mobile networks
+        for (let i = 0; i < uploadTasks.length; i++) {
+          const task = uploadTasks[i];
+          setSubmittingProgress(`Uploading image ${i + 1} of ${uploadTasks.length}...`);
           
-          await Promise.all(batch.map(async (task) => {
-            try {
-              // Try upload with a built-in simple retry
-              let uploadedUrl;
-              try {
-                uploadedUrl = await uploadImage(task.path![0]);
-              } catch (firstErr) {
-                console.warn('First upload attempt failed, retrying...', task.path![0]);
-                await new Promise(r => setTimeout(r, 1000));
-                uploadedUrl = await uploadImage(task.path![0]);
-              }
-              
-              // Apply the URL back to the processedAnswers structure
-              if (task.type === 'single') {
-                if (task.key) processedAnswers[task.qid][task.key] = uploadedUrl;
-                else processedAnswers[task.qid] = uploadedUrl;
-              } else if (task.type === 'photos') {
-                processedAnswers[task.qid].evidencePhotos[task.index!] = uploadedUrl;
-              } else if (task.type === 'defects') {
-                processedAnswers[task.qid].rejectedDefects[task.key!][task.index!].evidence = uploadedUrl;
-              } else if (task.type === 'zones') {
-                processedAnswers[task.qid].zoneData[task.key!].defects[task.subKey!][task.index!].evidence = uploadedUrl;
-              }
-              
-              setUploadProgress(prev => ({ ...prev, current: prev.current + 1 }));
-            } catch (uploadErr: any) {
-              console.error('Final upload failure:', task.path![0], uploadErr);
-              throw uploadErr; // Trigger the catch below
+          try {
+            // Upload with internal retries already handled in uploadImage
+            const uploadedUrl = await uploadImage(task.path![0]);
+            
+            // Apply the URL back to the processedAnswers structure
+            if (task.type === 'single') {
+              if (task.key) processedAnswers[task.qid][task.key] = uploadedUrl;
+              else processedAnswers[task.qid] = uploadedUrl;
+            } else if (task.type === 'photos') {
+              processedAnswers[task.qid].evidencePhotos[task.index!] = uploadedUrl;
+            } else if (task.type === 'defects') {
+              processedAnswers[task.qid].rejectedDefects[task.key!][task.index!].evidence = uploadedUrl;
+            } else if (task.type === 'zones') {
+              processedAnswers[task.qid].zoneData[task.key!].defects[task.subKey!][task.index!].evidence = uploadedUrl;
             }
-          })).catch(async (err) => {
-            console.error('Batch upload process failed:', err);
-            // On any unrecoverable upload error, we move to offline queue
-            await offlineQueue.addToQueue(id, payload);
-            setSubmitting(false);
-            setSubmitted(true);
+            
+            setUploadProgress(prev => ({ ...prev, current: prev.current + 1 }));
+          } catch (uploadErr: any) {
+            console.error('Final upload failure after retries:', task.path![0], uploadErr);
+            
+            // Strictly follow user requirement: Only queue if internet is OFF
+            // If we get here, we are "online" but the upload failed.
+            // We should show an error instead of silent queuing.
+            const errorMsg = uploadErr.response?.data?.message || uploadErr.message || 'Network timeout or server error';
             Alert.alert(
-              'Upload Interrupted',
-              'One or more images failed to upload even after retries. The report has been saved to your offline queue and will sync automatically later.',
+              'Upload Failed',
+              `Could not upload image: ${task.path![0].split('/').pop()}\n\nError: ${errorMsg}\n\nSince you are online, please check your connection or try again.`,
               [{ text: 'OK' }]
             );
-            throw new Error('HANDLED_BY_QUEUE');
-          });
-
-          // Small pause between batches
-          if (i + CONCURRENCY < uploadTasks.length) {
-            await new Promise(r => setTimeout(r, 500));
+            throw new Error('UPLOAD_FAILED');
           }
+
+          // Small pause between uploads
+          await new Promise(r => setTimeout(r, 300));
         }
       }
       setUploadProgress({ current: 0, total: 0 });
@@ -527,21 +547,19 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
         throw new Error(response.data.message || 'Server rejected submission');
       }
     } catch (err: any) {
-      if (err.message === 'HANDLED_BY_QUEUE') return;
+      if (err.message === 'UPLOAD_FAILED') return;
       console.error('Submission error:', err);
       
-      // If it's a network error or the server is down, queue it
-      if (!err.response || err.response.status >= 500) {
+      // We already checked isOnline at the start. 
+      // If it fails here, and we aren't explicitly offline, show error.
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
         await offlineQueue.addToQueue(id, payload);
+        setWasQueued(true);
         setSubmitted(true);
-        Alert.alert(
-          'Sync Pending',
-          'Server is currently unreachable. Your report is saved safely on your device and will sync automatically when possible.',
-          [{ text: 'OK' }]
-        );
       } else {
         const errorMessage = err.response?.data?.message || err.message || 'Unknown error';
-        Alert.alert('Submission Error', `The submission could not be completed. \n\nDetails: ${errorMessage}\n\nPlease try again.`, [{ text: 'Retry' }]);
+        Alert.alert('Submission Error', `The submission could not be completed. \n\nDetails: ${errorMessage}\n\nPlease try again.`, [{ text: 'OK' }]);
       }
     } finally {
       setSubmitting(false);
@@ -614,6 +632,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
     setSubmitted(false);
     setSelectedChassis('');
     setTrackingValues({});
+    setWasQueued(false);
     setSubmittingProgress('');
     setUploadProgress({ current: 0, total: 0 });
     // Scroll to top
@@ -633,7 +652,10 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
           </View>
           <Text style={styles.successTitle}>Inspection Complete!</Text>
           <Text style={styles.successSubtitle}>
-            Your report for chassis {selectedChassis || chassisNumber || 'N/A'} has been securely submitted and synced with the dashboard.
+            {wasQueued 
+              ? `Your report for chassis ${selectedChassis || chassisNumber || 'N/A'} is saved safely on your device and will sync automatically when your connection is better.`
+              : `Your report for chassis ${selectedChassis || chassisNumber || 'N/A'} has been securely submitted and synced with the dashboard.`
+            }
           </Text>
           
           <TouchableOpacity 

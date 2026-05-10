@@ -1,6 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import apiClient from './config';
+import apiClient, { BASE_URL } from './config';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as SecureStore from 'expo-secure-store';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { Platform } from 'react-native';
 
 const QUEUE_KEY = '@inspection_offline_queue';
 
@@ -14,6 +18,37 @@ export interface QueuedSubmission {
 
 class OfflineQueueService {
   private isProcessing = false;
+  private onProgressCallback: ((count: number) => void) | null = null;
+  private networkListenerUnsubscribe: (() => void) | null = null;
+
+  constructor() {
+    this.startListening();
+  }
+
+  setCallback(cb: (count: number) => void) {
+    this.onProgressCallback = cb;
+  }
+
+  /**
+   * Start listening for network changes to auto-sync
+   */
+  startListening() {
+    if (this.networkListenerUnsubscribe) return;
+
+    this.networkListenerUnsubscribe = NetInfo.addEventListener(state => {
+      if (state.isConnected && state.isInternetReachable !== false) {
+        console.log('[OfflineQueue] Network restored! Checking queue...');
+        this.processQueue();
+      }
+    });
+  }
+
+  stopListening() {
+    if (this.networkListenerUnsubscribe) {
+      this.networkListenerUnsubscribe();
+      this.networkListenerUnsubscribe = null;
+    }
+  }
 
   /**
    * Add a submission to the offline queue
@@ -54,38 +89,57 @@ class OfflineQueueService {
     }
   }
 
-  private async uploadImage(uri: string): Promise<string> {
+  private async uploadImage(uri: string, attempt = 1): Promise<string> {
+    const MAX_RETRIES = 3;
     try {
-      const formData = new FormData();
-      const filename = uri.split('/').pop() || `upload_${Date.now()}.jpg`;
-      const match = /\.(\w+)$/.exec(filename);
-      let type = match ? `image/${match[1].toLowerCase()}` : `image/jpeg`;
+      const uploadUrl = `${BASE_URL}files/upload`;
+      const token = await SecureStore.getItemAsync('user_token');
 
-      // Standardize common types
-      if (type === 'image/jpg') type = 'image/jpeg';
-      if (!type.includes('/')) type = 'image/jpeg';
+      console.log(`[OfflineQueue] Upload attempt ${attempt}/${MAX_RETRIES} for: ${uri}`);
+      
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) {
+        console.error(`[OfflineQueue] File not found: ${uri}`);
+        throw new Error('FILE_NOT_FOUND');
+      }
 
-      formData.append('file', {
+      // Compress image before upload
+      const manipulatedImage = await ImageManipulator.manipulateAsync(
         uri,
-        name: filename,
-        type
-      } as any);
-
-      console.log(`[OfflineQueue] Uploading image: ${filename} (${type})`);
-
-      const resp = await apiClient.post('/files/upload', formData, {
+        [{ resize: { width: 1080 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      
+      const targetUri = manipulatedImage.uri;
+      const uploadResult = await FileSystem.uploadAsync(uploadUrl, targetUri, {
+        httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+        fieldName: 'file',
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+          'X-App-Type': 'mobile-app'
         },
-        transformRequest: (data) => data,
       });
 
-      if (resp.data?.success) {
-        return resp.data.data.url || resp.data.data.filename || resp.data.data.id;
+      const responseData = JSON.parse(uploadResult.body);
+
+      if (uploadResult.status === 200 || uploadResult.status === 201) {
+        if (responseData.success) {
+          return responseData.data.url || responseData.data.filename || responseData.data.id;
+        }
       }
-      throw new Error(resp.data?.message || 'Upload failed');
+      
+      throw new Error(responseData.message || `Upload failed with status ${uploadResult.status}`);
     } catch (err: any) {
-      console.error('[OfflineQueue] Image upload failed:', err.response?.data?.message || err.message, `(Status: ${err.response?.status})`);
+      if (err.message === 'FILE_NOT_FOUND') throw err;
+
+      if (attempt < MAX_RETRIES) {
+        const delay = attempt * 2000;
+        console.warn(`[OfflineQueue] Sync attempt ${attempt} failed, retrying in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        return this.uploadImage(uri, attempt + 1);
+      }
       throw err;
     }
   }
@@ -164,9 +218,13 @@ class OfflineQueueService {
           console.error(`[OfflineQueue] Max retries reached for ${item.id}. Dropping.`);
         }
       }
+
+      // Update stored queue and trigger callback
+      const currentQueue = [...remainingQueue, ...queue.slice(queue.indexOf(item) + 1)];
+      await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(currentQueue));
+      if (this.onProgressCallback) this.onProgressCallback(currentQueue.length);
     }
 
-    await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(remainingQueue));
     this.isProcessing = false;
     
     if (remainingQueue.length > 0) {

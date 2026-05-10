@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import {
   Camera, CheckCircle2, AlertCircle, ChevronDown,
-  Check, X, Hash,
+  Check, X, Hash, Upload
 } from 'lucide-react-native';
 import ChassisInspection from './QuestionTypes/ChassisInspection';
 import ZoneIn from './QuestionTypes/ZoneIn';
@@ -16,6 +16,7 @@ import GridQuestion from './QuestionTypes/GridQuestion';
 import ProductNPSTGWBuckets from './QuestionTypes/ProductNPSTGWBuckets';
 import SearchSelect from './QuestionTypes/SearchSelect';
 import SliderFeedback from './QuestionTypes/SliderFeedback';
+import * as ImagePicker from 'expo-image-picker';
 import InAppCamera from './InAppCamera';
 import apiClient, { BASE_URL, ROOT_URL } from '../api/config';
 
@@ -251,9 +252,15 @@ export default function QuestionRenderer({
 
       case 'radio':
       case 'yesNoNA':
+      case 'yesnona':
+      case 'YESNONA': {
+        const options = (question.options && question.options.length > 0) 
+          ? question.options 
+          : ['Yes', 'No', 'N/A'];
+
         return (
           <View style={styles.optionsGrid}>
-            {question.options?.map((option: string) => {
+            {options.map((option: string) => {
               const isSelected = value === option;
               return (
                 <TouchableOpacity
@@ -271,6 +278,7 @@ export default function QuestionRenderer({
             })}
           </View>
         );
+      }
 
       case 'checkbox':
       case 'select':

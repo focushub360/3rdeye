@@ -248,7 +248,7 @@ const FormListScreen = ({ navigation }: any) => {
                 />
                 <StatCard 
                   title="Total Responses" 
-                  value={forms.reduce((acc, f) => acc + (f.responseCount || 0), 0)} 
+                  value={forms.reduce((acc, f) => acc + (f?.responseCount || 0), 0)} 
                   icon={ClipboardList} 
                   color="#10b981" 
                 />
@@ -269,17 +269,17 @@ const FormListScreen = ({ navigation }: any) => {
             </Text>
             
             <View style={styles.formGrid}>
-              {forms.map((form: any) => (
+              {forms.filter(f => f && (f.id || f._id)).map((form: any) => (
                 <FormCard 
-                  key={form._id || form.id}
+                  key={form._id || form.id || Math.random().toString()}
                   id={form.id || form._id}
-                  title={form.title}
-                  description={form.description}
+                  title={form.title || 'Untitled Form'}
+                  description={form.description || 'No description available'}
                   isActive={form.isActive}
                   isGlobal={form.isGlobal}
                   parentFormId={form.parentFormId}
                   date={form.createdAt}
-                  responseCount={form.responseCount}
+                  responseCount={form.responseCount || 0}
                   onView={handleFormPreview}
                   onAnalytics={handleFormAnalytics}
                 />
