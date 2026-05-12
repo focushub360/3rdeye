@@ -609,550 +609,6 @@ const getSectionStats = (section: Section, responses: Response[]) => {
   };
 };
 
-const renderAnswerDisplay = (value: any, question?: any): React.ReactNode => {
-  const ensureAbsoluteFileSource = (input: string) => {
-    if (!input) {
-      return "";
-    }
-    if (input.startsWith("data:")) {
-      return input;
-    }
-    if (input.startsWith("http://") || input.startsWith("https://")) {
-      return input;
-    }
-    if (input.startsWith("//")) {
-      if (typeof window !== "undefined" && window.location) {
-        return `${window.location.protocol}${input}`;
-      }
-      return `https:${input}`;
-    }
-    const normalized = input.startsWith("/") ? input : `/${input}`;
-    if (typeof window !== "undefined" && window.location) {
-      return `${window.location.origin}${normalized}`;
-    }
-    return normalized;
-  };
-
-  const extractFileName = (input: string | undefined) => {
-    if (!input) {
-      return undefined;
-    }
-    try {
-      const sanitized = input.split("?")[0];
-      const parts = sanitized.split("/");
-      const name = parts[parts.length - 1] || undefined;
-      return name ? decodeURIComponent(name) : undefined;
-    } catch {
-      return undefined;
-    }
-  };
-
-  const resolveFileData = (input: any) => {
-    if (!input) {
-      return null;
-    }
-    const candidate =
-      Array.isArray(input) && input.length === 1 ? input[0] : input;
-    if (typeof candidate === "string") {
-      if (candidate.startsWith("data:")) {
-        return {
-          data: candidate,
-          fileName: question?.fileName || question?.name,
-        };
-      }
-      if (
-        candidate.startsWith("http") ||
-        candidate.startsWith("//") ||
-        candidate.startsWith("/") ||
-        candidate.startsWith("uploads/")
-      ) {
-        const absolute = ensureAbsoluteFileSource(candidate);
-        return {
-          url: absolute,
-          fileName:
-            question?.fileName ||
-            question?.name ||
-            extractFileName(candidate),
-        };
-      }
-      return null;
-    }
-    if (typeof candidate === "object") {
-      const dataValue =
-        candidate.data ||
-        candidate.value ||
-        candidate.file ||
-        candidate.base64 ||
-        candidate.url ||
-        candidate.answer ||
-        candidate.path;
-      const nameValue =
-        candidate.fileName ||
-        candidate.filename ||
-        candidate.name ||
-        question?.fileName ||
-        question?.name;
-      if (typeof dataValue === "string" && dataValue.startsWith("data:")) {
-        return { data: dataValue, fileName: nameValue };
-      }
-      if (typeof dataValue === "string") {
-        const absolute = ensureAbsoluteFileSource(dataValue);
-        return {
-          url: absolute,
-          fileName: nameValue || extractFileName(dataValue),
-        };
-      }
-      if (typeof candidate.url === "string") {
-        const absolute = ensureAbsoluteFileSource(candidate.url);
-        return {
-          url: absolute,
-          fileName: nameValue || extractFileName(candidate.url),
-        };
-      }
-    }
-    return null;
-  };
-
-  if (value === null || value === undefined || value === "") {
-    return <span className="text-gray-400">No response</span>;
-  }
-
-  if (typeof value === "string") {
-    if (value.startsWith("data:")) {
-      return (
-        <FilePreview
-          data={value}
-          fileName={question?.fileName || question?.name}
-        />
-      );
-    }
-
-    if (isImageUrl(value)) {
-      return <ImageLink text={value} />;
-    }
-
-    if (
-      value.startsWith("http") ||
-      value.startsWith("//") ||
-      value.startsWith("/") ||
-      value.startsWith("uploads/")
-    ) {
-      const absolute = ensureAbsoluteFileSource(value);
-      if (isImageUrl(absolute)) {
-        return <ImageLink text={absolute} />;
-      }
-      return (
-        <a
-          href={absolute}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-blue-600 hover:text-blue-800"
-        >
-          {value}
-        </a>
-      );
-    }
-
-    const trimmed = value.trim();
-    return trimmed ? (
-      trimmed
-    ) : (
-      <span className="text-gray-400">No response</span>
-    );
-  }
-
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      return <span className="text-gray-400">No response</span>;
-    }
-
-    const previews = value
-      .map((entry: any, index: number) => {
-        const fileData = resolveFileData(entry);
-        if (!fileData) {
-          if (typeof entry === "string" && isImageUrl(entry)) {
-            return <ImageLink key={index} text={entry} />;
-          }
-          return (
-            <span key={index} className="text-sm">
-              {String(entry)}
-            </span>
-          );
-        }
-        if (isImageUrl(fileData.url || fileData.data || "")) {
-          return (
-            <ImageLink
-              key={index}
-              text={fileData.url || fileData.data || ""}
-            />
-          );
-        }
-        return (
-          <FilePreview
-            key={`${question?.id ?? "file-array"}-${index}`}
-            data={fileData.data}
-            url={fileData.url}
-            fileName={fileData.fileName}
-          />
-        );
-      })
-      .filter(Boolean);
-
-    if (previews.length) {
-      return <div className="flex flex-wrap gap-2">{previews}</div>;
-    }
-  }
-
-  if (typeof value === "object") {
-    const fileData = resolveFileData(value);
-    if (fileData?.url || fileData?.data) {
-      const finalUrl = fileData.url || fileData.data;
-      if (finalUrl && isImageUrl(finalUrl)) {
-        return <ImageLink text={finalUrl} />;
-      }
-      if (fileData.data) {
-        return (
-          <FilePreview data={fileData.data} fileName={fileData.fileName} />
-        );
-      }
-      if (fileData.url) {
-        return (
-          <FilePreview url={fileData.url} fileName={fileData.fileName} />
-        );
-      }
-    }
-
-    if (!Object.keys(value).length) {
-      return <span className="text-gray-400">No response</span>;
-    }
-
-    const isChassisType =
-      value.chassisNumber !== undefined ||
-      value.status !== undefined ||
-      value.zone !== undefined ||
-      value.zones !== undefined ||
-      value.categories !== undefined;
-
-    if (isChassisType) {
-      const parts: {
-        label: string;
-        value: string;
-        zoneColor?: string;
-        isImage?: boolean;
-      }[] = [];
-
-      // Get color for zone
-      const getZoneColor = (zoneName: string): string => {
-        const z = zoneName.toLowerCase().trim();
-        if (z.includes("zone a") || z === "a") return "blue";
-        if (z.includes("zone b") || z === "b") return "green";
-        if (z.includes("zone c") || z === "c") return "purple";
-        if (z.includes("zone d") || z === "d") return "orange";
-        if (z.includes("zone e") || z === "e") return "pink";
-        if (z.includes("zone f") || z === "f") return "cyan";
-        return "indigo";
-      };
-
-      if (
-        value.chassisNumber &&
-        String(value.chassisNumber).trim() &&
-        String(value.chassisNumber).toLowerCase() !== "no response"
-      ) {
-        parts.push({
-          label: "Chassis",
-          value: String(value.chassisNumber),
-          zoneColor: "blue",
-        });
-      }
-      if (
-        value.status &&
-        String(value.status).trim() &&
-        String(value.status).toLowerCase() !== "no response"
-      ) {
-        parts.push({
-          label: "Status",
-          value: String(value.status),
-          zoneColor: "red",
-        });
-      }
-        if (
-          (value.remark || value.remarks) &&
-          String(value.remark || value.remarks).trim() &&
-          String(value.remark || value.remarks).toLowerCase() !== "no response"
-        ) {
-          parts.push({
-            label: "Remark",
-            value: String(value.remark || value.remarks),
-            zoneColor: "amber",
-          });
-        }
-      const zoneRaw = value.zone || value.zones;
-      if (zoneRaw) {
-        const zoneVal = Array.isArray(zoneRaw)
-          ? zoneRaw.join(", ")
-          : String(zoneRaw);
-        if (zoneVal.trim()) {
-          // If multiple zones, use a mixed color
-          if (zoneVal.includes(",")) {
-            parts.push({
-              label: "Zone",
-              value: zoneVal,
-              zoneColor: "indigo",
-            });
-          } else {
-            parts.push({
-              label: "Zone",
-              value: zoneVal,
-              zoneColor: getZoneColor(zoneVal),
-            });
-          }
-        }
-      }
-
-      // Handle zonesData (categories, defects, remarks) - with zone colors
-      if (value.zonesData && typeof value.zonesData === "object") {
-        const zoneEntries = Object.entries(value.zonesData);
-        for (const [zoneName, zoneVal] of zoneEntries) {
-          const zoneColor = getZoneColor(zoneName);
-          const colorMap: Record<string, string> = {
-            blue: "bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200",
-            green:
-              "bg-green-50 dark:bg-green-900/30 text-green-800 dark:text-green-200",
-            purple:
-              "bg-purple-50 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200",
-            orange:
-              "bg-orange-50 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200",
-            pink: "bg-pink-50 dark:bg-pink-900/30 text-pink-800 dark:text-pink-200",
-            cyan: "bg-cyan-50 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-200",
-            red: "bg-red-50 dark:bg-red-900/30 text-red-800 dark:text-red-200",
-            amber:
-              "bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200",
-            indigo:
-              "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-200",
-          };
-          const colorClass = colorMap[zoneColor] || colorMap.indigo;
-
-          // Add zone header
-          parts.push({ label: "Zone", value: zoneName, zoneColor });
-
-          const categories = (zoneVal as any)?.categories;
-          if (categories && Array.isArray(categories)) {
-            for (const cat of categories) {
-              const catName =
-                typeof cat === "string"
-                  ? cat
-                  : cat?.name || cat?.category || cat?.categoryName || "-";
-              parts.push({
-                label: "Category",
-                value: String(catName),
-                zoneColor,
-              });
-
-              const defects = cat?.defects;
-              if (defects && Array.isArray(defects)) {
-                for (const defect of defects) {
-                  const defectName =
-                    typeof defect === "string"
-                      ? defect
-                      : defect?.name || defect?.defect || "-";
-                  const defectDetails =
-                    typeof defect === "object" ? defect?.details || {} : {};
-                  const remark =
-                    defectDetails?.remark || defectDetails?.remarks || "-";
-                  parts.push({
-                    label: "Defect",
-                    value: String(defectName),
-                    zoneColor,
-                  });
-                  if (
-                    remark &&
-                    String(remark).trim() &&
-                    String(remark).toLowerCase() !== "-"
-                  ) {
-                    parts.push({
-                      label: "Remark",
-                      value: String(remark),
-                      zoneColor,
-                    });
-                  }
-                  const fileUrl =
-                    defectDetails?.fileUrl ||
-                    defectDetails?.file ||
-                    defect?.fileUrl ||
-                    defect?.file ||
-                    defect?.imageUrl ||
-                    "";
-                  if (
-                    fileUrl &&
-                    String(fileUrl).toLowerCase() !== "no response" &&
-                    String(fileUrl).trim()
-                  ) {
-                    parts.push({
-                      label: "Evidence",
-                      value: String(fileUrl),
-                      zoneColor,
-                      isImage: true,
-                    });
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Handle categories (direct property) - both object and array formats
-      if (value.categories) {
-        if (Array.isArray(value.categories)) {
-          // ChassisWithoutZone format: array of category objects
-          for (const cat of value.categories) {
-            const catName = cat?.name || cat?.category || "-";
-            if (catName !== "-") {
-              parts.push({
-                label: "Category",
-                value: String(catName),
-                zoneColor: "purple",
-              });
-
-              const defects = cat?.defects;
-              if (defects && Array.isArray(defects)) {
-                for (const defect of defects) {
-                  const defectName =
-                    typeof defect === "string"
-                      ? defect
-                      : defect?.name || defect?.defect || "-";
-                  const defectDetails =
-                    typeof defect === "object" ? defect?.details || {} : {};
-                  const remark =
-                    defectDetails?.remark || defectDetails?.remarks || "-";
-                  parts.push({
-                    label: "Defect",
-                    value: String(defectName),
-                    zoneColor: "purple",
-                  });
-                  if (
-                    remark &&
-                    String(remark).trim() &&
-                    String(remark).toLowerCase() !== "-"
-                  ) {
-                    parts.push({
-                      label: "Remark",
-                      value: String(remark),
-                      zoneColor: "purple",
-                    });
-                  }
-                  const fileUrl =
-                    defectDetails?.fileUrl ||
-                    defectDetails?.file ||
-                    defect?.fileUrl ||
-                    defect?.file ||
-                    defect?.imageUrl ||
-                    "";
-                  if (
-                    fileUrl &&
-                    String(fileUrl).toLowerCase() !== "no response" &&
-                    String(fileUrl).trim()
-                  ) {
-                    parts.push({
-                      label: "Evidence",
-                      value: String(fileUrl),
-                      zoneColor: "purple",
-                      isImage: true,
-                    });
-                  }
-                }
-              }
-            }
-          }
-        } else if (typeof value.categories === "object") {
-          // Object format: key-value pairs
-          const catEntries = Object.entries(value.categories);
-          for (const [catKey, catVal] of catEntries) {
-            parts.push({
-              label: String(catKey),
-              value: String(catVal),
-              zoneColor: "amber",
-            });
-          }
-        }
-      }
-
-      // Handle evidenceUrl
-      if (
-        value.evidenceUrl &&
-        String(value.evidenceUrl).toLowerCase() !== "no response" &&
-        String(value.evidenceUrl).trim()
-      ) {
-        parts.push({
-          label: "Evidence",
-          value: String(value.evidenceUrl),
-          zoneColor: "indigo",
-          isImage: true,
-        });
-      }
-
-      if (parts.length > 0) {
-        return (
-          <div className="flex flex-col gap-2">
-            {parts.map((part, idx) => {
-              const colorMap: Record<string, string> = {
-                blue: "bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200",
-                green:
-                  "bg-green-50 dark:bg-green-900/30 text-green-800 dark:text-green-200",
-                purple:
-                  "bg-purple-50 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200",
-                orange:
-                  "bg-orange-50 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200",
-                pink: "bg-pink-50 dark:bg-pink-900/30 text-pink-800 dark:text-pink-200",
-                cyan: "bg-cyan-50 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-200",
-                red: "bg-red-50 dark:bg-red-900/30 text-red-800 dark:text-red-200",
-                amber:
-                  "bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200",
-                indigo:
-                  "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-200",
-              };
-              const colorClass = colorMap[part.zoneColor || "indigo"] || colorMap.indigo;
-
-              return (
-                <div
-                  key={idx}
-                  className={`flex items-start gap-2 p-2 rounded-lg border ${colorClass}`}
-                >
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
-                      {part.label}
-                    </span>
-                    {part.isImage ? (
-                      <ImageLink text={part.value} />
-                    ) : (
-                      <span className="text-sm font-medium break-words">
-                        {part.value}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        );
-      }
-    }
-
-    const entries = Object.entries(value);
-    return (
-      <div className="flex flex-col gap-1">
-        {entries.map(([key, val], idx) => (
-          <div key={idx} className="text-sm">
-            <span className="font-semibold">{key}:</span> {String(val)}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return String(value);
-};
-
 const formatSectionLabel = (label: string, maxLength = 20): string => {
   if (!label) {
     return "";
@@ -2158,6 +1614,7 @@ const QuestionSuggestionRenderer = ({
   onChange: (val: any) => void,
   currentAnswer?: any
 }) => {
+<<<<<<< HEAD
   const [uploading, setUploading] = useState<Record<string, boolean>>({});
   const [expandedZone, setExpandedZone] = useState<string | null>(null);
   const [expandedCategory, setExpandedCategory] = useState<Record<string, boolean>>({});
@@ -3363,6 +2820,161 @@ const QuestionSuggestionRenderer = ({
           className="w-full p-2.5 text-xs bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
         />
       </div>
+=======
+  const [uploading, setUploading] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // All values stored flat in the value object
+  const safeValue = (typeof value === 'object' && value !== null) ? value : {};
+  const status = safeValue.inspectionStatus || '';
+  const remark = safeValue.inspectionRemark || '';
+  const fileUrl = safeValue.inspectionFileUrl || '';
+
+  const update = (patch: Record<string, any>) => {
+    onChange({ ...safeValue, ...patch });
+  };
+
+  const handleFileUpload = async (file: File) => {
+    try {
+      setUploading(true);
+      const result = await apiClient.uploadFile(file, 'form');
+      const url = apiClient.resolveUploadedFileUrl(result);
+      if (url) {
+        update({ inspectionFileUrl: url });
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    } catch (err) {
+      console.error('Upload failed:', err);
+      alert('Upload failed. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Render the current answer as read-only context
+  
+
+  return (
+    <div className="space-y-3 mt-2" onClick={e => e.stopPropagation()}>
+
+
+      
+      
+
+      {/* Remark */}
+      <div
+        className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800"
+        onClick={e => e.stopPropagation()}
+      >
+        <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest block mb-1">
+          Remark
+        </label>
+        <textarea
+          rows={2}
+          value={remark}
+          onChange={e => { e.stopPropagation(); update({ inspectionRemark: e.target.value }); }}
+          onKeyDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+          placeholder="Enter remark..."
+          className="w-full p-2 text-xs bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-700 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none resize-none"
+        />
+      </div>
+
+      {/* File Upload + Camera */}
+      <div
+        className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800"
+        onClick={e => e.stopPropagation()}
+      >
+        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest block mb-1.5">
+          Evidence Photo
+        </label>
+
+        {fileUrl ? (
+          /* Uploaded — show thumbnail + change/camera */
+          <div className="flex gap-2">
+            <label className="flex-1 cursor-pointer group relative">
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*"
+                onClick={e => e.stopPropagation()}
+                onChange={async e => {
+                  e.stopPropagation();
+                  const file = e.target.files?.[0];
+                  if (file) await handleFileUpload(file);
+                }}
+              />
+              <img
+                src={fileUrl}
+                alt="Evidence"
+                className="w-full h-28 object-cover rounded-lg border-2 border-emerald-400"
+                onClick={e => { e.stopPropagation(); window.open(fileUrl, '_blank'); }}
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg pointer-events-none">
+                <span className="text-[10px] text-white font-bold">Change</span>
+              </div>
+            </label>
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); setShowCamera(true); }}
+              className="flex-1 flex flex-col items-center justify-center gap-1 p-3 border-2 border-dashed border-purple-300 dark:border-purple-700 rounded-lg hover:border-purple-500 transition-colors"
+            >
+              <Camera className="w-4 h-4 text-purple-500" />
+              <span className="text-[9px] text-purple-500 font-bold">Camera</span>
+            </button>
+          </div>
+        ) : uploading ? (
+          <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
+            <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+            <span className="text-xs text-blue-600 dark:text-blue-400">Uploading...</span>
+          </div>
+        ) : (
+          /* Empty — show upload + camera side by side */
+          <div className="flex gap-2">
+            <label className="flex-1 cursor-pointer">
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*"
+                onClick={e => e.stopPropagation()}
+                onChange={async e => {
+                  e.stopPropagation();
+                  const file = e.target.files?.[0];
+                  if (file) await handleFileUpload(file);
+                }}
+              />
+              <div className="flex flex-col items-center justify-center gap-1 p-3 border-2 border-dashed border-blue-200 dark:border-blue-700 rounded-lg hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-all">
+                <Upload className="w-4 h-4 text-blue-400" />
+                <span className="text-[9px] text-blue-500 dark:text-blue-400 font-bold">Upload Photo</span>
+              </div>
+            </label>
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); setShowCamera(true); }}
+              className="flex-1 flex flex-col items-center justify-center gap-1 p-3 border-2 border-dashed border-purple-200 dark:border-purple-700 rounded-lg hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors"
+            >
+              <Camera className="w-4 h-4 text-purple-400" />
+              <span className="text-[9px] text-purple-500 dark:text-purple-400 font-bold">Camera</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Camera modal */}
+      {showCamera && createPortal(
+        <CameraCapture
+          onCapture={async (file: File) => {
+            await handleFileUpload(file);
+            setShowCamera(false);
+          }}
+          onClose={() => setShowCamera(false)}
+        />,
+        document.body
+      )}
+>>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
     </div>
   );
 };
@@ -3669,6 +3281,8 @@ export default function FormAnalyticsDashboard() {
     null,
   );
   const [editFormData, setEditFormData] = useState<Record<string, any>>({});
+  const [editFormStatus, setEditFormStatus] = useState<string>("Accepted");
+  const [editFormNotes, setEditFormNotes] = useState<string>("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingResponseId, setDeletingResponseId] = useState<string | null>(
     null,
@@ -4530,6 +4144,7 @@ const fetchChatHistory = async (responseId: string) => {
     }
   };
 
+<<<<<<< HEAD
   const getQuestionStats = (questionId: string) => {
     const questionResponses = responses.filter(r => r.answers && r.answers[questionId]);
     const accepted = questionResponses.filter(r => r.status === "verified").length;
@@ -4538,6 +4153,8 @@ const fetchChatHistory = async (responseId: string) => {
 
     return { accepted, rejected, pending, total: questionResponses.length };
   };
+=======
+>>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
 
   const filteredResponses = useMemo(() => {
     let result = baseFilteredResponses;
@@ -5510,7 +5127,7 @@ const fetchChatHistory = async (responseId: string) => {
       );
     }
 
-    return String(value);
+    return <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(value, null, 2)}</pre>;
   };
 
   const handleSelectAllSections = () => {
@@ -6964,10 +6581,18 @@ const fetchChatHistory = async (responseId: string) => {
   }, [analytics, inspectionStats, sectionSummaryRows, totalPieChartData, inspectorSummary, summaryStatuses, defectStartDate, defectEndDate, form, responses]);
 
   const handleDownloadPDF = async () => {
+<<<<<<< HEAD
     try {
       // Show loading state
       const button = document.querySelector('button[title="Download as PDF"]');
       const originalText = button?.textContent || "Download PDF";
+=======
+    const button = document.querySelector('button[title="Download as PDF"]');
+    const originalText = "Download PDF";
+    try {
+      // Show loading state
+      
+>>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
       if (button) {
         button.innerHTML =
           '<span class="animate-spin">⏳</span> Generating PDF...';
@@ -7295,11 +6920,19 @@ const fetchChatHistory = async (responseId: string) => {
         responses.map((r) =>
           r.id === editingResponseId
             ? {
+<<<<<<< HEAD
               ...r,
               answers: editFormData,
               status: editFormStatus,
               notes: editFormNotes,
             }
+=======
+                ...r,
+                answers: editFormData,
+                status: editFormStatus,
+                notes: editFormNotes,
+              }
+>>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
             : r,
         ),
       );
@@ -7437,7 +7070,11 @@ const fetchChatHistory = async (responseId: string) => {
 
           {/* Tabs - Center */}
           <div className="flex items-center gap-1 overflow-x-auto pb-1 md:pb-0 max-w-full">
+<<<<<<< HEAD
             {!isInspector && !isGuest && (
+=======
+            
+>>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
               <>
                 <button
                   onClick={() => setAnalyticsView("dashboard")}
@@ -7470,8 +7107,12 @@ const fetchChatHistory = async (responseId: string) => {
                   Sections
                 </button>
               </>
+<<<<<<< HEAD
             )}
 
+=======
+          
+>>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
             <button
               onClick={() => setAnalyticsView("responses")}
               className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "responses"
@@ -7534,7 +7175,11 @@ const fetchChatHistory = async (responseId: string) => {
                 </span>
               )}
             </button>
+<<<<<<< HEAD
             {!isGuest && !isInspector && (
+=======
+            {!isGuest && (
+>>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
               <>
               <button
                 onClick={handleShareAnalytics}
@@ -7552,6 +7197,7 @@ const fetchChatHistory = async (responseId: string) => {
                 </button>
               </>
             )}
+<<<<<<< HEAD
             <button
               onClick={handleDownloadPDF}
               className="flex items-center gap-2 px-2 py-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
@@ -7559,6 +7205,17 @@ const fetchChatHistory = async (responseId: string) => {
             >
               <Download className="w-4 h-4" />
             </button>
+=======
+            {analyticsView === "dashboard" && (
+              <button
+                onClick={handleDownloadPDF}
+                className="flex items-center gap-2 px-2 py-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                title="Download as PDF"
+              >
+                <Download className="w-4 h-4" />
+              </button>
+            )}
+>>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
             {isGuest && (
               <button
                 onClick={handleLogout}
@@ -9339,6 +8996,7 @@ const fetchChatHistory = async (responseId: string) => {
                                   </td>
                                   <td
                                     className={`px-3 py-3 text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap sticky left-12 z-20 ${editingResponseId === response.id ? "bg-blue-50 dark:bg-blue-900/20" : idx % 2 === 0 ? "bg-white dark:bg-gray-900" : "bg-gray-50 dark:bg-gray-800/50"}`}
+<<<<<<< HEAD
                                   >
                                     {/* Dispatch cell content */}
                                     {(() => {
@@ -9500,7 +9158,195 @@ const fetchChatHistory = async (responseId: string) => {
                                         </>
                                       )}
                                     </div>
+=======
+                                  >
+                                    {/* Dispatch cell content */}
+                                    {(() => {
+                                      const status = responseStatuses[response.id] || "";
+                                      const canShowDispatch = status === "Direct Ok" || status === "Rework Accepted" || status === "Rework Completed" || status ==="Accepted";
+                                      // Check submitter based on email/username like other parts of the code
+                                      const userEmail = user?.email || "";
+                                      const userUsername = user?.username || "";
+                                      const isSubmitter = response.submittedBy === userEmail ||
+                                        response.submittedBy === userUsername ||
+                                        response.createdBy === userEmail ||
+                                        response.createdBy === userUsername ||
+                                        response.submitterContact?.email === userEmail;
+
+                                      // Debug: Uncomment to see what statuses are being checked
+                                      console.log(`Dispatch check for response ${response.id}:`, {
+                                        status,
+                                        canShow: canShowDispatch,
+                                        isSubmitter,
+                                        userEmail,
+                                        userUsername,
+                                        responseSubmittedBy: response.submittedBy,
+                                        responseCreatedBy: response.createdBy,
+                                        responseSubmitterEmail: response.submitterContact?.email
+                                      });
+
+                                      if (!canShowDispatch) {
+                                        return <span className="text-gray-400 text-xs">-</span>;
+                                      }
+
+                                      // Show enabled state for all users once dispatch is enabled
+                                      if (response.isDispatched) {
+                                        return (
+                                          <div className="flex items-center justify-center">
+                                            <input
+                                              type="checkbox"
+                                              checked={true}
+                                              disabled={true}
+                                              className="w-4 h-4 text-green-600 border-gray-300 dark:border-gray-600 rounded accent-green-600 opacity-60"
+                                              title="Dispatch enabled"
+                                            />
+                                            <span className="ml-2 text-xs text-green-600 font-medium">Enabled</span>
+                                          </div>
+                                        );
+                                      }
+
+                                      // Only show interactive checkbox for the submitter
+                                      return (
+                                        <input
+                                          type="checkbox"
+                                          checked={false}
+                                          onChange={async (e) => {
+                                            if (e.target.checked && !response.isDispatched) {
+                                              try {
+                                                await apiClient.updateResponse(response.id, { isDispatched: true });
+                                                // Update local state to reflect change immediately
+                                                setResponses(prev => prev.map(r => 
+                                                  r.id === response.id ? { ...r, isDispatched: true, dispatchedAt: new Date().toISOString() } : r
+                                                ));
+                                              } catch (error) {
+                                                console.error('Failed to enable dispatch:', error);
+                                                alert('Failed to enable dispatch. Please try again.');
+                                              }
+                                            }
+                                          }}
+                                          className="w-4 h-4 text-green-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-green-600"
+                                          title="Enable dispatch (only submitter can do this)"
+                                        />
+                                      );
+                                    })()}
+>>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
                                   </td>
+                                 <td className={`px-6 py-3 text-sm text-gray-600 dark:text-gray-400 font-medium border border-gray-200 dark:border-gray-700 whitespace-nowrap sticky left-12 z-20 ${editingResponseId === response.id ? "bg-blue-50 dark:bg-blue-900/20" : idx % 2 === 0 ? "bg-white dark:bg-gray-900" : "bg-gray-50 dark:bg-gray-800/50"}`}>
+  {/* Actions cell content */}
+  <div className="flex items-center gap-2">
+    {editingResponseId === response.id ? (
+      <>
+        <button
+          onClick={handleSaveEdit}
+          disabled={isSaving}
+          title="Save Response"
+          className="p-1.5 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/30 rounded transition-colors disabled:opacity-50"
+        >
+          <CheckCircle className="w-4 h-4" />
+        </button>
+        <button
+          onClick={handleCancelEdit}
+          disabled={isSaving}
+          title="Cancel"
+          className="p-1.5 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+        >
+          <XCircle className="w-4 h-4" />
+        </button>
+      </>
+    ) : (
+      <>
+        {/* Helper function to check tenant ownership */}
+        {(() => {
+          // Get the response's tenant ID
+          const responseTenantId = response.tenantId;
+          const currentUserTenantId = user?.tenantId;
+          
+          // Check if response belongs to current user's tenant
+          // Superadmin can see all, others only see their own tenant
+          const isOwnTenant = user?.role === 'superadmin' || 
+            !responseTenantId || 
+            (currentUserTenantId && responseTenantId.toString() === currentUserTenantId.toString());
+          
+          // Only show Edit/Delete for own tenant responses AND for superadmin/admin roles
+          if (!isGuest && (user?.role === "superadmin" || user?.role === "admin") && isOwnTenant) {
+            return (
+              <>
+                <button
+                  onClick={() => handleEditStart(response)}
+                  title="Edit Response"
+                  className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors"
+                >
+                  <Edit className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => {
+                    setDeletingResponseId(response.id);
+                    setShowDeleteConfirm(true);
+                  }}
+                  title="Delete Response"
+                  className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </>
+            );
+          }
+          return null;
+        })()}
+        
+        {/* View and Chat Icons - View only for own tenant, Chat for dispatched responses */}
+        {!isGuest && (
+          <div className="relative z-30 flex items-center gap-1">
+            {(() => {
+              const responseTenantId = response.tenantId;
+              const currentUserTenantId = user?.tenantId;
+              const isOwnTenant = user?.role === 'superadmin' || 
+                !responseTenantId || 
+                (currentUserTenantId && responseTenantId.toString() === currentUserTenantId.toString());
+              
+              return (
+                <>
+                  {/* View Icon - Only for own tenant responses */}
+                  {isOwnTenant && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleViewDetails(response);
+                      }}
+                      className="p-1.5 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-all duration-200"
+                      title="View Details"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                  )}
+                  
+                  {/* Chat Icon - Show for dispatched responses regardless of tenant */}
+                  {response.isDispatched && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setChatResponse(response);
+                        setShowChatModal(true);
+                        setSelectedReviewOptions(prev => ({ ...prev, [response.id]: '' }));
+                        setReviewedBy(prev => ({ ...prev, [response.id]: null }));
+                      }}
+                      className="p-1.5 text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-all duration-200"
+                      title="Open Chat"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                    </button>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        )}
+      </>
+    )}
+  </div>
+</td>
                                   <td className="px-6 py-3 text-sm text-gray-900 dark:text-white font-bold border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50/50 dark:bg-gray-800/30">
                                     <div>
                                       {response.submittedBy ||
@@ -9533,7 +9379,7 @@ const fetchChatHistory = async (responseId: string) => {
                                             : "text-gray-500"
                                         }`}
                                     >
-                                      {responseStatuses[response.id] || "-"}
+                                      {(responseStatuses[response.id] === "Direct Ok" || responseStatuses[response.id] === "Rework Accepted") ? responseStatuses[response.id] : "-"}
                                     </span>
                                   </td>
                                   <td className="px-6 py-3 text-sm text-gray-900 dark:text-white font-medium border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap bg-gray-50/50 dark:bg-gray-800/30">
@@ -9646,20 +9492,34 @@ const fetchChatHistory = async (responseId: string) => {
                                                 : ""
                                               }`}
                                           >
-                                            {isEditing ? (
-                                              <input
-                                                type="text"
-                                                value={editFormData[q.id] || ""}
-                                                onChange={(e) =>
-                                                  setEditFormData({
-                                                    ...editFormData,
-                                                    [q.id]: e.target.value,
-                                                  })
-                                                }
-                                                className="w-full px-2 py-1 border border-blue-400 dark:border-blue-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                placeholder="Enter answer"
-                                              />
-                                            ) : (
+                                             {isEditing ? (
+                                               <input
+                                                 type="text"
+                                                 value={typeof editFormData[q.id] === 'object' && 'status' in editFormData[q.id] ? editFormData[q.id].status : (editFormData[q.id] ? (typeof editFormData[q.id] === 'string' ? editFormData[q.id] : JSON.stringify(editFormData[q.id], null, 2)) : "")}
+                                                 onChange={(e) => {
+                                                   const val = e.target.value;
+                                                   if (editFormData[q.id] && typeof editFormData[q.id] === 'object' && 'status' in editFormData[q.id]) {
+                                                     setEditFormData({
+                                                       ...editFormData,
+                                                       [q.id]: { ...editFormData[q.id], status: val },
+                                                     });
+                                                   } else {
+                                                     let parsed;
+                                                     try {
+                                                       parsed = JSON.parse(val);
+                                                     } catch {
+                                                       parsed = val;
+                                                     }
+                                                     setEditFormData({
+                                                       ...editFormData,
+                                                       [q.id]: parsed,
+                                                     });
+                                                   }
+                                                 }}
+                                                 className="w-full px-2 py-1 border border-blue-400 dark:border-blue-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                 placeholder="Enter answer"
+                                               />
+                                             ) : (
                                               <div className="flex flex-col gap-1 max-w-[250px] overflow-auto max-h-[250px]">
                                                 {renderAnswerDisplay(answer, q)}
                                                 {q.trackResponseRank &&
@@ -10689,11 +10549,15 @@ const fetchChatHistory = async (responseId: string) => {
                           <span className="font-bold">Status:</span>{' '}
                           {emoji} {reviewOption} by {reviewerName}
                         </span>
+<<<<<<< HEAD
                         {scoreVal !== undefined && (
                           <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-white font-extrabold">
                             Score: {scoreVal}%
                           </span>
                         )}
+=======
+                        
+>>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
                       </div>
                     );
                   })()}
