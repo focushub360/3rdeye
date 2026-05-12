@@ -6,7 +6,6 @@ import FormInvite from '../models/FormInvite.js';
 import Parameter from '../models/Parameter.js';
 import Profile from '../models/Profile.js';
 import Settings from '../models/Settings.js';
-import { emitHRUpdate } from '../socket/socketHandler.js';
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
 
@@ -743,9 +742,6 @@ export const updateOfficeLocation = async (req, res) => {
         message: 'Tenant not found'
       });
     }
-
-    // Emit real-time update to all users in this tenant (especially mobile apps)
-    emitHRUpdate(tenantId);
 
     res.json({
       success: true,

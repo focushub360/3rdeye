@@ -125,24 +125,8 @@ export const getDashboardStats = async (req, res) => {
       };
     }
 
-    // Apply user filter for inspectors (non-admins) so they only see their own data
-    // Also handle cases where user submits to a shared form in a different tenant
-    let responseFilter = { ...req.tenantFilter };
-    if (req.user.role === 'inspector' || req.user.role === 'user' || req.user.role === 'subadmin') {
-      const tenantId = req.user.tenantId instanceof mongoose.Types.ObjectId
-        ? req.user.tenantId
-        : new mongoose.Types.ObjectId(req.user.tenantId);
-
-      responseFilter = {
-        $or: [
-          { tenantId: tenantId },
-          { createdBy: req.user._id }
-        ]
-      };
-    }
-
     const totalForms = await Form.countDocuments(effectiveFormFilter);
-    const totalResponses = await Response.countDocuments(responseFilter);
+    const totalResponses = await Response.countDocuments(req.tenantFilter);
     const totalUsers = await User.countDocuments({ ...req.tenantFilter, role: { $ne: 'admin' } });
     const publicForms = await Form.countDocuments({ ...effectiveFormFilter, isVisible: true });
 
@@ -153,13 +137,13 @@ export const getDashboardStats = async (req, res) => {
     });
 
     const responsesInPeriod = await Response.countDocuments({
-      ...responseFilter,
+      ...req.tenantFilter,
       createdAt: { $gte: startDate }
     });
 
     // Get response status distribution
     const statusDistribution = await Response.aggregate([
-      { $match: responseFilter },
+      { $match: req.tenantFilter },
       {
         $group: {
           _id: '$status',
@@ -170,7 +154,7 @@ export const getDashboardStats = async (req, res) => {
 
     // Get top forms by responses
     const topForms = await Response.aggregate([
-      { $match: responseFilter },
+      { $match: req.tenantFilter },
       {
         $group: {
           _id: '$questionId',
@@ -207,7 +191,7 @@ export const getDashboardStats = async (req, res) => {
     const dailyResponses = await Response.aggregate([
       {
         $match: {
-          ...responseFilter,
+          ...req.tenantFilter,
           createdAt: { $gte: startDate }
         }
       },
@@ -234,7 +218,7 @@ export const getDashboardStats = async (req, res) => {
       .populate('createdBy', 'username firstName lastName')
       .select('id title description createdAt createdBy');
 
-    const recentResponses = await Response.find(responseFilter)
+    const recentResponses = await Response.find(req.tenantFilter)
       .sort({ createdAt: -1 })
       .limit(5)
       .populate('assignedTo', 'username firstName lastName')
@@ -354,11 +338,7 @@ export const getFormAnalytics = async (req, res) => {
     // Get all responses for this form (not just period) 
     // If it's a chassis share, we need to bypass the tenantFilter and manually filter by chassis
     const baseQuery = {
-      $or: [
-        { questionId: formId }, 
-        { questionId: form._id?.toString() },
-        ...(form.id ? [{ questionId: form.id }] : [])
-      ]
+      $or: [{ questionId: formId }, { questionId: form._id?.toString() }]
     };
     
     // If not owner/superadmin, and only have chassis share or regular share
@@ -370,15 +350,9 @@ export const getFormAnalytics = async (req, res) => {
        responseQuery = { ...responseQuery, ...req.tenantFilter };
     }
 
-    // Filter to only show the user's own responses if they are an inspector
-    if (req.user && (req.user.role === 'inspector' || req.user.role === 'user')) {
-      responseQuery.createdBy = req.user._id;
-    }
-
     let allResponses = await Response.find(responseQuery)
       .sort({ createdAt: -1 })
-      .populate('assignedTo', 'firstName lastName email mobile')
-      .populate('createdBy', 'firstName lastName email mobile')
+      .populate('assignedTo', 'firstName lastName email')
       .lean();
 
     // Filter responses for chassis sharing if applicable
@@ -396,19 +370,12 @@ export const getFormAnalytics = async (req, res) => {
         const chassisFieldId = chassisQuestion?.id || 'chassis_number';
 
         allResponses = allResponses.filter(r => {
-          // ALWAYS show user's own responses
-          const isMine = r.createdBy?.toString() === req.user?._id?.toString();
-          if (isMine) return true;
-
           const rAnswers = r.answers instanceof Map ? Object.fromEntries(r.answers) : (r.answers || {});
-          
-          // Check specifically for chassis number match
-          const responseChassis = rAnswers[chassisFieldId] || rAnswers['chassis_number'] || r.chassisNumber;
-          return myAssignedChassis.includes(responseChassis);
+          // Specifically check for the detected chassis field ID or 'chassis_number' fallback
+          return myAssignedChassis.includes(rAnswers[chassisFieldId] || rAnswers['chassis_number']);
         });
       } else {
-        // If no chassis assigned but user has responses, only show user's responses
-        allResponses = allResponses.filter(r => r.createdBy?.toString() === req.user?._id?.toString());
+        allResponses = [];
       }
     }
 
@@ -455,11 +422,6 @@ export const getFormAnalytics = async (req, res) => {
         name: `${response.assignedTo.firstName} ${response.assignedTo.lastName}`,
         email: response.assignedTo.email
       } : null,
-      inspectorName: response.inspectorName || response.submittedBy || (response.assignedTo ? `${response.assignedTo.firstName} ${response.assignedTo.lastName}` : null) || 'Unknown Inspector',
-      inspectorMobile: response.createdBy?.mobile || response.assignedTo?.mobile || response.submitterContact?.phone || null,
-      chassisNumber: response.chassisNumber || (response.answers instanceof Map ? (response.answers.get('chassisNumber') || response.answers.get('chassis_number')) : (response.answers?.chassisNumber || response.answers?.chassis_number)) || '-',
-      review: response.review || null,
-      isDispatched: !!response.isDispatched,
       data: response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers
     }));
 
@@ -488,11 +450,6 @@ export const getFormAnalytics = async (req, res) => {
                 : response.answers,
             status: response.status,
             createdAt: response.createdAt,
-            inspectorName: response.inspectorName || response.submittedBy || (response.assignedTo ? `${response.assignedTo.firstName} ${response.assignedTo.lastName}` : null) || 'Unknown Inspector',
-            inspectorMobile: response.createdBy?.mobile || response.assignedTo?.mobile || response.submitterContact?.phone || null,
-            chassisNumber: response.chassisNumber || (response.answers instanceof Map ? (response.answers.get('chassisNumber') || response.answers.get('chassis_number')) : (response.answers?.chassisNumber || response.answers?.chassis_number)) || '-',
-            review: response.review || null,
-            isDispatched: !!response.isDispatched,
           })),
         },
       },
@@ -1908,15 +1865,10 @@ export const getInspectorSummary = async (req, res) => {
     let matchFilter = {};
     if (role === 'superadmin') {
       // No filter
-    } else if (role === 'admin' || role === 'subadmin' || role === 'inspector') {
-      // For all non-superadmin roles, show their own submissions 
-      // PLUS anything in their tenant (for admins/subadmins)
-      matchFilter = {
-        $or: [
-          { tenantId: new mongoose.Types.ObjectId(userTenantId) },
-          { createdBy: new mongoose.Types.ObjectId(userId) }
-        ]
-      };
+    } else if (role === 'admin' || role === 'subadmin') {
+      matchFilter.tenantId = new mongoose.Types.ObjectId(userTenantId);
+    } else if (role === 'inspector') {
+      matchFilter.createdBy = new mongoose.Types.ObjectId(userId);
     } else {
       matchFilter.tenantId = new mongoose.Types.ObjectId(userTenantId);
     }
@@ -2267,6 +2219,23 @@ export const getPerformanceTable = async (req, res) => {
       }
     ]);
 
+    // Aggregate dispatched (assigned) responses count for all users
+    const dispatchedStats = await Response.aggregate([
+      { 
+        $match: { 
+          ...req.tenantFilter,
+          assignedTo: { $ne: null }, // Only count responses that are assigned/dispatched
+          createdAt: { $gte: start, $lte: end }
+        } 
+      },
+      {
+        $group: {
+          _id: '$assignedTo',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
     // Aggregate review stats for all users
     const reviewStats = await Review.aggregate([
       { 
@@ -2281,7 +2250,8 @@ export const getPerformanceTable = async (req, res) => {
           total: { $sum: 1 },
           accepted: { $sum: { $cond: [{ $eq: ['$reviewOption', 'Accepted'] }, 1, 0] } },
           rejected: { $sum: { $cond: [{ $eq: ['$reviewOption', 'Rejected'] }, 1, 0] } },
-          rework: { $sum: { $cond: [{ $eq: ['$reviewOption', 'Rework'] }, 1, 0] } }
+          rework: { $sum: { $cond: [{ $eq: ['$reviewOption', 'Rework'] }, 1, 0] } },
+          dispatched: { $sum: { $cond: [{ $eq: ['$isDispatched', true] }, 1, 0] } }
         }
       }
     ]);
@@ -2292,6 +2262,11 @@ export const getPerformanceTable = async (req, res) => {
       if (s._id) submissionMap[s._id.toString()] = s.count; 
     });
 
+    const dispatchedMap = {};
+    dispatchedStats.forEach(d => { 
+      if (d._id) dispatchedMap[d._id.toString()] = d.count; 
+    });
+
     const reviewMap = {};
     reviewStats.forEach(r => { 
       if (r._id) reviewMap[r._id.toString()] = r; 
@@ -2299,11 +2274,10 @@ export const getPerformanceTable = async (req, res) => {
 
     // Format final table data
     const tableData = users.map(user => {
-      // Mapping submissions by user ID
-      const submissions = submissionMap[user._id.toString()] || 0;
-      
-      // Try mapping reviews by ObjectId string
-      const reviews = reviewMap[user._id.toString()] || { total: 0, accepted: 0, rejected: 0, rework: 0 };
+      const userId = user._id.toString();
+      const submissions = submissionMap[userId] || 0;
+      const dispatched = dispatchedMap[userId] || 0;
+      const reviews = reviewMap[userId] || { total: 0, accepted: 0, rejected: 0, rework: 0 };
       
       const performanceScore = reviews.total > 0 
         ? Math.round((reviews.accepted / reviews.total) * 100) 
@@ -2316,6 +2290,7 @@ export const getPerformanceTable = async (req, res) => {
         role: user.role,
         tenantName: user.tenantId?.companyName || user.tenantId?.name || 'N/A',
         totalSubmitted: submissions,
+        dispatched: dispatched,
         totalReviewed: reviews.total,
         accepted: reviews.accepted,
         rejected: reviews.rejected,

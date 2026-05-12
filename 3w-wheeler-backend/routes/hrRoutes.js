@@ -25,7 +25,6 @@ router.delete('/shifts/:id/remove', authenticate, adminOnly, shiftController.rem
  * ATTENDANCE (Inspector only)
  */
 router.post('/attendance/checkin', authenticate, inspectorOnly, attendanceController.checkIn);
-router.post('/attendance/verify-otp', authenticate, inspectorOnly, attendanceController.verifyOTP);
 router.post('/attendance/checkout', authenticate, inspectorOnly, attendanceController.checkOut);
 router.post('/attendance/send-otp', authenticate, inspectorOnly, attendanceController.sendAttendanceOTP);
 router.get('/attendance/my-status', authenticate, inspectorOnly, attendanceController.getMyStatus);

@@ -41,7 +41,6 @@ export const createResponse = async (req, res) => {
       completedAt
     } = req.body;
     const { tenantSlug, formId: paramFormId } = req.params;
-    const questionId = (paramFormId || bodyFormId || '').toString().trim();
 
     let form;
     let submissionTimeSpent = 0;
@@ -146,6 +145,8 @@ export const createResponse = async (req, res) => {
     console.log(`[TIME TRACKING] Form submission - Time spent: ${formatTimeDisplay(submissionTimeSpent)}`);
 
     // ========== FORM VALIDATION (Keep your existing code) ==========
+    const questionId = paramFormId || bodyFormId;
+
     if (!questionId) {
       return res.status(400).json({
         success: false,
@@ -168,10 +169,7 @@ export const createResponse = async (req, res) => {
         });
       }
 
-      const queryCondition = mongoose.Types.ObjectId.isValid(questionId) 
-        ? { $or: [{ id: questionId }, { _id: questionId }] }
-        : { id: questionId };
-      form = await Form.findOne({ ...queryCondition, tenantId: tenant._id, isVisible: true });
+      form = await Form.findOne({ id: questionId, tenantId: tenant._id, isVisible: true });
       console.log(`[CREATE RESPONSE DEBUG] Step 3: Form lookup done, found: ${!!form}`);
 
       if (!form) {
@@ -181,73 +179,20 @@ export const createResponse = async (req, res) => {
         });
       }
     } else {
-      const queryCondition = mongoose.Types.ObjectId.isValid(questionId) 
-        ? { $or: [{ id: questionId }, { _id: questionId }] }
-        : { id: questionId };
-
-      const baseQuery = { ...queryCondition };
-      
-      // Step 1: Try finding with strict tenant isolation
-      form = await Form.findOne({
-        $and: [
-          baseQuery,
-          {
-            $or: [
-              { tenantId: req.user.tenantId },
-              { isGlobal: true },
-              { sharedWithTenants: req.user.tenantId }
-            ]
-          }
-        ]
-      });
-
-      // Step 2: Diagnostic fallback if not found
-      if (!form) {
-        console.log(`[CREATE RESPONSE DEBUG] Form not found with tenant filter. Checking existence globally...`);
-        const globalCheck = await Form.findOne(baseQuery);
-        
-        if (globalCheck) {
-          console.log(`[CREATE RESPONSE DEBUG] Form EXISTS but tenant check failed.`, {
-            formTenantId: globalCheck.tenantId,
-            userTenantId: req.user.tenantId,
-            formIsGlobal: globalCheck.isGlobal
-          });
-          
-          // Emergency fix: If the tenant IDs match as strings, allow it (handles type mismatch)
-          const formTenantStr = globalCheck.tenantId?.toString();
-          const userTenantStr = req.user.tenantId?.toString();
-          const userRole = (req.user.role || '').toLowerCase();
-
-          if (formTenantStr === userTenantStr) {
-            console.log(`[CREATE RESPONSE DEBUG] String match found for tenantId (${formTenantStr}). Allowing submission.`);
-            form = globalCheck;
-          } else if (userRole) {
-            // Allow ANY logged in role to submit for now (including subadmin, staff, etc.)
-            console.warn(`[CREATE RESPONSE DEBUG] Permissive bypass for role: ${userRole}. FormTenant: ${formTenantStr}, UserTenant: ${userTenantStr}`);
-            form = globalCheck;
-          } else {
-             console.error(`[CREATE RESPONSE DEBUG] 403 Forbidden: Tenant Mismatch. Form: ${formTenantStr}, User: ${userTenantStr}, Role: ${userRole}`);
-             return res.status(403).json({
-              success: false,
-              message: `Permission denied: Tenant mismatch [E1] (UserRole: ${userRole})`
-            });
-          }
-        }
-      }
+      form = await Form.findOne({ id: questionId, ...req.tenantFilter });
+      console.log(`[CREATE RESPONSE DEBUG] Step 2: Form lookup done (no tenant), found: ${!!form}`);
 
       if (!form) {
         return res.status(404).json({
           success: false,
-          message: 'Form not found [E2]. Please verify the link or ID.'
+          message: 'Form not found'
         });
       }
-      
-      console.log(`[CREATE RESPONSE DEBUG] Step 2: Form lookup successful. Form Title: ${form.title}`);
 
       if (!form.isVisible && (!req.user || !req.user._id)) {
         return res.status(403).json({
           success: false,
-          message: 'Form is not publicly available [E3]'
+          message: 'Form is not publicly available'
         });
       }
     }
@@ -259,7 +204,7 @@ export const createResponse = async (req, res) => {
     if (inviteId) {
       console.log(`[INVITE] Processing response with inviteId: ${inviteId}`);
 
-      inviteObj = await FormInvite.findOne({
+      const invite = await FormInvite.findOne({
         formId: questionId,
         inviteId: inviteId
       });
@@ -636,9 +581,7 @@ if (req.body.submittedBy && req.body.submittedBy !== 'Anonymous') {
       sectionIndex: sectionIndex || null,
       tenantId: form.tenantId,
       score: { correct, total },
-      inviteId: inviteId || null,
-      chassisNumber: req.body.chassisNumber || (req.body.answers ? req.body.answers.chassisNumber : null) || null,
-      inspectorName: displayName || req.user?.firstName || 'Inspector'
+      inviteId: inviteId || null
     };
 
     const response = new Response(responseData);
@@ -659,10 +602,6 @@ if (req.body.submittedBy && req.body.submittedBy !== 'Anonymous') {
       inviteId: inviteId || null,
       timeSpent: submissionTimeSpent,
       responseRanks: ranksObj,
-      inspectorName: response.inspectorName,
-      chassisNumber: response.chassisNumber,
-      review: response.review,
-      isDispatched: response.isDispatched
     });
 
     // ========== RETURN RESPONSE WITH TIMING DATA ==========
@@ -1968,11 +1907,17 @@ export const updateResponse = async (req, res) => {
       });
     }
 
+    // ✅ PRESERVE the createdBy field - don't let it be overwritten
+    const originalCreatedBy = response.createdBy;
+    const originalSubmittedBy = response.submittedBy;
+    const originalSubmitterContact = response.submitterContact;
+
     // Update fields
     if (answers) {
       let processedAnswers = answers;
       try {
-        processedAnswers = await processResponseImages(answers);
+        const result = await processResponseImages(answers);
+        processedAnswers = result.processedAnswers;
         console.log('[DEBUG] Updated answers with Google Drive image processing:', Object.keys(processedAnswers));
       } catch (error) {
         console.error('[ERROR] Failed to process Google Drive images on update:', error);
@@ -1990,19 +1935,19 @@ export const updateResponse = async (req, res) => {
       }
     }
     if (req.body.isDispatched !== undefined) {
-      // If it's being set to true and was false/undefined
       if (req.body.isDispatched === true && !response.isDispatched) {
         response.isDispatched = true;
         response.dispatchedAt = new Date();
       } else if (req.body.isDispatched === false) {
-        // As per user request, disabling might not be needed, but we handle it anyway
-        // Or we could ignore it. Let's stick to user request: "once enabled means no option to disable"
-        // Actually, if they try to set it to false, we just don't allow it or just set it.
-        // I'll just set it for completeness, but the UI won't allow it.
         response.isDispatched = false;
         response.dispatchedAt = null;
       }
     }
+
+    // ✅ Restore original creator info if they were accidentally changed
+    response.createdBy = originalCreatedBy;
+    response.submittedBy = originalSubmittedBy;
+    response.submitterContact = originalSubmitterContact;
 
     await response.save();
 

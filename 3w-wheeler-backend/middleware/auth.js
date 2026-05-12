@@ -13,8 +13,7 @@ const getJwtSecret = () => {
 export const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.header('Authorization');
-    let appType = (req.header('X-App-Type') || 'website').toLowerCase(); 
-    if (appType === 'mobile-app') appType = 'mobile';
+    const appType = (req.header('X-App-Type') || 'website').toLowerCase(); // 'website' or 'mobile'
     
     console.log('=== AUTH CHECK ===');
     console.log('X-App-Type header:', req.header('X-App-Type'));
@@ -56,23 +55,22 @@ export const authenticate = async (req, res, next) => {
 
     // Check access type (only if explicitly set and not 'both')
     // Admins (admin, superadmin, subadmin) can access both platforms regardless of accessType
-    // Admins and Inspectors/Teachers can access both platforms regardless of accessType
-    const isSpecialRole = ['admin', 'superadmin', 'subadmin', 'inspector', 'teacher', 'staff'].includes(user.role);
+    const isAdmin = ['admin', 'superadmin', 'subadmin'].includes(user.role);
     const userAccessType = user.accessType || 'both';
     console.log('userAccessType:', userAccessType);
-    console.log('isSpecialRole:', isSpecialRole);
-    console.log('Should block?', !isSpecialRole && userAccessType !== 'both' && userAccessType === 'mobile' && appType === 'website');
+    console.log('isAdmin:', isAdmin);
+    console.log('Should block?', !isAdmin && userAccessType !== 'both' && userAccessType === 'mobile' && appType === 'website');
 
-    if (!isSpecialRole && userAccessType !== 'both') {
+    if (!isAdmin && userAccessType !== 'both') {
       if (userAccessType === 'website' && appType === 'mobile') {
-        console.log(`[AUTH 403] User ${user.username} tried mobile access but is website-only.`);
+        console.log('BLOCKING: mobile access tries website');
         return res.status(403).json({
           success: false,
           message: 'Access denied. This account is only allowed on website.'
         });
       }
       if (userAccessType === 'mobile' && appType === 'website') {
-        console.log(`[AUTH 403] User ${user.username} tried website access but is mobile-only.`);
+        console.log('BLOCKING: website access tries mobile');
         return res.status(403).json({
           success: false,
           message: 'Access denied. This account is only allowed on mobile app.'
@@ -166,9 +164,9 @@ export const authorize = (...roles) => {
 
 export const superAdminOnly = authorize('superadmin');
 export const adminOnly = authorize('admin', 'superadmin', 'subadmin');
-export const teacherOrAdmin = authorize('teacher', 'admin', 'superadmin', 'subadmin');
-export const staffOrAdmin = authorize('staff', 'admin', 'superadmin', 'subadmin');
-export const inspectorOrAdmin = authorize('inspector', 'admin', 'superadmin', 'subadmin');
+export const teacherOrAdmin = authorize('teacher', 'admin', 'superadmin');
+export const staffOrAdmin = authorize('staff', 'admin', 'superadmin');
+export const inspectorOrAdmin = authorize('inspector', 'admin', 'superadmin');
 
 export const generateToken = (userId) => {
   return jwt.sign({ userId }, getJwtSecret(), { 

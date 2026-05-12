@@ -66,13 +66,9 @@ const developmentOrigins = [
   "http://127.0.0.1:3000",
   "http://127.0.0.1:3001",
   "http://localhost:5173", // Vite default
-  "http://127.0.0.1:5173", // Vite alternative
   "http://localhost:5174", // Vite alternate port
   "http://127.0.0.1:5174",
   "http://localhost:8080", // Some dev servers
-  "http://localhost:8081", // Expo default
-  "http://127.0.0.1:8081",
-  "http://10.46.135.247:8081", // Local IP for mobile testing
 ];
 
 // Combine production and development origins

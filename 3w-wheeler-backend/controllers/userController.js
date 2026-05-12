@@ -216,7 +216,7 @@ export const getUserById = async (req, res) => {
 export const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { username, email, firstName, lastName, role, isActive, permissions, accessType, mobile } = req.body;
+    const { username, email, firstName, lastName, role, isActive, permissions, accessType } = req.body;
 
     const user = await User.findOne({ _id: id, ...req.tenantFilter });
 
@@ -277,7 +277,6 @@ export const updateUser = async (req, res) => {
     if (role) user.role = role;
     if (typeof isActive === 'boolean') user.isActive = isActive;
     if (sanitizedPermissions !== undefined) user.permissions = sanitizedPermissions;
-    if (mobile !== undefined) user.mobile = mobile;
 
     await user.save();
 

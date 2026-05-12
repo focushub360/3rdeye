@@ -455,17 +455,10 @@ export const getAllForms = async (req, res) => {
       const currentTenantId = req.user?.tenantId?.toString();
 
       // Fetch all responses for these forms (no tenant filter)
-      let responseFindQuery = {
+      const allResponses = await Response.find({
         questionId: { $in: formIdsForCounts },
         isSectionSubmit: { $ne: true }
-      };
-
-      if (req.user && (req.user.role === 'inspector' || req.user.role === 'user')) {
-        responseFindQuery.createdBy = req.user._id;
-      }
-
-      // Fetch all responses for these forms
-      const allResponses = await Response.find(responseFindQuery).select('questionId answers createdBy').lean();
+      }).select('questionId answers').lean();
 
       // Count responses per form, with chassis filtering for shared forms
       for (const form of forms) {
@@ -483,34 +476,30 @@ export const getAllForms = async (req, res) => {
         const formResponses = allResponses.filter(r => r.questionId === formId);
 
         if (!isOwner && !isShared && hasChassisShare) {
-          // Chassis-shared form: count responses matching assigned chassis OR created by user
+          // Chassis-shared form: only count responses matching assigned chassis
           const myChassis = chassisAssignments
             .filter(a => a.assignedTenants?.includes(currentTenantId))
             .map(a => a.chassisNumber)
             .filter(Boolean);
 
-          // Find the chassis question field ID
-          const chassisQuestion = form.sections?.flatMap(s => s.questions || [])
-            .find(q => q.type === 'chassisNumber')
-            || form.followUpQuestions?.find(q => q.type === 'chassisNumber');
-          const chassisFieldId = chassisQuestion?.id || 'chassis_number';
+          if (myChassis.length > 0) {
+            // Find the chassis question field ID
+            const chassisQuestion = form.sections?.flatMap(s => s.questions || [])
+              .find(q => q.type === 'chassisNumber')
+              || form.followUpQuestions?.find(q => q.type === 'chassisNumber');
+            const chassisFieldId = chassisQuestion?.id || 'chassis_number';
 
-          const filteredCount = formResponses.filter(r => {
-            // ALWAYS show user's own responses
-            const isMine = r.createdBy?.toString() === req.user?._id?.toString();
-            if (isMine) return true;
+            const filteredCount = formResponses.filter(r => {
+              const answers = r.answers instanceof Map
+                ? Object.fromEntries(r.answers)
+                : (r.answers || {});
+              return myChassis.includes(answers[chassisFieldId] || answers['chassis_number']);
+            }).length;
 
-            if (myChassis.length === 0) return false;
-
-            const answers = r.answers instanceof Map
-              ? Object.fromEntries(r.answers)
-              : (r.answers || {});
-            
-            const responseChassis = answers[chassisFieldId] || answers['chassis_number'] || r.chassisNumber;
-            return myChassis.includes(responseChassis);
-          }).length;
-
-          responseCountsMap.set(formId, filteredCount);
+            responseCountsMap.set(formId, filteredCount);
+          } else {
+            responseCountsMap.set(formId, 0);
+          }
         } else {
           // Owned or shared form: count all responses
           responseCountsMap.set(formId, formResponses.length);

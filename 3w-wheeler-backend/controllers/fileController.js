@@ -2,7 +2,7 @@ import File from '../models/File.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { uploadToS3, deleteFromS3 } from '../services/s3Service.js';
+import { uploadToCloudinary, deleteFromCloudinary } from '../services/cloudinaryService.js';
 import axios from 'axios';
 import https from 'https';
 
@@ -21,34 +21,42 @@ export const proxyFile = async (req, res) => {
       });
     }
 
-    // Decode URL if needed
-    url = decodeURIComponent(url);
+    // Basic security check
+    try {
+      new URL(url);
+    } catch (e) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid URL'
+      });
+    }
 
-    // Normalize Google Drive URLs
+    // Handle Google Drive links - convert view links to download links
     if (url.includes('drive.google.com')) {
-      const fileIdMatch = url.match(/\/d\/([^/]+)/) || url.match(/id=([^&]+)/);
+      const fileIdMatch = url.match(/\/d\/([^/]+)/);
       if (fileIdMatch && fileIdMatch[1]) {
         url = `https://drive.google.com/uc?export=download&id=${fileIdMatch[1]}`;
       }
     }
 
-    console.log(`[PROXY] Fetching external file: ${url}`);
+    console.log(`[PROXY] Fetching: ${url}`);
 
-    const response = await axios.get(url, {
-      responseType: 'arraybuffer',
-      timeout: 20000,
+    const response = await axios({
+      method: 'get',
+      url: url,
+      responseType: 'stream',
+      timeout: 60000, // 60 seconds
+      maxRedirects: 5,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'image/*,application/pdf,*/*'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       },
-      maxRedirects: 10
+      httpsAgent: new https.Agent({ keepAlive: true, rejectUnauthorized: false })
     });
 
+    // Pass along content-type and other useful headers
     const contentType = response.headers['content-type'];
     if (contentType) {
       res.setHeader('Content-Type', contentType);
-    } else {
-      res.setHeader('Content-Type', 'image/jpeg');
     }
     
     if (response.headers['content-length']) {
@@ -56,17 +64,18 @@ export const proxyFile = async (req, res) => {
     }
     
     res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Origin', '*'); // Ensure CORS is allowed for the proxy response itself
 
-    res.send(Buffer.from(response.data));
+    response.data.pipe(res);
   } catch (error) {
     console.error('Proxy file error:', error.message);
     
+    // If axios failed with a response, we might want to pass that status along
     if (error.response) {
       return res.status(error.response.status).json({
         success: false,
         message: `External server returned error: ${error.response.statusText}`,
-        url: req.query.url
+        url: url
       });
     }
 
@@ -91,7 +100,9 @@ export const uploadFile = async (req, res) => {
     const { associatedType: queryAssociatedType, associatedId: queryAssociatedId } = req.query;
 
     const normalizeValue = (value) => {
-      if (!value) return undefined;
+      if (!value) {
+        return undefined;
+      }
       return Array.isArray(value) ? value[0] : value;
     };
 
@@ -104,46 +115,51 @@ export const uploadFile = async (req, res) => {
       tenant_logo: 'logo',
       general: 'form'
     };
-    
     const associatedType = typeMap[rawAssociatedType] || 'form';
-    const associatedId = normalizeValue(bodyAssociatedId) || normalizeValue(queryAssociatedId);
+    const associatedIdentifier = normalizeValue(bodyAssociatedId) || normalizeValue(queryAssociatedId);
 
-    // Upload to S3 (Replaces Cloudinary)
-    const result = await uploadToS3(req.file.buffer, req.file.originalname, associatedType);
+    // Upload to Cloudinary
+    const folder = `focus_forms/${associatedType}`;
+    const filename = `${Date.now()}_${req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+    
+    const cloudinaryResult = await uploadToCloudinary(req.file.buffer, filename, folder);
 
-    // Create file record
-    const file = new File({
-      filename: result.s3_key || req.file.originalname,
+    const associatedWith = { type: associatedType };
+    if (associatedIdentifier) {
+      associatedWith.id = associatedIdentifier;
+    }
+
+    const fileRecord = new File({
+      filename: req.file.originalname,
       originalName: req.file.originalname,
       mimetype: req.file.mimetype,
       size: req.file.size,
-      url: result.secure_url, // Primary URL
-      cloudinaryUrl: result.secure_url, // For compatibility
-      cloudinaryPublicId: result.public_id, // Store S3 key here
-      uploadedBy: req.user._id,
-      tenantId: req.user.tenantId,
-      associatedWith: {
-        type: associatedType,
-        id: associatedId
+      cloudinaryPublicId: cloudinaryResult.public_id,
+      cloudinaryUrl: cloudinaryResult.secure_url,
+      url: cloudinaryResult.secure_url,
+      uploadedBy: req.user ? req.user._id : null,
+      associatedWith,
+      isPublic: true
+    });
+
+    await fileRecord.save();
+
+    const fileData = fileRecord.toObject();
+
+    res.json({
+      success: true,
+      message: 'File uploaded successfully',
+      data: {
+        file: fileData,
+        url: fileData.url
       }
     });
 
-    await file.save();
-
-    res.status(201).json({
-      success: true,
-      message: 'File uploaded successfully',
-      data: file
-    });
-
   } catch (error) {
-    console.error(`[UPLOAD] ❌ Failed to upload ${req.file?.originalname}:`, error.message);
-    if (error.stack) console.error(error.stack);
-
+    console.error('Upload file error:', error);
     res.status(500).json({
       success: false,
-      message: error.message || 'Internal server error during file upload',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: error.message || 'Internal server error'
     });
   }
 };
@@ -152,53 +168,30 @@ export const getFile = async (req, res) => {
   try {
     const { filename } = req.params;
 
-    const fileRecord = await File.findOne({ 
-      $or: [
-        { filename },
-        { cloudinaryUrl: { $regex: filename } }
-      ]
-    });
+    // Check if filename is a valid ObjectId (database file ID)
+    const mongoose = (await import('mongoose')).default;
+    let fileRecord;
 
-    if (!fileRecord || (!fileRecord.url && !fileRecord.cloudinaryUrl)) {
-      const localPath = path.join(__dirname, '../uploads', filename);
-      
-      if (fs.existsSync(localPath)) {
-        return res.sendFile(localPath);
-      }
-
-      return res.status(404).json({
-        success: false,
-        message: 'File not found on cloud or local storage'
-      });
+    if (mongoose.Types.ObjectId.isValid(filename)) {
+      // If it's an ObjectId, find by _id
+      fileRecord = await File.findById(filename);
+    } else {
+      // Otherwise, find by filename
+      fileRecord = await File.findOne({ filename });
     }
 
-    res.redirect(fileRecord.url || fileRecord.cloudinaryUrl);
-
-  } catch (error) {
-    console.error('Get file error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error'
-    });
-  }
-};
-
-export const getFileInfo = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const file = await File.findById(id);
-    if (!file) {
+    if (!fileRecord || !fileRecord.cloudinaryUrl) {
       return res.status(404).json({
         success: false,
         message: 'File not found'
       });
     }
-    res.json({
-      success: true,
-      data: file
-    });
+
+    // Redirect to Cloudinary URL
+    res.redirect(fileRecord.cloudinaryUrl);
+
   } catch (error) {
-    console.error('Get file info error:', error);
+    console.error('Get file error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'
@@ -219,6 +212,7 @@ export const deleteFile = async (req, res) => {
       });
     }
 
+    // Check permissions
     const isOwner = fileRecord.uploadedBy && fileRecord.uploadedBy.toString() === req.user._id.toString();
 
     if (!isOwner && req.user.role !== 'admin') {
@@ -228,14 +222,17 @@ export const deleteFile = async (req, res) => {
       });
     }
 
+    // Delete file from Cloudinary
     if (fileRecord.cloudinaryPublicId) {
       try {
-        await deleteFromS3(fileRecord.cloudinaryPublicId);
-      } catch (s3Error) {
-        console.warn('S3 delete warning:', s3Error);
+        await deleteFromCloudinary(fileRecord.cloudinaryPublicId);
+      } catch (cloudinaryError) {
+        console.warn('Cloudinary delete warning:', cloudinaryError);
+        // Continue with database deletion even if Cloudinary delete fails
       }
     }
 
+    // Delete record from database
     await File.findByIdAndDelete(id);
 
     res.json({
@@ -280,16 +277,45 @@ export const getFilesByUser = async (req, res) => {
       data: {
         files,
         pagination: {
-          total,
-          page: options.page,
-          limit: options.limit,
-          pages: Math.ceil(total / options.limit)
+          currentPage: options.page,
+          totalPages: Math.ceil(total / options.limit),
+          totalFiles: total,
+          hasNextPage: options.page < Math.ceil(total / options.limit),
+          hasPrevPage: options.page > 1
         }
       }
     });
 
   } catch (error) {
     console.error('Get files by user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+export const getFileInfo = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const fileRecord = await File.findById(id)
+      .populate('uploadedBy', 'username firstName lastName email');
+
+    if (!fileRecord) {
+      return res.status(404).json({
+        success: false,
+        message: 'File not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: { file: fileRecord }
+    });
+
+  } catch (error) {
+    console.error('Get file info error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'

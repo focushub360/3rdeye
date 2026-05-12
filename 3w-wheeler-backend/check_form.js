@@ -1,29 +1,36 @@
-
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import path from 'path';
+import Form from './models/Form.js';
+
 dotenv.config();
 
-const MONGO_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/3w-wheeler';
-
-async function checkForm() {
+const checkForm = async () => {
   try {
-    await mongoose.connect(MONGO_URI);
-    const Form = mongoose.model('Form', new mongoose.Schema({}, { strict: false }));
+    await mongoose.connect(process.env.MONGODB_URI);
+    console.log('Connected to MongoDB');
     
-    // Check by id string
-    const form = await Form.findOne({ id: '4879b243-6cbc-457a-adb6-7585d74b031d' });
+    const id = '05c5ee44-8a0d-4da2-961f-3b31cb5d5f8e';
+    const form = await Form.findOne({ id: id });
+    console.log(`Form found by id "${id}":`, !!form);
     if (form) {
-      console.log('Found Form by id:', form.title);
-      console.log('  tenantId:', form.tenantId);
-      console.log('  _id:', form._id);
-    } else {
-      console.log('Form NOT found by id 4879b243-6cbc-457a-adb6-7585d74b031d');
+      console.log('Form title:', form.title);
+      console.log('Form isVisible:', form.isVisible);
+      console.log('Form tenantId:', form.tenantId);
+    }
+    
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      const form2 = await Form.findById(id);
+      console.log(`Form found by _id "${id}":`, !!form2);
     }
 
-    process.exit(0);
+    const allForms = await Form.find({}, 'id title').limit(5);
+    console.log('Sample forms in DB:', allForms);
+
+    await mongoose.disconnect();
   } catch (error) {
-    console.error(error);
-    process.exit(1);
+    console.error('Error:', error);
   }
-}
+};
+
 checkForm();

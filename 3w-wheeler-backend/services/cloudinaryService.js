@@ -1,25 +1,71 @@
-import { uploadToS3, deleteFromS3 } from './s3Service.js';
+import { v2 as cloudinary } from 'cloudinary';
 
-/**
- * FAILSAFE: Redirects all Cloudinary calls to S3
- * This ensures that even if some old code still calls Cloudinary, it will use S3 instead.
- */
+
 export const uploadToCloudinary = async (fileBuffer, filename, folder = 'focus_forms') => {
-  console.log('[CLOUDINARY-MIGRATION] 🔄 Redirecting Cloudinary upload to S3');
-  const result = await uploadToS3(fileBuffer, filename, folder);
-  return {
-    secure_url: result.secure_url,
-    public_id: result.public_id,
-    ...result
-  };
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true
+  });
+
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        resource_type: 'auto', // Changed from 'image' to 'auto'
+        folder: folder,
+        public_id: filename.replace(/\.[^/.]+$/, ''),
+        overwrite: true,
+        quality: 'auto:good', // Lower quality for large files
+        fetch_format: 'auto',
+        timeout: 180000, // 3 MINUTES timeout (increased from 60000)
+        chunk_size: 6000000, // 6MB chunks for large files
+        eager_async: true // Process asynchronously
+      },
+      (error, result) => {
+        if (error) {
+          console.error('[CLOUDINARY] Upload error:', error);
+          reject(error);
+        } else {
+          console.log('[CLOUDINARY] Upload successful:', result.secure_url);
+          resolve(result);
+        }
+      }
+    );
+
+    stream.on('error', (error) => {
+      console.error('[CLOUDINARY] Stream error:', error);
+      reject(error);
+    });
+
+    stream.end(fileBuffer);
+  });
 };
 
 export const deleteFromCloudinary = async (publicId) => {
-  console.log('[CLOUDINARY-MIGRATION] 🔄 Redirecting Cloudinary delete to S3');
-  return await deleteFromS3(publicId);
+  try {
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+      secure: true
+    });
+
+    const result = await cloudinary.uploader.destroy(publicId);
+    return result;
+  } catch (error) {
+    console.error('Cloudinary delete error:', error);
+    throw error;
+  }
 };
 
 export const generateCloudinarySignature = (params) => {
-  console.warn('[CLOUDINARY-MIGRATION] ⚠️ Cloudinary signature requested but we are on S3');
-  return 's3-migration-active';
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true
+  });
+
+  return cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET);
 };

@@ -178,18 +178,6 @@ const ResponseSchema = new mongoose.Schema({
   },
   dispatchedAt: {
     type: Date
-  },
-  chassisNumber: {
-    type: String,
-    default: null
-  },
-  inspectorName: {
-    type: String,
-    default: null
-  },
-  review: {
-    type: mongoose.Schema.Types.Mixed,
-    default: null
   }
 }, {
   timestamps: true

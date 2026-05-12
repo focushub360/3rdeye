@@ -83,14 +83,6 @@ export const initializeSocket = (server) => {
       console.log(`📤 Client ${socket.id} left submission room: ${submissionId}`);
     });
 
-    // Join a tenant-specific room for real-time updates (Attendance, Shifts, etc)
-    socket.on('join-group-chat', (tenantId) => {
-      if (tenantId) {
-        socket.join(tenantId.toString());
-        console.log(`📡 Client ${socket.id} joined tenant room: ${tenantId}`);
-      }
-    });
-
     socket.on('disconnect', () => {
       console.log('❌ Client disconnected:', socket.id);
     });
@@ -175,14 +167,5 @@ export const emitImageProgress = (submissionId, status) => {
       timestamp: new Date()
     });
     console.log(`🖼️ Image progress: ${submissionId} - ${status.message}`);
-  }
-};
-
-export const emitHRUpdate = (tenantId) => {
-  if (io && tenantId) {
-    io.to(tenantId.toString()).emit('hr-update', {
-      timestamp: new Date()
-    });
-    console.log(`🔔 Emitted hr-update event for tenant: ${tenantId}`);
   }
 };
