@@ -10,7 +10,7 @@ const API_BASE_URL = (() => {
 
   const baseUrl = isLocal
     ? `http://${hostname}:5001/api`
-    : "https://3wheelertvsbackend.focusengineeringapp.com/api";
+    : (import.meta.env.VITE_API_URL || "https://3wheelertvsbackend.focusengineeringapp.com/api");
 
   console.log(
     `🔗 API Base URL: ${baseUrl} (Environment: ${
