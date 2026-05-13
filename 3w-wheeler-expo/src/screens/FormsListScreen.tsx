@@ -74,9 +74,9 @@ export default function FormsListScreen() {
     (f.description && f.description.toLowerCase().includes(searchQuery.toLowerCase()))
   ) : [];
 
-  const handleAction = async (item: any, mode: string) => {
+  const handleAction = async (item: any, mode: string, tab?: string) => {
      if (mode === 'analysis') {
-        navigation.navigate('FormAnalytics', { id: item.id || item._id, title: item.title });
+        navigation.navigate('FormAnalytics', { id: item.id || item._id, title: item.title, activeTab: tab });
         return;
      }
 
@@ -133,10 +133,18 @@ export default function FormsListScreen() {
 
         <TouchableOpacity 
           style={styles.actionBtn}
-          onPress={() => handleAction(item, 'analysis')}
+          onPress={() => handleAction(item, 'analysis', 'sections')}
         >
           <BarChart3 size={18} color="#8b5cf6" />
-          <Text style={[styles.actionBtnText, { color: '#8b5cf6' }]}>Analysis</Text>
+          <Text style={[styles.actionBtnText, { color: '#8b5cf6' }]}>Stats</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.actionBtn}
+          onPress={() => handleAction(item, 'analysis', 'responses')}
+        >
+          <FileText size={18} color="#3b82f6" />
+          <Text style={[styles.actionBtnText, { color: '#3b82f6' }]}>Responses</Text>
         </TouchableOpacity>
       </View>
     </View>

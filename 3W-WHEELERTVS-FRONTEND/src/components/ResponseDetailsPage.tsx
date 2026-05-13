@@ -2286,22 +2286,16 @@ const handleBulkDownloadZip = async () => {
                                   </p>
                                   <div className="grid grid-cols-2 gap-2">
                                     <div className="flex items-center justify-between p-1.5 bg-emerald-100/50 dark:bg-emerald-900/20 rounded border border-emerald-200 dark:border-emerald-800/40">
-<<<<<<< HEAD
-                                      <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase">{complianceLabels.yes === "Accepted" ? "Accepted" : "Correct"}</span>
-=======
                                       <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase">{complianceLabels.correct}</span>
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
                                       <div className="text-right">
                                         <p className="text-xs font-bold text-emerald-800 dark:text-emerald-200 leading-none">{totalCorrect}</p>
                                         <p className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold">{correctPercent}%</p>
                                       </div>
                                     </div>
                                     <div className="flex items-center justify-between p-1.5 bg-rose-100/50 dark:bg-rose-900/20 rounded border border-rose-200 dark:border-rose-800/40">
-<<<<<<< HEAD
-                                      <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase">{complianceLabels.yes === "Accepted" ? "Rejected" : "Wrong"}</span>
-=======
                                       <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase">{complianceLabels.wrong}</span>
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
                                       <div className="text-right">
                                         <p className="text-xs font-bold text-rose-800 dark:text-rose-200 leading-none">{totalWrong}</p>
                                         <p className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{wrongPercent}%</p>
@@ -2622,21 +2616,13 @@ const handleBulkDownloadZip = async () => {
                         {summaryTotals.correct > 0 && (
                           <div className="flex items-center space-x-0.5">
                             <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-<<<<<<< HEAD
-                            <span className="text-[8px] font-medium text-gray-700 dark:text-gray-300">Correct</span>
-=======
                             <span className="text-[8px] font-medium text-gray-700 dark:text-gray-300">{complianceLabels.correct}</span>
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
                           </div>
                         )}
                         {summaryTotals.wrong > 0 && summaryTotals.correct > 0 && (
                           <div className="flex items-center space-x-0.5">
                             <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
-<<<<<<< HEAD
-                            <span className="text-[8px] font-medium text-gray-700 dark:text-gray-300">Wrong</span>
-=======
                             <span className="text-[8px] font-medium text-gray-700 dark:text-gray-300">{complianceLabels.wrong}</span>
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
                           </div>
                         )}
                         <div className="flex items-center space-x-0.5">
@@ -2725,11 +2711,7 @@ const handleBulkDownloadZip = async () => {
                 const colors: string[] = [];
 
                 if (hasYesNo && hasQuiz && sectionTotals.correct > 0) {
-<<<<<<< HEAD
-                  labels.push("Correct", "Wrong", complianceLabels.yes, complianceLabels.no);
-=======
                   labels.push(complianceLabels.correct, complianceLabels.wrong, complianceLabels.yes, complianceLabels.no);
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
                   data.push(sectionTotals.correct, sectionTotals.wrong, sectionTotals.yes, sectionTotals.no);
                   colors.push("#10b981", "#ef4444", "#1e40af", "#3b82f6");
                   if (sectionTotals.na > 0) {
@@ -2993,17 +2975,11 @@ const handleBulkDownloadZip = async () => {
                                     Parameter
                                   </th>
                                   <th className="px-3 py-2 text-center font-semibold text-green-700 dark:text-green-400 uppercase tracking-wider w-[30%]">
-<<<<<<< HEAD
-                                    {complianceLabels.yes === "Accepted" ? "Accepted" : "Correct"}
-                                  </th>
-                                  <th className="px-3 py-2 text-center font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider w-[30%]">
-                                    {complianceLabels.yes === "Accepted" ? "Rejected" : "Wrong"}
-=======
                                     {complianceLabels.correct}
                                   </th>
                                   <th className="px-3 py-2 text-center font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider w-[30%]">
                                     {complianceLabels.wrong}
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
                                   </th>
                                 </tr>
                               </thead>

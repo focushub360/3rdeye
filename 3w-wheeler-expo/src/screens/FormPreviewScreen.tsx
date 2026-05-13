@@ -27,7 +27,10 @@ import {
   MapPin, 
   ClipboardCheck,
   Upload,
-  AlertCircle
+  AlertCircle,
+  Sparkles,
+  Clock,
+  History
 } from 'lucide-react-native';
 
 
@@ -70,7 +73,19 @@ const getReferenceImageUrl = (path: string) => {
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
 const FormPreviewScreen = ({ route, navigation }: any) => {
-  const { title, id, answers: initialAnswers, readOnly = false, chassisNumber, shift, status } = route.params || {};
+  const { 
+    title, 
+    id, 
+    answers: initialAnswers, 
+    readOnly = false, 
+    chassisNumber, 
+    shift, 
+    status,
+    responseId,
+    isDispatched: initialDispatched = false,
+    submittedBy: initialSubmittedBy,
+    submitterContact: initialSubmitterContact
+  } = route.params || {};
   const { user, token } = useAuth();
 
   const [form, setForm] = useState<any>(null);
@@ -89,6 +104,16 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
   const [selectedChassis, setSelectedChassis] = useState<string>(chassisNumber || '');
   const [trackingValues, setTrackingValues] = useState<Record<string, string>>({});
   const [availableChassis, setAvailableChassis] = useState<any[]>([]);
+
+  // Dispatch State
+  const [isDispatched, setIsDispatched] = useState(initialDispatched);
+  const [dispatching, setDispatching] = useState(false);
+
+  // Historical Records State
+  const [historicalRecords, setHistoricalRecords] = useState<any[]>([]);
+  const [fetchingHistorical, setFetchingHistorical] = useState(false);
+  const [selectedRank, setSelectedRank] = useState<number>(1);
+  const [chassisQId, setChassisQId] = useState<string>('');
 
   // Location fetching removed as per request
   useEffect(() => {
@@ -130,6 +155,104 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
   }, [id]);
 
   useEffect(() => { fetchForm(); }, [fetchForm]);
+
+  // Identify Chassis Question ID
+  useEffect(() => {
+    if (!form?.sections) return;
+    
+    let foundId = '';
+    for (const s of form.sections) {
+      if (s.questions) {
+        for (const q of s.questions) {
+          if (q.type === 'chassisNumber' || q.text?.toLowerCase().includes('chassis number')) {
+            foundId = q.id || q._id;
+            break;
+          }
+        }
+      }
+      if (foundId) break;
+    }
+    
+    if (!foundId) {
+      for (const s of form.sections) {
+        if (s.questions) {
+          for (const q of s.questions) {
+            if (q.trackResponseRank) {
+              foundId = q.id || q._id;
+              break;
+            }
+          }
+        }
+        if (foundId) break;
+      }
+    }
+    setChassisQId(foundId);
+  }, [form]);
+
+  // Fetch Historical Data when chassis is selected
+  useEffect(() => {
+    const fetchHistorical = async () => {
+      if (!selectedChassis || !form || !id || !chassisQId) {
+        setHistoricalRecords([]);
+        return;
+      }
+
+      try {
+        setFetchingHistorical(true);
+        const tenantSlug = user?.tenant?.slug || 'default';
+        const response = await apiClient.get(`/responses/${tenantSlug}/forms/${id}/suggestions`, {
+          params: { questionId: chassisQId, answer: selectedChassis }
+        });
+
+        if (response.data?.success && response.data.data?.suggestedAnswers) {
+          const suggestions = response.data.data.suggestedAnswers;
+          // Filter to ensure we only show records that match the chassis number exactly
+          const normalizedChassis = selectedChassis.trim().toLowerCase();
+          const filtered = suggestions.filter((s: any) => {
+             const val = s.answers?.[chassisQId];
+             if (typeof val === 'object' && val?.chassisNumber) return val.chassisNumber.trim().toLowerCase() === normalizedChassis;
+             return String(val || '').trim().toLowerCase() === normalizedChassis;
+          });
+          
+          setHistoricalRecords(filtered);
+          if (filtered.length > 0) setSelectedRank(1);
+        } else {
+          setHistoricalRecords([]);
+        }
+      } catch (err) {
+        console.error('Failed to fetch historical records:', err);
+        setHistoricalRecords([]);
+      } finally {
+        setFetchingHistorical(false);
+      }
+    };
+
+    fetchHistorical();
+  }, [selectedChassis, id, form, user?.tenant?.slug]);
+
+  const handleDispatchToggle = async () => {
+    if (!responseId || dispatching) return;
+    
+    try {
+      setDispatching(true);
+      const nextStatus = !isDispatched;
+      
+      await apiClient.patch(`/responses/${responseId}`, {
+        isDispatched: nextStatus
+      });
+      
+      setIsDispatched(nextStatus);
+      Alert.alert(
+        'Success', 
+        nextStatus ? 'Response marked as dispatched.' : 'Dispatch status removed.'
+      );
+    } catch (err: any) {
+      console.error('Failed to toggle dispatch:', err);
+      Alert.alert('Error', 'Failed to update dispatch status. Please try again.');
+    } finally {
+      setDispatching(false);
+    }
+  };
   
   const { getOrderedVisibleQuestions } = useQuestionLogic();
 
@@ -242,11 +365,25 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
 
   const handleAnswer = (questionId: string, value: any) => {
     setAnswers(prev => ({ ...prev, [questionId]: value }));
+    
+    // Auto-sync selectedChassis if this is the chassis question
+    if (chassisQId && questionId === chassisQId) {
+      if (typeof value === 'string') {
+        setSelectedChassis(value);
+      } else if (typeof value === 'object' && value?.chassisNumber) {
+        setSelectedChassis(value.chassisNumber);
+      }
+    }
   };
 
   const handleTrackingAnswer = (questionId: string, trackingVal: string) => {
     setTrackingValues(prev => ({ ...prev, [questionId]: trackingVal }));
     setAnswers(prev => ({ ...prev, [`${questionId}_tracking`]: trackingVal }));
+    
+    // Auto-sync selectedChassis if this is the tracking-enabled chassis question
+    if (chassisQId && questionId === chassisQId && trackingVal) {
+      setSelectedChassis(trackingVal);
+    }
   };
 
   const handleNext = () => {
@@ -772,6 +909,35 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                 </View>
               </View>
             )}
+
+            {/* Historical Records Selector (Web Parity) */}
+            {!readOnly && historicalRecords.length > 0 && currentSectionIndex === 0 && (
+              <View style={styles.historicalSelectorContainer}>
+                <View style={styles.historicalSelectorHeader}>
+                  <View style={styles.sparklesIconBox}>
+                    <Sparkles size={16} color="#10b981" />
+                  </View>
+                  <Text style={styles.historicalSelectorTitle}>HISTORICAL RECORDS</Text>
+                </View>
+                <Text style={styles.historicalSelectorSub}>
+                  {historicalRecords.length} previous reports found for this chassis. Switching records will update the historical data shown below each question.
+                </Text>
+                <View style={styles.rankList}>
+                  {historicalRecords.map((rec) => {
+                    const isActive = selectedRank === rec.rank;
+                    return (
+                      <TouchableOpacity
+                        key={rec.rank}
+                        style={[styles.rankButton, isActive && styles.rankButtonActive]}
+                        onPress={() => setSelectedRank(rec.rank)}
+                      >
+                        <Text style={[styles.rankButtonText, isActive && styles.rankButtonTextActive]}>#{rec.rank}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
            {/* Response Summary (Web Parity) */}
            {readOnly && (
              <View style={styles.responseSummaryCard}>
@@ -779,10 +945,67 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                  <View style={styles.summaryIconBox}>
                    <ClipboardCheck size={20} color="#4f46e5" />
                  </View>
-                 <View>
+                 <View style={{ flex: 1 }}>
                    <Text style={styles.summaryHeaderTitle}>RESPONSE SUMMARY</Text>
                    <Text style={styles.summaryHeaderSub}>Submission Metadata</Text>
                  </View>
+
+                 {/* Dispatch Action (Submitter Only) */}
+                 {(() => {
+                    const s = String(status || '').toLowerCase();
+                    const canShowDispatch = s.includes('accepted') || s.includes('verified') || s.includes('ok') || s.includes('direct');
+                    const userEmail = user?.email || '';
+                    const isSubmitter = initialSubmittedBy === userEmail || initialSubmitterContact?.email === userEmail || (user?.name && initialSubmittedBy === user.name);
+
+                    if (canShowDispatch && isSubmitter) {
+                      return (
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          {/* Chat Button */}
+                          <TouchableOpacity 
+                            style={[styles.dispatchToggle, { borderColor: '#4f46e5' }]}
+                            onPress={() => navigation.navigate('ResponseFeedback', { 
+                              response: { 
+                                id: responseId, 
+                                _id: responseId,
+                                answers: initialAnswers,
+                                chassisNumber,
+                                shift,
+                                status,
+                                submittedBy: initialSubmittedBy,
+                                submitterContact: initialSubmitterContact
+                              }, 
+                              formTitle: title,
+                              sections: form?.sections 
+                            })}
+                          >
+                            <MessageSquareText size={10} color="#4f46e5" />
+                            <Text style={[styles.dispatchToggleText, { color: '#4f46e5' }]}>CHAT</Text>
+                          </TouchableOpacity>
+
+                          {/* Dispatch Toggle */}
+                          <TouchableOpacity 
+                            style={[styles.dispatchToggle, isDispatched && styles.dispatchToggleActive]}
+                            onPress={handleDispatchToggle}
+                            disabled={dispatching}
+                          >
+                            {dispatching ? (
+                              <ActivityIndicator size="small" color={isDispatched ? "#fff" : "#10b981"} />
+                            ) : (
+                              <>
+                                <View style={[styles.miniCheckbox, isDispatched && styles.miniCheckboxChecked]}>
+                                  {isDispatched && <CheckCircle size={10} color="#fff" />}
+                                </View>
+                                <Text style={[styles.dispatchToggleText, isDispatched && styles.dispatchToggleTextActive]}>
+                                  {isDispatched ? 'DISPATCHED' : 'DISPATCH'}
+                                </Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    }
+                    return null;
+                 })()}
                </View>
                <View style={styles.summaryGrid}>
                  <View style={styles.summaryItem}>
@@ -864,6 +1087,14 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                       trackingValue={trackingValues[question.id] || ( (question.trackResponseRank === true && question.text?.toLowerCase().includes('chassis number')) ? selectedChassis : answers[`${question.id}_tracking`] || '' )}
                       onTrackingChange={(tv: string) => handleTrackingAnswer(question.id, tv)}
                       hideLabel={true}
+                      historicalValue={historicalRecords.find(r => r.rank === selectedRank)?.answers?.[question.id]}
+                      selectedRank={selectedRank}
+                      totalHistorical={historicalRecords.length}
+                      historicalStatus={historicalRecords.find(r => r.rank === selectedRank)?.status}
+                      historicalReview={historicalRecords.find(r => r.rank === selectedRank)?.review}
+                      historicalSubmittedBy={historicalRecords.find(r => r.rank === selectedRank)?.submittedBy}
+                      historicalChassis={historicalRecords.find(r => r.rank === selectedRank)?.answers?.[chassisQId] || selectedChassis}
+                      onRankChange={(r) => setSelectedRank(r)}
                     />
                   </View>
                 );
@@ -1230,6 +1461,42 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '900',
   },
+  dispatchToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#10b981',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    gap: 6,
+  },
+  dispatchToggleActive: {
+    backgroundColor: '#10b981',
+  },
+  miniCheckbox: {
+    width: 14,
+    height: 14,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: '#10b981',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniCheckboxChecked: {
+    borderColor: '#fff',
+    backgroundColor: 'transparent',
+  },
+  dispatchToggleText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#10b981',
+    letterSpacing: 0.5,
+  },
+  dispatchToggleTextActive: {
+    color: '#fff',
+  },
   // Submission Overlay
   submissionOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1408,6 +1675,65 @@ const styles = StyleSheet.create({
     color: '#64748b',
     marginTop: 4,
     fontWeight: '500',
+  },
+  // Historical Selector Styles
+  historicalSelectorContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  historicalSelectorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  sparklesIconBox: {
+    backgroundColor: '#ecfdf5',
+    padding: 6,
+    borderRadius: 8,
+  },
+  historicalSelectorTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#065f46',
+    letterSpacing: 1,
+  },
+  historicalSelectorSub: {
+    fontSize: 12,
+    color: '#64748b',
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  rankList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  rankButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rankButtonActive: {
+    backgroundColor: '#10b981',
+    borderColor: '#10b981',
+  },
+  rankButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#64748b',
+  },
+  rankButtonTextActive: {
+    color: '#fff',
   },
 });
 

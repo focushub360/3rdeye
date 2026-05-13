@@ -1307,7 +1307,7 @@ export default function QuestionRenderer({
                     };
 
                     const targetKey = normalize(question.id || (question as any)._id);
-                    const groupedRecords = new Map<string, { ranks: number[], rawValue: any }>();
+                    const groupedRecords = new Map<string, { ranks: number[], rawValue: any, reviews: any[] }>();
 
                     // Collect and group records by formatted value to avoid repetition
                     if (Array.isArray(suggestedAnswers)) {
@@ -1322,8 +1322,15 @@ export default function QuestionRenderer({
                             const existing = groupedRecords.get(displayVal);
                             if (existing) {
                               existing.ranks.push(s.rank || 0);
+                              if (s.review) existing.reviews.push(s.review);
+                              if (s.submittedBy) existing.submitters.push(s.submittedBy);
                             } else {
-                              groupedRecords.set(displayVal, { ranks: [s.rank || 0], rawValue: matchVal });
+                              groupedRecords.set(displayVal, { 
+                                ranks: [s.rank || 0], 
+                                rawValue: matchVal,
+                                reviews: s.review ? [s.review] : [],
+                                submitters: s.submittedBy ? [s.submittedBy] : []
+                              });
                             }
                           }
                         }
@@ -1350,11 +1357,39 @@ export default function QuestionRenderer({
                                 {data.ranks.sort((a,b) => a-b).map(r => (
                                   <span key={`rank-tag-${r}`} className={`flex items-center justify-center px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter ${getRankColor(r)}`}>
                                     #{r}
-                                  </span>
+</span>
                                 ))}
                                 <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 ml-1">
                                   Historical Record
                                 </span>
+                                {data.submitters && data.submitters.length > 0 && (
+                                  <div className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">SUBMITTER:</span>
+                                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                                      {[...new Set(data.submitters)].join(', ')}
+                                    </span>
+                                  </div>
+                                )}
+                                
+                                {data.reviews && data.reviews.length > 0 && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">REVIEW:</span>
+                                    <div className="flex flex-wrap gap-1">
+                                      {[...new Set(data.reviews.map(r => r.option))].map((status, sIdx) => (
+                                        <span 
+                                          key={sIdx}
+                                          className={`px-1.5 py-0.5 text-[9px] font-bold rounded uppercase ${
+                                            status === 'Accepted' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                                            status === 'Rework' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                                            'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
+                                          }`}
+                                        >
+                                          {status}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                               <div className={`text-[10px] font-bold leading-relaxed ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
                                 {displayVal}

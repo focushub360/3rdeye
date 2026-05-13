@@ -21,6 +21,7 @@ interface ChassisInspectionProps {
   onChange: (value: any) => void;
   readOnly?: boolean;
   showZone?: boolean;
+  suggestions?: any[];
 }
 
 interface SpecificDefectDetail {
@@ -68,6 +69,7 @@ export default function ChassisInspection({
   onChange,
   readOnly = false,
   showZone = false,
+  suggestions = [],
 }: ChassisInspectionProps) {
   const status = value?.status || "";
   const selectedZones = Array.isArray(value?.zones) ? value.zones : [];
@@ -88,6 +90,12 @@ export default function ChassisInspection({
     if (readOnly) return;
     onChange({ ...(value || {}), ...updates });
   };
+
+  // Calculate rework count from suggestions
+  const reworkCount = suggestions?.filter(s => {
+    const sStatus = s.answers?.status || (s.value && typeof s.value === 'object' ? s.value.status : null);
+    return String(sStatus || '').toLowerCase().includes('rework');
+  }).length || 0;
 
   const toggleZone = (z: string) => {
     const current = [...selectedZones];
@@ -162,9 +170,24 @@ export default function ChassisInspection({
   };
 
   const statusConfig = [
-    { key: "Accepted", label: "ACCEPTED", color: "#10b981", bg: "#ecfdf5" },
-    { key: "Rework", label: "REWORK", color: "#f59e0b", bg: "#fffbeb" },
-    { key: "Rejected", label: "REJECTED", color: "#ef4444", bg: "#fef2f2" },
+    { 
+      key: "Accepted", 
+      label: reworkCount > 0 ? "REWORK COMPLETED" : "ACCEPTED", 
+      color: "#10b981", 
+      bg: "#ecfdf5" 
+    },
+    { 
+      key: "Rework", 
+      label: reworkCount > 0 ? `RE-REWORK (${reworkCount})` : "REWORK", 
+      color: "#f59e0b", 
+      bg: "#fffbeb" 
+    },
+    { 
+      key: "Rejected", 
+      label: "REJECTED", 
+      color: "#ef4444", 
+      bg: "#fef2f2" 
+    },
   ];
 
   return (

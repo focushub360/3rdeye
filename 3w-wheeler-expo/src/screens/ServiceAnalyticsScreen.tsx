@@ -75,9 +75,13 @@ const FormCard = ({ id, title, description, responses = 0, onView, onAnalytics }
         <Eye size={12} color="#fff" />
         <Text style={styles.viewBtnTextStyle}>View</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.analyticsBtnStyle} onPress={() => onAnalytics && onAnalytics(id, title)}>
+      <TouchableOpacity style={styles.analyticsBtnStyle} onPress={() => onAnalytics && onAnalytics(id, title, 'sections')}>
         <BarChart2 size={12} color="#4f46e5" />
-        <Text style={styles.analyticsBtnTextStyle}>Analytics</Text>
+        <Text style={styles.analyticsBtnTextStyle}>Stats</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.analyticsBtnStyle} onPress={() => onAnalytics && onAnalytics(id, title, 'responses')}>
+        <FileText size={12} color="#4f46e5" />
+        <Text style={styles.analyticsBtnTextStyle}>Responses</Text>
       </TouchableOpacity>
     </View>
   </View>
@@ -273,7 +277,7 @@ const ServiceAnalyticsScreen = () => {
                   description={form.description}
                   responses={form.responseCount || 0}
                   onView={() => navigation.navigate('FormPreview', { id: form.id || form._id, title: form.title })}
-                  onAnalytics={() => navigation.navigate('FormAnalytics', { id: form.id || form._id, title: form.title })}
+                  onAnalytics={(id: string, title: string, tab: string) => navigation.navigate('FormAnalytics', { id, title, activeTab: tab })}
                 />
               ))}
               {forms.length === 0 && (

@@ -1379,6 +1379,7 @@ export const getSuggestedAnswers = async (req, res) => {
     const queryStartTime = Date.now();
     // Fetch top 5 matching responses to find the one with the most data
     const matchingResponses = await Response.find(query)
+      .populate('createdBy', 'firstName lastName username email')
       .sort({ isSectionSubmit: 1, createdAt: -1 })
       .limit(5)
       .lean();
@@ -1408,16 +1409,47 @@ export const getSuggestedAnswers = async (req, res) => {
 
     console.log(`[SUGGESTIONS] Found ${sortedResponses.length} matches.`);
 
+    // Fetch reviews for these suggestions
+    const responseIds = sortedResponses.map(r => r.id).filter(Boolean);
+    const reviews = await Review.find({ 
+      responseId: { $in: responseIds } 
+    }).lean();
+    
+    const reviewMap = reviews.reduce((acc, r) => {
+      acc[r.responseId] = r;
+      return acc;
+    }, {});
+
     const suggestions = sortedResponses.map((resp, index) => {
       let answersObj = resp.answers || {};
       if (answersObj instanceof Map) {
         answersObj = Object.fromEntries(answersObj);
       }
+      
+      const review = reviewMap[resp.id];
+      
+      // Resolve submitter name
+      let submittedBy = resp.submittedBy || 'Anonymous';
+      if ((!submittedBy || submittedBy === 'Anonymous') && resp.createdBy) {
+        if (resp.createdBy.firstName || resp.createdBy.lastName) {
+          submittedBy = `${resp.createdBy.firstName || ''} ${resp.createdBy.lastName || ''}`.trim();
+        } else {
+          submittedBy = resp.createdBy.username || resp.createdBy.email || submittedBy;
+        }
+      }
+
       return {
         rank: index + 1,
         answers: answersObj,
         timestamp: resp.createdAt,
-        id: resp.id || resp._id
+        id: resp.id || resp._id,
+        status: resp.status,
+        submittedBy,
+        review: review ? {
+          option: review.reviewOption,
+          reviewer: review.reviewerName,
+          createdAt: review.createdAt
+        } : null
       };
     });
 
@@ -2156,25 +2188,13 @@ export const getResponsesByForm = async (req, res) => {
     }
 
     // Apply tenant filtering
-    // Inspector sees only their own responses - no tenant filter
-    console.log('[GET RESPONSES] Inspector check - role:', req.user.role, 'userId:', req.user._id, 'tenantId:', req.user.tenantId, 'email:', req.user.email);
-    if (req.user.role === 'inspector') {
-  // Inspector sees ONLY their own responses
-  const userEmail = req.user.email || '';
-  const userUsername = req.user.username || '';
-  const userId = req.user._id;
-  
-  // ✅ CORRECTED: Remove the "createdBy: null" condition
-  query.$or = [
-    { createdBy: userId },
-    { submittedBy: userEmail },
-    { submittedBy: userUsername },
-    { "submitterContact.email": userEmail }
-  ];
-  
-  console.log('[INSPECTOR] Filtering responses for user:', userId, userEmail);
-  console.log('[INSPECTOR] Query $or:', JSON.stringify(query.$or));
-} else if (isOwner || isSuperAdmin) {
+    // Inspector sees all responses in their tenant for the form they have access to
+    console.log('[GET RESPONSES] Role check - role:', req.user.role, 'userId:', req.user._id, 'tenantId:', req.user.tenantId, 'email:', req.user.email);
+    
+    if (isOwner || isSuperAdmin) {
+      Object.assign(query, req.tenantFilter);
+    } else if (req.user.role === 'inspector') {
+      // Inspectors see all responses for the tenant they belong to
       Object.assign(query, req.tenantFilter);
     } else if (!isShared && !hasChassisShare) {
       Object.assign(query, req.tenantFilter);
@@ -2286,12 +2306,21 @@ export const getResponsesByForm = async (req, res) => {
         flaggedQuestions: message ? message.questionContexts.map(c => c.title) : []
       } : null;
       
+      // Extract chassis number and time spent for mobile analytics parity
+      const answers = response.answers instanceof Map ? Object.fromEntries(response.answers) : (response.answers || {});
+      const chassisNumber = answers.chassis_number || answers.chassisNumber || response.chassisNumber || '-';
+      const timeSpent = response.timeSpent || 0;
+
       return {
         ...responseObj,
-        answers: response.answers ? Object.fromEntries(response.answers) : {},
+        answers,
         responseRanks: response.responseRanks ? Object.fromEntries(response.responseRanks) : {},
         submissionMetadata: responseObj.submissionMetadata || null,
         submittedBy: displaySubmittedBy, // Override with better display name
+        inspectorName: displaySubmittedBy, // Alias for mobile app
+        chassisNumber,
+        timeSpent,
+        totalTimeSpent: timeSpent, // Alias for mobile app
         review: reviewInfo
       };
     });

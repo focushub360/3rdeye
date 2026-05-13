@@ -59,6 +59,12 @@ interface QuestionRendererProps {
   trackingValue?: string;
   onTrackingChange?: (val: string) => void;
   hideLabel?: boolean;
+  totalHistorical?: number;
+  historicalStatus?: string;
+  historicalReview?: any;
+  historicalSubmittedBy?: string;
+  historicalChassis?: string;
+  onRankChange?: (rank: number) => void;
 }
 
 export default function QuestionRenderer({
@@ -71,6 +77,14 @@ export default function QuestionRenderer({
   trackingValue,
   onTrackingChange,
   hideLabel = false,
+  historicalValue,
+  selectedRank = 1,
+  totalHistorical = 0,
+  historicalStatus,
+  historicalReview,
+  historicalSubmittedBy,
+  historicalChassis,
+  onRankChange,
 }: QuestionRendererProps) {
   const [modalVisible, setModalVisible] = useState(false);
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -347,10 +361,10 @@ export default function QuestionRenderer({
       }
 
       case 'chassis-with-zone':
-        return <ChassisInspection question={question} value={value} onChange={onChange} readOnly={readOnly} showZone={true} />;
+        return <ChassisInspection question={question} value={value} onChange={onChange} readOnly={readOnly} showZone={true} suggestions={suggestions} />;
 
       case 'chassis-without-zone':
-        return <ChassisInspection question={question} value={value} onChange={onChange} readOnly={readOnly} showZone={false} />;
+        return <ChassisInspection question={question} value={value} onChange={onChange} readOnly={readOnly} showZone={false} suggestions={suggestions} />;
 
       case 'zone-in':
       case 'zonein':
@@ -542,6 +556,94 @@ export default function QuestionRenderer({
 
       {/* Main question input */}
       {renderInput()}
+
+      {/* Historical Record Display */}
+      {historicalValue !== undefined && historicalValue !== null && historicalValue !== '' && (
+        <View style={styles.historicalContainer}>
+          <View style={styles.historicalHeader}>
+            <View style={styles.historicalBadgeRow}>
+              <View style={[styles.historicalBadge, selectedRank > 1 && { backgroundColor: '#3b82f6' }]}>
+                 <Text style={styles.historicalBadgeText}>#{selectedRank}</Text>
+              </View>
+              {(historicalStatus || historicalReview?.option) && (
+                <View style={[
+                  styles.statusBadge,
+                  { backgroundColor: (historicalReview?.option === 'Accepted' || String(historicalStatus).toLowerCase() === 'verified') ? '#ecfdf5' : 
+                                    (historicalReview?.option === 'Rejected' || String(historicalStatus).toLowerCase() === 'rejected') ? '#fef2f2' : 
+                                    (historicalReview?.option === 'Rework' || String(historicalStatus).toLowerCase().includes('rework')) ? '#fff7ed' : '#f1f5f9' }
+                ]}>
+                  <Text style={[
+                    styles.statusBadgeText,
+                    { color: (historicalReview?.option === 'Accepted' || String(historicalStatus).toLowerCase() === 'verified') ? '#059669' : 
+                             (historicalReview?.option === 'Rejected' || String(historicalStatus).toLowerCase() === 'rejected') ? '#ef4444' : 
+                             (historicalReview?.option === 'Rework' || String(historicalStatus).toLowerCase().includes('rework')) ? '#d97706' : '#64748b' }
+                  ]}>
+                    {(historicalReview?.option || historicalStatus || 'PENDING').toUpperCase()}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.historicalTitle}>HISTORICAL RECORD {totalHistorical > 1 ? `(${selectedRank} of ${totalHistorical})` : ''}</Text>
+          </View>
+          
+          <View style={styles.historicalMetaRow}>
+            <View style={styles.historicalMetaItem}>
+              <Text style={styles.historicalMetaLabel}>SUBMITTED BY</Text>
+              <Text style={styles.historicalMetaValue}>{historicalSubmittedBy || 'Anonymous'}</Text>
+            </View>
+            <View style={styles.historicalMetaItem}>
+              <Text style={styles.historicalMetaLabel}>TIMESTAMP</Text>
+              <Text style={styles.historicalMetaValue}>
+                {historicalReview?.createdAt ? new Date(historicalReview.createdAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+              </Text>
+            </View>
+            {historicalChassis && (
+              <View style={styles.historicalMetaItem}>
+                <Text style={styles.historicalMetaLabel}>CHASSIS</Text>
+                <Text style={[styles.historicalMetaValue, { color: '#1e3a8a', fontWeight: '800' }]}>{historicalChassis}</Text>
+              </View>
+            )}
+          </View>
+
+          {totalHistorical > 1 && onRankChange && (
+            <View style={styles.rankSwitcherRow}>
+              <TouchableOpacity 
+                disabled={selectedRank <= 1} 
+                onPress={() => onRankChange(selectedRank - 1)}
+                style={[styles.rankSwitcherBtn, selectedRank <= 1 && styles.disabledOpacity]}
+              >
+                <ChevronLeft size={16} color={selectedRank <= 1 ? '#cbd5e1' : '#3b82f6'} />
+                <Text style={[styles.rankSwitcherText, { color: selectedRank <= 1 ? '#cbd5e1' : '#3b82f6' }]}>PREV</Text>
+              </TouchableOpacity>
+              
+              <Text style={styles.rankSwitcherInfo}>{selectedRank} / {totalHistorical}</Text>
+
+              <TouchableOpacity 
+                disabled={selectedRank >= totalHistorical} 
+                onPress={() => onRankChange(selectedRank + 1)}
+                style={[styles.rankSwitcherBtn, selectedRank >= totalHistorical && styles.disabledOpacity]}
+              >
+                <Text style={[styles.rankSwitcherText, { color: selectedRank >= totalHistorical ? '#cbd5e1' : '#3b82f6' }]}>NEXT</Text>
+                <ChevronRight size={16} color={selectedRank >= totalHistorical ? '#cbd5e1' : '#3b82f6'} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={styles.historicalContent}>
+            <Text style={styles.historicalValueText}>
+              {(() => {
+                if (!historicalValue) return 'N/A';
+                if (typeof historicalValue === 'string') return historicalValue;
+                if (typeof historicalValue === 'object') {
+                  // Handle common object structures like {status, remark}
+                  return historicalValue.status || historicalValue.label || JSON.stringify(historicalValue);
+                }
+                return String(historicalValue);
+              })()}
+            </Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -756,4 +858,122 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
   imageBtnText: { fontSize: 14, fontWeight: '700', color: '#3b82f6' },
+
+  // Historical Record Styles
+  historicalContainer: {
+    marginTop: 12,
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    overflow: 'hidden',
+    padding: 12,
+  },
+  historicalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  historicalBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  historicalMetaRow: {
+    flexDirection: 'row',
+    marginBottom: 10,
+    gap: 16,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  historicalMetaItem: {
+    flex: 1,
+  },
+  historicalMetaLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#94a3b8',
+    marginBottom: 2,
+  },
+  historicalMetaValue: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  rankSwitcherRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    marginHorizontal: 4,
+    marginTop: 4,
+    marginBottom: 8,
+    padding: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  rankSwitcherBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  rankSwitcherText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  rankSwitcherInfo: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  historicalContent: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  statusBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  historicalBadge: {
+    backgroundColor: '#10b981',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  historicalBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  historicalTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748b',
+    letterSpacing: 0.5,
+  },
+  historicalContent: {
+    paddingLeft: 4,
+  },
+  historicalValueText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#334155',
+  },
 });

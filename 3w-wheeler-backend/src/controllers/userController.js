@@ -854,9 +854,10 @@ export const submitReview = async (req, res) => {
     console.log('[submitReview] Reviewer found:', reviewer ? 'Yes' : 'No');
 
     if (!reviewer) {
+      console.log(`[submitReview] Reviewer not found for ID: ${reviewerId}`);
       return res.status(404).json({
         success: false,
-        message: 'Reviewer not found'
+        message: `Reviewer with ID ${reviewerId} not found`
       });
     }
 

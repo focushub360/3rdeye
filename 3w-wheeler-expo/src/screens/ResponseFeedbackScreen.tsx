@@ -50,6 +50,8 @@ const ResponseFeedbackScreen = ({ route, navigation }: any) => {
   const [permission, requestPermission] = useCameraPermissions();
   const [zoomImage, setZoomImage] = useState<string | null>(null);
   const [isZoomVisible, setIsZoomVisible] = useState(false);
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [performanceScore, setPerformanceScore] = useState<number | null>(null);
   const cameraRef = useRef<any>(null);
   
   const allQuestions = sections?.flatMap((s: any) => s.questions || []) || [];
@@ -59,6 +61,8 @@ const ResponseFeedbackScreen = ({ route, navigation }: any) => {
 
   useEffect(() => {
     fetchMessages();
+    fetchReviews();
+    fetchPerformanceScore();
     
     // Socket real-time initialization
     const responseId = response.id || response._id;
@@ -104,6 +108,75 @@ const ResponseFeedbackScreen = ({ route, navigation }: any) => {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchReviews = async () => {
+    try {
+      const responseId = response.id || response._id;
+      const resp = await apiClient.get(`/responses/reviews/${responseId}`);
+      if (resp.data?.success) {
+        setReviews(resp.data.reviews || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch reviews:', err);
+    }
+  };
+
+  const fetchPerformanceScore = async () => {
+    try {
+      const resp = await apiClient.get('/users/performance-scores');
+      if (resp.data?.success) {
+        const submitterId = response.submittedBy || response.submitterContact?.email;
+        if (submitterId && resp.data.data[submitterId] !== undefined) {
+          setPerformanceScore(resp.data.data[submitterId]);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch performance scores:', err);
+    }
+  };
+
+  const handleReviewSubmit = async (option: string) => {
+    if (sending) return;
+    if (!user?._id && !user?.id) {
+      Alert.alert('Error', 'User ID not found. Please log in again.');
+      return;
+    }
+    
+    // For Rework or Rejected, ensure there's context/message
+    if ((option === 'Rework' || option === 'Rejected') && !message.trim() && selectedQuestions.length === 0) {
+      Alert.alert('Incomplete', `Please provide some feedback message or flag questions for ${option}.`);
+      return;
+    }
+
+    try {
+      setSending(true);
+      const responseId = response.id || response._id;
+      
+      const reviewData = {
+        responseId,
+        reviewerId: user?._id || user?.id,
+        submitterId: response.submittedBy || response.submitterContact?.email || 'Unknown',
+        reviewOption: option,
+        tenantId: response.tenantId || user?.tenantId
+      };
+
+      await apiClient.post('/responses/reviews', reviewData);
+      
+      // If there's a message or flagged questions, send them as a chat message too
+      if (message.trim() || selectedQuestions.length > 0) {
+        await handleSend();
+      }
+
+      Alert.alert('Success', `Response marked as ${option}`);
+      fetchReviews();
+      fetchPerformanceScore();
+    } catch (err: any) {
+      console.error('Review submission error:', err);
+      Alert.alert('Error', err.response?.data?.message || 'Failed to submit review');
+    } finally {
+      setSending(false);
     }
   };
 
@@ -368,15 +441,64 @@ const ResponseFeedbackScreen = ({ route, navigation }: any) => {
             <View style={styles.webHeaderIconContainer}>
                <MessageSquareText size={20} color="#fff" />
             </View>
-            <View>
-              <Text style={styles.webHeaderTitle}>Question Filter: {response.inspectorName || 'Inspector'}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.webHeaderTitle}>Question Filter: {response.inspectorName || response.submittedBy || 'Inspector'}</Text>
               <Text style={styles.webHeaderSub}>Chassis: {response.chassisNumber || 'N/A'}</Text>
             </View>
           </View>
+
+          {/* Web Parity: Review Status Badge & Score */}
+          {reviews.length > 0 && (
+             <View style={styles.headerReviewStatus}>
+                <View style={[
+                  styles.headerStatusBadge,
+                  { backgroundColor: reviews[0].option === 'Accepted' ? 'rgba(34, 197, 94, 0.2)' : reviews[0].option === 'Rejected' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(234, 179, 8, 0.2)' }
+                ]}>
+                  <Text style={styles.headerStatusText}>
+                    {reviews[0].option === 'Accepted' ? '✅' : reviews[0].option === 'Rejected' ? '❌' : '🔄'} {reviews[0].option.toUpperCase()}
+                  </Text>
+                </View>
+                {performanceScore !== null && (
+                  <View style={styles.headerScoreBadge}>
+                    <Text style={styles.headerScoreText}>Score: {performanceScore}%</Text>
+                  </View>
+                )}
+             </View>
+          )}
+
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.webCloseBtn}>
             <X size={24} color="rgba(255,255,255,0.8)" />
           </TouchableOpacity>
         </View>
+
+        {/* Web Parity: Admin Review Buttons */}
+        {(() => {
+          const isAdmin = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'subadmin';
+          const isSubmitter = response.submittedBy === user?.email || response.submitterContact?.email === user?.email || response.submittedBy === user?.name;
+          
+          if (isAdmin && !isSubmitter && reviews.length === 0) {
+            return (
+              <View style={styles.reviewButtonsRow}>
+                {['Accepted', 'Rejected', 'Rework'].map((option) => (
+                  <TouchableOpacity
+                    key={option}
+                    onPress={() => handleReviewSubmit(option)}
+                    disabled={sending}
+                    style={[
+                      styles.reviewBtn,
+                      option === 'Accepted' ? styles.reviewBtnAccept : option === 'Rejected' ? styles.reviewBtnReject : styles.reviewBtnRework
+                    ]}
+                  >
+                    <Text style={styles.reviewBtnText}>
+                      {option === 'Accepted' ? '✅' : option === 'Rejected' ? '❌' : '🔄'} {option}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            );
+          }
+          return null;
+        })()}
       </View>
 
       <KeyboardAvoidingView 
@@ -690,6 +812,67 @@ const styles = StyleSheet.create({
   },
   webCloseBtn: {
     padding: 5,
+    marginLeft: 10,
+  },
+  headerReviewStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginRight: 10,
+  },
+  headerStatusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  headerStatusText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  headerScoreBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  headerScoreText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  reviewButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 15,
+    paddingHorizontal: 5,
+  },
+  reviewBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+  },
+  reviewBtnAccept: {
+    backgroundColor: 'rgba(34, 197, 94, 0.2)',
+    borderColor: '#22c55e',
+  },
+  reviewBtnReject: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderColor: '#ef4444',
+  },
+  reviewBtnRework: {
+    backgroundColor: 'rgba(234, 179, 8, 0.2)',
+    borderColor: '#eab308',
+  },
+  reviewBtnText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
   },
   webContent: {
     flex: 1,

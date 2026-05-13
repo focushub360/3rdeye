@@ -1,4 +1,5 @@
-   import express from 'express';
+import express from 'express';
+import { submitReview, getReviewsForResponse } from '../controllers/userController.js';
    import {
      createResponse,
      batchImportResponses,
@@ -18,7 +19,7 @@
      getSuggestedAnswers,
      getQuestionPreviousAnswers,
    } from '../controllers/responseController.js';
-   import { getReviewsForResponse } from '../controllers/userController.js';
+
   import {
     authenticate,
     authenticateOptional,
@@ -31,6 +32,10 @@
 
   const router = express.Router();
 router.get('/reviews/:responseId', getReviewsForResponse);
+router.post('/reviews', authenticate, (req, res, next) => {
+  console.log('POST /api/responses/reviews hit');
+  next();
+}, submitReview);
   // Middleware for guest access control
   const guestAccessControl = (req, res, next) => {
     if (req.user && req.user.isGuest) {

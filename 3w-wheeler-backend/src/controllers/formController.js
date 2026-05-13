@@ -445,9 +445,10 @@ export const getAllForms = async (req, res) => {
 
     const total = await Form.countDocuments(query);
 
-    const formIdsForCounts = forms
-      .map((form) => form.id || (form._id ? form._id.toString() : null))
-      .filter((id) => Boolean(id));
+    const formIdsForCounts = forms.flatMap((form) => [
+      form.id,
+      form._id ? form._id.toString() : null
+    ]).filter(Boolean);
 
     let responseCountsMap = new Map();
     if (formIdsForCounts.length > 0) {
@@ -465,15 +466,19 @@ export const getAllForms = async (req, res) => {
         const formId = form.id || (form._id ? form._id.toString() : '');
         if (!formId) continue;
 
-        const isOwner = form.tenantId?.toString() === currentTenantId;
-        const isShared = form.sharedWithTenants?.some(t => t.toString() === currentTenantId);
+        const formTenantId = (form.tenantId?._id || form.tenantId)?.toString();
+        const isOwner = formTenantId === currentTenantId;
+        const isShared = form.sharedWithTenants?.some(t => (t._id || t).toString() === currentTenantId);
         const chassisAssignments = form.chassisTenantAssignments || [];
         const hasChassisShare = chassisAssignments.some(
-          a => a.assignedTenants && a.assignedTenants.includes(currentTenantId)
+          a => a.assignedTenants && a.assignedTenants.some(t => t.toString() === currentTenantId)
         );
 
-        // Get responses for this form
-        const formResponses = allResponses.filter(r => r.questionId === formId);
+        // Get responses for this form (matching either custom id or MongoDB _id)
+        const formResponses = allResponses.filter(r => 
+          (form.id && r.questionId === form.id) || 
+          (form._id && r.questionId === form._id.toString())
+        );
 
         if (!isOwner && !isShared && hasChassisShare) {
           // Chassis-shared form: only count responses matching assigned chassis

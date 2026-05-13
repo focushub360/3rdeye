@@ -99,6 +99,12 @@ app.use(
 app.use(express.json({ limit: "200mb" }));
 app.use(express.urlencoded({ extended: true, limit: "200mb" }));
 
+// DEBUG: Log all requests
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
 
 app.use('/api/upload', uploadRoutes);
 
@@ -114,13 +120,18 @@ app.get("/", (req, res) => {
   });
 });
 
+app.post("/api/test-review", (req, res) => {
+  console.log('POST /api/test-review hit');
+  res.json({ success: true, message: 'Test review endpoint works!' });
+});
+
 // Files are now served through GridFS via /api/files/:id endpoint
 
 // Serve frontend static files
-app.use(express.static(path.join(__dirname, '../frontend/dist')));
+app.use(express.static(path.join(__dirname, '../../3W-WHEELERTVS-FRONTEND/dist')));
 
 // Serve uploaded files (fallback for any local uploads)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // API Routes
 app.use("/api/auth", authRoutes);
@@ -265,7 +276,7 @@ app.get("/api", (req, res) => {
 
 // Catch all handler: send back index.html for client-side routing
 app.get(/^\/(?!api).*/, (req, res) => {
-  res.sendFile(path.join(__dirname, "../frontend/dist/index.html"));
+  res.sendFile(path.join(__dirname, "../../3W-WHEELERTVS-FRONTEND/dist/index.html"));
 });
 
 // Handle upload errors

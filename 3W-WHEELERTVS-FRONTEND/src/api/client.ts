@@ -2401,11 +2401,7 @@ class ApiClient {
       expiresAt: string;
     }>("/analytics-invites/verify-otp", {
       method: "POST",
-<<<<<<< HEAD
-      body: JSON.stringify({ formId, email, otp }),
-=======
       body: JSON.stringify({ formId, email, phone, otp }),
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
     });
   }
 
@@ -2435,7 +2431,7 @@ class ApiClient {
     console.log("Calling submitReview API with:", reviewData);
 
     // Use fetch directly to avoid the request() wrapper issues
-    const url = `${this.baseUrl}/users/reviews`;
+    const url = `${this.baseUrl}/responses/reviews`;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-App-Type": "website",

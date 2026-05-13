@@ -1614,1213 +1614,7 @@ const QuestionSuggestionRenderer = ({
   onChange: (val: any) => void,
   currentAnswer?: any
 }) => {
-<<<<<<< HEAD
-  const [uploading, setUploading] = useState<Record<string, boolean>>({});
-  const [expandedZone, setExpandedZone] = useState<string | null>(null);
-  const [expandedCategory, setExpandedCategory] = useState<Record<string, boolean>>({});
-  const [showCamera, setShowCamera] = useState<{ zone?: string; category?: string; defect?: string; isMain?: boolean } | null>(null);
 
-  // Check tracking types
-  const isTrackRankOnly = question.trackResponseRank === true && question.trackResponseQuestion !== true;
-  const isTrackQuestion = question.trackResponseQuestion === true;
-
-  const handleOptionSelect = (opt: string) => {
-    const newValue = typeof value === 'object' && value !== null
-      ? { ...value, selected: opt }
-      : { selected: opt };
-    onChange(newValue);
-  };
-
-  const handleFollowUpChange = (fqId: string, fv: any) => {
-    onChange({ ...(value || {}), [fqId]: fv });
-  };
-
-  const currentSelection = value?.selected || value?.status;
-  const selectedStatus = currentSelection;
-
-  // Check if this question should always show follow-up inputs
-  const alwaysShowFollowUp = question.options?.some((opt: string) =>
-    opt.toLowerCase().includes('remark') ||
-    opt.toLowerCase().includes('enter response') ||
-    opt.toLowerCase().includes('file update') ||
-    opt.toLowerCase().includes('manual upload')
-  );
-
-  // For inspection questions with status options, always show follow-ups
-  const isInspectionStatusQuestion = question.options?.some((opt: string) =>
-    ['accepted', 'rework', 'rejected', 'accepted', 'reworked', 'failed', 'passed'].includes(opt.toLowerCase())
-  );
-
-  const needsFollowUp = alwaysShowFollowUp || isInspectionStatusQuestion || selectedStatus === 'Rework' ||
-    selectedStatus === 'Rejected' ||
-    selectedStatus === 'No';
-
-  // Force follow-ups for questions with inspection options (like the user's example)
-  const hasInspectionOptions = question.options?.some((opt: string) =>
-    opt.toLowerCase().includes('accepted') ||
-    opt.toLowerCase().includes('rework') ||
-    opt.toLowerCase().includes('rejected')
-  );
-
-  const finalNeedsFollowUp = needsFollowUp || hasInspectionOptions;
-
-  // Debug: Uncomment to see follow-up detection in chat modal
-  // console.log('QuestionSuggestionRenderer follow-up check:', {
-  //   alwaysShowFollowUp,
-  //   isInspectionStatusQuestion,
-  //   selectedStatus,
-  //   needsFollowUp,
-  //   questionOptions: question?.options,
-  //   questionType: question?.type
-  // });
-
-  // Helper: Upload file
-  const handleFileUpload = async (file: File, path: string[]) => {
-    const uploadKey = path.join('-');
-    try {
-      console.log("[FILE UPLOAD] Starting - path:", path);
-      console.log("[FILE UPLOAD] Current value structure:", JSON.stringify(value, null, 2));
-
-      setUploading(prev => ({ ...prev, [uploadKey]: true }));
-
-      const result = await apiClient.uploadFile(file, "form");
-      console.log("[FILE UPLOAD] API result:", result);
-
-      const uploadedUrl = apiClient.resolveUploadedFileUrl(result);
-      console.log("[FILE UPLOAD] Resolved URL:", uploadedUrl);
-
-      if (uploadedUrl && uploadedUrl !== "uploading") {
-        // Create a deep copy of the current value
-        let newValue = JSON.parse(JSON.stringify(value || {}));
-
-        console.log("[FILE UPLOAD] Fixing to categories structure. Path:", path);
-
-        // path = [zone, category, defectName, 'fileUrl']
-        const zone = path[0];
-        const categoryName = path[1];
-        const defectName = path[2];
-
-        // Initialize zonesData if needed
-        if (!newValue.zonesData) newValue.zonesData = {};
-        if (!newValue.zonesData[zone]) newValue.zonesData[zone] = { categories: [] };
-
-        const zoneData = newValue.zonesData[zone];
-        if (!zoneData.categories) zoneData.categories = [];
-
-        // Find or create the category
-        let category = zoneData.categories.find((c: any) => c.name === categoryName);
-        if (!category) {
-          category = { name: categoryName, defects: [] };
-          zoneData.categories.push(category);
-        }
-        if (!category.defects) category.defects = [];
-
-        // Find or create the defect
-        let defect = category.defects.find((d: any) => d.name === defectName);
-        if (!defect) {
-          defect = { name: defectName, details: { remark: "", fileUrl: "" } };
-          category.defects.push(defect);
-        }
-        if (!defect.details) defect.details = { remark: "", fileUrl: "" };
-
-        // Set the fileUrl
-        defect.details.fileUrl = uploadedUrl;
-
-        console.log("[FILE UPLOAD] FINAL newValue:", JSON.stringify(newValue, null, 2));
-
-        // Update the state
-        onChange(newValue);
-      } else {
-        console.warn("[FILE UPLOAD] No URL returned from API");
-      }
-    } catch (err) {
-      console.error("[FILE UPLOAD] ERROR:", err);
-      alert("Upload failed. Please try again.");
-    } finally {
-      setUploading(prev => ({ ...prev, [uploadKey]: false }));
-    }
-  };
-
-  // Helper: Update defect details (preserves existing fileUrl)
-  const updateDefectDetails = (zone: string, category: string, defect: string, updates: { remark?: string; fileUrl?: string }) => {
-    // Create a deep copy
-    let newValue = JSON.parse(JSON.stringify(value || {}));
-
-    if (!newValue.zonesData) newValue.zonesData = {};
-    if (!newValue.zonesData[zone]) newValue.zonesData[zone] = { categories: [] };
-
-    if (!Array.isArray(newValue.zonesData[zone].categories)) {
-      newValue.zonesData[zone].categories = [];
-    }
-
-    const categoryIndex = newValue.zonesData[zone].categories.findIndex((c: any) => c?.name === category);
-    if (categoryIndex === -1) {
-      newValue.zonesData[zone].categories.push({ name: category, defects: [] });
-    }
-
-    const actualCategoryIndex = categoryIndex === -1 ? newValue.zonesData[zone].categories.length - 1 : categoryIndex;
-
-    if (!Array.isArray(newValue.zonesData[zone].categories[actualCategoryIndex].defects)) {
-      newValue.zonesData[zone].categories[actualCategoryIndex].defects = [];
-    }
-
-    const defectIndex = newValue.zonesData[zone].categories[actualCategoryIndex].defects.findIndex((d: any) => d?.name === defect);
-
-    if (defectIndex === -1) {
-      newValue.zonesData[zone].categories[actualCategoryIndex].defects.push({
-        name: defect,
-        details: { remark: "", fileUrl: "" }
-      });
-    }
-
-    const actualDefectIndex = defectIndex === -1
-      ? newValue.zonesData[zone].categories[actualCategoryIndex].defects.length - 1
-      : defectIndex;
-
-    // Preserve existing details
-    const existingDetails = newValue.zonesData[zone].categories[actualCategoryIndex].defects[actualDefectIndex].details || { remark: "", fileUrl: "" };
-
-    newValue.zonesData[zone].categories[actualCategoryIndex].defects[actualDefectIndex].details = {
-      ...existingDetails,
-      ...updates
-    };
-
-    onChange({ ...newValue, status: selectedStatus });
-  };
-
-  // Defect data for categories
-  const DEFECT_DATA: Record<string, string[]> = {
-    "Painting defects": [
-      "Paint uncover", "Low DFT", "Colour missmatch", "Cissing mark",
-      "Paint rundown", "Orange peel", "Dry spray", "Rough finish",
-      "High DFT", "Dirt inclusion", "Blisters", "Bubbling"
-    ],
-    "Welding defects": [
-      "Porosity", "Pin hole", "Spatters", "Burnthrough", "crack",
-      "Unfill", "Undercut", "Excess weld", "Chipping mark", "Sharp edge",
-      "Spot missing", "Spot welding shift", "Edge spot", "Edge spot burr",
-      "Weld shift", "No nugget formation", "Welding stick",
-      "Plug welding missing", "Plug welding burn through", "Spot failure"
-    ],
-    "Fitment defects": [
-      "Hole misalignment", "Bracket misalignment", "Gap issue", "Interference",
-      "Bolt not assembling", "Part not assembly", "Thread damage",
-      "Mouting point shift", "Weld bead interference", "Clearance issue",
-      "Nut missing", "Nut offset", "Bolt missing", "Bolt lossen",
-      "Assembly not seating", "Bracket tilt"
-    ],
-    "Sealant defects": [
-      "Sealant missing", "Incomplete sealant", "Uneven bead", "Excess sealant",
-      "Selant overflow", "Sealant lifting", "Sealant gap",
-      "Discontinuous sealant", "Sealant crack", "Water leakage", "Sealant peeling"
-    ],
-    "Handling defects": [
-      "Dent", "Bend", "Paint damage", "Scratch", "Rust due to storage",
-      "Packing damage", "Transit damage", "Part rubbing damage"
-    ]
-  };
-
-  const ZONES = ["Zone A+", "Zone A", "Zone B", "Zone C"];
-
-  // Multi-Select Dropdown Component
-  const MultiSelectDropdown = ({ options, selectedValues, onChange: onSelectChange, placeholder, label }: any) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const buttonRef = useRef<HTMLButtonElement>(null);
-    const dropdownRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-      const handleClickOutside = (event: MouseEvent) => {
-        if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node) &&
-          buttonRef.current && !buttonRef.current.contains(event.target as Node)) {
-          setIsOpen(false);
-        }
-      };
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
-    const toggleOption = (option: string) => {
-      if (selectedValues.includes(option)) {
-        onSelectChange(selectedValues.filter((v: string) => v !== option));
-      } else {
-        onSelectChange([...selectedValues, option]);
-      }
-    };
-
-    return (
-      <div className="relative" onClick={(e) => e.stopPropagation()}>
-        {label && <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">{label}</label>}
-        <button
-          ref={buttonRef}
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsOpen(!isOpen);
-          }}
-          className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-[11px] font-medium flex items-center justify-between"
-        >
-          <span className="truncate">
-            {selectedValues.length === 0 ? placeholder : `${selectedValues.length} selected`}
-          </span>
-          <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-        </button>
-        {isOpen && createPortal(
-          <div
-            ref={dropdownRef}
-            style={{
-              position: 'absolute',
-              top: buttonRef.current?.getBoundingClientRect().bottom + window.scrollY,
-              left: buttonRef.current?.getBoundingClientRect().left + window.scrollX,
-              width: buttonRef.current?.offsetWidth,
-              zIndex: 99999,
-            }}
-            className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-64 overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {(options || []).map((opt: string) => (
-              <label
-                key={opt}
-                className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedValues.includes(opt)}
-                  onChange={() => toggleOption(opt)}
-                  onClick={(e) => e.stopPropagation()}
-                  className="w-3.5 h-3.5 rounded"
-                />
-                <span className="text-[11px]">{opt}</span>
-              </label>
-            ))}
-          </div>,
-          document.body
-        )}
-      </div>
-    );
-  };
-
-  // ── CHASSIS WITH ZONE / WITHOUT ZONE (Full UI) ──────────────────────────
-  if (question.type === 'chassis-with-zone' || question.type === 'chassis-without-zone') {
-    const currentStatus = value?.status || '';
-    const isWithZone = question.type === 'chassis-with-zone';
-    const selectedZones = Array.isArray(value?.zone) ? value.zone : [];
-    const zonesData = value?.zonesData || {};
-    const evidenceUrl = value?.evidenceUrl || '';
-
-    // Get chassis number from currentAnswer (auto-filled from suggestion)
-    const autoFilledChassis = currentAnswer?.chassisNumber || '';
-
-    console.log("[RENDER CHASSIS-WITH-ZONE] value:", JSON.stringify(value, null, 2));
-
-    // Render Defect Details function
-    const renderDefectDetails = (zone: string, category: string, defect: any) => {
-      if (!defect) return null;
-
-      // Get the fileUrl from the defect details - check multiple paths
-      const fileUrl = defect?.details?.fileUrl || defect?.fileUrl || '';
-      const hasFileUploaded = !!fileUrl && fileUrl !== "uploading" && fileUrl !== "";
-
-      console.log(`[RENDER DEFECT] zone="${zone}" category="${category}" defect.name="${defect.name}"`, defect);
-      console.log(`[RENDER DEFECT] defect.details=${JSON.stringify(defect.details)}`);
-      console.log(`[RENDER DEFECT] final fileUrl="${fileUrl}", hasFileUploaded=${hasFileUploaded}`);
-
-      return (
-        <div
-          key={defect.name}
-          className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 space-y-2"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-            <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300">{defect.name}</span>
-            {hasFileUploaded && (
-              <CheckCircle className="w-3.5 h-3.5 text-emerald-500 ml-auto" />
-            )}
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <label className="text-[9px] font-bold text-gray-400">Remark</label>
-              <textarea
-                value={defect?.details?.remark || defect?.remark || ''}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  updateDefectDetails(zone, category, defect.name, { remark: e.target.value });
-                }}
-                onKeyDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                placeholder="Add remark..."
-                className="w-full px-2 py-1.5 text-[10px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 outline-none"
-                rows={2}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[9px] font-bold text-gray-400">Evidence ({hasFileUploaded ? 'UPLOADED' : 'EMPTY'})</label>
-
-              {hasFileUploaded ? (
-                // Show uploaded image inline when file is uploaded
-                <div className="flex gap-1">
-                  <label className="flex-1 cursor-pointer group relative">
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept="image/*"
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={async (e) => {
-                        e.stopPropagation();
-                        alert("FILE SELECTED! Uploading...");
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          await handleFileUpload(file, [zone, category, defect.name, 'fileUrl']);
-                          alert("UPLOAD COMPLETE! Check image should appear");
-                        }
-                      }}
-                    />
-                    {/* Show thumbnail when uploaded */}
-                    <img
-                      src={fileUrl}
-                      alt="Evidence"
-                      className="w-full h-full object-cover rounded-lg border-2 border-emerald-400"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
-                      <span className="text-[9px] text-white font-bold">Change</span>
-                    </div>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowCamera({ zone, category, defect: defect.name });
-                    }}
-                    className="flex flex-col items-center justify-center gap-0.5 p-2 border-2 rounded-lg transition-all flex-1 border-gray-200 dark:border-gray-700 hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-purple-900/10"
-                  >
-                    <Camera className="w-3 h-3 text-gray-400" />
-                    <span className="text-[8px] text-gray-400">Camera</span>
-                  </button>
-                </div>
-              ) : (
-                // Show Upload and Camera buttons when no file uploaded
-                <div className="flex gap-1">
-                  <label className="flex-1 cursor-pointer group">
-                    <input
-                      key={`defect-file-${zone}-${category}-${defect.name}`}
-                      type="file"
-                      className="hidden"
-                      accept="image/*"
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={async (e) => {
-                        e.stopPropagation();
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          await handleFileUpload(file, [zone, category, defect.name, 'fileUrl']);
-                          // Reset after upload (will be handled by React's key prop re-render)
-                        }
-                      }}
-                    />
-                    <div className="flex flex-col items-center justify-center gap-0.5 p-2 border-2 rounded-lg transition-all h-full border-gray-200 dark:border-gray-700 hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10">
-                      <Upload className="w-3 h-3 text-gray-400 group-hover:text-blue-500" />
-                      <span className="text-[8px] text-gray-400 group-hover:text-blue-500">Upload</span>
-                    </div>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowCamera({ zone, category, defect: defect.name });
-                    }}
-                    className="flex flex-col items-center justify-center gap-0.5 p-2 border-2 rounded-lg transition-all flex-1 border-gray-200 dark:border-gray-700 hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-purple-900/10"
-                  >
-                    <Camera className="w-3 h-3 text-gray-400" />
-                    <span className="text-[8px] text-gray-400">Camera</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      );
-    };
-    const handleStatusChange = (status: string) => {
-      if (status === 'Accepted') {
-        onChange({
-          chassisNumber: autoFilledChassis,
-          status,
-          zone: [],
-          zonesData: {},
-          evidenceUrl: ''
-        });
-      } else {
-        onChange({
-          ...(value || {}),
-          status,
-          chassisNumber: autoFilledChassis
-        });
-      }
-    };
-
-    const handleChassisChange = (val: string) => {
-      onChange({
-        ...(value || {}),
-        chassisNumber: val,
-        status: currentStatus
-      });
-    };
-
-    const handleZoneToggle = (zone: string) => {
-      let nextZones: string[] = [...selectedZones];
-      let nextZonesData = { ...zonesData };
-
-      if (nextZones.includes(zone)) {
-        nextZones = nextZones.filter((z: string) => z !== zone);
-        delete nextZonesData[zone];
-      } else {
-        nextZones = [...nextZones, zone];
-        if (!nextZonesData[zone]) {
-          nextZonesData[zone] = { categories: [] };
-        }
-      }
-
-      onChange({ ...(value || {}), zone: nextZones, zonesData: nextZonesData, status: currentStatus, chassisNumber: autoFilledChassis });
-    };
-
-    const handleCategoriesChange = (zone: string, selectedCategories: string[]) => {
-      const zoneData = zonesData[zone] || { categories: [] };
-      const existingCategories = (zoneData.categories || []).map((cat: any) => cat?.name);
-      const categoriesToAdd = selectedCategories.filter((cat: string) => !existingCategories.includes(cat));
-      const categoriesToRemove = existingCategories.filter((cat: string) => !selectedCategories.includes(cat));
-
-      let updatedCategories = [...(zoneData.categories || [])];
-      categoriesToAdd.forEach(category => updatedCategories.push({ name: category, defects: [] }));
-      categoriesToRemove.forEach(category => updatedCategories = updatedCategories.filter((cat: any) => cat?.name !== category));
-
-      onChange({
-        ...(value || {}),
-        zonesData: { ...zonesData, [zone]: { categories: updatedCategories } },
-        status: currentStatus,
-        chassisNumber: autoFilledChassis
-      });
-    };
-
-    const handleDefectsChange = (zone: string, categoryName: string, selectedDefects: string[]) => {
-      const zoneData = zonesData[zone];
-      if (!zoneData || !zoneData.categories) return;
-
-      const categoryIndex = zoneData.categories.findIndex((cat: any) => cat?.name === categoryName);
-      if (categoryIndex === -1) return;
-
-      const existingDefects = (zoneData.categories[categoryIndex].defects || []).map((d: any) => d?.name);
-      const defectsToAdd = selectedDefects.filter((d: string) => !existingDefects.includes(d));
-      const defectsToRemove = existingDefects.filter((d: string) => !selectedDefects.includes(d));
-
-      let updatedDefects = [...(zoneData.categories[categoryIndex].defects || [])];
-      defectsToAdd.forEach(defect => updatedDefects.push({ name: defect, details: { remark: "", fileUrl: "" } }));
-      defectsToRemove.forEach(defect => updatedDefects = updatedDefects.filter((d: any) => d?.name !== defect));
-
-      const updatedCategories = [...zoneData.categories];
-      updatedCategories[categoryIndex] = { ...updatedCategories[categoryIndex], defects: updatedDefects };
-
-      onChange({
-        ...(value || {}),
-        zonesData: { ...zonesData, [zone]: { categories: updatedCategories } },
-        status: currentStatus,
-        chassisNumber: autoFilledChassis
-      });
-    };
-
-    const evidenceFileInputRef = useRef<HTMLInputElement>(null);
-
-    const handleEvidenceUpload = async (file: File) => {
-      try {
-        setUploading(prev => ({ ...prev, mainEvidence: true }));
-        const result = await apiClient.uploadFile(file, "form");
-        const uploadedUrl = apiClient.resolveUploadedFileUrl(result);
-        if (uploadedUrl) {
-          onChange({ ...(value || {}), evidenceUrl: uploadedUrl, status: currentStatus, chassisNumber: autoFilledChassis });
-
-          // Reset file input after successful upload
-          if (evidenceFileInputRef.current) {
-            evidenceFileInputRef.current.value = '';
-          }
-        }
-      } catch (error) {
-        console.error('Evidence upload failed:', error);
-        // Reset file input on error too
-        if (evidenceFileInputRef.current) {
-          evidenceFileInputRef.current.value = '';
-        }
-      } finally {
-        setUploading(prev => ({ ...prev, mainEvidence: false }));
-      }
-    };
-
-    return (
-      <div className="space-y-4 mt-2" onClick={e => e.stopPropagation()}>
-        {/* Chassis Number Input - ONLY show if trackResponseQuestion is true */}
-        {isTrackQuestion && (
-          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
-            <label className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest block mb-1.5">
-              Chassis Number *
-            </label>
-            <input
-              type="text"
-              value={autoFilledChassis}
-              onChange={(e) => handleChassisChange(e.target.value)}
-              placeholder="Enter Chassis Number..."
-              className="w-full p-2.5 text-xs bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm"
-            />
-            {autoFilledChassis && (
-              <p className="text-[9px] text-blue-500 mt-1">Auto-filled from previous record</p>
-            )}
-          </div>
-        )}
-
-        {/* Status Selection - ALWAYS show */}
-        <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800">
-          <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-2">
-            Inspection Status (Select Manually)
-          </label>
-          <div className="grid grid-cols-3 gap-2">
-            {['Accepted', 'Rework', 'Rejected'].map((opt) => {
-              const lc = opt.toLowerCase();
-              const isSelected = currentStatus === opt;
-              const colors = lc === 'accepted'
-                ? { active: 'bg-green-600 border-green-600 text-white', icon: '✓' }
-                : lc === 'rejected'
-                  ? { active: 'bg-red-600 border-red-600 text-white', icon: '✗' }
-                  : { active: 'bg-amber-500 border-amber-500 text-white', icon: '↺' };
-              return (
-                <button
-                  key={opt}
-                  onClick={() => handleStatusChange(opt)}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all text-[10px] font-black
-                    ${isSelected ? colors.active : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500'}`}
-                >
-                  <span className="text-base">{colors.icon}</span>
-                  <span>{opt}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Accepted: Just evidence upload */}
-        {currentStatus === 'Accepted' && (
-          <div className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl" onClick={(e) => e.stopPropagation()}>
-            <label className="text-[10px] font-bold text-gray-500 mb-1 block">Evidence Photo</label>
-            {evidenceUrl ? (
-              <div className="flex gap-2">
-                <label className="flex-1 cursor-pointer group relative">
-                  <input
-                    ref={evidenceFileInputRef}
-                    type="file"
-                    className="hidden"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleEvidenceUpload(file);
-                    }}
-                  />
-                  <img
-                    src={evidenceUrl}
-                    alt="Evidence"
-                    className="w-full h-32 object-cover rounded-lg border-2 border-emerald-400"
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
-                    <span className="text-[10px] text-white font-bold">Change</span>
-                  </div>
-                </label>
-                <button onClick={() => setShowCamera({ isMain: true })} className="flex-1 flex flex-col items-center justify-center gap-1 p-3 border-2 border-dashed rounded-lg hover:border-purple-400">
-                  <Camera className="w-4 h-4" />
-                  <span className="text-[9px]">Camera</span>
-                </button>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <label className="flex-1 cursor-pointer">
-                  <input
-                    ref={evidenceFileInputRef}
-                    type="file"
-                    className="hidden"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleEvidenceUpload(file);
-                    }}
-                  />
-                  <div className="flex flex-col items-center justify-center gap-1 p-3 border-2 border-dashed rounded-lg hover:border-blue-400">
-                    {uploading.mainEvidence ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                    <span className="text-[9px]">Upload</span>
-                  </div>
-                </label>
-                <button onClick={() => setShowCamera({ isMain: true })} className="flex-1 flex flex-col items-center justify-center gap-1 p-3 border-2 border-dashed rounded-lg">
-                  <Camera className="w-4 h-4" />
-                  <span className="text-[9px]">Camera</span>
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Rework/Rejected: Full defect selection UI - use the renderDefectDetails function defined above */}
-        {(currentStatus === 'Rework' || currentStatus === 'Rejected') && (
-          <div className="space-y-4">
-            {/* Zone Selection */}
-            {isWithZone && (
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Zone Clarification</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {ZONES.map((zone) => (
-                    <button
-                      key={zone}
-                      type="button"
-                      onClick={() => handleZoneToggle(zone)}
-                      className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border text-[10px] font-medium transition-all
-                        ${selectedZones.includes(zone)
-                          ? "bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800 text-blue-700"
-                          : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600"}`}
-                    >
-                      <div className={`w-3 h-3 rounded-sm border flex items-center justify-center ${selectedZones.includes(zone) ? "bg-blue-500 border-blue-500" : "border-gray-300"}`}>
-                        {selectedZones.includes(zone) && <CheckCircle className="w-2 h-2 text-white" />}
-                      </div>
-                      {zone}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Without Zone */}
-            {!isWithZone && (
-              <div className="space-y-4">
-                {(() => {
-                  const zone = "Default";
-                  const zoneData = zonesData[zone] || { categories: [] };
-                  const selectedCategories = (zoneData.categories || []).map((c: any) => c?.name).filter(Boolean);
-                  return (
-                    <div className="space-y-3">
-                      <MultiSelectDropdown
-                        options={Object.keys(DEFECT_DATA)}
-                        selectedValues={selectedCategories}
-                        onChange={(selected: string[]) => {
-                          const existing = (zoneData.categories || []).map((c: any) => c?.name);
-                          const toAdd = selected.filter((s: string) => !existing.includes(s));
-                          const toRemove = existing.filter((e: string) => !selected.includes(e));
-                          let updated = [...(zoneData.categories || [])];
-                          toAdd.forEach(cat => updated.push({ name: cat, defects: [] }));
-                          toRemove.forEach(cat => updated = updated.filter((c: any) => c?.name !== cat));
-                          onChange({ ...(value || {}), zonesData: { ...zonesData, [zone]: { categories: updated } }, status: currentStatus, chassisNumber: autoFilledChassis });
-                        }}
-                        placeholder="Select defect categories..."
-                        label="Defect Categories"
-                      />
-                      {(zoneData.categories || []).map((category: any) => (
-                        <div key={category.name} className="ml-3 pl-3 border-l-2 border-gray-200 dark:border-gray-700 space-y-2">
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setExpandedCategory(prev => ({ ...prev, [category.name]: !prev[category.name] }));
-                              }}
-                              className="flex items-center gap-1 hover:bg-gray-100 dark:hover:bg-gray-800 px-1 py-0.5 rounded"
-                            >
-                              <ChevronRight className={`w-3 h-3 transition-transform ${expandedCategory[category.name] ? 'rotate-90' : ''}`} />
-                              <span className="text-[11px] font-semibold">{category.name}</span>
-                            </button>
-                          </div>
-                          {expandedCategory[category.name] && (
-                            <div className="ml-4 space-y-2">
-                              <MultiSelectDropdown
-                                options={DEFECT_DATA[category.name] || []}
-                                selectedValues={(category.defects || []).map((d: any) => d?.name).filter(Boolean)}
-                                onChange={(selected: string[]) => {
-                                  const existing = (category.defects || []).map((d: any) => d?.name);
-                                  const toAdd = selected.filter((s: string) => !existing.includes(s));
-                                  const toRemove = existing.filter((e: string) => !selected.includes(e));
-                                  let updated = [...(category.defects || [])];
-                                  toAdd.forEach(def => updated.push({ name: def, details: { remark: "", fileUrl: "" } }));
-                                  toRemove.forEach(def => updated = updated.filter((d: any) => d?.name !== def));
-                                  const updatedCategories = [...(zoneData.categories || [])];
-                                  const catIdx = updatedCategories.findIndex((c: any) => c?.name === category.name);
-                                  if (catIdx !== -1) {
-                                    updatedCategories[catIdx] = { ...category, defects: updated };
-                                  }
-                                  onChange({ ...(value || {}), zonesData: { ...zonesData, [zone]: { categories: updatedCategories } }, status: currentStatus, chassisNumber: autoFilledChassis });
-                                }}
-                                placeholder="Select specific defects..."
-                                label="Specific Defects"
-                              />
-                              {(category.defects || []).map((defect: any) => renderDefectDetails(zone, category.name, defect))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-
-            {/* With Zone - Render each selected zone */}
-            {isWithZone && selectedZones.map((zone: string) => {
-              const zoneData = zonesData[zone] || { categories: [] };
-              const selectedCategories = (zoneData.categories || []).map((c: any) => c?.name).filter(Boolean);
-              const isExpanded = expandedZone === zone;
-              return (
-                <div key={zone} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setExpandedZone(isExpanded ? null : zone)}
-                    className="w-full flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800"
-                  >
-                    <div className="flex items-center gap-2">
-                      <ChevronRight className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                      <span className="text-[11px] font-bold">{zone}</span>
-                      {(zoneData.categories || []).length > 0 && (
-                        <span className="text-[9px] text-blue-600 bg-blue-100 dark:bg-blue-900/30 px-1.5 py-0.5 rounded-full">
-                          {(zoneData.categories || []).length}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                  {isExpanded && (
-                    <div className="p-3 space-y-3 border-t border-gray-100 dark:border-gray-800">
-                      <MultiSelectDropdown
-                        options={Object.keys(DEFECT_DATA)}
-                        selectedValues={selectedCategories}
-                        onChange={(selected: string[]) => handleCategoriesChange(zone, selected)}
-                        placeholder="Select defect categories..."
-                        label="Defect Categories"
-                      />
-                      {(zoneData.categories || []).map((category: any) => (
-                        <div key={category.name} className="ml-3 pl-3 border-l-2 border-gray-200 dark:border-gray-700 space-y-2">
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setExpandedCategory(prev => ({ ...prev, [`${zone}-${category.name}`]: !prev[`${zone}-${category.name}`] }));
-                              }}
-                              className="flex items-center gap-1 hover:bg-gray-100 dark:hover:bg-gray-800 px-1 py-0.5 rounded"
-                            >
-                              <ChevronRight className={`w-3 h-3 transition-transform ${expandedCategory[`${zone}-${category.name}`] ? 'rotate-90' : ''}`} />
-                              <span className="text-[10px] font-semibold">{category.name}</span>
-                            </button>
-                          </div>
-                          {expandedCategory[`${zone}-${category.name}`] && (
-                            <div className="ml-4 space-y-2">
-                              <MultiSelectDropdown
-                                options={DEFECT_DATA[category.name] || []}
-                                selectedValues={(category.defects || []).map((d: any) => d?.name).filter(Boolean)}
-                                onChange={(selected: string[]) => handleDefectsChange(zone, category.name, selected)}
-                                placeholder="Select specific defects..."
-                                label="Specific Defects"
-                              />
-                              {(category.defects || []).map((defect: any) => renderDefectDetails(zone, category.name, defect))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* General Remarks */}
-        {finalNeedsFollowUp && (
-          <div
-            className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest block mb-1">
-              General Remarks
-            </label>
-            <textarea
-              rows={2}
-              value={value?.remark || ''}
-              onChange={(e) => {
-                e.stopPropagation();
-                onChange({ ...(value || {}), remark: e.target.value, status: currentStatus, chassisNumber: autoFilledChassis });
-              }}
-              onKeyDown={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-              placeholder="Enter general remarks..."
-              className="w-full p-2 text-xs bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-700 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none resize-y"
-            />
-          </div>
-        )}
-
-        {/* File Upload */}
-        {finalNeedsFollowUp && (
-          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800">
-            <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest block mb-1.5">
-              File Upload
-            </label>
-            <input
-              type="file"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  handleFileUpload(file, ['evidence']).catch(err => console.error('Upload failed:', err));
-                }
-              }}
-              className="w-full p-2 text-xs bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            />
-          </div>
-        )}
-
-        {/* Camera Modal */}
-        {showCamera && createPortal(
-          <CameraCapture
-            onCapture={async (file, remark) => {
-              if (showCamera.isMain) {
-                await handleEvidenceUpload(file);
-              } else if (showCamera.zone && showCamera.category && showCamera.defect) {
-                await handleFileUpload(file, [showCamera.zone, showCamera.category, showCamera.defect, 'fileUrl']);
-              }
-              setShowCamera(null);
-            }}
-            onClose={() => setShowCamera(null)}
-          />,
-          document.body
-        )}
-      </div>
-    );
-  }
-
-
-
-  // ── RADIO / SELECT / CHECKBOX / ANY QUESTION WITH OPTIONS ───
-  if ((['radio', 'select', 'checkbox-group', 'multiselect'].includes(question.type) || question.options?.length > 0)
-    && question.options?.length > 0) {
-
-    // Debug: Uncomment to see which rendering path is taken
-    // console.log('QuestionSuggestionRenderer: Using radio/select path for question:', question.text, 'options:', question.options);
-
-    const isMulti = question.type === 'checkbox-group' ||
-      question.type === 'multiselect';
-    const selectedArr: string[] = isMulti
-      ? (Array.isArray(value?.selected) ? value.selected : [])
-      : [];
-
-    // Determine question type (Zone In vs Zone Out)
-    const isZoneIn = question?.text?.toLowerCase().includes('zone') &&
-      (question?.text?.toLowerCase().includes('in') ||
-        question?.type?.toLowerCase().includes('zone'));
-
-    const isZoneOut = question?.text?.toLowerCase().includes('zone') &&
-      (question?.text?.toLowerCase().includes('out') ||
-        question?.type?.toLowerCase().includes('zone-out'));
-
-    // Check if this question has additional input fields mixed with options
-    const hasTextInputs = question.options?.some((opt: string) =>
-      opt.toLowerCase().includes('remark') ||
-      opt.toLowerCase().includes('enter response') ||
-      opt.toLowerCase().includes('correction')
-    );
-    const hasFileUploads = question.options?.some((opt: string) =>
-      opt.toLowerCase().includes('file') ||
-      opt.toLowerCase().includes('upload') ||
-      opt.toLowerCase().includes('manual upload')
-    );
-
-    // For inspection questions with status options, always show follow-ups
-    const isInspectionQuestion = question.options?.some((opt: string) =>
-      opt.toLowerCase().includes('accepted') ||
-      opt.toLowerCase().includes('rework') ||
-      opt.toLowerCase().includes('rejected')
-    );
-
-    // Zone-based follow-up logic
-    const needsZoneSelection = isZoneIn && (currentSelection?.toLowerCase().includes('reject') || currentSelection?.toLowerCase().includes('rework'));
-    const needsFollowUp = (isZoneIn && currentSelection?.toLowerCase().includes('accept')) ||
-      (isZoneOut && (currentSelection?.toLowerCase().includes('accept') || currentSelection?.toLowerCase().includes('reject') || currentSelection?.toLowerCase().includes('rework'))) ||
-      needsZoneSelection;
-
-    const shouldShowFollowUps = hasTextInputs || hasFileUploads || isInspectionQuestion || needsFollowUp;
-
-    // Debug: Uncomment to troubleshoot zone-based logic
-    // console.log('QuestionSuggestionRenderer zone logic:', {
-    //   isZoneIn,
-    //   isZoneOut,
-    //   currentSelection,
-    //   needsZoneSelection,
-    //   needsFollowUp,
-    //   shouldShowFollowUps,
-    //   questionText: question?.text,
-    //   questionType: question?.type
-    // });
-
-    // Debug: Uncomment to see follow-up detection
-    // console.log('QuestionSuggestionRenderer radio/select follow-up check:', {
-    //   hasTextInputs,
-    //   hasFileUploads,
-    //   isInspectionQuestion,
-    //   shouldShowFollowUps,
-    //   questionOptions: question.options
-    // });
-
-    // Filter out input field labels from the selectable options
-    const selectableOptions = question.options?.filter((opt: string) => {
-      const lowerOpt = opt.toLowerCase();
-      return !(
-        lowerOpt.includes('remark') ||
-        lowerOpt.includes('enter response') ||
-        lowerOpt.includes('correction') ||
-        lowerOpt.includes('file update') ||
-        lowerOpt.includes('manual upload')
-      );
-    }) || [];
-
-    return (
-      <div className="space-y-2 mt-2" onClick={e => e.stopPropagation()}>
-        {/* Question Type Indicator */}
-        {(isZoneIn || isZoneOut) && (
-          <div className="text-xs font-bold text-center py-1 px-2 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded">
-            {isZoneIn ? '🔍 ZONE IN INSPECTION' : '📤 ZONE OUT INSPECTION'}
-          </div>
-        )}
-
-        <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800">
-          <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-2">
-            {question.subParam1 || question.text}
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {selectableOptions.map((opt: string) => {
-              const isSelected = isMulti
-                ? selectedArr.includes(opt)
-                : currentSelection === opt;
-
-              return (
-                <button
-                  key={opt}
-                  onClick={() => {
-                    if (isMulti) {
-                      const next = isSelected
-                        ? selectedArr.filter(s => s !== opt)
-                        : [...selectedArr, opt];
-                      onChange({ ...(value || {}), selected: next });
-                    } else {
-                      handleOptionSelect(opt);
-                    }
-                  }}
-                  className={`px-3 py-1.5 text-[10px] font-black rounded-lg border-2 transition-all
-                    ${isSelected
-                      ? 'bg-indigo-600 border-indigo-600 text-white shadow-md'
-                      : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-indigo-300'
-                    }`}
-                >
-                  {opt}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Zone Selection (for Zone In + Reject/Rework) */}
-        {needsZoneSelection && (
-          <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl border border-orange-100 dark:border-orange-800">
-            <label className="text-[10px] font-black text-orange-600 uppercase tracking-widest block mb-2">
-              Select Zones
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {['Zone A+', 'Zone A', 'Zone B', 'Zone C'].map((zone) => {
-                const isSelected = value?.zones?.includes(zone);
-                return (
-                  <button
-                    key={zone}
-                    onClick={() => {
-                      const currentZones = value?.zones || [];
-                      const newZones = isSelected
-                        ? currentZones.filter(z => z !== zone)
-                        : [...currentZones, zone];
-                      onChange({ ...(value || {}), zones: newZones });
-                    }}
-                    className={`px-3 py-1.5 text-[9px] font-bold rounded-lg border-2 transition-all
-                      ${isSelected
-                        ? 'bg-orange-600 border-orange-600 text-white shadow-md'
-                        : 'bg-white dark:bg-gray-800 border-orange-200 dark:border-orange-700 text-orange-600 dark:text-orange-400 hover:border-orange-300'
-                      }`}
-                  >
-                    {zone}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Follow-ups (Remarks + File Upload) */}
-        {shouldShowFollowUps && (
-          <>
-            <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border-2 border-amber-300 dark:border-amber-600">
-              <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest block mb-1">
-                📝 Remarks {currentSelection ? `for ${currentSelection}` : ''}
-              </label>
-              <textarea
-                rows={2}
-                value={value?.remark || ''}
-                onChange={(e) => onChange({ ...(value || {}), remark: e.target.value })}
-                placeholder="Enter remarks..."
-                className="w-full p-2 text-xs bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-700 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none resize-none"
-              />
-            </div>
-
-            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border-2 border-blue-300 dark:border-blue-600">
-              <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest block mb-1.5">
-                📎 File Upload {currentSelection ? `for ${currentSelection}` : ''}
-              </label>
-              {value?.fileUrl ? (
-                <div className="flex gap-2 items-center">
-                  <img
-                    src={value.fileUrl}
-                    alt="Uploaded evidence"
-                    className="w-16 h-16 object-cover rounded-lg border-2 border-emerald-400"
-                    onClick={() => window.open(value.fileUrl, '_blank')}
-                  />
-                  <label className="flex-1 cursor-pointer">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        setUploading(prev => ({ ...prev, radioFile: true }));
-                        try {
-                          const result = await apiClient.uploadFile(file, "form");
-                          const uploadedUrl = apiClient.resolveUploadedFileUrl(result);
-                          if (uploadedUrl) {
-                            onChange({ ...(value || {}), fileUrl: uploadedUrl });
-                          }
-                        } catch (err) {
-                          console.error("File upload failed:", err);
-                          alert("Upload failed. Please try again.");
-                        } finally {
-                          setUploading(prev => ({ ...prev, radioFile: false }));
-                        }
-                      }}
-                    />
-                    <div className="flex items-center justify-center gap-1 p-2 border-2 border-dashed rounded-lg hover:border-blue-400 text-gray-400 hover:text-blue-500 transition-all h-full">
-                      <Upload className="w-3 h-3" />
-                      <span className="text-[9px]">Change</span>
-                    </div>
-                  </label>
-                </div>
-              ) : uploading.radioFile ? (
-                <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
-                  <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-                  <span className="text-xs text-blue-600">Uploading...</span>
-                </div>
-              ) : (
-                <label className="cursor-pointer block">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      setUploading(prev => ({ ...prev, radioFile: true }));
-                      try {
-                        const result = await apiClient.uploadFile(file, "form");
-                        const uploadedUrl = apiClient.resolveUploadedFileUrl(result);
-                        if (uploadedUrl) {
-                          onChange({ ...(value || {}), fileUrl: uploadedUrl });
-                        }
-                      } catch (err) {
-                        console.error("File upload failed:", err);
-                        alert("Upload failed. Please try again.");
-                      } finally {
-                        setUploading(prev => ({ ...prev, radioFile: false }));
-                      }
-                    }}
-                  />
-                  <div className="flex items-center justify-center gap-2 p-3 border-2 border-dashed border-blue-200 dark:border-blue-700 rounded-lg hover:border-blue-400 hover:bg-blue-50/50 transition-all">
-                    <Upload className="w-4 h-4 text-blue-400" />
-                    <span className="text-xs text-blue-500 font-medium">Click to upload evidence</span>
-                  </div>
-                </label>
-              )}
-            </div>
-          </>
-        )}
-
-      </div>
-    );
-  }
-
-  // ── NUMBER ───────────────────────────────────────────────────
-  if (question.type === 'number') {
-    return (
-      <div className="mt-2" onClick={e => e.stopPropagation()}>
-        <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1.5">
-            {question.subParam1 || question.text}
-          </label>
-          <input
-            type="number"
-            value={value?.suggestion ?? (typeof value === 'number' ? value : '')}
-            onChange={e => onChange(
-              typeof value === 'object' && value !== null
-                ? { ...value, suggestion: e.target.value }
-                : e.target.value
-            )}
-            placeholder="0.00"
-            className="w-full p-2.5 text-xs bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // ── TEXTAREA ─────────────────────────────────────────────────
-  if (question.type === 'textarea' || question.type === 'long-text') {
-    return (
-      <div className="mt-2" onClick={e => e.stopPropagation()}>
-        <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1.5">
-            {question.subParam1 || question.text}
-          </label>
-          <textarea
-            rows={3}
-            value={value?.suggestion || (typeof value === 'string' ? value : '')}
-            onChange={e => onChange(
-              typeof value === 'object' && value !== null
-                ? { ...value, suggestion: e.target.value }
-                : e.target.value
-            )}
-            placeholder={question.placeholder || "Enter text..."}
-            className="w-full p-2.5 text-xs bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // ── DEFAULT: text input ──────────────────────────────────────
-  return (
-    <div className="mt-2" onClick={e => e.stopPropagation()}>
-      <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1.5">
-          {question.subParam1 || question.text}
-        </label>
-        <input
-          type="text"
-          value={value?.suggestion || (typeof value === 'string' ? value : '')}
-          onChange={e => onChange(
-            typeof value === 'object' && value !== null
-              ? { ...value, suggestion: e.target.value }
-              : e.target.value
-          )}
-          placeholder={question.placeholder || "Enter correction..."}
-          className="w-full p-2.5 text-xs bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-        />
-      </div>
-=======
   const [uploading, setUploading] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2974,7 +1768,7 @@ const QuestionSuggestionRenderer = ({
         />,
         document.body
       )}
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
     </div>
   );
 };
@@ -3202,7 +1996,7 @@ export default function FormAnalyticsDashboard() {
   );
   const [analyticsView, setAnalyticsView] = useState<
     "question" | "section" | "table" | "responses" | "dashboard" | "comparison"
-  >(isGuest ? "dashboard" : user?.role === "inspector" ? "responses" : "section");
+  >("responses");
   const [tableViewType, setTableViewType] = useState<"question" | "section">(
     "question",
   );
@@ -4144,17 +2938,8 @@ const fetchChatHistory = async (responseId: string) => {
     }
   };
 
-<<<<<<< HEAD
-  const getQuestionStats = (questionId: string) => {
-    const questionResponses = responses.filter(r => r.answers && r.answers[questionId]);
-    const accepted = questionResponses.filter(r => r.status === "verified").length;
-    const rejected = questionResponses.filter(r => r.status === "rejected").length;
-    const pending = questionResponses.filter(r => !r.status || r.status === "pending").length;
 
-    return { accepted, rejected, pending, total: questionResponses.length };
-  };
-=======
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
 
   const filteredResponses = useMemo(() => {
     let result = baseFilteredResponses;
@@ -6581,18 +5366,13 @@ const fetchChatHistory = async (responseId: string) => {
   }, [analytics, inspectionStats, sectionSummaryRows, totalPieChartData, inspectorSummary, summaryStatuses, defectStartDate, defectEndDate, form, responses]);
 
   const handleDownloadPDF = async () => {
-<<<<<<< HEAD
-    try {
-      // Show loading state
-      const button = document.querySelector('button[title="Download as PDF"]');
-      const originalText = button?.textContent || "Download PDF";
-=======
+
     const button = document.querySelector('button[title="Download as PDF"]');
     const originalText = "Download PDF";
     try {
       // Show loading state
       
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
       if (button) {
         button.innerHTML =
           '<span class="animate-spin">⏳</span> Generating PDF...';
@@ -6920,19 +5700,13 @@ const fetchChatHistory = async (responseId: string) => {
         responses.map((r) =>
           r.id === editingResponseId
             ? {
-<<<<<<< HEAD
-              ...r,
-              answers: editFormData,
-              status: editFormStatus,
-              notes: editFormNotes,
-            }
-=======
+
                 ...r,
                 answers: editFormData,
                 status: editFormStatus,
                 notes: editFormNotes,
               }
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
             : r,
         ),
       );
@@ -7070,11 +5844,9 @@ const fetchChatHistory = async (responseId: string) => {
 
           {/* Tabs - Center */}
           <div className="flex items-center gap-1 overflow-x-auto pb-1 md:pb-0 max-w-full">
-<<<<<<< HEAD
-            {!isInspector && !isGuest && (
-=======
+
             
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
               <>
                 <button
                   onClick={() => setAnalyticsView("dashboard")}
@@ -7107,12 +5879,9 @@ const fetchChatHistory = async (responseId: string) => {
                   Sections
                 </button>
               </>
-<<<<<<< HEAD
-            )}
 
-=======
           
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
             <button
               onClick={() => setAnalyticsView("responses")}
               className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "responses"
@@ -7175,11 +5944,9 @@ const fetchChatHistory = async (responseId: string) => {
                 </span>
               )}
             </button>
-<<<<<<< HEAD
-            {!isGuest && !isInspector && (
-=======
+
             {!isGuest && (
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
               <>
               <button
                 onClick={handleShareAnalytics}
@@ -7197,15 +5964,7 @@ const fetchChatHistory = async (responseId: string) => {
                 </button>
               </>
             )}
-<<<<<<< HEAD
-            <button
-              onClick={handleDownloadPDF}
-              className="flex items-center gap-2 px-2 py-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-              title="Download as PDF"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-=======
+
             {analyticsView === "dashboard" && (
               <button
                 onClick={handleDownloadPDF}
@@ -7215,7 +5974,7 @@ const fetchChatHistory = async (responseId: string) => {
                 <Download className="w-4 h-4" />
               </button>
             )}
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
             {isGuest && (
               <button
                 onClick={handleLogout}
@@ -7230,7 +5989,7 @@ const fetchChatHistory = async (responseId: string) => {
 
       {/* Dashboard View */}
       {analyticsView === "dashboard" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-in fade-in duration-500">
           <div
             className="w-full"
             id="summary-cards"
@@ -7397,6 +6156,7 @@ const fetchChatHistory = async (responseId: string) => {
         <>
           {/* Question-wise Analytics */}
           {analyticsView === "question" && (
+            <div className="animate-fadeIn">
             <div className="space-y-6">
               <div className="card p-6">
                 <ResponseQuestion
@@ -7405,9 +6165,11 @@ const fetchChatHistory = async (responseId: string) => {
                 />
               </div>
             </div>
+            </div>
           )}
           {/* Section-wise Analytics */}
           {analyticsView === "section" && (
+            <div className="animate-fadeIn">
             <div className="space-y-6">
               {filteredSectionStats.length > 0 ? (
                 <>
@@ -8215,10 +6977,12 @@ const fetchChatHistory = async (responseId: string) => {
                 </div>
               </div>
             </div>
+            </div>
           )}
 
           {/* Table View */}
           {analyticsView === "table" && (
+            <div className="animate-fadeIn">
             <div className="space-y-6">
               {/* Table View Type Selector */}
               <div className="card p-4 flex gap-3 items-center">
@@ -8542,11 +7306,13 @@ const fetchChatHistory = async (responseId: string) => {
                     </div>
                   </div>
                 )}
+              </div>
             </div>
           )}
 
           {/* Responses as Table */}
           {analyticsView === "responses" && (
+            <div className="animate-fadeIn">
             <div className="space-y-6">
               <div className="card p-6">
                 <div className="mb-4 flex items-center justify-between">
@@ -8996,169 +7762,7 @@ const fetchChatHistory = async (responseId: string) => {
                                   </td>
                                   <td
                                     className={`px-3 py-3 text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap sticky left-12 z-20 ${editingResponseId === response.id ? "bg-blue-50 dark:bg-blue-900/20" : idx % 2 === 0 ? "bg-white dark:bg-gray-900" : "bg-gray-50 dark:bg-gray-800/50"}`}
-<<<<<<< HEAD
-                                  >
-                                    {/* Dispatch cell content */}
-                                    {(() => {
-                                      const status = responseStatuses[response.id] || "";
-                                      const canShowDispatch = status === "Direct Ok" || status === "Rework Accepted" || status === "Rework Completed";
-                                      // Check submitter based on email/username like other parts of the code
-                                      const userEmail = user?.email || "";
-                                      const userUsername = user?.username || "";
-                                      const isSubmitter = response.submittedBy === userEmail ||
-                                        response.submittedBy === userUsername ||
-                                        response.createdBy === userEmail ||
-                                        response.createdBy === userUsername ||
-                                        response.submitterContact?.email === userEmail;
 
-                                      // Debug: Uncomment to see what statuses are being checked
-                                      console.log(`Dispatch check for response ${response.id}:`, {
-                                        status,
-                                        canShow: canShowDispatch,
-                                        isSubmitter,
-                                        userEmail,
-                                        userUsername,
-                                        responseSubmittedBy: response.submittedBy,
-                                        responseCreatedBy: response.createdBy,
-                                        responseSubmitterEmail: response.submitterContact?.email
-                                      });
-
-                                      if (!canShowDispatch) {
-                                        return <span className="text-gray-400 text-xs">-</span>;
-                                      }
-
-                                      // Show enabled state for all users once dispatch is enabled
-                                      if (response.isDispatched) {
-                                        return (
-                                          <div className="flex items-center justify-center">
-                                            <input
-                                              type="checkbox"
-                                              checked={true}
-                                              disabled={true}
-                                              className="w-4 h-4 text-green-600 border-gray-300 dark:border-gray-600 rounded accent-green-600 opacity-60"
-                                              title="Dispatch enabled"
-                                            />
-                                            <span className="ml-2 text-xs text-green-600 font-medium">Enabled</span>
-                                          </div>
-                                        );
-                                      }
-
-                                      // Only show interactive checkbox for the submitter
-                                      return (
-                                        <input
-                                          type="checkbox"
-                                          checked={false}
-                                          onChange={async (e) => {
-                                            if (e.target.checked && !response.isDispatched) {
-                                              try {
-                                                await apiClient.updateResponse(response.id, { isDispatched: true });
-                                                // Update local state to reflect change immediately
-                                                setResponses(prev => prev.map(r => 
-                                                  r.id === response.id ? { ...r, isDispatched: true, dispatchedAt: new Date().toISOString() } : r
-                                                ));
-                                              } catch (error) {
-                                                console.error('Failed to enable dispatch:', error);
-                                                alert('Failed to enable dispatch. Please try again.');
-                                              }
-                                            }
-                                          }}
-                                          className="w-4 h-4 text-green-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-green-600"
-                                          title="Enable dispatch (only submitter can do this)"
-                                        />
-                                      );
-                                    })()}
-                                  </td>
-                                  <td
-                                    className={`px-6 py-3 text-sm text-gray-600 dark:text-gray-400 font-medium border border-gray-200 dark:border-gray-700 whitespace-nowrap sticky left-12 z-20 ${editingResponseId === response.id ? "bg-blue-50 dark:bg-blue-900/20" : idx % 2 === 0 ? "bg-white dark:bg-gray-900" : "bg-gray-50 dark:bg-gray-800/50"}`}
-                                  >
-                                    {/* Actions cell content */}
-                                    <div className="flex items-center gap-2">
-                                      {editingResponseId === response.id ? (
-                                        <>
-                                          <button
-                                            onClick={handleSaveEdit}
-                                            disabled={isSaving}
-                                            title="Save Response"
-                                            className="p-1.5 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/30 rounded transition-colors disabled:opacity-50"
-                                          >
-                                            <CheckCircle className="w-4 h-4" />
-                                          </button>
-                                          <button
-                                            onClick={handleCancelEdit}
-                                            disabled={isSaving}
-                                            title="Cancel"
-                                            className="p-1.5 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
-                                          >
-                                            <XCircle className="w-4 h-4" />
-                                          </button>
-                                        </>
-                                      ) : (
-                                        <>
-                                          {!isGuest && (user?.role === "superadmin" ||
-                                            !form?.tenantId ||
-                                            (typeof form.tenantId === "object"
-                                              ? form.tenantId?._id
-                                              : form.tenantId) ===
-                                            user?.tenantId) && (
-                                              <>
-                                                <button
-                                                  onClick={() =>
-                                                    handleEditStart(response)
-                                                  }
-                                                  title="Edit Response"
-                                                  className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors"
-                                                >
-                                                  <Edit className="w-4 h-4" />
-                                                </button>
-                                                <button
-                                                  onClick={() => {
-                                                    setDeletingResponseId(
-                                                      response.id,
-                                                    );
-                                                    setShowDeleteConfirm(true);
-                                                  }}
-                                                  title="Delete Response"
-                                                  className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors"
-                                                >
-                                                  <Trash2 className="w-4 h-4" />
-                                                </button>
-                                              </>
-                                            )}
-                                          {!isGuest && (
-                                            <div className="relative z-30">
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  handleViewDetails(response);
-                                                }}
-                                                className="p-1.5 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-all duration-200"
-                                                title="View Details"
-                                              >
-                                                <Eye className="w-4 h-4" />
-                                              </button>
-                                              {response.isDispatched && (
-                                                <button
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setChatResponse(response);
-                                                    setShowChatModal(true);
-                                                    setSelectedReviewOptions(prev => ({ ...prev, [response.id]: '' }));
-                                                    setReviewedBy(prev => ({ ...prev, [response.id]: null }));
-                                                  }}
-                                                  className="p-1.5 text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-all duration-200"
-                                                  title="Open Chat"
-                                                >
-                                                  <MessageCircle className="w-4 h-4" />
-                                                </button>
-                                              )}
-                                            </div>
-                                          )}
-                                        </>
-                                      )}
-                                    </div>
-=======
                                   >
                                     {/* Dispatch cell content */}
                                     {(() => {
@@ -9229,7 +7833,7 @@ const fetchChatHistory = async (responseId: string) => {
                                         />
                                       );
                                     })()}
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
                                   </td>
                                  <td className={`px-6 py-3 text-sm text-gray-600 dark:text-gray-400 font-medium border border-gray-200 dark:border-gray-700 whitespace-nowrap sticky left-12 z-20 ${editingResponseId === response.id ? "bg-blue-50 dark:bg-blue-900/20" : idx % 2 === 0 ? "bg-white dark:bg-gray-900" : "bg-gray-50 dark:bg-gray-800/50"}`}>
   {/* Actions cell content */}
@@ -9577,6 +8181,7 @@ const fetchChatHistory = async (responseId: string) => {
                   </div>
                 )}
               </div>
+            </div>
             </div>
           )}
         </>
@@ -10549,15 +9154,9 @@ const fetchChatHistory = async (responseId: string) => {
                           <span className="font-bold">Status:</span>{' '}
                           {emoji} {reviewOption} by {reviewerName}
                         </span>
-<<<<<<< HEAD
-                        {scoreVal !== undefined && (
-                          <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-white font-extrabold">
-                            Score: {scoreVal}%
-                          </span>
-                        )}
-=======
+
                         
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
                       </div>
                     );
                   })()}

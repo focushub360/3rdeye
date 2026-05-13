@@ -42,8 +42,9 @@ export default function LoginPage() {
    const [otpSentMobile, setOtpSentMobile] = useState("");
    const [verificationId, setVerificationId] = useState("");
    const [isOtpVerified, setIsOtpVerified] = useState(false);
+   const [prefetchedLocation, setPrefetchedLocation] = useState<{ status: string; latitude?: number; longitude?: number } | null>(null);
 
-  // Redirect to dashboard if already authenticated
+
   useEffect(() => {
     if (isAuthenticated && user && !authLoading) {
       setIsRedirecting(true);
@@ -55,16 +56,10 @@ export default function LoginPage() {
     }
   }, [isAuthenticated, user, authLoading, navigate]);
 
-  if (authLoading || isRedirecting) {
-    return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-white">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-[#1e3a8a]/20 border-t-[#1e3a8a] rounded-full animate-spin"></div>
-          <p className="text-gray-500 font-medium animate-pulse">Verifying session...</p>
-        </div>
-      </div>
-    );
-  }
+
+
+
+
 
 
   // OTP Resend Timer
@@ -116,6 +111,17 @@ export default function LoginPage() {
     }
   }, [otpCode]);
 
+  if (authLoading || isRedirecting) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-white">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-[#1e3a8a]/20 border-t-[#1e3a8a] rounded-full animate-spin"></div>
+          <p className="text-gray-500 font-medium animate-pulse">Verifying session...</p>
+        </div>
+      </div>
+    );
+  }
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -136,14 +142,15 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      let locationData: { status: string; latitude?: number; longitude?: number } = { status: 'unknown' };
+      // Use prefetched location if available, otherwise try a quick fetch
+      let locationData = prefetchedLocation || { status: 'unknown' };
 
-      if ("geolocation" in navigator) {
+      if (locationData.status === 'unknown' && "geolocation" in navigator) {
         try {
           const position = await new Promise<GeolocationPosition>((resolve, reject) => {
             navigator.geolocation.getCurrentPosition(resolve, reject, {
-              timeout: 5000,
-              maximumAge: 0
+              timeout: 1500, // Reduced timeout for speed
+              maximumAge: 30000
             });
           });
           locationData = {
@@ -335,11 +342,7 @@ export default function LoginPage() {
       </div>
 
       {/* Right Side: Login Form - Centered on White Background */}
-<<<<<<< HEAD
-      <div className="w-full md:w-1/2 flex-1 flex items-center justify-center p-8 md:p-12 bg-white z-10 overflow-y-auto">
-=======
       <div className="w-full md:w-1/2 flex-1 flex items-center justify-center p-8 md:p-12 bg-white z-10 overflow-y-auto relative">
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
         <div className="w-full max-w-sm animate-in fade-in slide-in-from-right-8 duration-700">
           
           {/* ========== MAIN LOGIN FORM ========== */}

@@ -32,6 +32,10 @@ const LoginScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const { login } = useAuth();
   const navigation = useNavigation<any>();
+  const [prefetchedLocation, setPrefetchedLocation] = useState<{ status: string; latitude?: number; longitude?: number } | null>(null);
+
+
+
 
 
   const handleLogin = async () => {
@@ -45,27 +49,19 @@ const LoginScreen = () => {
     setError(null);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    // Get user location (Non-blocking or fast-fail)
-    let locationData: { status: string; latitude?: number; longitude?: number } = { status: 'unknown' };
+    // Use prefetched location if available, otherwise do a QUICK check
+    let locationData = prefetchedLocation || { status: 'unknown' };
     
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        // Try to get last known location first (instant)
-        const lastKnown = await Location.getLastKnownPositionAsync({});
-        if (lastKnown) {
-          locationData = {
-            status: 'granted',
-            latitude: lastKnown.coords.latitude,
-            longitude: lastKnown.coords.longitude
-          };
-        } else {
-          // Fast fallback for current position
-          const position = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Low,
-          }).catch(() => null);
+    if (locationData.status === 'unknown') {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const position = await Promise.race([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low }),
+            new Promise<null>((_, reject) => setTimeout(() => reject('timeout'), 1500))
+          ]).catch(() => null);
           
-          if (position) {
+          if (position && typeof position === 'object') {
             locationData = {
               status: 'granted',
               latitude: position.coords.latitude,
@@ -73,13 +69,11 @@ const LoginScreen = () => {
             };
           }
         }
-      } else {
-        locationData = { status: 'denied' };
+      } catch (err) {
+        // Ignore location errors for speed
       }
-    } catch (err) {
-      console.warn('Location access error:', err);
-      locationData = { status: 'error' };
     }
+
 
     try {
       const loginPayload: any = { 

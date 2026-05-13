@@ -110,41 +110,25 @@ const ResponseSchema = new mongoose.Schema({
       type: String,
       default: 'external'
     },
-        },
-    // ========== ADD THESE NEW TIMING FIELDS ==========
-    // Total time spent on the form (in seconds)
-    timeSpent: {
-      type: Number,
-      default: 0,
-      min: 0
-    },
-    // Session ID from FormSession
-    sessionId: {
-      type: String,
-      default: null
-    },
-    // When the user started the form
+    // StartedAt/CompletedAt kept for record-keeping in metadata
     startedAt: {
       type: Date,
       default: null
     },
-    // When the user completed/submitted
     completedAt: {
       type: Date,
       default: null
-
+    }
   },
   
   // ========== ADD NEW TOP-LEVEL TIMING FIELDS (for easier querying) ==========
-  // These make it easier to query and aggregate time data
+  // Top-level timing fields (already indexed via ResponseSchema.index at the bottom)
   timeSpent: {
     type: Number, // in seconds
-    default: 0,
-    index: true
+    default: 0
   },
   sessionId: {
     type: String,
-    index: true,
     default: null
   },
   startedAt: {

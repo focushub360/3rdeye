@@ -1360,6 +1360,14 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
           <Folder className="w-4 h-4" />
           Uploads
         </button>
+        <button
+          onClick={() => navigate(`/forms/${formId}/responses`)}
+          className="px-3 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg transition-colors hover:bg-primary-700 flex items-center gap-2"
+          title="View responses"
+        >
+          <List className="w-4 h-4" />
+          Responses
+        </button>
       </>
     ) : (
       <div className="flex space-x-2">

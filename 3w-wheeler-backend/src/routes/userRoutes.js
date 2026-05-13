@@ -22,8 +22,7 @@ import {  inspectorOrAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// All routes require authentication and admin privileges
-router.get('/reviews/:responseId', getReviewsForResponse);
+// Users management routes
 
 
 router.use(authenticate);
@@ -58,10 +57,7 @@ router.get('/all-tenants-performance', getAllTenantsPerformance);
 // @desc    Get all performance scores
 // @access  Private (Admin only)
 
-// @route   POST /api/users/reviews
-// @desc    Submit a review
-// @access  Private (Admin only)
-router.post('/reviews', authenticate, submitReview);
+// Review submission route moved to responseRoutes.js to avoid path conflicts
 
 
 
@@ -84,5 +80,15 @@ router.delete('/:id', deleteUser);
 // @desc    Reset user password
 // @access  Private (Admin only)
 router.put('/:id/reset-password', resetUserPassword);
+
+// DEBUG: Log all registered routes
+console.log('\n=== Registered User Routes ===');
+router.stack.forEach((layer) => {
+  if (layer.route) {
+    const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
+    console.log(`${methods} ${layer.route.path}`);
+  }
+});
+console.log('=== End Registered User Routes ===\n');
 
 export default router;

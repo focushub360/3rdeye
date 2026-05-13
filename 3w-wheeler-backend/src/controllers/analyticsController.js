@@ -353,6 +353,7 @@ export const getFormAnalytics = async (req, res) => {
     let allResponses = await Response.find(responseQuery)
       .sort({ createdAt: -1 })
       .populate('assignedTo', 'firstName lastName email')
+      .populate('createdBy', 'firstName lastName username email')
       .lean();
 
     // Filter responses for chassis sharing if applicable
@@ -425,6 +426,18 @@ export const getFormAnalytics = async (req, res) => {
       data: response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers
     }));
 
+    // Fetch reviews for these responses to show rework/inspector info
+    const responseIds = allResponses.map(r => r.id).filter(Boolean);
+    const reviews = await Review.find({ 
+      tenantId: form.tenantId, 
+      responseId: { $in: responseIds } 
+    }).lean();
+    
+    const reviewMap = reviews.reduce((acc, r) => {
+      acc[r.responseId] = r;
+      return acc;
+    }, {});
+
     res.json({
       success: true,
       data: {
@@ -441,16 +454,43 @@ export const getFormAnalytics = async (req, res) => {
         questionInsights: {
           sections: form.sections || [],
           followUpQuestions: form.followUpQuestions || [],
-          responses: allResponses.map((response) => ({
-            id: response.id,
-            questionId: response.questionId,
-            answers:
-              response.answers instanceof Map
+          responses: allResponses.map((response) => {
+            const answers = response.answers instanceof Map
                 ? Object.fromEntries(response.answers)
-                : response.answers,
-            status: response.status,
-            createdAt: response.createdAt,
-          })),
+                : (response.answers || {});
+            
+            // Extract chassis number from answers
+            const chassisNumber = answers.chassis_number || answers.chassisNumber || response.chassisNumber || '-';
+            
+            // Resolve real name from submittedBy or populated createdBy user
+            let resolvedName = response.submittedBy || 'Anonymous';
+            if ((!resolvedName || resolvedName === 'Anonymous') && response.createdBy) {
+              if (response.createdBy.firstName || response.createdBy.lastName) {
+                resolvedName = `${response.createdBy.firstName || ''} ${response.createdBy.lastName || ''}`.trim();
+              } else {
+                resolvedName = response.createdBy.username || response.createdBy.email || resolvedName;
+              }
+            }
+
+            return {
+              id: response.id,
+              _id: response._id,
+              questionId: response.questionId,
+              answers,
+              status: response.status,
+              createdAt: response.createdAt,
+              submittedBy: resolvedName,
+              inspectorName: resolvedName, // Alias for mobile app
+              timeSpent: response.timeSpent,
+              totalTimeSpent: response.timeSpent, // Alias
+              chassisNumber,
+              review: reviewMap[response.id] ? {
+                option: reviewMap[response.id].reviewOption,
+                reviewer: reviewMap[response.id].reviewerName,
+                createdAt: reviewMap[response.id].createdAt
+              } : null
+            };
+          }),
         },
       },
     });
@@ -2033,8 +2073,9 @@ export const getInspectorSummary = async (req, res) => {
     // Now aggregate per inspector and date
     const inspectorData = {};
     for (const r of responses) {
-      const creatorId = r.createdBy?.toString();
+      const creatorId = r.createdBy?.toString() || r.submittedBy;
       if (!creatorId) continue;
+
 
       // Extract date string YYYY-MM-DD in IST (Asia/Kolkata)
       const d = new Date(r.createdAt);
@@ -2078,16 +2119,30 @@ export const getInspectorSummary = async (req, res) => {
     // Join with User, Tenant, and Shift details
     const finalSummary = [];
     const entryKeys = Object.keys(inspectorData);
-    const userIds = [...new Set(entryKeys.map(k => inspectorData[k].userId))];
-    const users = await User.find({ _id: { $in: userIds } }).lean();
+    const userIds = [...new Set(entryKeys.map(k => inspectorData[k].userId).filter(id => mongoose.Types.ObjectId.isValid(id)))];
+    const userStrings = [...new Set(entryKeys.map(k => inspectorData[k].userId).filter(id => !mongoose.Types.ObjectId.isValid(id)))];
+    
+    const users = await User.find({ 
+      $or: [
+        { _id: { $in: userIds } },
+        { email: { $in: userStrings } },
+        { username: { $in: userStrings } }
+      ] 
+    }).lean();
+
     const tenantIds = [...new Set(users.map(u => u.tenantId))];
     const tenants = await Tenant.find({ _id: { $in: tenantIds } }).lean();
     const shifts = await Shift.find({ tenantId: { $in: tenantIds }, isActive: true }).lean();
 
     for (const key of entryKeys) {
       const stats = inspectorData[key];
-      const user = users.find(u => u._id.toString() === stats.userId);
+      const user = users.find(u => 
+        u._id.toString() === stats.userId || 
+        u.email === stats.userId || 
+        u.username === stats.userId
+      );
       if (!user) continue;
+
 
       const tenant = tenants.find(t => t._id.toString() === user.tenantId?.toString());
       const shift = shifts.find(s => s.assignedInspectors.some(id => id.toString() === stats.userId));
@@ -2272,16 +2327,28 @@ export const getPerformanceTable = async (req, res) => {
       if (r._id) reviewMap[r._id.toString()] = r; 
     });
 
+    // Submissions map using all possible identifiers
+    const subMap = {};
+    submissionStats.forEach(s => {
+      if (s._id) subMap[s._id.toString()] = s.count;
+    });
+
+
     // Format final table data
     const tableData = users.map(user => {
       const userId = user._id.toString();
-      const submissions = submissionMap[userId] || 0;
-      const dispatched = dispatchedMap[userId] || 0;
-      const reviews = reviewMap[userId] || { total: 0, accepted: 0, rejected: 0, rework: 0 };
+      const userEmail = user.email;
+      const userUsername = user.username;
+      
+      const submissions = submissionMap[userId] || submissionMap[userEmail] || submissionMap[userUsername] || 0;
+      const dispatched = dispatchedMap[userId] || dispatchedMap[userEmail] || dispatchedMap[userUsername] || 0;
+      
+      const reviews = reviewMap[userId] || reviewMap[userEmail] || reviewMap[userUsername] || { total: 0, accepted: 0, rejected: 0, rework: 0 };
       
       const performanceScore = reviews.total > 0 
         ? Math.round((reviews.accepted / reviews.total) * 100) 
         : 0;
+
 
       return {
         name: `${user.firstName} ${user.lastName}`,

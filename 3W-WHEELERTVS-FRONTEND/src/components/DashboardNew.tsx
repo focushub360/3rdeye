@@ -1078,8 +1078,6 @@ useEffect(() => {
       );
     }
 
-<<<<<<< HEAD
-=======
     // Pagination logic
     const totalSummaryItems = inspectorSummary.length;
     const totalSummaryPages = Math.ceil(totalSummaryItems / summaryPageSize);
@@ -1087,7 +1085,6 @@ useEffect(() => {
     const endIndex = startIndex + summaryPageSize;
     const paginatedSummary = inspectorSummary.slice(startIndex, endIndex);
 
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
     return (
       <div className="mt-12 overflow-x-auto border-t border-gray-100 dark:border-gray-600 pt-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
@@ -1105,11 +1102,8 @@ useEffect(() => {
               <input
                 type="date"
                 value={summaryStartDate}
-<<<<<<< HEAD
-                onChange={(e) => setSummaryStartDate(e.target.value)}
-=======
                 onChange={(e) => { setSummaryStartDate(e.target.value); setSummaryPage(1); }}
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
                 className="bg-transparent text-sm text-gray-700 dark:text-gray-200 focus:outline-none"
               />
             </div>
@@ -1118,21 +1112,15 @@ useEffect(() => {
               <input
                 type="date"
                 value={summaryEndDate}
-<<<<<<< HEAD
-                onChange={(e) => setSummaryEndDate(e.target.value)}
-=======
                 onChange={(e) => { setSummaryEndDate(e.target.value); setSummaryPage(1); }}
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
                 className="bg-transparent text-sm text-gray-700 dark:text-gray-200 focus:outline-none"
               />
             </div>
             {(summaryStartDate || summaryEndDate) && (
               <button
-<<<<<<< HEAD
-                onClick={() => { setSummaryStartDate(""); setSummaryEndDate(""); }}
-=======
                 onClick={() => { setSummaryStartDate(""); setSummaryEndDate(""); setSummaryPage(1); }}
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
+
                 className="text-xs text-red-600 hover:text-red-800 font-medium underline px-2"
               >
                 Clear
@@ -1165,59 +1153,31 @@ useEffect(() => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-<<<<<<< HEAD
-            {inspectorSummary.map((row, idx) => (
-=======
             {paginatedSummary.map((row, idx) => (
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
               <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                 <td className="px-4 py-4 font-medium text-gray-900 dark:text-white">{row.tenantName}</td>
                 <td className="px-4 py-4">{row.date}</td>
                 <td className="px-4 py-4">
                   {(() => {
-<<<<<<< HEAD
-                    // Calculate shift based on the date/time if available
-                    // For now, using the existing shift data, but could be enhanced to calculate from timestamp
                     if (row.shift) {
                       return row.shift;
                     }
-                    // If no shift data, try to calculate from date if it has time component
-=======
-                    if (row.shift) {
-                      return row.shift;
-                    }
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
                     if (row.date && row.date.includes('T')) {
                       const dateTime = new Date(row.date);
                       const hour = dateTime.getHours();
                       const minute = dateTime.getMinutes();
                       const timeInMinutes = hour * 60 + minute;
 
-<<<<<<< HEAD
-                      // Define shifts
-                      const shifts = [
-                        { name: "Morning Shift", start: 9 * 60, end: 17 * 60 }, // 09:00 - 17:00
-                        { name: "Evening Shift", start: 17 * 60, end: 25 * 60 }, // 17:00 - 01:00
-                        { name: "Night Shift", start: 1 * 60, end: 9 * 60 }, // 01:00 - 09:00
-=======
                       const shifts = [
                         { name: "Morning Shift", start: 9 * 60, end: 17 * 60 },
                         { name: "Evening Shift", start: 17 * 60, end: 25 * 60 },
                         { name: "Night Shift", start: 1 * 60, end: 9 * 60 },
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
                       ];
 
                       const matchingShift = shifts.find(shift => {
                         if (shift.start < shift.end) {
-<<<<<<< HEAD
-                          // Same day shift
                           return timeInMinutes >= shift.start && timeInMinutes < shift.end;
                         } else {
-                          // Overnight shift
-=======
-                          return timeInMinutes >= shift.start && timeInMinutes < shift.end;
-                        } else {
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
                           return timeInMinutes >= shift.start || timeInMinutes < shift.end;
                         }
                       });
@@ -1230,10 +1190,7 @@ useEffect(() => {
                         return `${matchingShift.name} (${startHour.toString().padStart(2, '0')}:${startMin.toString().padStart(2, '0')} - ${endHour.toString().padStart(2, '0')}:${endMin.toString().padStart(2, '0')})`;
                       }
                     }
-<<<<<<< HEAD
 
-=======
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
                     return "No Shift Assigned";
                   })()}
                 </td>
@@ -1256,8 +1213,6 @@ useEffect(() => {
             ))}
           </tbody>
         </table>
-<<<<<<< HEAD
-=======
 
         {/* Pagination Controls */}
         {totalSummaryPages > 1 && (
@@ -1323,75 +1278,11 @@ useEffect(() => {
             </div>
           </div>
         )}
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
       </div>
     );
   };
 
   const renderPerformanceTable = () => {
-<<<<<<< HEAD
-    if (user?.role !== 'admin' && user?.role !== 'superadmin') return null;
-    
-    if (performanceTableLoading) {
-      return (
-        <div className="mt-12 text-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mx-auto mb-4"></div>
-          <p className="text-gray-500 text-sm">Loading performance data...</p>
-        </div>
-      );
-    }
-
-    if (performanceTableData.length === 0) return null;
-
-    return (
-      <div className="mt-12 overflow-x-auto border-t border-gray-100 dark:border-gray-600 pt-8">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-1.5 h-6 bg-purple-600 rounded-full"></div>
-          <h3 className="text-lg font-bold text-gray-800 dark:text-white">
-            Performance Table
-          </h3>
-        </div>
-
-        <table className="w-full text-sm text-left border-collapse bg-white dark:bg-gray-800 rounded-xl overflow-hidden shadow-sm border border-gray-200 dark:border-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300 uppercase text-[10px] font-black tracking-widest">
-            <tr>
-              {isSuperAdmin && <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700">Tenant</th>}
-              <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700">User Name</th>
-              <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700">Total Submitted</th>
-              <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700">Total Reviewed</th>
-              <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 text-green-600">Accepted</th>
-              <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 text-red-600">Rejected</th>
-              <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 text-orange-600">Reworked</th>
-              <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700">Performance Score</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {performanceTableData.map((row, idx) => (
-              <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                {isSuperAdmin && <td className="px-4 py-4 font-medium text-gray-900 dark:text-white">{row.tenantName}</td>}
-                <td className="px-4 py-4 font-medium text-gray-900 dark:text-white">{row.name}</td>
-                <td className="px-4 py-4 font-bold">{row.totalSubmitted}</td>
-                <td className="px-4 py-4 font-bold">{row.totalReviewed}</td>
-                <td className="px-4 py-4 font-bold text-green-600">{row.accepted}</td>
-                <td className="px-4 py-4 font-bold text-red-600">{row.rejected}</td>
-                <td className="px-4 py-4 font-bold text-orange-600">{row.rework}</td>
-                <td className="px-4 py-4">
-                  <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                    row.performanceScore >= 80 ? 'bg-green-100 text-green-700' :
-                    row.performanceScore >= 50 ? 'bg-orange-100 text-orange-700' :
-                    'bg-red-100 text-red-700'
-                  }`}>
-                    {row.performanceScore}%
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
-=======
   if (user?.role !== 'admin' && user?.role !== 'superadmin') return null;
 
   if (performanceTableLoading) {
@@ -1527,7 +1418,6 @@ useEffect(() => {
     </div>
   );
 };
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
 
   // Determine page title based on user role
   const getPageTitle = () => {
@@ -1573,25 +1463,9 @@ useEffect(() => {
     const options = {
       cutout: "70%",
       plugins: {
-<<<<<<< HEAD
-        legend: {
-          display: true,
-          position: "bottom" as const,
-          labels: {
-            boxWidth: 12,
-            padding: 15,
-            font: {
-              size: 11,
-              weight: "bold" as const,
-            },
-            color: document.documentElement.classList.contains('dark') ? '#e5e7eb' : '#374151',
-          },
-        },
-=======
       legend: {
         display: false,
       },
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
         tooltip: {
           callbacks: {
             label: (context: any) => {
@@ -1621,11 +1495,7 @@ useEffect(() => {
 
             <Doughnut data={data} options={options} />
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-<<<<<<< HEAD
-              <span className="text-3xl font-black text-gray-900 dark:text-white mt-[-50px] mb-[-1px]">
-=======
               <span className="text-3xl font-black text-gray-900 dark:text-white">
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
                 {myReviewStats.reviewed}
               </span>
               <span className="text-[15px] font-bold text-gray-400 uppercase tracking-widest blend-in">
@@ -1634,9 +1504,6 @@ useEffect(() => {
             </div>
           </div>
 
-<<<<<<< HEAD
-          <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
-=======
           <div className="flex flex-col flex-1 gap-8">
             <div className="flex justify-center lg:justify-start gap-6">
               <div className="flex items-center gap-2">
@@ -1654,7 +1521,6 @@ useEffect(() => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
             <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-100 dark:border-green-800/30">
               <p className="text-[10px] font-bold text-green-600 dark:text-green-400 uppercase tracking-wider mb-1">Accepted</p>
               <p className="text-2xl font-black text-green-700 dark:text-green-300">{myReviewStats.accepted}</p>
@@ -1702,14 +1568,9 @@ useEffect(() => {
             </div>
           </div>
         </div>
-<<<<<<< HEAD
-
-        <div className="mt-6 pt-6 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
-=======
       </div>
 
       <div className="mt-6 pt-6 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
           <div>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Current Performance Score</p>
             <div className="flex items-center gap-2">
@@ -1717,11 +1578,6 @@ useEffect(() => {
               <div className={`w-2 h-2 rounded-full ${myReviewStats.performanceScore >= 80 ? 'bg-green-500' : myReviewStats.performanceScore >= 50 ? 'bg-amber-500' : 'bg-red-500'}`}></div>
             </div>
           </div>
-<<<<<<< HEAD
-          <div className="text-right">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Total Submissions</p>
-            <p className="text-2xl font-black text-gray-900 dark:text-white">{myReviewStats.totalResponses}</p>
-=======
           <div className="flex gap-8">
             <div className="text-right">
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Total Reviews</p>
@@ -1731,7 +1587,6 @@ useEffect(() => {
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Total Submissions</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white">{myReviewStats.totalResponses}</p>
             </div>
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
           </div>
         </div>
       </div>
@@ -1876,13 +1731,8 @@ useEffect(() => {
               </div>
             )}
 
-<<<<<<< HEAD
-          {/* New Review Breakdown Chart - Show for all users when data is available */}
-          <MyReviewBreakdownChart />
-=======
            {/* New Review Breakdown Chart - Show for all users when data is available */}
            {!isSuperAdmin && <MyReviewBreakdownChart />}
->>>>>>> 806eaccc59fc27e2197800a69be55dcac1fb5afb
         </div>
 
         {/* Debug Info - Remove in production 

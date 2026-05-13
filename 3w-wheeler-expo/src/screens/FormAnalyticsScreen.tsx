@@ -12,6 +12,8 @@ import {
   Image,
   Modal,
   Alert,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
@@ -53,16 +55,26 @@ const { width } = Dimensions.get('window');
 const SOCKET_URL = BASE_URL.replace('/api', '');
 
 const FormAnalyticsScreen = ({ route, navigation }: any) => {
-  const { title, id } = route.params || {};
+  const { title, id, activeTab: initialTab } = route.params || {};
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
   const isInspector = user?.role === 'inspector';
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'questions' | 'sections' | 'responses'>(isInspector ? 'responses' : 'sections');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'questions' | 'sections' | 'responses'>(initialTab || 'responses');
   const [zoomImage, setZoomImage] = useState<string | null>(null);
   const [isZoomVisible, setIsZoomVisible] = useState(false);
+
+  // Enable LayoutAnimation on Android
+  if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+  }
+
+  const switchTab = (tab: any) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setActiveTab(tab);
+  };
   
   // Helper to normalize image URLs
   const getImageUrl = (url: string) => {
@@ -96,6 +108,27 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
     }
   }, [id]);
   
+  const handleReviewSubmit = async (responseId: string, option: string) => {
+    try {
+      const payload = {
+        responseId,
+        reviewOption: option,
+        reviewerName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || user?.username || 'Admin',
+        reviewerId: user?._id || user?.id,
+        createdAt: new Date().toISOString()
+      };
+      
+      const response = await apiClient.post('/reviews', payload);
+      if (response.data.success) {
+        // Refresh data to show updated status
+        fetchAnalytics(true);
+      }
+    } catch (err: any) {
+      console.error('Review submission error:', err.message);
+      Alert.alert('Error', 'Failed to submit review');
+    }
+  };
+
   const toggleDispatch = async (responseId: string, currentStatus: boolean) => {
     try {
       const response = await apiClient.put(`/responses/${responseId}`, {
@@ -211,6 +244,9 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
       totalQuestions += sectionQuestions.length;
       
       sectionQuestions.forEach((question: any) => {
+        const qTitle = (question.title || question.text || question.label || '').toLowerCase();
+        if (qTitle.includes('chassis number') || qTitle.includes('chasis number')) return;
+
         let qYes = 0;
         let qNo = 0;
         let qNA = 0;
@@ -269,6 +305,62 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
       ? Math.round(totalSectionsScore / scoredSectionsCount) 
       : 0;
 
+    // --- DERIVED STATUS CALCULATION (Web Parity) ---
+    const responseStatuses: Record<string, string> = {};
+    const itemGroups: Record<string, any[]> = {};
+    
+    // Find Chassis Question ID
+    const chassisQuestion = sections.flatMap((s: any) => s.questions || []).find((q: any) => 
+      q.type === 'chassisNumber' || 
+      (q.title || q.text || q.label || '').toLowerCase().includes('chassis number') ||
+      (q.title || q.text || q.label || '').toLowerCase().includes('chasis number')
+    );
+    const cQId = chassisQuestion?.id || chassisQuestion?._id || 'chassis_number';
+
+    // Group and Sort
+    const sortedResponses = [...responses].sort((a, b) => 
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+
+    sortedResponses.forEach(r => {
+      const chassis = r.answers?.[cQId] || r.answers?.['chassis_number'] || r.chassisNumber || `unknown-${r.id}`;
+      if (!itemGroups[chassis]) itemGroups[chassis] = [];
+      itemGroups[chassis].push(r);
+    });
+
+    Object.entries(itemGroups).forEach(([chassis, group]) => {
+      let reworkCount = 0;
+      let hasBeenReworked = false;
+
+      group.forEach((r, idx) => {
+        let isRework = false;
+        let isAccepted = false;
+        let isRejected = false;
+
+        if (r.answers) {
+          Object.values(r.answers).forEach((ans: any) => {
+            const s = typeof ans === 'object' ? (ans.status || '').toLowerCase().trim() : String(ans).toLowerCase().trim();
+            if (s === 'rework' || s === 'reworked' || s.includes('re-rework')) isRework = true;
+            else if (['accepted', 'rework completed', 'verified', 'ok', 'yes', 'y'].includes(s)) isAccepted = true;
+            else if (['rejected', 'no', 'n'].includes(s)) isRejected = true;
+          });
+        }
+
+        if (isRejected || r.status === 'rejected') {
+          responseStatuses[r.id || r._id] = "Rejected";
+        } else if (isRework) {
+          reworkCount++;
+          hasBeenReworked = true;
+          responseStatuses[r.id || r._id] = `Rework ${reworkCount}`;
+        } else if (isAccepted || r.status === 'verified') {
+          if (idx === 0 && !hasBeenReworked) responseStatuses[r.id || r._id] = "Direct Ok";
+          else responseStatuses[r.id || r._id] = "Rework Accepted";
+        } else {
+          responseStatuses[r.id || r._id] = (r.status || "Pending").toUpperCase();
+        }
+      });
+    });
+
     return { 
       sections: sectionsWithScores, 
       questions: allQuestionsWithStats,
@@ -277,7 +369,8 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
       totalFollowUps: followUps.length,
       globalAccepted,
       globalRejected,
-      globalRework
+      globalRework,
+      responseStatuses // Return the new mapping
     };
   };
 
@@ -289,7 +382,8 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
     totalFollowUps,
     globalAccepted,
     globalRejected,
-    globalRework
+    globalRework,
+    responseStatuses
   } = calculateRealMetrics();
 
   const renderDashboard = () => (
@@ -568,10 +662,6 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
                <Text style={styles.tableColHeader}>STATUS</Text>
                <Filter size={8} color="#94a3b8" />
             </View>
-            <View style={[styles.tableHeaderCell, { width: 150 }]}>
-               <Text style={styles.tableColHeader}>SELECTED CHASSIS</Text>
-               <Filter size={8} color="#94a3b8" />
-            </View>
             <View style={[styles.tableHeaderCell, { width: 220 }]}>
                <Text style={styles.tableColHeader}>REVIEW</Text>
                <Filter size={8} color="#94a3b8" />
@@ -582,6 +672,10 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
             </View>
             <View style={[styles.tableHeaderCell, { width: 100 }]}>
                <Text style={styles.tableColHeader}>TIME TAKEN</Text>
+            </View>
+            <View style={[styles.tableHeaderCell, { width: 150 }]}>
+               <Text style={styles.tableColHeader}>CHASSIS NUMBER</Text>
+               <Filter size={8} color="#94a3b8" />
             </View>
             
             {/* Dynamic Question Headers */}
@@ -609,9 +703,6 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
             <View style={[styles.tableCell, { width: 110, backgroundColor: '#fff7ed' }]}>
                <Text style={styles.expectedValue}>-</Text>
             </View>
-            <View style={[styles.tableCell, { width: 150, backgroundColor: '#fff7ed' }]}>
-               <Text style={styles.expectedValue}>-</Text>
-            </View>
             <View style={[styles.tableCell, { width: 220, backgroundColor: '#fff7ed' }]}>
                <Text style={styles.expectedValue}>-</Text>
             </View>
@@ -619,6 +710,9 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
                <Text style={styles.expectedValue}>-</Text>
             </View>
             <View style={[styles.tableCell, { width: 100, backgroundColor: '#fff7ed' }]}>
+               <Text style={styles.expectedValue}>-</Text>
+            </View>
+            <View style={[styles.tableCell, { width: 150, backgroundColor: '#fff7ed' }]}>
                <Text style={styles.expectedValue}>-</Text>
             </View>
             {realQuestions.map((q, qIdx) => (
@@ -697,11 +791,33 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
                       chassisNumber: resp.chassisNumber,
                       shift: resp.shift,
                       status: resp.status,
+                      isDispatched: resp.isDispatched,
+                      submittedBy: resp.submittedBy,
+                      submitterContact: resp.submitterContact,
                       readOnly: true 
                     })}
                   >
                     <Eye size={12} color="#64748b" />
                   </TouchableOpacity>
+
+                  {/* Direct Review Actions (Web Parity) */}
+                  {user?.role !== 'inspector' && (
+                    <>
+                      <TouchableOpacity 
+                        style={[styles.actionIconBtn, { backgroundColor: '#ecfdf5' }]}
+                        onPress={() => handleReviewSubmit(resp.id || resp._id, 'Accepted')}
+                      >
+                        <CheckCircle2 size={12} color="#059669" />
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={[styles.actionIconBtn, { backgroundColor: '#fff7ed' }]}
+                        onPress={() => handleReviewSubmit(resp.id || resp._id, 'Rework')}
+                      >
+                        <RefreshCw size={12} color="#d97706" />
+                      </TouchableOpacity>
+                    </>
+                  )}
+
                   {resp.isDispatched && (
                     <TouchableOpacity 
                       style={[styles.actionIconBtn, { backgroundColor: '#e0e7ff' }]}
@@ -723,35 +839,29 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
                   ) : null}
                 </View>
 
-                <View style={[styles.tableCell, { width: 110 }]}>
-                  <View style={[
-                    styles.statusBadgeSmall, 
-                    { 
-                      backgroundColor: 
-                        String(resp.status).toLowerCase().includes('rework') ? '#fff7ed' : 
-                        String(resp.status).toLowerCase().includes('accepted') || String(resp.status).toLowerCase().includes('verified') || String(resp.status).toLowerCase().includes('ok') || String(resp.status).toLowerCase().includes('direct') ? '#ecfdf5' : 
-                        String(resp.status).toLowerCase().includes('rejected') ? '#fef2f2' : '#f1f5f9' 
-                    }
-                  ]}>
-                    <Text style={[
-                      styles.statusBadgeTextSmall, 
-                      { 
-                        color: 
-                          String(resp.status).toLowerCase().includes('rework') ? '#d97706' : 
-                          String(resp.status).toLowerCase().includes('accepted') || String(resp.status).toLowerCase().includes('verified') || String(resp.status).toLowerCase().includes('ok') || String(resp.status).toLowerCase().includes('direct') ? '#059669' : 
-                          String(resp.status).toLowerCase().includes('rejected') ? '#ef4444' : '#64748b' 
-                      }
-                    ]}>
-                      {(resp.status || 'PENDING').toString().toUpperCase()}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={[styles.tableCell, { width: 150 }]}>
-                   <Text style={styles.tableTextMain}>
-                    {resp.answers?.chassis_number || resp.chassisNumber || (resp.answers instanceof Map ? (resp.answers.get('chassisNumber') || resp.answers.get('chassis_number')) : (resp.answers?.chassisNumber)) || '-'}
-                   </Text>
-                </View>
+                 <View style={[styles.tableCell, { width: 110 }]}>
+                   <View style={[
+                     styles.statusBadgeSmall, 
+                     { 
+                       backgroundColor: 
+                         (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('rework') ? '#fff7ed' : 
+                         (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('accepted') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('verified') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('ok') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('direct') ? '#ecfdf5' : 
+                         (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('rejected') ? '#fef2f2' : '#f1f5f9' 
+                     }
+                   ]}>
+                     <Text style={[
+                       styles.statusBadgeTextSmall, 
+                       { 
+                         color: 
+                           (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('rework') ? '#d97706' : 
+                           (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('accepted') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('verified') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('ok') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('direct') ? '#059669' : 
+                           (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('rejected') ? '#ef4444' : '#64748b' 
+                       }
+                     ]}>
+                       {responseStatuses[resp.id || resp._id] || 'PENDING'}
+                     </Text>
+                   </View>
+                 </View>
 
                 {/* REVIEW COLUMN (Web Parity) */}
                 <View style={[styles.tableCell, { width: 220 }]}>
@@ -795,6 +905,14 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
                       <Text style={styles.tableTextSub}>-</Text>
                     );
                   })()}
+                </View>
+
+                <View style={[styles.tableCell, { width: 150 }]}>
+                   <View style={styles.chassisBadge}>
+                    <Text style={styles.chassisBadgeText}>
+                      {resp.answers?.chassis_number || resp.chassisNumber || (resp.answers instanceof Map ? (resp.answers.get('chassisNumber') || resp.answers.get('chassis_number')) : (resp.answers?.chassisNumber)) || '-'}
+                    </Text>
+                   </View>
                 </View>
 
                 {/* Dynamic Question Cells */}
@@ -1051,21 +1169,21 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
             <>
               <TouchableOpacity 
                 style={[styles.tabItem, activeTab === 'dashboard' && styles.activeTabItem]} 
-                onPress={() => setActiveTab('dashboard')}
+                onPress={() => switchTab('dashboard')}
               >
                 <LayoutDashboard size={18} color={activeTab === 'dashboard' ? '#1e3a8a' : '#64748b'} />
                 <Text style={[styles.tabText, activeTab === 'dashboard' && styles.activeTabText]}>Dashboard</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={[styles.tabItem, activeTab === 'questions' && styles.activeTabItem]} 
-                onPress={() => setActiveTab('questions')}
+                onPress={() => switchTab('questions')}
               >
                 <TrendingUp size={18} color={activeTab === 'questions' ? '#1e3a8a' : '#64748b'} />
                 <Text style={[styles.tabText, activeTab === 'questions' && styles.activeTabText]}>Questions</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={[styles.tabItem, activeTab === 'sections' && styles.activeTabItem]} 
-                onPress={() => setActiveTab('sections')}
+                onPress={() => switchTab('sections')}
               >
                 <PieChart size={18} color={activeTab === 'sections' ? '#1e3a8a' : '#64748b'} />
                 <Text style={[styles.tabText, activeTab === 'sections' && styles.activeTabText]}>Sections</Text>
@@ -1074,7 +1192,7 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
           )}
           <TouchableOpacity 
             style={[styles.tabItem, activeTab === 'responses' && styles.activeTabItem]} 
-            onPress={() => setActiveTab('responses')}
+            onPress={() => switchTab('responses')}
           >
             <MessageSquare size={18} color={activeTab === 'responses' ? '#1e3a8a' : '#64748b'} />
             <Text style={[styles.tabText, activeTab === 'responses' && styles.activeTabText]}>Responses</Text>
@@ -2451,6 +2569,19 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: '700',
     color: '#475569',
+  },
+  chassisBadge: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+  },
+  chassisBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#1e40af',
   },
 });
 
