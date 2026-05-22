@@ -1379,7 +1379,6 @@ export const getSuggestedAnswers = async (req, res) => {
     const queryStartTime = Date.now();
     // Fetch top 5 matching responses to find the one with the most data
     const matchingResponses = await Response.find(query)
-      .populate('createdBy', 'firstName lastName username email')
       .sort({ isSectionSubmit: 1, createdAt: -1 })
       .limit(5)
       .lean();
@@ -1409,47 +1408,16 @@ export const getSuggestedAnswers = async (req, res) => {
 
     console.log(`[SUGGESTIONS] Found ${sortedResponses.length} matches.`);
 
-    // Fetch reviews for these suggestions
-    const responseIds = sortedResponses.map(r => r.id).filter(Boolean);
-    const reviews = await Review.find({ 
-      responseId: { $in: responseIds } 
-    }).lean();
-    
-    const reviewMap = reviews.reduce((acc, r) => {
-      acc[r.responseId] = r;
-      return acc;
-    }, {});
-
     const suggestions = sortedResponses.map((resp, index) => {
       let answersObj = resp.answers || {};
       if (answersObj instanceof Map) {
         answersObj = Object.fromEntries(answersObj);
       }
-      
-      const review = reviewMap[resp.id];
-      
-      // Resolve submitter name
-      let submittedBy = resp.submittedBy || 'Anonymous';
-      if ((!submittedBy || submittedBy === 'Anonymous') && resp.createdBy) {
-        if (resp.createdBy.firstName || resp.createdBy.lastName) {
-          submittedBy = `${resp.createdBy.firstName || ''} ${resp.createdBy.lastName || ''}`.trim();
-        } else {
-          submittedBy = resp.createdBy.username || resp.createdBy.email || submittedBy;
-        }
-      }
-
       return {
         rank: index + 1,
         answers: answersObj,
         timestamp: resp.createdAt,
-        id: resp.id || resp._id,
-        status: resp.status,
-        submittedBy,
-        review: review ? {
-          option: review.reviewOption,
-          reviewer: review.reviewerName,
-          createdAt: review.createdAt
-        } : null
+        id: resp.id || resp._id
       };
     });
 
@@ -1785,7 +1753,53 @@ export const getAllResponses = async (req, res) => {
       includePartial = 'false'
     } = req.query;
 
-    const query = { ...req.tenantFilter };
+    let query = {};
+    if (req.user && req.user.role !== 'superadmin') {
+      const userTenantId = req.user.tenantId;
+
+      // Find all forms that are owned by, shared with, or chassis-assigned to the user's tenant
+      const accessibleForms = await Form.find({
+        $or: [
+          { tenantId: userTenantId },
+          { sharedWithTenants: userTenantId },
+          { "chassisTenantAssignments.assignedTenants": userTenantId?.toString() }
+        ]
+      }).select('id _id');
+
+      const accessibleFormIds = accessibleForms.flatMap(f => [f.id, f._id.toString()]).filter(Boolean);
+
+      if (req.user.role === 'inspector') {
+        const userEmail = req.user.email || '';
+        const userUsername = req.user.username || '';
+        const userId = req.user._id;
+
+        // Inspector sees own submissions (any tenant) OR different tenant submissions,
+        // but still limited to accessible forms!
+        query.$and = [
+          { questionId: { $in: accessibleFormIds } },
+          {
+            $or: [
+              { createdBy: userId },
+              { submittedBy: userEmail },
+              { submittedBy: userUsername },
+              { "submitterContact.email": userEmail },
+              { tenantId: { $ne: userTenantId } }
+            ]
+          }
+        ];
+      } else {
+        // Admin / subadmin / other roles see:
+        // - Responses in their own tenant, OR
+        // - Responses for forms shared with their tenant!
+        query.$or = [
+          { tenantId: userTenantId },
+          { questionId: { $in: accessibleFormIds } }
+        ];
+      }
+    } else {
+      // Superadmin sees everything (no restriction)
+      query = {};
+    }
 
     // Filter out partial submissions unless explicitly requested
     if (includePartial !== 'true') {
@@ -2188,13 +2202,24 @@ export const getResponsesByForm = async (req, res) => {
     }
 
     // Apply tenant filtering
-    // Inspector sees all responses in their tenant for the form they have access to
-    console.log('[GET RESPONSES] Role check - role:', req.user.role, 'userId:', req.user._id, 'tenantId:', req.user.tenantId, 'email:', req.user.email);
-    
-    if (isOwner || isSuperAdmin) {
-      Object.assign(query, req.tenantFilter);
-    } else if (req.user.role === 'inspector') {
-      // Inspectors see all responses for the tenant they belong to
+    console.log('[GET RESPONSES] Inspector check - role:', req.user.role, 'userId:', req.user._id, 'tenantId:', req.user.tenantId, 'email:', req.user.email);
+    if (req.user.role === 'inspector') {
+      const userEmail = req.user.email || '';
+      const userUsername = req.user.username || '';
+      const userId = req.user._id;
+      const userTenantId = req.user.tenantId;
+
+      query.$or = [
+        { createdBy: userId },
+        { submittedBy: userEmail },
+        { submittedBy: userUsername },
+        { "submitterContact.email": userEmail },
+        { tenantId: { $ne: userTenantId } }
+      ];
+
+      console.log('[INSPECTOR] Filtering responses for user with inspector visibility rules:', userId, userEmail);
+      console.log('[INSPECTOR] Query $or:', JSON.stringify(query.$or));
+    } else if (isOwner || isSuperAdmin) {
       Object.assign(query, req.tenantFilter);
     } else if (!isShared && !hasChassisShare) {
       Object.assign(query, req.tenantFilter);
@@ -2306,21 +2331,12 @@ export const getResponsesByForm = async (req, res) => {
         flaggedQuestions: message ? message.questionContexts.map(c => c.title) : []
       } : null;
       
-      // Extract chassis number and time spent for mobile analytics parity
-      const answers = response.answers instanceof Map ? Object.fromEntries(response.answers) : (response.answers || {});
-      const chassisNumber = answers.chassis_number || answers.chassisNumber || response.chassisNumber || '-';
-      const timeSpent = response.timeSpent || 0;
-
       return {
         ...responseObj,
-        answers,
+        answers: response.answers ? Object.fromEntries(response.answers) : {},
         responseRanks: response.responseRanks ? Object.fromEntries(response.responseRanks) : {},
         submissionMetadata: responseObj.submissionMetadata || null,
         submittedBy: displaySubmittedBy, // Override with better display name
-        inspectorName: displaySubmittedBy, // Alias for mobile app
-        chassisNumber,
-        timeSpent,
-        totalTimeSpent: timeSpent, // Alias for mobile app
         review: reviewInfo
       };
     });
@@ -2396,7 +2412,20 @@ export const exportResponses = async (req, res) => {
     const query = { questionId: formId };
 
     // Apply tenant filtering
-    if (isOwner || isSuperAdmin) {
+    if (req.user.role === 'inspector') {
+      const userEmail = req.user.email || '';
+      const userUsername = req.user.username || '';
+      const userId = req.user._id;
+      const userTenantId = req.user.tenantId;
+
+      query.$or = [
+        { createdBy: userId },
+        { submittedBy: userEmail },
+        { submittedBy: userUsername },
+        { "submitterContact.email": userEmail },
+        { tenantId: { $ne: userTenantId } }
+      ];
+    } else if (isOwner || isSuperAdmin) {
       Object.assign(query, req.tenantFilter);
     } else if (!isShared && !hasChassisShare) {
       Object.assign(query, req.tenantFilter);

@@ -14,21 +14,26 @@ import {
   submitReview,
   getReviewsForResponse
 } from '../controllers/userController.js';
-import { authenticate, adminOnly } from '../middleware/auth.js';
+import { authenticate, adminOnly, inspectorOrAdmin, authorize } from '../middleware/auth.js';
 import { addTenantFilter } from '../middleware/tenantIsolation.js';
 import { validateUserCreation } from '../middleware/validation.js';
-import {  inspectorOrAdmin } from '../middleware/auth.js';
 
 
 const router = express.Router();
 
-// Users management routes
+// All routes require authentication and admin privileges
+router.get('/reviews/:responseId', getReviewsForResponse);
 
 
 router.use(authenticate);
 
 // Performance scores routes - bypass tenant filter for cross-tenant visibility
 router.get('/performance-scores', inspectorOrAdmin, getPerformanceScores);
+
+// @route   POST /api/users/reviews
+// @desc    Submit a review
+// @access  Private (Admin, SuperAdmin, SubAdmin, Inspector)
+router.post('/reviews', authorize('admin', 'superadmin', 'subadmin', 'inspector'), submitReview);
 
 router.use(addTenantFilter);
 router.use(adminOnly);
@@ -57,8 +62,6 @@ router.get('/all-tenants-performance', getAllTenantsPerformance);
 // @desc    Get all performance scores
 // @access  Private (Admin only)
 
-// Review submission route moved to responseRoutes.js to avoid path conflicts
-
 
 
 // @route   GET /api/users/:id
@@ -80,15 +83,5 @@ router.delete('/:id', deleteUser);
 // @desc    Reset user password
 // @access  Private (Admin only)
 router.put('/:id/reset-password', resetUserPassword);
-
-// DEBUG: Log all registered routes
-console.log('\n=== Registered User Routes ===');
-router.stack.forEach((layer) => {
-  if (layer.route) {
-    const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
-    console.log(`${methods} ${layer.route.path}`);
-  }
-});
-console.log('=== End Registered User Routes ===\n');
 
 export default router;
