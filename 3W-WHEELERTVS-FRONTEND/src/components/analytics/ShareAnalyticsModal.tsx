@@ -3,7 +3,7 @@ import {
   X, 
   Upload, 
   Mail, 
-  MessageSquare, 
+  MessageCircle, 
   CheckCircle, 
   AlertCircle, 
   FileText,
@@ -168,8 +168,8 @@ export default function ShareAnalyticsModal({
         setIsSending(true); // Ensure state is correct
         try {
           const chartElementIds = [
-            'overall-quality-chart', 'direct-accepted-chart', 'performance-trend-chart',
-            'inspection-status-distribution-chart', 'status-trends-rework-chart',
+            'overall-quality-chart', 'inspection-status-distribution-chart', 'performance-trend-chart',
+            'status-trends-rework-chart',
             'defect-distribution-chart', 'issue-percentage-chart'
           ];
           
@@ -434,7 +434,7 @@ export default function ShareAnalyticsModal({
                         : 'border-gray-200 dark:border-gray-700 text-gray-500'}
                     `}
                   >
-                    <MessageSquare className="w-5 h-5" />
+                    <MessageCircle className="w-5 h-5" />
                     <span className="font-semibold">WhatsApp</span>
                   </button>
                 </div>

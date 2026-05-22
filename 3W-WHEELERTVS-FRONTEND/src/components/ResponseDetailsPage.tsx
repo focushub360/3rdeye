@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
-  Eye,
   Calendar,
   FileText,
   User,
@@ -15,17 +14,14 @@ import {
   BarChart3,
   PieChart,
   Activity,
-  Zap,
   Target,
   Award,
   Users,
   FileCheck,
   AlertTriangle,
-  Save,
   ChevronDown,
   MapPin,
   ArrowLeft,
-  TrendingUp,
 } from "lucide-react";
 import { Bar, Line, Pie, Radar } from "react-chartjs-2";
 import {
@@ -1553,11 +1549,15 @@ const handleBulkDownloadZip = async () => {
         const mainQuestion = {
           id: question.id,
           title: question.title || question.label || question.text,
+          description: question.description,
+          instructions: question.instructions,
           subParam1: question.subParam1,
           yesNoValues,
           followUpQuestions: followUpQuestionsForThis.map((fq: any) => ({
             id: fq.id || fq._id,
             title: fq.title || fq.label || fq.text,
+            description: fq.description,
+            instructions: fq.instructions,
             subParam1: fq.subParam1,
             answer: response.answers?.[fq.id || fq._id],
           })),
@@ -1938,55 +1938,57 @@ const handleBulkDownloadZip = async () => {
       <div className="px-6 md:px-8 py-6">
 
         {/* View Mode Tabs & Back Button */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex gap-1 bg-white dark:bg-gray-700 rounded-lg p-1 w-fit border border-gray-200 dark:border-gray-600">
-            <button
-              onClick={() => setViewMode("dashboard")}
-              className={`flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
-                viewMode === "dashboard"
-                    ? "text-white"
-                    : "text-gray-900 dark:text-gray-100 hover:text-black dark:hover:text-white"
-              }`}
-              style={{ backgroundColor: viewMode === "dashboard" ? "#1e3a8a" : "transparent" }}
-            >
-              <BarChart3 className="w-4 h-4" />
-              Dashboard
-            </button>
-            <button
-              onClick={() => setViewMode("responses")}
-              className={`flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
-                viewMode === "responses"
-                    ? "text-white"
-                    : "text-gray-900 dark:text-gray-100 hover:text-black dark:hover:text-white"
-              }`}
-              style={{ backgroundColor: viewMode === "responses" ? "#1e3a8a" : "transparent" }}
-            >
-              <FileText className="w-4 h-4" />
-              Responses
-            </button>
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex gap-1 bg-white dark:bg-gray-700 rounded-lg p-1 w-fit border border-gray-200 dark:border-gray-600">
+              <button
+                onClick={() => setViewMode("dashboard")}
+                className={`flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
+                  viewMode === "dashboard"
+                      ? "text-white"
+                      : "text-gray-900 dark:text-gray-100 hover:text-black dark:hover:text-white"
+                }`}
+                style={{ backgroundColor: viewMode === "dashboard" ? "#1e3a8a" : "transparent" }}
+              >
+                <BarChart3 className="w-4 h-4" />
+                Dashboard
+              </button>
+              <button
+                onClick={() => setViewMode("responses")}
+                className={`flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
+                  viewMode === "responses"
+                      ? "text-white"
+                      : "text-gray-900 dark:text-gray-100 hover:text-black dark:hover:text-white"
+                }`}
+                style={{ backgroundColor: viewMode === "responses" ? "#1e3a8a" : "transparent" }}
+              >
+                <FileText className="w-4 h-4" />
+                Responses
+              </button>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="text-left">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white leading-tight">
+                  {form.title}
+                </h2>
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  Comprehensive analysis and insights
+                </p>
+              </div>
+              <div className="h-8 w-px bg-gray-300 dark:bg-gray-600 hidden sm:block"></div>
+              <div className="text-left hidden sm:block">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Submitted
+                </p>
+                <p className="text-xs font-semibold text-gray-900 dark:text-white">
+                  {formatTimestamp(response.createdAt)}
+                </p>
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-6 mx-4">
-            <div className="text-center">
-              <h2 className="text-lg font-bold text-gray-900 dark:text-white leading-tight">
-                {form.title}
-              </h2>
-              <p className="text-xs text-gray-600 dark:text-gray-400">
-                Comprehensive analysis and insights
-              </p>
-            </div>
-            <div className="h-8 w-px bg-gray-300 dark:bg-gray-600 hidden sm:block"></div>
-            <div className="text-center hidden sm:block">
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Submitted
-              </p>
-              <p className="text-xs font-semibold text-gray-900 dark:text-white">
-                {formatTimestamp(response.createdAt)}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleEditResponse}
               className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white rounded-lg transition-all duration-200 hover:opacity-90"
@@ -2008,6 +2010,7 @@ const handleBulkDownloadZip = async () => {
             </button>
 
             {viewMode === "responses" && (
+              <>
                 <button
                 onClick={() => handleExportExcel()}
                 disabled={exportingExcel}
@@ -2024,6 +2027,24 @@ const handleBulkDownloadZip = async () => {
                   {exportingExcel ? "Exporting..." : "Excel"}
                 </span>
                 </button>
+
+                <button
+                  onClick={() => handleDownloadPDF('responses-view')}
+                  disabled={generatingPDF}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white rounded-lg transition-all duration-200 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ backgroundColor: "#0891b2" }}
+                  title="Download PDF"
+                >
+                  {generatingPDF ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <FileText className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">
+                    {generatingPDF ? "Generating..." : "PDF"}
+                  </span>
+                </button>
+              </>
             )}
 
             {viewMode === "dashboard" && (
@@ -2177,9 +2198,9 @@ const handleBulkDownloadZip = async () => {
           filteredSectionStats.length > 0 ? (
             <div className="space-y-5 flex flex-col" style={{ gap: "1.25rem" }}>
               {/* Two-Column Layout: Stats (25%) and Basic Information (75%) */}
-              <div className="flex gap-5 items-stretch">
+              <div className="flex flex-col lg:flex-row gap-5 items-stretch">
                 {/* Stats Cards - 25% */}
-                <div className="w-1/4 flex flex-col gap-2">
+                <div className="w-full lg:w-1/4 flex flex-col gap-2">
                   <div className="bg-blue-50 dark:bg-blue-900/20 p-2.5 rounded-lg border border-blue-200 dark:border-blue-700 transition-shadow duration-300">
                     <div className="flex items-start justify-between gap-2">
                       <div>
@@ -2339,7 +2360,7 @@ const handleBulkDownloadZip = async () => {
                 </div>
 
                 {/* Basic Information - 75% */}
-                <div className="w-3/4 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
+                <div className="w-full lg:w-3/4 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
                 {form?.sections && form.sections.length > 0 ? (
                   (() => {
                     const section = form.sections[0];
@@ -3330,9 +3351,9 @@ const handleBulkDownloadZip = async () => {
                       </div>
                     );
                   })()}
-                  </div>
-                );
-              })}
+                </div>
+              );
+            })}
 
 
 
@@ -3396,782 +3417,379 @@ const handleBulkDownloadZip = async () => {
             </div>
           )
     ) : (
-  <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-      <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-        Form Responses
-      </h3>
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          onClick={() => handleDownloadPDF('responses-view')}
-          disabled={generatingPDF || exportingZip}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-bold text-white rounded-xl transition-all duration-300 hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ backgroundColor: "#0891b2" }}
-        >
-          {generatingPDF ? (
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <FileText className="w-4 h-4" />
-          )}
-          <span>{generatingPDF ? "Generating PDF..." : "Download as PDF"}</span>
-        </button>
-        <button
-          onClick={handleBulkDownloadZip}
-          disabled={generatingPDF || exportingZip}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-bold text-white rounded-xl transition-all duration-300 hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ backgroundColor: "#0e7490" }}
-        >
-          {exportingZip ? (
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <Download className="w-4 h-4" />
-          )}
-          <span>{exportingZip ? "Preparing ZIP..." : "Bulk Download (ZIP)"}</span>
-        </button>
-      </div>
-    </div>
-    
-{/* Structured Table View */}
-<div className="overflow-x-auto">
-  {(() => {
-    const allRows: Array<{
-      id: string;
-      questionText: string;
-      subParam1?: string;
-      subParam2?: string;
-      answer: any;
-      sectionTitle: string;
-    }> = [];
-
-    form?.sections?.forEach((section: any) => {
-      section.questions?.forEach((question: any) => {
-        const answer = response?.answers?.[question.id];
-        if (answer !== undefined && answer !== null && answer !== '') {
-          allRows.push({
-            id: question.id,
-            questionText: question.text || question.label || question.id,
-            subParam1: question.subParam1,
-            subParam2: question.subParam2,
-            answer,
-            sectionTitle: section.title || "Untitled Section"
-          });
-        }
-        question.followUpQuestions?.forEach((followUp: any) => {
-          const followUpAnswer = response?.answers?.[followUp.id];
-          if (followUpAnswer !== undefined && followUpAnswer !== null && followUpAnswer !== '') {
-            allRows.push({
-              id: followUp.id,
-              questionText: followUp.text || followUp.label || followUp.id,
-              subParam1: followUp.subParam1,
-              subParam2: followUp.subParam2,
-              answer: followUpAnswer,
-              sectionTitle: section.title || "Untitled Section"
-            });
-          }
-        });
-      });
-    });
-
-    form?.followUpQuestions?.forEach((followUp: any) => {
-      const followUpAnswer = response?.answers?.[followUp.id];
-      if (followUpAnswer !== undefined && followUpAnswer !== null && followUpAnswer !== '') {
-        allRows.push({
-          id: followUp.id,
-          questionText: followUp.text || followUp.label || followUp.id,
-          subParam1: followUp.subParam1,
-          subParam2: followUp.subParam2,
-          answer: followUpAnswer,
-          sectionTitle: "Follow-up Questions"
-        });
-      }
-    });
-
-    const isZoneStructured = (val: any): boolean => {
-      if (!val || typeof val !== 'object') return false;
-      // Only treat as structured if it has hierarchical zone data or explicit defects
-      return ('zonesData' in val && Object.keys(val.zonesData || {}).length > 0) || 
-             ('defects' in val && Array.isArray(val.defects) && val.defects.length > 0);
-    };
-
-    const renderSimpleAnswer = (val: any): React.ReactNode => {
-      if (val === null || val === undefined || val === '') return <span className="text-gray-400 italic text-xs">-</span>;
-      if (typeof val === 'string') {
-        if (isImageUrl(val)) return <ImageLink text={val} />;
-        return <span className="text-sm">{val}</span>;
-      }
-      if (Array.isArray(val)) {
-        return (
-          <div className="flex flex-col gap-1">
-            {val.map((v, i) => <div key={i}>{renderSimpleAnswer(v)}</div>)}
+      <div className="bg-gray-50 dark:bg-gray-950 p-2 sm:p-6 min-h-screen">
+        <div className="max-w-[1600px] mx-auto bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+          {/* Main Header */}
+          <div className="bg-[#1e3a8a] p-4 flex justify-between items-center">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold tracking-wider uppercase text-white">
+                {form?.title || "Mystery Shop Checklist"}
+              </h1>
+              {form?.description && (
+                <p className="text-blue-100 text-sm mt-1 font-medium italic opacity-90">
+                  {form.description}
+                </p>
+              )}
+            </div>
+            {logo && (
+              <div className="bg-white/10 p-2 rounded-lg backdrop-blur-sm border border-white/20">
+                <img src={logo} alt="Logo" className="h-10 sm:h-12 object-contain" />
+              </div>
+            )}
           </div>
-        );
-      }
-      if (typeof val === 'object') {
-        if (val.url && isImageUrl(String(val.url))) return <ImageLink text={val.url} />;
-        if (val.answer !== undefined) return renderSimpleAnswer(val.answer);
 
-        // Special handling for chassis/zone types in simple view
-        const isChassisType = 'chassisNumber' in val || 'status' in val || 'zone' in val || 'zones' in val;
-        if (isChassisType) {
-          const parts = [];
-          if (val.status) parts.push(<div key="status" className="flex gap-1"><span className="font-bold text-orange-600 dark:text-orange-400 text-[10px] uppercase">Status:</span><span className="text-xs font-semibold">{val.status}</span></div>);
-          if (val.chassisNumber) parts.push(<div key="chassis" className="flex gap-1"><span className="font-bold text-blue-600 dark:text-blue-400 text-[10px] uppercase">Chassis:</span><span className="text-xs font-semibold">{val.chassisNumber}</span></div>);
-          const zones = val.zone || val.zones;
-          if (zones) {
-            const zonesStr = Array.isArray(zones) ? zones.join(', ') : zones;
-            if (zonesStr) parts.push(<div key="zones" className="flex gap-1"><span className="font-bold text-indigo-600 dark:text-indigo-400 text-[10px] uppercase">Zones:</span><span className="text-xs font-semibold">{zonesStr}</span></div>);
-          }
-          if (val.remark) parts.push(<div key="remark" className="flex gap-1 mt-0.5"><span className="font-bold text-gray-500 text-[10px] uppercase">Remark:</span><span className="text-xs italic text-gray-600 dark:text-gray-400">📝 {val.remark}</span></div>);
-          if (val.evidenceUrl) {
-            parts.push(
-              <div key="evidence" className="mt-1">
-                {isImageUrl(val.evidenceUrl) ? <ImageLink text={val.evidenceUrl} /> : <a href={val.evidenceUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 underline font-bold uppercase tracking-tighter">View Evidence</a>}
+          {/* Sections */}
+          {form.sections?.map((section: any) => {
+            const stats = getSectionYesNoQuestionStats(section.id);
+            const sectionQuestions = getSectionQuestionsWithFollowUps(section.id);
+            if (sectionQuestions.length === 0) return null;
+
+            const sectionTotals = stats.reduce(
+              (acc, s) => ({
+                yes: acc.yes + s.yes,
+                no: acc.no + s.no,
+                correct: acc.correct + s.correct,
+                wrong: acc.wrong + s.wrong,
+                total: acc.total + s.total
+              }),
+              { yes: 0, no: 0, correct: 0, wrong: 0, total: 0 }
+            );
+
+            const score = sectionTotals.total > 0 
+              ? (((sectionTotals.yes + sectionTotals.correct) / (sectionTotals.yes + sectionTotals.no + sectionTotals.correct + sectionTotals.wrong)) * 100).toFixed(2)
+              : "0.00";
+
+            return (
+              <div key={section.id} className="mb-0">
+                {/* Section Header */}
+                <div className="bg-[#1e3a8a] p-3 flex justify-between items-center sticky top-0 z-10">
+                  <h3 className="text-sm sm:text-base font-bold uppercase tracking-wider text-white">{section.title}</h3>
+                  <div className="text-sm font-black text-white">
+                    {score}% ({sectionTotals.yes + sectionTotals.correct} / {sectionTotals.yes + sectionTotals.no + sectionTotals.correct + sectionTotals.wrong})
+                  </div>
+                </div>
+
+                {/* Questions */}
+                <div className="divide-y divide-gray-200 dark:divide-gray-800">
+                  {sectionQuestions.map((q: any, qIdx: number) => {
+                    const answer = q.answer || response.answers?.[q.id];
+                    
+                    return (
+                      <div key={q.id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                        <div className="flex justify-between gap-4 mb-2">
+                          <div className="flex gap-3">
+                            <span className="text-sm font-bold text-gray-900 dark:text-white flex-shrink-0">{qIdx + 1}.</span>
+                            <div className="flex flex-col gap-2 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {q.subParam1 && (
+                                  <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded">
+                                    {q.subParam1}
+                                  </span>
+                                )}
+                                <div className="text-sm font-bold text-gray-800 dark:text-gray-200">
+                                  {q.title}
+                                </div>
+                              </div>
+                              {(q.description || q.instructions) && (
+                                <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed bg-gray-50 dark:bg-gray-800/50 px-2 py-1.5 rounded border-l-2 border-blue-400 w-fit max-w-full">
+                                  {q.description && <div className="mb-0.5">{q.description}</div>}
+                                  {q.instructions && <div className="font-medium italic text-[10px] opacity-80">{q.instructions}</div>}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-xs font-bold text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                            {(() => {
+                              const s = stats.find(stat => stat.id === q.id);
+                              if (!s) return "";
+                              return `${s.yes + s.correct}/${s.total}`;
+                            })()}
+                          </div>
+                        </div>
+                        <div className="ml-8">
+                          <div className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                            {(() => {
+                              const trackingValue = response.answers?.[`${q.id}_tracking`];
+                              
+                              const renderRemark = (obj: any) => {
+                                const remark = obj?.remark || obj?.remarks || obj?.comment || obj?.notes;
+                                if (!remark) return null;
+                                return (
+                                  <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg border-l-4 border-amber-400 font-medium italic mt-2">
+                                    <span className="font-bold uppercase text-[10px] block mb-1 not-italic opacity-70">Remark:</span>
+                                    "{remark}"
+                                  </div>
+                                );
+                              };
+
+                              const renderTracking = (val: any) => {
+                                if (!val) return null;
+                                return (
+                                  <div className="text-xs text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-2 rounded-lg border-l-4 border-blue-400 font-medium italic mt-2">
+                                    <span className="font-bold uppercase text-[10px] block mb-1 not-italic opacity-70">Tracking:</span>
+                                    {String(val)}
+                                  </div>
+                                );
+                              };
+
+                              if (typeof answer === 'object' && answer !== null) {
+                                const displayValue = answer.answer !== undefined ? String(answer.answer) : (answer.status || JSON.stringify(answer));
+                                
+                                return (
+                                  <div className="flex flex-col">
+                                    <div>{displayValue}</div>
+                                    {renderRemark(answer)}
+                                    {renderTracking(trackingValue)}
+                                  </div>
+                                );
+                              }
+                              
+                              return (
+                                <div className="flex flex-col">
+                                  <div>{String(answer)}</div>
+                                  {renderTracking(trackingValue)}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                          
+                          {/* Follow-up / Remark Handling */}
+                          {q.followUpQuestions?.map((fu: any) => {
+                            const fuAns = fu.answer || response.answers?.[fu.id];
+                            const fuTracking = response.answers?.[`${fu.id}_tracking`];
+                            if (!fuAns && !fuTracking) return null;
+
+                            const renderRemark = (obj: any) => {
+                              const remark = obj?.remark || obj?.remarks || obj?.comment || obj?.notes;
+                              if (!remark) return null;
+                              return (
+                                <div className="text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/10 px-2 py-1 rounded border-l-2 border-amber-400 italic mt-1">
+                                  "{remark}"
+                                </div>
+                              );
+                            };
+
+                            const renderTracking = (val: any) => {
+                              if (!val) return null;
+                              return (
+                                <div className="text-[11px] text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/10 px-2 py-1 rounded border-l-2 border-blue-400 italic mt-1">
+                                  <span className="font-bold uppercase text-[9px] mr-1 not-italic">Tracking:</span>
+                                  {String(val)}
+                                </div>
+                              );
+                            };
+
+                            return (
+                              <div key={fu.id} className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                                <div className="flex flex-col gap-1 mb-1">
+                                  {fu.subParam1 && (
+                                    <span className="text-[9px] font-bold text-blue-500 dark:text-blue-400 uppercase tracking-tighter w-fit">
+                                      {fu.subParam1}
+                                    </span>
+                                  )}
+                                  <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">{fu.title}:</div>
+                                </div>
+                                <div className="text-sm text-gray-700 dark:text-gray-300 italic">
+                                  {(() => {
+                                    if (typeof fuAns === 'object' && fuAns !== null) {
+                                      const display = fuAns.answer !== undefined ? String(fuAns.answer) : (fuAns.status || JSON.stringify(fuAns));
+                                      return (
+                                        <div className="flex flex-col">
+                                          <div>{display}</div>
+                                          {renderRemark(fuAns)}
+                                          {renderTracking(fuTracking)}
+                                        </div>
+                                      );
+                                    }
+                                    return (
+                                      <div className="flex flex-col">
+                                        {fuAns && <div>{String(fuAns)}</div>}
+                                        {renderTracking(fuTracking)}
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Evidence & Remarks Grid for Section */}
+                {(() => {
+                  const images: string[] = [];
+                  const remarks: Array<{ title: string, answer: string, subParam?: string, description?: string, instructions?: string }> = [];
+
+                  const collectImages = (obj: any) => {
+                    if (!obj) return;
+                    if (typeof obj === 'string' && isImageUrl(obj)) {
+                      images.push(obj);
+                    } else if (Array.isArray(obj)) {
+                      obj.forEach(collectImages);
+                    } else if (typeof obj === 'object') {
+                      if (obj.url && isImageUrl(String(obj.url))) images.push(String(obj.url));
+                      if (obj.answer && isImageUrl(String(obj.answer))) images.push(String(obj.answer));
+                      Object.values(obj).forEach(collectImages);
+                    }
+                  };
+
+                  sectionQuestions.forEach((q: any) => {
+                    collectImages(q.answer || response.answers?.[q.id]);
+                    
+                    q.followUpQuestions?.forEach((fu: any) => {
+                      const fuAns = fu.answer || response.answers?.[fu.id];
+                      collectImages(fuAns);
+                      
+                      // Also collect as remark if it's text and not an image
+                      if (fuAns && typeof fuAns !== 'object' && !isImageUrl(String(fuAns))) {
+                        const strVal = String(fuAns);
+                        if (strVal && strVal.toLowerCase() !== 'n/a' && strVal.length > 1) {
+                          remarks.push({
+                            title: fu.title,
+                            answer: strVal,
+                            subParam: fu.subParam1,
+                            description: fu.description,
+                            instructions: fu.instructions
+                          });
+                        }
+                      }
+                    });
+                  });
+
+                  if (images.length === 0 && remarks.length === 0) return null;
+
+                  return (
+                    <div className="p-4 bg-gray-50 dark:bg-gray-800/50 space-y-4">
+                      {images.length > 0 && (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                          {images.map((img, i) => (
+                            <div key={i} className="aspect-square rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm bg-white dark:bg-gray-900 group relative">
+                              <img 
+                                src={img} 
+                                alt={`Evidence ${i}`} 
+                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                              />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <ImageLink text={img} className="!text-white font-bold" />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {remarks.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {remarks.map((rem, i) => (
+                            <div key={i} className="bg-white dark:bg-gray-900 p-3 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                              <div className="flex flex-col gap-1 mb-2">
+                                {rem.subParam && (
+                                  <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-tighter bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded w-fit">
+                                    {rem.subParam}
+                                  </span>
+                                )}
+                                <div className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-tight leading-tight">
+                                  {rem.title}
+                                </div>
+                              </div>
+                              {(rem.description || rem.instructions) && (
+                                <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-2 leading-tight opacity-80 border-l border-gray-300 pl-1.5">
+                                  {rem.description && <p>{rem.description}</p>}
+                                  {rem.instructions && <p className="italic">{rem.instructions}</p>}
+                                </div>
+                              )}
+                              <div className="text-sm text-gray-700 dark:text-gray-200 font-medium italic">
+                                "{rem.answer}"
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             );
-          }
-          
-          return <div className="flex flex-col gap-0.5 py-1">{parts}</div>;
-        }
-
-        return (
-          <div className="flex flex-col gap-1">
-            {Object.entries(val).map(([k, v], i) => (
-              <div key={i} className="flex gap-1">
-                <span className="font-semibold text-gray-500 text-xs">{k}:</span>
-                <span className="text-xs">{renderSimpleAnswer(v)}</span>
-              </div>
-            ))}
-          </div>
-        );
-      }
-      return <span className="text-sm">{String(val)}</span>;
-    };
-
-    allRows.sort((a, b) => {
-      if (a.sectionTitle !== b.sectionTitle) return a.sectionTitle.localeCompare(b.sectionTitle);
-      return a.id.localeCompare(b.id);
-    });
-
-    const isChassisType = (val: any): boolean => 
-      val && typeof val === 'object' && ('chassisNumber' in val || 'status' in val || 'zone' in val || 'zones' in val || 'zonesData' in val);
-
-    // Check if ANY row has zone/chassis data
-    const hasAnyZoneData = allRows.some(r => isChassisType(r.answer));
-    
-    // Check if Category and Defects columns are actually needed
-    const showCategoryCol = allRows.some(r => {
-      const val = r.answer;
-      if (!val || typeof val !== 'object') return false;
-      if (val.zonesData) {
-        return Object.values(val.zonesData).some((z: any) => z.categories && z.categories.length > 0);
-      }
-      return val.category || val.categoryName;
-    });
-
-    const showDefectsCol = allRows.some(r => {
-      const val = r.answer;
-      if (!val || typeof val !== 'object') return false;
-      if (val.zonesData) {
-        return Object.values(val.zonesData).some((z: any) => 
-          z.categories?.some((c: any) => c.defects && c.defects.length > 0)
-        );
-      }
-      return (val.defects && val.defects.length > 0) || val.defect || val.defects;
-    });
-
-    const columnCount = 1 + (hasAnyZoneData ? (3 + (showCategoryCol ? 1 : 0) + (showDefectsCol ? 1 : 0) + 2) : 1);
-
-    const rows: JSX.Element[] = [];
-    let currentSection = '';
-    let rowIndex = 0;
-
-    allRows.forEach((row) => {
-      if (currentSection !== row.sectionTitle) {
-        currentSection = row.sectionTitle;
-        rows.push(
-          <tr key={`section-${currentSection}`} className="bg-gradient-to-r from-blue-100 to-indigo-100 dark:from-blue-900/40 dark:to-indigo-900/40">
-            <td
-              colSpan={columnCount}
-              className="px-4 py-2 text-sm font-bold text-blue-900 dark:text-blue-200 border border-gray-200 dark:border-gray-600"
-            >
-              {currentSection}
-            </td>
-          </tr>
-        );
-      }
-
-      const isEven = rowIndex % 2 === 0;
-      rowIndex++;
-
-      if (isZoneStructured(row.answer)) {
-  const val = row.answer;
-  const status = val?.status || '-';
-  const zones = val?.zone || val?.zones;
-  const zonesData = val?.zonesData || {};
-
-  // Build structured entries grouped by zone and category
-  type ZoneEntry = {
-    zone: string;
-    category: string;
-    defects: string;
-    remark: string;
-    file: string;
-    zoneRowSpan?: number;
-    categoryRowSpan?: number;
-    showZone?: boolean;
-    showCategory?: boolean;
-  };
-
-  const zoneEntries: ZoneEntry[] = [];
-
-  if (zonesData && typeof zonesData === 'object') {
-    Object.entries(zonesData).forEach(([zoneName, zoneVal]: [string, any]) => {
-      const categories = zoneVal?.categories;
-      const zoneStartIndex = zoneEntries.length;
-
-      if (Array.isArray(categories) && categories.length > 0) {
-        categories.forEach((cat: any) => {
-          const catName = typeof cat === 'string' ? cat : (cat?.name || cat?.category || '-');
-          const defects = cat?.defects;
-          const catStartIndex = zoneEntries.length;
-
-          if (Array.isArray(defects) && defects.length > 0) {
-            defects.forEach((defect: any) => {
-              const defectName = typeof defect === 'string'
-                ? defect
-                : (defect?.name || defect?.defect || defect?.title || '-');
-              const details = typeof defect === 'object' ? (defect?.details || {}) : {};
-              const remark = typeof defect === 'object'
-                ? (details?.remark || details?.remarks || defect?.remark || defect?.remarks || defect?.comment || '-')
-                : '-';
-              const file = typeof defect === 'object'
-                ? (details?.fileUrl || details?.file || defect?.fileUrl || defect?.file || defect?.imageUrl || defect?.photo || defect?.image || defect?.url || '')
-                : '';
-              zoneEntries.push({
-                zone: zoneName,
-                category: catName,
-                defects: defectName,
-                remark: remark || '-',
-                file: file || '',
-                showZone: false,
-                showCategory: false,
-              });
-            });
-          } else {
-            const details = typeof cat === 'object' ? (cat?.details || {}) : {};
-            const remark = typeof cat === 'object' ? (details?.remark || cat?.remark || '-') : '-';
-            const file = typeof cat === 'object' ? (details?.fileUrl || details?.file || cat?.fileUrl || cat?.file || '') : '';
-            zoneEntries.push({
-              zone: zoneName,
-              category: catName,
-              defects: '-',
-              remark: remark || '-',
-              file: file || '',
-              showZone: false,
-              showCategory: false,
-            });
-          }
-
-          // Mark first entry of this category
-          const catCount = zoneEntries.length - catStartIndex;
-          if (catCount > 0) {
-            zoneEntries[catStartIndex].showCategory = true;
-            zoneEntries[catStartIndex].categoryRowSpan = catCount;
-          }
-        });
-      } else {
-        zoneEntries.push({
-          zone: zoneName,
-          category: '-',
-          defects: '-',
-          remark: '-',
-          file: '',
-          showZone: false,
-          showCategory: true,
-          categoryRowSpan: 1,
-        });
-      }
-
-      // Mark first entry of this zone
-      const zoneCount = zoneEntries.length - zoneStartIndex;
-      if (zoneCount > 0) {
-        zoneEntries[zoneStartIndex].showZone = true;
-        zoneEntries[zoneStartIndex].zoneRowSpan = zoneCount;
-      }
-    });
-  }
-
-  if (zoneEntries.length === 0) {
-    const zonesStr = Array.isArray(zones) ? zones.join(', ') : (zones || '-');
-    const defectsStr = Array.isArray(val?.defects) 
-      ? val.defects.map((d: any) => typeof d === 'string' ? d : (d?.name || d?.defect || '-')).join(', ') 
-      : (val?.defect || val?.defects || '-');
-    
-    zoneEntries.push({
-      zone: zonesStr,
-      category: val?.category || val?.categoryName || '-',
-      defects: defectsStr,
-      remark: val?.remark || val?.remarks || val?.comment || val?.comments || '-',
-      file: val?.evidenceUrl || val?.fileUrl || val?.file || val?.imageUrl || '',
-      showZone: true,
-      showCategory: true,
-      zoneRowSpan: 1,
-      categoryRowSpan: 1,
-    });
-  }
-
-  const totalRowSpan = zoneEntries.length;
-
-  // First row — includes Question, Status, Zones cells (all rowspanned)
-  rows.push(
-    <tr key={`${row.id}-0`} className={`${isEven ? 'bg-white dark:bg-gray-900' : 'bg-gray-50/50 dark:bg-gray-800/30'} hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors`}>
-      {/* Question — rowspan all */}
-      <td rowSpan={totalRowSpan} className="px-3 py-2 border border-gray-200 dark:border-gray-700 align-top w-[120px] min-w-[100px] max-w-[140px]">
-        <div className="flex flex-col gap-1">
-          {row.subParam1 && (
-            <span className="inline-block bg-blue-100/60 dark:bg-blue-900/30 text-blue-900 dark:text-blue-200 px-1.5 py-0.5 rounded font-semibold text-[9px] w-fit uppercase tracking-wider">
-              {row.subParam1}
-            </span>
-          )}
-          {row.subParam2 && (
-            <span className="inline-block bg-emerald-100/60 dark:bg-emerald-900/30 text-emerald-900 dark:text-emerald-200 px-1.5 py-0.5 rounded font-semibold text-[9px] w-fit uppercase tracking-wider">
-              {row.subParam2}
-            </span>
-          )}
-          <div className="font-medium text-gray-800 dark:text-gray-200 text-xs leading-tight">
-            {row.questionText}
-          </div>
+          })}
         </div>
-      </td>
-      {/* Status — rowspan all */}
-      <td rowSpan={totalRowSpan} className="px-3 py-2 border border-gray-200 dark:border-gray-700 align-middle text-center w-[90px]">
-        <span className="inline-block bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 px-2 py-1 rounded-full text-xs font-bold border border-orange-200 dark:border-orange-700 whitespace-nowrap">
-          {status}
-        </span>
-      </td>
-      {/* Zones — rowspan all */}
-      <td rowSpan={totalRowSpan} className="px-3 py-2 border border-gray-200 dark:border-gray-700 align-middle w-[100px]">
-        <div className="flex flex-col gap-1">
-          {(Array.isArray(zones) ? zones : [zones]).filter(Boolean).map((z: string, i: number) => (
-            <span key={i} className="inline-block bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 px-2 py-0.5 rounded text-xs font-semibold border border-blue-200 dark:border-blue-700 whitespace-nowrap">
-              {z}
-            </span>
-          ))}
-        </div>
-      </td>
-      {/* First entry: Zone (rowspanned per zone group) */}
-      {zoneEntries[0].showZone && (
-        <td
-          rowSpan={zoneEntries[0].zoneRowSpan}
-          className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs font-semibold text-gray-800 dark:text-gray-200 align-middle bg-blue-50/30 dark:bg-blue-900/10"
-        >
-          {zoneEntries[0].zone}
-        </td>
-      )}
-      {/* First entry: Category (rowspanned per category group) */}
-      {entry.showCategory && showCategoryCol && (
-        <td
-          rowSpan={entry.categoryRowSpan}
-          className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300 align-middle"
-        >
-          {entry.category}
-        </td>
-      )}
-      {showDefectsCol && (
-        <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300">
-          {entry.defects}
-        </td>
-      )}
-      <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 italic">
-        {zoneEntries[0].remark !== '-' ? <span className="flex items-center gap-1">📝 {zoneEntries[0].remark}</span> : '-'}
-      </td>
-      <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs">
-        {zoneEntries[0].file ? (
-          isImageUrl(zoneEntries[0].file)
-            ? <ImageLink text={zoneEntries[0].file} />
-            : <a href={zoneEntries[0].file} target={"_blank"} rel={"noopener noreferrer"} className="text-blue-600 dark:text-blue-400 underline">View</a>
-        ) : '-'}
-      </td>
-    </tr>
-  );
-
-  // Remaining rows
-  zoneEntries.slice(1).forEach((entry, idx) => {
-    rows.push(
-      <tr key={`${row.id}-${idx + 1}`} className={`${isEven ? 'bg-white dark:bg-gray-900' : 'bg-gray-50/50 dark:bg-gray-800/30'} hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors`}>
-        {/* Zone cell — only render if this is the first row of a new zone group */}
-        {entry.showZone && (
-          <td
-            rowSpan={entry.zoneRowSpan}
-            className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs font-semibold text-gray-800 dark:text-gray-200 align-middle bg-blue-50/30 dark:bg-blue-900/10"
-          >
-            {entry.zone}
-          </td>
-        )}
-        {/* Category cell — only render if this is the first row of a new category group */}
-        {entry.showCategory && showCategoryCol && (
-          <td
-            rowSpan={entry.categoryRowSpan}
-            className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300 align-middle"
-          >
-            {entry.category}
-          </td>
-        )}
-        {showDefectsCol && (
-          <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300">
-            {entry.defects}
-          </td>
-        )}
-        <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 italic">
-          {entry.remark !== '-' ? <span className="flex items-center gap-1">📝 {entry.remark}</span> : '-'}
-        </td>
-        <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs">
-          {entry.file ? (
-            isImageUrl(entry.file)
-              ? <ImageLink text={entry.file} />
-              : <a href={entry.file} target={"_blank"} rel={"noopener noreferrer"} className="text-blue-600 dark:text-blue-400 underline">View</a>
-          ) : '-'}
-        </td>
-      </tr>
-    );
-  });
-      } else {
-        const val = row.answer;
-        const isChassisRow = isChassisType(val);
-
-        if (hasAnyZoneData && isChassisRow) {
-          const status = val.status || '-';
-          const zones = val.zone || val.zones;
-          const zonesStr = Array.isArray(zones) ? zones.join(', ') : (zones || '-');
-          const chassis = val.chassisNumber || '-';
-          const remark = val.remark || '-';
-          const file = val.evidenceUrl || '';
-
-          rows.push(
-            <tr key={row.id} className={`${isEven ? 'bg-white dark:bg-gray-900' : 'bg-gray-50/50 dark:bg-gray-800/30'} hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors`}>
-              <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 align-top w-[120px] min-w-[100px] max-w-[140px]">
-                <div className="flex flex-col gap-1">
-                  {row.subParam1 && (
-                    <span className="inline-block bg-blue-100/60 dark:bg-blue-900/30 text-blue-900 dark:text-blue-200 px-1.5 py-0.5 rounded font-semibold text-[9px] w-fit uppercase tracking-wider">
-                      {row.subParam1}
-                    </span>
-                  )}
-                  <div className="font-medium text-gray-800 dark:text-gray-200 text-xs leading-tight">
-                    {row.questionText}
-                  </div>
-                </div>
-              </td>
-              <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 align-middle text-center w-[90px]">
-                <span className="inline-block bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 px-2 py-1 rounded-full text-xs font-bold border border-orange-200 dark:border-orange-700 whitespace-nowrap">
-                  {status}
-                </span>
-              </td>
-              <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 align-middle w-[100px]">
-                <div className="flex flex-wrap gap-1">
-                  {(Array.isArray(zones) ? zones : [zones]).filter(Boolean).map((z: string, i: number) => (
-                    <span key={i} className="inline-block bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 px-2 py-0.5 rounded text-xs font-semibold border border-blue-200 dark:border-blue-700 whitespace-nowrap">
-                      {z}
-                    </span>
-                  ))}
-                </div>
-              </td>
-              <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs font-semibold text-gray-800 dark:text-gray-200 align-middle bg-blue-50/30 dark:bg-blue-900/10">
-                {chassis}
-              </td>
-              {showCategoryCol && (
-                <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300 align-middle text-center">
-                  -
-                </td>
-              )}
-              {showDefectsCol && (
-                <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300 text-center">
-                  -
-                </td>
-              )}
-              <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 italic">
-                {remark !== '-' ? <span className="flex items-center gap-1">📝 {remark}</span> : '-'}
-              </td>
-              <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs text-center">
-                {file ? (
-                  isImageUrl(file)
-                    ? <ImageLink text={file} />
-                    : <a href={file} target={"_blank"} rel={"noopener noreferrer"} className="text-blue-600 dark:text-blue-400 underline font-bold uppercase tracking-tighter text-[10px]">View</a>
-                ) : '-'}
-              </td>
-            </tr>
-          );
-        } else {
-          // Normal non-zone row
-          rows.push(
-            <tr key={row.id} className={`${isEven ? 'bg-white dark:bg-gray-900' : 'bg-gray-50/50 dark:bg-gray-800/30'} hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors`}>
-              <td className="px-3 py-2 border border-gray-200 dark:border-gray-700 align-top w-[120px] min-w-[100px] max-w-[140px]">
-                <div className="flex flex-col gap-1">
-                  {row.subParam1 && (
-                    <span className="inline-block bg-blue-100/60 dark:bg-blue-900/30 text-blue-900 dark:text-blue-200 px-1.5 py-0.5 rounded font-semibold text-[9px] w-fit uppercase tracking-wider">
-                      {row.subParam1}
-                    </span>
-                  )}
-                  <div className="font-medium text-gray-800 dark:text-gray-200 text-xs leading-tight">
-                    {row.questionText}
-                  </div>
-                </div>
-              </td>
-              <td colSpan={columnCount - 1} className="px-3 py-2 border border-gray-200 dark:border-gray-700 align-top">
-                {renderSimpleAnswer(row.answer)}
-              </td>
-            </tr>
-          );
-        }
-      }
-    });
-
-    if (rows.length === 0) {
-      return (
-        <table className="w-full border-collapse">
-          <tbody>
-            <tr>
-              <td colSpan={8} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                No responses found
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      );
+      </div>
+    )
     }
 
-    return (
-      <table className="w-full border-collapse text-sm">
-        <thead className="sticky top-0 z-10">
-          <tr className="bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700">
-            <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600 w-[120px]">
-              Question
-            </th>
-            {hasAnyZoneData && (
-              <>
-                <th className="px-3 py-3 text-left text-xs font-bold text-orange-700 dark:text-orange-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600 w-[90px]">
-                  Status
-                </th>
-                <th className="px-3 py-3 text-left text-xs font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600 w-[100px]">
-                  Zones
-                </th>
-                <th className="px-3 py-3 text-left text-xs font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">
-                  Zone
-                </th>
-                {showCategoryCol && (
-                  <th className="px-3 py-3 text-left text-xs font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">
-                    Category
-                  </th>
-                )}
-                {showDefectsCol && (
-                  <th className="px-3 py-3 text-left text-xs font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">
-                    Defects
-                  </th>
-                )}
-                <th className="px-3 py-3 text-left text-xs font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">
-                  Remark
-                </th>
-                <th className="px-3 py-3 text-left text-xs font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">
-                  File
-                </th>
-              </>
-            )}
-            {!hasAnyZoneData && (
-              <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">
-                Answer / Response
-              </th>
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {rows}
-        </tbody>
-      </table>
-    );
-  })()}
-</div>
-  </div>
-)}
-      </div>
-
-      {editingResponse && editingFormLoading && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl px-6 py-4 flex items-center gap-3 border border-gray-200 dark:border-gray-700">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600"></div>
-            <div className="text-primary-600 dark:text-primary-400 font-semibold">
-              Loading form details...
-            </div>
-          </div>
-        </div>
-      )}
-
-      {editingResponse && editingForm && !editingFormLoading && (
-        <ResponseEdit
-          response={editingResponse as any}
-          question={editingForm as any}
-          onSave={handleSaveEditedResponse}
-          onCancel={handleCloseEdit}
-        />
-      )}
-
       {showSectionsPDFModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-auto border border-gray-200 dark:border-gray-700">
-            <div className="sticky top-0 z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <BarChart3 className="w-5 h-5" />
-                View Sections - PDF Preview
-              </h2>
-              <button
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-gray-200 dark:border-gray-700 animate-in fade-in zoom-in duration-300">
+            <div className="bg-blue-600 p-6 flex items-center justify-between sticky top-0 z-20">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <BarChart3 className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white uppercase tracking-tight">Section-wise Performance</h3>
+                  <p className="text-blue-100 text-sm">Review performance breakdown across all form sections</p>
+                </div>
+              </div>
+              <button 
                 onClick={() => setShowSectionsPDFModal(false)}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                className="p-2 hover:bg-white/10 rounded-full transition-colors text-white"
               >
-                <X className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                <X className="w-6 h-6" />
               </button>
             </div>
 
-            <div className="p-6 space-y-6">
-              {(() => {
-                const totalYes = filteredSectionStats.reduce((sum, stat) => sum + stat.yes, 0);
-                const totalNo = filteredSectionStats.reduce((sum, stat) => sum + stat.no, 0);
-                const totalNA = filteredSectionStats.reduce((sum, stat) => sum + stat.na, 0);
-                const totalCorrect = filteredSectionStats.reduce((sum, stat) => sum + stat.correct, 0);
-                const totalWrong = filteredSectionStats.reduce((sum, stat) => sum + stat.wrong, 0);
-                const totalQuestions = filteredSectionStats.reduce((sum, stat) => sum + stat.total, 0);
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {form?.sections?.map((section: any) => {
+                const questionStats = getSectionYesNoQuestionStats(section.id);
+                if (questionStats.length === 0) return null;
 
-                const yesPercent = totalQuestions > 0 ? ((totalYes / totalQuestions) * 100).toFixed(1) : "0.0";
-                const noPercent = totalQuestions > 0 ? ((totalNo / totalQuestions) * 100).toFixed(1) : "0.0";
-                const naPercent = totalQuestions > 0 ? ((totalNA / totalQuestions) * 100).toFixed(1) : "0.0";
-                const correctPercent = totalQuestions > 0 ? ((totalCorrect / totalQuestions) * 100).toFixed(1) : "0.0";
-                const wrongPercent = totalQuestions > 0 ? ((totalWrong / totalQuestions) * 100).toFixed(1) : "0.0";
-
-                const radarData = {
-                  labels: filteredSectionStats.map((stat) => stat.title),
-                  datasets: [
-                    {
-                      label: `Correct ${correctPercent}% (${totalCorrect})`,
-                      data: filteredSectionStats.map((stat) =>
-                        stat.total ? ((stat.correct / stat.total) * 100).toFixed(1) : 0
-                      ),
-                      borderColor: "#059669",
-                      backgroundColor: "rgba(5, 150, 105, 0.15)",
-                      borderWidth: 3,
-                      pointBackgroundColor: "#059669",
-                      pointBorderColor: "#fff",
-                      pointHoverRadius: 6,
-                    },
-                    {
-                      label: `Wrong ${wrongPercent}% (${totalWrong})`,
-                      data: filteredSectionStats.map((stat) =>
-                        stat.total ? ((stat.wrong / stat.total) * 100).toFixed(1) : 0
-                      ),
-                      borderColor: "#dc2626",
-                      backgroundColor: "rgba(220, 38, 38, 0.15)",
-                      borderWidth: 3,
-                      pointBackgroundColor: "#dc2626",
-                      pointBorderColor: "#fff",
-                      pointHoverRadius: 6,
-                    },
-                    {
-                      label: `${complianceLabels.yes} / Answered ${yesPercent}% (${totalYes})`,
-                      data: filteredSectionStats.map((stat) =>
-                        stat.total ? ((stat.yes / stat.total) * 100).toFixed(1) : 0
-                      ),
-                      borderColor: "#10b981",
-                      backgroundColor: "rgba(16, 185, 129, 0.05)",
-                      borderWidth: 2,
-                      hidden: true,
-                    },
-                    {
-                      label: `${complianceLabels.no} / Not Answered ${noPercent}% (${totalNo})`,
-                      data: filteredSectionStats.map((stat) =>
-                        stat.total ? ((stat.no / stat.total) * 100).toFixed(1) : 0
-                      ),
-                      borderColor: "#ef4444",
-                      backgroundColor: "rgba(239, 68, 68, 0.05)",
-                      borderWidth: 2,
-                      hidden: true,
-                    },
-                    {
-                      label: `${complianceLabels.na} ${naPercent}% (${totalNA})`,
-                      data: filteredSectionStats.map((stat) =>
-                        stat.total ? ((stat.na / stat.total) * 100).toFixed(1) : 0
-                      ),
-                      borderColor: "#f59e0b",
-                      backgroundColor: "rgba(245, 158, 11, 0.05)",
-                      borderWidth: 2,
-                      hidden: true,
-                    },
-                  ],
-                };
-
-                const radarOptions = {
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      position: "top" as const,
-                      labels: {
-                        color: document.documentElement.classList.contains("dark")
-                          ? "#d1d5db"
-                          : "#374151",
-                      },
-                    },
-                  },
-                  scales: {
-                    r: {
-                      beginAtZero: true,
-                      max: 100,
-                      ticks: {
-                        color: document.documentElement.classList.contains("dark")
-                          ? "#d1d5db"
-                          : "#6b7280",
-                      },
-                      grid: {
-                        color: document.documentElement.classList.contains("dark")
-                          ? "rgba(107, 114, 128, 0.2)"
-                          : "rgba(107, 114, 128, 0.1)",
-                      },
-                    },
-                  },
-                };
-
-                return (
-                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 p-6 rounded-lg border border-blue-200 dark:border-blue-700">
-                    <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-4">
-                      Section Performance Overview
-                    </h3>
-                    <div id="section-performance-chart" className="w-full" style={{ height: "400px" }}>
-                      <Radar data={radarData} options={radarOptions} />
-                    </div>
-                  </div>
+                const sectionTotals = questionStats.reduce(
+                  (totals, stat) => ({
+                    yes: totals.yes + stat.yes,
+                    no: totals.no + stat.no,
+                    na: totals.na + stat.na,
+                    correct: totals.correct + stat.correct,
+                    wrong: totals.wrong + stat.wrong,
+                    total: totals.total + stat.total,
+                  }),
+                  { yes: 0, no: 0, na: 0, total: 0, correct: 0, wrong: 0 }
                 );
-              })()}
 
-              {filteredSectionStats.map((sectionStat) => {
-                const section = form?.sections?.find((s: any) => s.id === sectionStat.id);
-                if (!section) return null;
+                const hasYesNo = questionStats.some(q => q.hasYesNo && !q.isQuiz);
+                const hasQuiz = questionStats.some(q => q.isQuiz);
 
-                const questionStats = getSectionYesNoQuestionStats(sectionStat.id);
-                const hasAnyYesNoInSection = questionStats.some(q => q.hasYesNo);
-                const sectionTotals = {
-                  yes: questionStats.reduce((sum, q) => sum + q.yes, 0),
-                  no: questionStats.reduce((sum, q) => sum + q.no, 0),
-                  na: questionStats.reduce((sum, q) => sum + q.na, 0),
-                  correct: questionStats.reduce((sum, q) => sum + q.correct, 0),
-                  wrong: questionStats.reduce((sum, q) => sum + q.wrong, 0),
-                  total: questionStats.reduce((sum, q) => sum + q.total, 0),
-                };
+                const labels: string[] = [];
+                const data: number[] = [];
+                const colors: string[] = [];
+
+                if (hasYesNo && hasQuiz) {
+                  labels.push(complianceLabels.correct, complianceLabels.wrong, complianceLabels.yes, complianceLabels.no);
+                  data.push(sectionTotals.correct, sectionTotals.wrong, sectionTotals.yes, sectionTotals.no);
+                  colors.push("#10b981", "#ef4444", "#1e40af", "#3b82f6");
+                } else if (hasYesNo) {
+                  labels.push(complianceLabels.yes, complianceLabels.no);
+                  data.push(sectionTotals.yes, sectionTotals.no);
+                  colors.push("#1e40af", "#3b82f6");
+                } else {
+                  labels.push(complianceLabels.correct, complianceLabels.wrong);
+                  data.push(sectionTotals.correct, sectionTotals.wrong);
+                  colors.push("#16a34a", "#dc2626");
+                }
+
+                if (sectionTotals.na > 0) {
+                  labels.push(complianceLabels.na);
+                  data.push(sectionTotals.na);
+                  colors.push("#94a3b8");
+                }
 
                 const chartData = {
-                  labels: [complianceLabels.correct, complianceLabels.wrong, complianceLabels.yes, complianceLabels.no, complianceLabels.na],
-                  datasets: [
-                    {
-                      data: [sectionTotals.correct, sectionTotals.wrong, sectionTotals.yes, sectionTotals.no, sectionTotals.na],
-                      backgroundColor: ["#059669", "#dc2626", "#1e40af", "#3b82f6", "#93c5fd"],
-                      borderColor: ["#059669", "#dc2626", "#1e40af", "#3b82f6", "#93c5fd"],
-                      borderWidth: 1,
-                    },
-                  ],
+                  labels,
+                  datasets: [{
+                    data,
+                    backgroundColor: colors,
+                    borderWidth: 0,
+                  }],
                 };
 
                 const chartOptions = {
@@ -4179,82 +3797,61 @@ const handleBulkDownloadZip = async () => {
                   maintainAspectRatio: false,
                   plugins: {
                     legend: {
-                      position: "bottom" as const,
+                      position: "right" as const,
                       labels: {
-                        color: document.documentElement.classList.contains("dark")
-                          ? "#d1d5db"
-                          : "#374151",
+                        color: document.documentElement.classList.contains("dark") ? "#d1d5db" : "#374151",
+                        font: { size: 11, weight: 'bold' }
                       },
                     },
                   },
                 };
 
+                const chartType = sectionChartTypes[section.id] || "pie";
+
                 return (
-                  <div key={sectionStat.id} className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                    <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-4">
-                      {section.title || "Section"} - Response Analysis
-                    </h3>
-                    <div className="w-full h-64" id={`section-chart-${section.id}`}>
-                      {sectionChartTypes[section.id] === "bar" ? (
-                        <Bar
-                          data={{
-                            labels: questionStats.map(
-                              (stat) => stat.subParam1 || "No parameter"
-                            ),
-                            datasets: [
-                              {
-                                label: complianceLabels.correct,
-                                data: questionStats.map((stat) => stat.correct),
-                                backgroundColor: "#059669",
-                                borderColor: "#059669",
-                                borderWidth: 1,
-                              },
-                              {
-                                label: complianceLabels.wrong,
-                                data: questionStats.map((stat) => stat.wrong),
-                                backgroundColor: "#dc2626",
-                                borderColor: "#dc2626",
-                                borderWidth: 1,
-                              },
-                              {
-                                label: `${complianceLabels.yes} / Answered`,
-                                data: questionStats.map((stat) => stat.yes),
-                                backgroundColor: "#1e40af",
-                                borderColor: "#1e40af",
-                                borderWidth: 1,
-                              },
-                              {
-                                label: `${complianceLabels.no} / Not Answered`,
-                                data: questionStats.map((stat) => stat.no),
-                                backgroundColor: "#3b82f6",
-                                borderColor: "#3b82f6",
-                                borderWidth: 1,
-                              },
-                              {
-                                label: complianceLabels.na,
-                                data: questionStats.map((stat) => stat.na),
-                                backgroundColor: "#93c5fd",
-                                borderColor: "#93c5fd",
-                                borderWidth: 1,
-                              },
-                            ],
-                          }}
+                  <div key={section.id} className="bg-gray-50 dark:bg-gray-900/50 p-6 rounded-xl border border-gray-200 dark:border-gray-800">
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex flex-col">
+                        <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-1 uppercase tracking-tight">{section.title}</h4>
+                        <div className="flex gap-4">
+                          <span className="text-xs font-semibold text-gray-500 uppercase">Questions: <span className="text-gray-900 dark:text-gray-100">{sectionTotals.total}</span></span>
+                          <span className="text-xs font-semibold text-gray-500 uppercase">Compliance: <span className="text-blue-600 dark:text-blue-400">{(sectionTotals.total > 0 ? (sectionTotals.yes / sectionTotals.total * 100) : 0).toFixed(1)}%</span></span>
+                        </div>
+                      </div>
+                      <div className="flex bg-white dark:bg-gray-800 p-1 rounded-lg border border-gray-200 dark:border-gray-700">
+                        <button 
+                          onClick={() => setSectionChartTypes(prev => ({...prev, [section.id]: "pie"}))}
+                          className={`p-2 rounded-md transition-all ${chartType === "pie" ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 shadow-sm" : "text-gray-400 hover:text-gray-600"}`}
+                        >
+                          <PieChart className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => setSectionChartTypes(prev => ({...prev, [section.id]: "bar"}))}
+                          className={`p-2 rounded-md transition-all ${chartType === "bar" ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 shadow-sm" : "text-gray-400 hover:text-gray-600"}`}
+                        >
+                          <BarChart3 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="h-[200px] w-full">
+                      {chartType === "bar" ? (
+                        <Bar 
+                          data={chartData} 
                           options={{
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                              legend: {
-                                position: "top" as const,
-                                labels: {
-                                  color: document.documentElement.classList.contains(
-                                    "dark"
-                                  )
-                                    ? "#d1d5db"
-                                    : "#374151",
-                                },
+                            ...chartOptions,
+                            scales: {
+                              y: {
+                                beginAtZero: true,
+                                grid: { color: document.documentElement.classList.contains("dark") ? "#1f2937" : "#e5e7eb" },
+                                ticks: { color: document.documentElement.classList.contains("dark") ? "#9ca3af" : "#4b5563" }
                               },
-                            },
-                          }}
+                              x: {
+                                grid: { display: false },
+                                ticks: { color: document.documentElement.classList.contains("dark") ? "#9ca3af" : "#4b5563" }
+                              }
+                            }
+                          }} 
                         />
                       ) : (
                         <Pie data={chartData} options={chartOptions} />
@@ -4347,6 +3944,26 @@ const handleBulkDownloadZip = async () => {
           </div>
         </div>
       )}
+      {editingResponse && editingFormLoading && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl px-6 py-4 flex items-center gap-3 border border-gray-200 dark:border-gray-700">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600"></div>
+            <div className="text-primary-600 dark:text-primary-400 font-semibold">
+              Loading form details...
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingResponse && editingForm && !editingFormLoading && (
+        <ResponseEdit
+          response={editingResponse as any}
+          question={editingForm as any}
+          onSave={handleSaveEditedResponse}
+          onCancel={handleCloseEdit}
+        />
+      )}
+      </div>
     </div>
   );
 }
