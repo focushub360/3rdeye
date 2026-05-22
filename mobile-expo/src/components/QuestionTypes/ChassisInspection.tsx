@@ -272,7 +272,7 @@ export default function ChassisInspection({
                 </View>
               </View>
 
-              {selectedZones.map((z) => {
+              {selectedZones.map((z: string) => {
                 const data = zoneData[z] || { categories: [], defects: {} };
                 const isExpanded = expandedZone === z;
                 return (
@@ -426,7 +426,7 @@ export default function ChassisInspection({
                                               </View>
                                           ) : (
                                               <View style={styles.evidenceActions}>
-                                                  <TouchableOpacity style={styles.miniActionBtn} onPress={() => setCameraVisible({ mode: 'rejected', id: 'global', cat, defect: defName })}>
+                                                  <TouchableOpacity style={styles.miniActionBtn} onPress={() => setCameraVisible({ mode: 'rejected', zone: 'global', cat, defect: defName })}>
                                                       <Camera size={14} color="#64748b" />
                                                   </TouchableOpacity>
                                                   <TouchableOpacity style={styles.miniActionBtn} onPress={async () => {

@@ -21,10 +21,12 @@ import { Modal } from 'react-native';
 import { io } from 'socket.io-client';
 import { useAuth } from '../context/AuthContext';
 import apiClient, { BASE_URL } from '../api/config';
+import { useTheme } from '../context/ThemeContext';
 
 const SOCKET_URL = BASE_URL.replace('/api', '');
 
 const ChatDetailScreen = () => {
+  const { colors, isDark } = useTheme();
   const route = useRoute<any>();
   const navigation = useNavigation();
   const { contactId, name, role, isGroup, tenantId, title, formTitle } = route.params;
@@ -266,9 +268,9 @@ const ChatDetailScreen = () => {
     if (item.type === 'date') {
       return (
         <View style={styles.dateHeader}>
-          <View style={styles.dateLine} />
-          <Text style={styles.dateLabel}>{item.label}</Text>
-          <View style={styles.dateLine} />
+          <View style={[styles.dateLine, { backgroundColor: colors.border }]} />
+          <Text style={[styles.dateLabel, { color: colors.subtext, backgroundColor: colors.surface }]}>{item.label}</Text>
+          <View style={[styles.dateLine, { backgroundColor: colors.border }]} />
         </View>
       );
     }
@@ -289,8 +291,8 @@ const ChatDetailScreen = () => {
         )}
         <View style={[
           styles.bubble, 
-          isMine ? styles.myBubble : styles.theirBubble,
-          item.isTYC && styles.tycBubble
+          isMine ? [styles.myBubble, { backgroundColor: colors.card, borderColor: colors.border }] : [styles.theirBubble, { backgroundColor: colors.card, borderColor: colors.border }],
+          item.isTYC && [styles.tycBubble, { backgroundColor: isDark ? '#450a0a' : '#fff5f5', borderColor: colors.error }]
         ]}>
           {isGroup && !isMine && (
              <View style={styles.senderHeader}>
@@ -314,12 +316,12 @@ const ChatDetailScreen = () => {
             <View style={styles.contextContainer}>
               {item.questionContexts.map((ctx: any, idx: number) => (
                 <View key={idx} style={styles.contextItem}>
-                  <Text style={[styles.contextTitle, isMine ? styles.myContextTitle : styles.theirContextTitle]}>
+                  <Text style={[styles.contextTitle, isMine ? styles.myContextTitle : styles.theirContextTitle, { color: isMine ? (isDark ? colors.success : '#166534') : colors.accent, borderBottomColor: colors.border }]}>
                     {ctx.title}
                   </Text>
                   
                   {ctx.suggestion && (
-                    <View style={styles.adminInstructionsBox}>
+                    <View style={[styles.adminInstructionsBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                        <View style={styles.adminInstructionsHeader}>
                          <Text style={styles.adminInstructionsTitle}>ADMIN INSTRUCTIONS</Text>
                        </View>
@@ -369,17 +371,17 @@ const ChatDetailScreen = () => {
           {item.attachments && item.attachments.map((file: string, fidx: number) => {
              const imageUrl = file.startsWith('http') ? file : `${BASE_URL}/files/${file}`;
              return (
-               <TouchableOpacity key={fidx} style={styles.attachmentContainer} onPress={() => {}}>
+               <TouchableOpacity key={fidx} style={[styles.attachmentContainer, { backgroundColor: colors.surface }]} onPress={() => {}}>
                  <RNImage source={{ uri: imageUrl }} style={styles.attachmentImage} resizeMode="cover" />
                </TouchableOpacity>
              );
           })}
 
-          <Text style={[styles.messageText, isMine ? styles.myText : styles.theirText]}>
+          <Text style={[styles.messageText, isMine ? styles.myText : styles.theirText, { color: colors.text }]}>
             {item.message}
           </Text>
           <View style={styles.messageFooterRow}>
-            <Text style={[styles.messageTime, isMine ? styles.myTime : styles.theirTime]}>
+            <Text style={[styles.messageTime, isMine ? styles.myTime : styles.theirTime, { color: colors.subtext }]}>
               {isMine ? 'You' : senderName.split(' ')[0]} • {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Text>
           </View>
@@ -389,21 +391,21 @@ const ChatDetailScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={[styles.header, isGroup && styles.groupHeader]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, isGroup ? styles.groupHeader : { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <View style={styles.headerLeft}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <ChevronLeft size={24} color={isGroup ? "#fff" : "#4f46e5"} />
+            <ChevronLeft size={24} color={isGroup ? "#fff" : colors.accent} />
           </TouchableOpacity>
           <View style={styles.headerIconContainer}>
-            <UserCircle size={36} color={isGroup ? "#fff" : "#4f46e5"} />
+            <UserCircle size={36} color={isGroup ? "#fff" : colors.accent} />
           </View>
           <View style={styles.userInfo}>
-            <Text style={[styles.userName, isGroup && styles.groupTitle]} numberOfLines={1}>
+            <Text style={[styles.userName, isGroup ? styles.groupTitle : { color: colors.text }]} numberOfLines={1}>
               {isGroup ? name : (title || 'General Message')}
             </Text>
             <View style={styles.userStatus}>
-              <Text style={[styles.userRole, isGroup && styles.groupSubTitle]} numberOfLines={1}>
+              <Text style={[styles.userRole, isGroup ? styles.groupSubTitle : { color: colors.subtext }]} numberOfLines={1}>
                 {isGroup ? `${members.length || '15+'} online members` : `Form: ${formTitle || 'Service'} • Ref: ${String(contactId).substring(0, 10)}...`}
               </Text>
             </View>
@@ -412,8 +414,8 @@ const ChatDetailScreen = () => {
         <View style={styles.headerRight}>
           {!isGroup && (
             <TouchableOpacity 
-              style={styles.openDashboardBtn} 
-              onPress={() => navigation.navigate('FormAnalytics', { responseId: contactId })}
+              style={[styles.openDashboardBtn, { backgroundColor: colors.accent }]} 
+              onPress={() => (navigation as any).navigate('FormAnalytics', { responseId: contactId })}
             >
               <Text style={styles.openDashboardText}>Open Dashboard</Text>
             </TouchableOpacity>
@@ -427,8 +429,8 @@ const ChatDetailScreen = () => {
       </View>
 
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#1e3a8a" />
+        <View style={[styles.centered, { backgroundColor: colors.background }]}>
+          <ActivityIndicator size="large" color={colors.accent} />
         </View>
       ) : (
         <FlatList
@@ -436,7 +438,7 @@ const ChatDetailScreen = () => {
           data={groupMessagesByDate(messages)}
           keyExtractor={(item, index) => item._id || `date-${index}`}
           renderItem={renderItem}
-          contentContainerStyle={styles.messageList}
+          contentContainerStyle={[styles.messageList, { backgroundColor: colors.background }]}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
           onLayout={() => flatListRef.current?.scrollToEnd()}
         />
@@ -444,23 +446,23 @@ const ChatDetailScreen = () => {
 
       {isTyping && (
         <View style={styles.typingBox}>
-          <Text style={styles.typingText}>{name} is typing...</Text>
+          <Text style={[styles.typingText, { color: colors.subtext }]}>{name} is typing...</Text>
         </View>
       )}
 
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
-        style={styles.footer}
+        style={[styles.footer, { backgroundColor: colors.background, borderTopColor: colors.border }]}
       >
         {replyTo && (
-          <View style={styles.replyBar}>
+          <View style={[styles.replyBar, { backgroundColor: colors.surface, borderLeftColor: colors.accent }]}>
             <View style={styles.replyContent}>
-              <Text style={styles.replyTitle}>Replying to {typeof replyTo.senderId === 'object' ? replyTo.senderId.firstName : 'User'}</Text>
-              <Text style={styles.replyText} numberOfLines={1}>{replyTo.message}</Text>
+              <Text style={[styles.replyTitle, { color: colors.accent }]}>Replying to {typeof replyTo.senderId === 'object' ? replyTo.senderId.firstName : 'User'}</Text>
+              <Text style={[styles.replyText, { color: colors.subtext }]} numberOfLines={1}>{replyTo.message}</Text>
             </View>
             <TouchableOpacity onPress={() => setReplyTo(null)}>
-              <X size={18} color="#94a3b8" />
+              <X size={18} color={colors.subtext} />
             </TouchableOpacity>
           </View>
         )}
@@ -477,22 +479,23 @@ const ChatDetailScreen = () => {
             )}
           </View>
         )}
-        <View style={styles.inputBox}>
+        <View style={[styles.inputBox, { backgroundColor: colors.surface }]}>
           <TouchableOpacity style={styles.attachBtn} onPress={pickImage}>
-            <ImageIcon size={20} color="#64748b" />
+            <ImageIcon size={20} color={colors.subtext} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.attachBtn} onPress={takePhoto}>
-            <Camera size={20} color="#64748b" />
+            <Camera size={20} color={colors.subtext} />
           </TouchableOpacity>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { color: colors.text }]}
             placeholder={isGroup ? "Chat with group..." : "Type your reply..."}
+            placeholderTextColor={colors.subtext}
             value={newMessage}
             onChangeText={setNewMessage}
             multiline
           />
           <TouchableOpacity 
-            style={[styles.sendBtn, (!newMessage.trim() && !selectedImage) && styles.sendBtnDisabled]} 
+            style={[styles.sendBtn, { backgroundColor: colors.accent }, (!newMessage.trim() && !selectedImage) && styles.sendBtnDisabled]} 
             onPress={() => handleSend(false)}
             disabled={!newMessage.trim() && !selectedImage}
           >
@@ -512,22 +515,22 @@ const ChatDetailScreen = () => {
         onRequestClose={() => setShowMembers(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Group Members</Text>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Group Members</Text>
               <TouchableOpacity onPress={() => setShowMembers(false)}>
-                <X size={24} color="#64748b" />
+                <X size={24} color={colors.subtext} />
               </TouchableOpacity>
             </View>
             <FlatList
               data={members}
               keyExtractor={(item) => item._id}
               renderItem={({ item }) => (
-                <View style={styles.memberItem}>
-                  <UserCircle size={40} color="#cbd5e1" />
+                <View style={[styles.memberItem, { borderBottomColor: colors.border }]}>
+                  <UserCircle size={40} color={colors.subtext} />
                   <View>
-                    <Text style={styles.memberName}>{item.firstName} {item.lastName}</Text>
-                    <Text style={styles.memberRole}>{(item.role || 'USER').toUpperCase()}</Text>
+                    <Text style={[styles.memberName, { color: colors.text }]}>{item.firstName} {item.lastName}</Text>
+                    <Text style={[styles.memberRole, { color: colors.accent }]}>{(item.role || 'USER').toUpperCase()}</Text>
                   </View>
                 </View>
               )}

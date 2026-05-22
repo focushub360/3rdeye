@@ -12,8 +12,10 @@ import {
   Alert,
   Platform,
   StatusBar,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import apiClient, { BASE_URL } from '../api/config';
@@ -35,69 +37,101 @@ import {
   Layers
 } from 'lucide-react-native';
 
+import { useTheme } from '../context/ThemeContext';
+
 const { width } = Dimensions.get('window');
 
-const StatCard = ({ title, value, icon: Icon, color }: any) => (
-  <View style={styles.cardSmall}>
-    <View style={styles.cardHeaderSmall}>
-      <Icon size={14} color={color} />
-      <Text style={styles.cardTitleSmall}>{title}</Text>
-    </View>
-    <Text style={styles.cardValueSmall}>{value}</Text>
-  </View>
-);
+const StatCard = ({ title, value, icon: Icon, color }: any) => {
+  const { colors, isDark } = useTheme();
+  const isForms = title.toLowerCase().includes('form');
+  
+  // Rich light gradient colors (pastel styling)
+  const gradientColors = isDark
+    ? (isForms ? ['#1e1b4b', '#312e81'] : ['#064e3b', '#022c22'])
+    : (isForms ? ['#f5f7ff', '#e0e7ff'] : ['#f0fdf4', '#d1fae5']);
+    
+  const borderLight = isDark
+    ? (isForms ? 'rgba(99, 102, 241, 0.4)' : 'rgba(16, 185, 129, 0.4)')
+    : (isForms ? 'rgba(99, 102, 241, 0.25)' : 'rgba(16, 185, 129, 0.25)');
+    
+  const valueColor = isDark
+    ? (isForms ? '#818cf8' : '#34d399')
+    : (isForms ? '#4f46e5' : '#059669');
+
+  const textColor = isDark ? '#cbd5e1' : '#334155';
+
+  return (
+    <LinearGradient 
+      colors={gradientColors as [string, string]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[styles.cardSmall, { borderColor: borderLight, borderWidth: 1.5 }]}
+    >
+      <View style={styles.cardHeaderSmall}>
+        <Icon size={14} color={valueColor} />
+        <Text style={[styles.cardTitleSmall, { color: textColor, fontWeight: '800' }]}>{title.toUpperCase()}</Text>
+      </View>
+      <Text style={[styles.cardValueSmall, { color: valueColor, fontSize: 26, fontWeight: '900' }]}>{value}</Text>
+    </LinearGradient>
+  );
+};
 
 const FormCard = ({ id, title, description, responseCount = 0, isActive = true, isGlobal, parentFormId, date, onView, onAnalytics }: any) => {
+  const { colors, isDark } = useTheme();
   const isChild = !!parentFormId;
   
   return (
-    <View style={[styles.formCard, isChild && styles.childFormCard]}>
+    <View style={[
+      styles.formCard, 
+      { backgroundColor: colors.card, borderColor: colors.border },
+      isChild && [styles.childFormCard, { backgroundColor: colors.surface, borderLeftColor: colors.accent }]
+    ]}>
       <View style={styles.formCardTop}>
         <View style={styles.formInfoContainer}>
           <View style={styles.titleRow}>
-            {isChild && <Link size={14} color="#6366f1" style={{ marginRight: 6 }} />}
-            <Text style={styles.formTitle} numberOfLines={1}>{title}</Text>
+            {isChild && <Link size={14} color={colors.accent} style={{ marginRight: 6 }} />}
+            <Text style={[styles.formTitle, { color: colors.text }]} numberOfLines={1}>{title}</Text>
           </View>
-          <Text style={styles.formDesc} numberOfLines={2}>{description}</Text>
+          <Text style={[styles.formDesc, { color: colors.subtext }]} numberOfLines={2}>{description}</Text>
         </View>
         <View style={styles.badgeColumn}>
           {isGlobal && (
-             <View style={[styles.statusBadge, { backgroundColor: '#eff6ff' }]}>
-                <Text style={[styles.statusBadgeText, { color: '#1e40af' }]}>GLOBAL</Text>
+             <View style={[styles.statusBadge, { backgroundColor: isDark ? '#1e293b' : '#eff6ff' }]}>
+                <Text style={[styles.statusBadgeText, { color: isDark ? colors.accent : '#1e40af' }]}>GLOBAL</Text>
              </View>
           )}
           {isChild ? (
-            <View style={[styles.statusBadge, { backgroundColor: '#fdf2f8', borderColor: '#fbcfe8', borderWidth: 0.5 }]}>
-               <Text style={[styles.statusBadgeText, { color: '#be185d' }]}>CHILD</Text>
+            <View style={[styles.statusBadge, { backgroundColor: isDark ? '#450a0a' : '#fdf2f8', borderColor: isDark ? colors.error : '#fbcfe8', borderWidth: 0.5 }]}>
+               <Text style={[styles.statusBadgeText, { color: colors.error }]}>CHILD</Text>
             </View>
           ) : (
-            <View style={[styles.statusBadge, { backgroundColor: '#f0fdf4' }]}>
-               <Text style={[styles.statusBadgeText, { color: '#166534' }]}>PARENT</Text>
+            <View style={[styles.statusBadge, { backgroundColor: isDark ? '#064e3b' : '#f0fdf4' }]}>
+               <Text style={[styles.statusBadgeText, { color: isDark ? colors.success : '#166534' }]}>PARENT</Text>
             </View>
           )}
         </View>
       </View>
       
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
       <View style={styles.formMetaRow}>
          <View style={styles.metaItem}>
-           <Users size={12} color="#64748b" />
-           <Text style={styles.metaText}>{responseCount} Responses</Text>
+           <Users size={12} color={colors.subtext} />
+           <Text style={[styles.metaText, { color: colors.subtext }]}>{responseCount} Responses</Text>
          </View>
          <View style={styles.metaItem}>
-           <Calendar size={12} color="#64748b" />
-           <Text style={styles.metaText}>{date ? new Date(date).toLocaleDateString() : 'Active'}</Text>
+           <Calendar size={12} color={colors.subtext} />
+           <Text style={[styles.metaText, { color: colors.subtext }]}>{date ? new Date(date).toLocaleDateString() : 'Active'}</Text>
          </View>
       </View>
 
       <View style={styles.formActions}>
-        <TouchableOpacity style={styles.viewBtn} onPress={() => onView && onView(id, title)}>
+        <TouchableOpacity style={[styles.viewBtn, { backgroundColor: colors.accent }]} onPress={() => onView && onView(id, title)}>
           <Eye size={16} color="#fff" />
           <Text style={styles.viewBtnText}>Preview</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.analyticsBtn} onPress={() => onAnalytics && onAnalytics(id, title)}>
-          <BarChart2 size={16} color="#4f46e5" />
+        <TouchableOpacity style={[styles.analyticsBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => onAnalytics && onAnalytics(id, title)}>
+          <BarChart2 size={16} color={colors.accent} />
         </TouchableOpacity>
       </View>
     </View>
@@ -105,6 +139,7 @@ const FormCard = ({ id, title, description, responseCount = 0, isActive = true, 
 };
 
 const FormListScreen = ({ navigation }: any) => {
+  const { colors, isDark } = useTheme();
   const { user, logout, isCheckedIn } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -191,49 +226,48 @@ const FormListScreen = ({ navigation }: any) => {
   const isInitialLoading = loading && !refreshing && forms.length === 0;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       {/* Header Matching Dashboard */}
-      <View style={styles.premiumHeader}>
-        <View style={styles.headerInfo}>
-          <Text style={styles.welcomeText}>
-            {isInitialLoading ? 'SYNCING...' : isInspector && !isCheckedIn ? 'ACTION REQUIRED,' : 'RESOURCES,'}
-          </Text>
-          <Text style={styles.headerTitle}>{isInspector ? 'Field Assets' : 'Form Repository'}</Text>
-          <Text style={styles.headerRole}>{user?.tenant?.name || 'Laxmi Metals TVS'}</Text>
-        </View>
-        <View style={styles.headerIconBox}>
-           {isInspector && !isCheckedIn ? (
-             <ShieldCheck size={24} color="#ef4444" />
-           ) : (
-             <ClipboardList size={24} color="#4f46e5" />
-           )}
+      <View style={[styles.premiumHeader, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+          <View style={[styles.logoCircleBox, { backgroundColor: isDark ? colors.card : '#fff', borderColor: colors.border }]}>
+            <Image 
+              source={require('../../assets/header_logo.png')} 
+              style={styles.headerLogoImage} 
+              resizeMode="contain"
+            />
+          </View>
+          <View style={styles.headerInfo}>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>{isInspector ? 'Field Assets' : 'Form Repository'}</Text>
+            <Text style={[styles.headerRole, { color: colors.subtext }]}>{user?.tenant?.name || 'Laxmi Metals TVS'}</Text>
+          </View>
         </View>
       </View>
 
       <ScrollView 
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#6366f1']} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
         showsVerticalScrollIndicator={false}
       >
         {isInspector && !isCheckedIn ? (
-          <View style={[styles.centered, { marginTop: 40 }]}>
-            <Clock size={64} color="#cbd5e1" style={{ marginBottom: 16 }} />
-            <Text style={[styles.emptyText, { fontSize: 18, fontWeight: '800', color: '#1e293b' }]}>Check-In Required</Text>
-            <Text style={[styles.emptyText, { marginTop: 8, paddingHorizontal: 40 }]}>
+          <View style={[styles.centered, { marginTop: 40, backgroundColor: colors.background }]}>
+            <Clock size={64} color={colors.subtext} style={{ marginBottom: 16 }} />
+            <Text style={[styles.emptyText, { fontSize: 18, fontWeight: '800', color: colors.text }]}>Check-In Required</Text>
+            <Text style={[styles.emptyText, { marginTop: 8, paddingHorizontal: 40, color: colors.subtext }]}>
               Inspectors must be actively checked in to access field assets and form checklists.
             </Text>
             <TouchableOpacity 
-              style={{ marginTop: 24, backgroundColor: '#4f46e5', paddingVertical: 14, paddingHorizontal: 32, borderRadius: 16, shadowColor: '#4f46e5', shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}
+              style={{ marginTop: 24, backgroundColor: colors.accent, paddingVertical: 14, paddingHorizontal: 32, borderRadius: 16 }}
               onPress={() => navigation.navigate('Attendance')}
             >
               <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Go to Attendance</Text>
             </TouchableOpacity>
           </View>
         ) : isInitialLoading ? (
-          <View style={[styles.centered, { marginTop: 100 }]}>
-            <ActivityIndicator size="large" color="#6366f1" />
-            <Text style={styles.loadingText}>Synchronizing Forms...</Text>
+          <View style={[styles.centered, { marginTop: 100, backgroundColor: colors.background }]}>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <Text style={[styles.loadingText, { color: colors.subtext }]}>Synchronizing Forms...</Text>
           </View>
         ) : (
           <>
@@ -256,7 +290,7 @@ const FormListScreen = ({ navigation }: any) => {
             </View>
 
             {isInspector && (
-              <View style={styles.inspectorAlert}>
+              <View style={[styles.inspectorAlert, { backgroundColor: colors.accent }]}>
                 <Clock size={16} color="#fff" />
                 <Text style={styles.inspectorAlertText}>
                   Submissions are currently being processed in Field Mode.
@@ -264,7 +298,7 @@ const FormListScreen = ({ navigation }: any) => {
               </View>
             )}
 
-            <Text style={styles.sectionHeading}>
+            <Text style={[styles.sectionHeading, { color: colors.subtext }]}>
               {isInspector ? 'Priority Checklists' : 'Organization Inventory'}
             </Text>
             
@@ -287,21 +321,21 @@ const FormListScreen = ({ navigation }: any) => {
             </View>
 
             {forms.length === 0 && !networkError && (
-              <View style={styles.emptyState}>
-                <FileText size={48} color="#cbd5e1" />
-                <Text style={styles.emptyText}>No forms available for your current role priority.</Text>
+              <View style={[styles.emptyState, { backgroundColor: colors.background }]}>
+                <FileText size={48} color={colors.subtext} />
+                <Text style={[styles.emptyText, { color: colors.subtext }]}>No forms available for your current role priority.</Text>
               </View>
             )}
 
             {networkError && forms.length === 0 && (
-              <View style={styles.emptyState}>
+              <View style={[styles.emptyState, { backgroundColor: colors.background }]}>
                 <Text style={{ fontSize: 40, marginBottom: 12 }}>📡</Text>
-                <Text style={[styles.emptyText, { color: '#ef4444', fontWeight: '700' }]}>Cannot reach server</Text>
-                <Text style={[styles.emptyText, { fontSize: 13, marginTop: 6 }]}>
+                <Text style={[styles.emptyText, { color: colors.error, fontWeight: '700' }]}>Cannot reach server</Text>
+                <Text style={[styles.emptyText, { fontSize: 13, marginTop: 6, color: colors.subtext }]}>
                   Check your internet connection or server status.
                 </Text>
                 <TouchableOpacity
-                  style={{ marginTop: 16, backgroundColor: '#4f46e5', paddingVertical: 10, paddingHorizontal: 24, borderRadius: 10 }}
+                  style={{ marginTop: 16, backgroundColor: colors.accent, paddingVertical: 10, paddingHorizontal: 24, borderRadius: 10 }}
                   onPress={() => { setLoading(true); fetchForms(); }}
                 >
                   <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Retry Sync</Text>
@@ -372,6 +406,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#eff6ff',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  logoCircleBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    padding: 4,
+  },
+  headerLogoImage: {
+    width: '100%',
+    height: '100%',
   },
   scrollContent: {
     padding: 24,

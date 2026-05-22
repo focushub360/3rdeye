@@ -10,9 +10,11 @@ import {
   TextInput,
   ScrollView,
   Dimensions,
-  Alert
+  Alert,
+  Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { 
   FileText, 
   Search, 
@@ -26,10 +28,12 @@ import {
 import apiClient from '../api/config';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
 export default function FormsListScreen() {
+  const { colors, isDark } = useTheme();
   const [forms, setForms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -83,56 +87,90 @@ export default function FormsListScreen() {
      navigation.navigate('FormPreview', { id: item.id || item._id, mode });
   };
 
-  const renderStatCard = (title: string, value: string | number, icon: any, color: string) => (
-    <View style={styles.statCard}>
-      <View style={[styles.statIconBadge, { backgroundColor: color + '15' }]}>
-        {icon}
-      </View>
-      <View>
-        <Text style={styles.statValue}>{value}</Text>
-        <Text style={styles.statLabel}>{title}</Text>
-      </View>
-    </View>
-  );
+  const renderStatCard = (title: string, value: string | number, icon: any, color: string) => {
+    // Determine soft pastel gradient colors based on the base theme color
+    const isForms = title.toLowerCase().includes('form');
+    const isResponses = title.toLowerCase().includes('response');
+    
+    let gradientColors;
+    if (isDark) {
+      if (isForms) {
+        gradientColors = ['#1e1b4b', '#312e81']; // Indigo
+      } else if (isResponses) {
+        gradientColors = ['#064e3b', '#022c22']; // Emerald/Green
+      } else {
+        gradientColors = ['#7c2d12', '#451a03']; // Bronze/Orange
+      }
+    } else {
+      if (isForms) {
+        gradientColors = ['#f5f7ff', '#e0e7ff']; // Soft Indigo
+      } else if (isResponses) {
+        gradientColors = ['#f0fdf4', '#d1fae5']; // Soft Emerald/Green
+      } else {
+        gradientColors = ['#fffbeb', '#fef3c7']; // Soft Orange/Gold
+      }
+    }
+
+    const borderLight = isDark ? color + '40' : color + '25';
+    const valColor = isDark ? (isForms ? '#818cf8' : isResponses ? '#34d399' : '#fbbf24') : color;
+    const lblColor = isDark ? '#cbd5e1' : '#475569';
+
+    return (
+      <LinearGradient 
+        colors={gradientColors as [string, string]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.statCard, { borderColor: borderLight, borderWidth: 1.5 }]}
+      >
+        <View style={[styles.statIconBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.4)', borderColor: borderLight, borderWidth: 1 }]}>
+          {icon}
+        </View>
+        <View>
+          <Text style={[styles.statValue, { color: valColor, fontSize: 20, fontWeight: '900' }]}>{value}</Text>
+          <Text style={[styles.statLabel, { color: lblColor, fontWeight: '800', fontSize: 10, textTransform: 'uppercase' }]}>{title}</Text>
+        </View>
+      </LinearGradient>
+    );
+  };
 
   const renderFormItem = ({ item }: any) => (
-    <View style={styles.formItemCard}>
+    <View style={[styles.formItemCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <View style={styles.formHeaderRow}>
         <View style={styles.formIconBox}>
-          <FileText size={24} color="#3b82f6" />
+          <FileText size={24} color={colors.accent} />
         </View>
         <View style={styles.formTextContent}>
-          <Text style={styles.formTitleText}>{item.title}</Text>
-          <Text style={styles.formDescText} numberOfLines={1}>
+          <Text style={[styles.formTitleText, { color: colors.text }]}>{item.title}</Text>
+          <Text style={[styles.formDescText, { color: colors.subtext }]} numberOfLines={1}>
             {item.description || "No description provided"}
           </Text>
         </View>
       </View>
 
       <View style={styles.formMetaRow}>
-        <View style={[styles.metaBadge, item.isActive ? styles.activeBadge : styles.inactiveBadge]}>
+        <View style={[styles.metaBadge, item.isActive ? styles.activeBadge : styles.inactiveBadge, isDark && { backgroundColor: item.isActive ? '#064e3b' : '#450a0a' }]}>
           <View style={[styles.dot, { backgroundColor: item.isActive ? '#10b981' : '#ef4444' }]} />
           <Text style={[styles.metaText, { color: item.isActive ? '#10b981' : '#ef4444' }]}>
             {item.isActive ? 'Active' : 'Inactive'}
           </Text>
         </View>
-        <View style={styles.metaBadge}>
-          <Layers size={11} color="#64748b" />
-          <Text style={styles.metaText}>Updated {new Date(item.updatedAt).toLocaleDateString()}</Text>
+        <View style={[styles.metaBadge, { backgroundColor: colors.surface }]}>
+          <Layers size={11} color={colors.subtext} />
+          <Text style={[styles.metaText, { color: colors.subtext }]}>Updated {new Date(item.updatedAt).toLocaleDateString()}</Text>
         </View>
       </View>
 
       <View style={styles.actionRow}>
         <TouchableOpacity 
-          style={styles.actionBtn}
+          style={[styles.actionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
           onPress={() => handleAction(item, 'view')}
         >
-          <Eye size={18} color="#1e3a8a" />
-          <Text style={styles.actionBtnText}>View</Text>
+          <Eye size={18} color={colors.accent} />
+          <Text style={[styles.actionBtnText, { color: colors.accent }]}>View</Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={styles.actionBtn}
+          style={[styles.actionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
           onPress={() => handleAction(item, 'analysis', 'sections')}
         >
           <BarChart3 size={18} color="#8b5cf6" />
@@ -140,7 +178,7 @@ export default function FormsListScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={styles.actionBtn}
+          style={[styles.actionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
           onPress={() => handleAction(item, 'analysis', 'responses')}
         >
           <FileText size={18} color="#3b82f6" />
@@ -152,22 +190,31 @@ export default function FormsListScreen() {
 
   if (loading && !refreshing && forms.length === 0) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#1e3a8a" />
+      <View style={[styles.centered, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.topSection}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.topSection, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
         <View style={styles.mainHeader}>
-          <View>
-            <Text style={styles.welcomeText}>Service Analytics</Text>
-            <Text style={styles.subWelcomeText}>{user?.tenant?.name || 'Organization'} Portal</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={[styles.logoCircleBox, { backgroundColor: isDark ? colors.card : '#fff', borderColor: colors.border }]}>
+              <Image 
+                source={require('../../assets/header_logo.png')} 
+                style={styles.headerLogoImage} 
+                resizeMode="contain"
+              />
+            </View>
+            <View>
+              <Text style={[styles.welcomeText, { color: colors.text }]}>Service Analytics</Text>
+              <Text style={[styles.subWelcomeText, { color: colors.subtext }]}>{user?.tenant?.name || 'Organization'} Portal</Text>
+            </View>
           </View>
-          <TouchableOpacity style={styles.refreshBtn} onPress={onRefresh}>
-             <RefreshCw size={22} color="#1e3a8a" />
+          <TouchableOpacity style={[styles.refreshBtn, { backgroundColor: colors.surface }]} onPress={onRefresh}>
+             <RefreshCw size={22} color={colors.accent} />
           </TouchableOpacity>
         </View>
 
@@ -182,14 +229,14 @@ export default function FormsListScreen() {
         </ScrollView>
 
         <View style={styles.searchSection}>
-          <View style={styles.searchBar}>
-            <Search size={18} color="#94a3b8" />
+          <View style={[styles.searchBar, { backgroundColor: colors.surface }]}>
+            <Search size={18} color={colors.subtext} />
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, { color: colors.text }]}
               placeholder="Search accessible forms..."
               value={searchQuery}
               onChangeText={setSearchQuery}
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.subtext}
             />
           </View>
         </View>
@@ -203,9 +250,9 @@ export default function FormsListScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Search size={48} color="#cbd5e1" />
-            <Text style={styles.emptyText}>No matching forms found for this account</Text>
-            <TouchableOpacity onPress={onRefresh} style={styles.retryBtn}>
+            <Search size={48} color={colors.border} />
+            <Text style={[styles.emptyText, { color: colors.subtext }]}>No matching forms found for this account</Text>
+            <TouchableOpacity onPress={onRefresh} style={[styles.retryBtn, { backgroundColor: colors.accent }]}>
               <Text style={styles.retryText}>Refresh List</Text>
             </TouchableOpacity>
           </View>
@@ -252,6 +299,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  logoCircleBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    padding: 4,
+  },
+  headerLogoImage: {
+    width: '100%',
+    height: '100%',
   },
   statsScroll: {
     paddingHorizontal: 20,

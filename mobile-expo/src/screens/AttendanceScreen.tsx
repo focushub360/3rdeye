@@ -11,7 +11,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
-  TextInput
+  TextInput,
+  Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
@@ -48,6 +49,7 @@ import {
 import * as Location from 'expo-location';
 import * as Cellular from 'expo-cellular';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
 import apiClient, { BASE_URL } from '../api/config';
 import { io } from 'socket.io-client';
@@ -68,6 +70,7 @@ const HRMSButton = ({ title, icon: Icon, color, onPress }: any) => (
 );
 
 const AttendanceScreen = ({ navigation }: any) => {
+  const { colors, isDark } = useTheme();
   const { user, logout, setIsCheckedIn, refreshProfile } = useAuth();
   const [lastCheck, setLastCheck] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -442,10 +445,16 @@ const AttendanceScreen = ({ navigation }: any) => {
   }, [user]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <UserCheck size={28} color="#4f46e5" />
-        <Text style={styles.headerTitle}>{isSubAdmin ? 'HR Management System' : 'Attendance Management'}</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+        <View style={[styles.logoCircleBox, { backgroundColor: isDark ? colors.surface : '#fff', borderColor: colors.border }]}>
+          <Image 
+            source={require('../../assets/header_logo.png')} 
+            style={styles.headerLogoImage} 
+            resizeMode="contain"
+          />
+        </View>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{isSubAdmin ? 'HR Management System' : 'Attendance Management'}</Text>
       </View>
 
       <ScrollView 
@@ -459,62 +468,9 @@ const AttendanceScreen = ({ navigation }: any) => {
         {isSubAdmin && attendanceSummary && (
 
           <View style={styles.managementSection}>
-            {/* Attendance Pulse - New Section (Live & Sync) */}
-            {isSubAdmin && attendanceSummary && (
-              <View style={[styles.pulseContainer, { marginBottom: 32 }]}>
-                <View style={styles.pulseHeader}>
-                  <View style={styles.pulseTitleRow}>
-                    <TrendingUp size={16} color="#4f46e5" />
-                    <Text style={[styles.pulseTitle, { color: '#4f46e5' }]}>ATTENDANCE PULSE</Text>
-                  </View>
-                  <View style={[styles.liveBadgePulse, { backgroundColor: '#eff6ff', borderColor: '#dbeafe' }]}>
-                    <View style={[styles.liveDotPulse, { backgroundColor: '#3b82f6' }]} />
-                    <Text style={[styles.liveTextPulse, { color: '#2563eb' }]}>LIVE</Text>
-                  </View>
-                </View>
-
-                <View style={styles.pulseGrid}>
-                  <View style={styles.pulseRow}>
-                    <View style={styles.pulseItem}>
-                      <View style={styles.pulseIconBg}>
-                        <Users size={18} color="#6366f1" />
-                      </View>
-                      <Text style={styles.pulseValue}>{attendanceSummary?.totalStaff || attendanceSummary?.totalInspectors || 0}</Text>
-                      <Text style={styles.pulseLabel}>Total Staff</Text>
-                    </View>
-                    <View style={styles.pulseDivider} />
-                    <View style={styles.pulseItem}>
-                      <View style={[styles.pulseIconBg, { backgroundColor: '#f0fdf4' }]}>
-                        <Clock size={18} color="#22c55e" />
-                      </View>
-                      <Text style={[styles.pulseValue, { color: '#22c55e' }]}>{attendanceSummary?.clockInToday || attendanceSummary?.presentToday || 0}</Text>
-                      <Text style={styles.pulseLabel}>Clock In Today</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.pulseRow, { marginTop: 24, paddingTop: 20, borderTopWidth: 1, borderTopColor: '#f1f5f9' }]}>
-                    <View style={styles.pulseItem}>
-                      <View style={[styles.pulseIconBg, { backgroundColor: '#fff7ed' }]}>
-                        <History size={18} color="#f59e0b" />
-                      </View>
-                      <Text style={[styles.pulseValue, { color: '#f59e0b' }]}>{attendanceSummary?.postShift || attendanceSummary?.lateComing || 0}</Text>
-                      <Text style={styles.pulseLabel}>Post Shift</Text>
-                    </View>
-                    <View style={styles.pulseDivider} />
-                    <View style={styles.pulseItem}>
-                      <View style={[styles.pulseIconBg, { backgroundColor: '#fef2f2' }]}>
-                        <CalendarCheck size={18} color="#ef4444" />
-                      </View>
-                      <Text style={[styles.pulseValue, { color: '#ef4444' }]}>{attendanceSummary?.approvedLeave || attendanceSummary?.leaveToday || 0}</Text>
-                      <Text style={styles.pulseLabel}>Approved Leave</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-            )}
-
             <View style={styles.sectionHeaderRow}>
-               <Text style={styles.headerTitle}>Staff Presence</Text>
-               <View style={styles.badgeSmall}>
+               <Text style={[styles.headerTitle, { color: colors.text }]}>Staff Presence</Text>
+               <View style={[styles.badgeSmall, { backgroundColor: colors.accent }]}>
                   <Text style={styles.badgeTextSmall}>LOGS</Text>
                </View>
             </View>
@@ -525,20 +481,20 @@ const AttendanceScreen = ({ navigation }: any) => {
                   const name = item.userId ? `${item.userId.firstName} ${item.userId.lastName}` : 'Anonymous';
                   
                   return (
-                    <View key={idx} style={styles.logCard}>
+                    <View key={idx} style={[styles.logCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                        <View style={styles.logUserBox}>
-                          <View style={[styles.avatarSmall, { backgroundColor: isIn ? '#dcfce7' : '#f1f5f9' }]}>
-                             <UserCheck size={14} color={isIn ? '#166534' : '#94a3b8'} />
+                          <View style={[styles.avatarSmall, { backgroundColor: isDark ? colors.surface : isIn ? '#dcfce7' : '#f1f5f9' }]}>
+                             <UserCheck size={14} color={isIn ? '#166534' : colors.subtext} />
                           </View>
                           <View>
-                             <Text style={styles.logName}>{name}</Text>
-                             <Text style={styles.logRole}>{item.userId?.role || 'Staff'}</Text>
+                             <Text style={[styles.logName, { color: colors.text }]}>{name}</Text>
+                             <Text style={[styles.logRole, { color: colors.subtext }]}>{item.userId?.role || 'Staff'}</Text>
                           </View>
                        </View>
                        <View style={styles.logTimeBox}>
-                         <Text style={styles.logTime}>{item.loginTime ? new Date(item.loginTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}</Text>
-                         <View style={[styles.statusTag, { backgroundColor: isIn ? '#dcfce7' : '#fee2e2' }]}>
-                           <Text style={[styles.statusTagText, { color: isIn ? '#166534' : '#991b1b' }]}>{isIn ? 'IN' : 'OUT'}</Text>
+                         <Text style={[styles.logTime, { color: colors.text }]}>{item.loginTime ? new Date(item.loginTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}</Text>
+                         <View style={[styles.statusTag, { backgroundColor: isDark ? (isIn ? '#064e3b' : '#450a0a') : (isIn ? '#dcfce7' : '#fee2e2') }]}>
+                           <Text style={[styles.statusTagText, { color: isIn ? '#22c55e' : '#ef4444' }]}>{isIn ? 'IN' : 'OUT'}</Text>
                          </View>
                        </View>
                     </View>
@@ -552,7 +508,7 @@ const AttendanceScreen = ({ navigation }: any) => {
         {canCheckIn && (
           <View style={styles.webStyleDashboard}>
             {/* Shift Card */}
-            <View style={styles.shiftCardWeb}>
+            <View style={[styles.shiftCardWeb, { backgroundColor: colors.accent, shadowColor: colors.accent }]}>
                <View style={styles.shiftCardHeader}>
                   <Clock size={18} color="rgba(255,255,255,0.7)" />
                   <Text style={styles.shiftCardLabel}>ASSIGNED SHIFT</Text>
@@ -572,19 +528,19 @@ const AttendanceScreen = ({ navigation }: any) => {
             </View>
 
             {/* Action Box */}
-            <View style={styles.actionBoxWeb}>
+            <View style={[styles.actionBoxWeb, { backgroundColor: colors.card, borderColor: colors.border }]}>
                <View style={styles.geofenceStatus}>
                   <View style={styles.geoItem}>
                     <View style={[styles.geoDot, { backgroundColor: hrStatus?.shift ? '#22c55e' : '#ef4444' }]} />
-                    <Text style={styles.geoText}>SHIFT: {hrStatus?.shift ? 'ASSIGNED' : 'UNASSIGNED'}</Text>
+                    <Text style={[styles.geoText, { color: colors.subtext }]}>SHIFT: {hrStatus?.shift ? 'ASSIGNED' : 'UNASSIGNED'}</Text>
                   </View>
                   <View style={styles.geoItem}>
                     <View style={[styles.geoDot, { backgroundColor: location ? '#22c55e' : '#ef4444' }]} />
-                    <Text style={styles.geoText}>GPS: {location ? 'ACTIVE' : 'OFF'}</Text>
+                    <Text style={[styles.geoText, { color: colors.subtext }]}>GPS: {location ? 'ACTIVE' : 'OFF'}</Text>
                   </View>
                   <View style={styles.geoItem}>
                     <View style={[styles.geoDot, { backgroundColor: isWithinRadius ? '#22c55e' : '#ef4444' }]} />
-                    <Text style={styles.geoText}>
+                    <Text style={[styles.geoText, { color: colors.subtext }]}>
                       GEOSYNC: {isWithinRadius ? 'IN RANGE' : 'OUTSIDE'}
                       {!isWithinRadius && location && officeLocation && (
                         <Text style={{ color: '#ef4444', fontWeight: 'bold' }}>
@@ -595,16 +551,16 @@ const AttendanceScreen = ({ navigation }: any) => {
                   </View>
                   <View style={styles.geoItem}>
                     <View style={[styles.geoDot, { backgroundColor: (user?.phone || user?.mobile) ? '#22c55e' : '#f59e0b' }]} />
-                    <Text style={styles.geoText}>PHONE: {(user?.phone || user?.mobile) ? String(user?.phone || user?.mobile) : 'MISSING'}</Text>
+                    <Text style={[styles.geoText, { color: colors.subtext }]}>PHONE: {(user?.phone || user?.mobile) ? String(user?.phone || user?.mobile) : 'MISSING'}</Text>
                   </View>
                   <View style={styles.geoItem}>
                      <View style={[styles.geoDot, { backgroundColor: isSimMatched ? '#22c55e' : '#f59e0b' }]} />
-                     <Text style={styles.geoText}>SIM: {simInfo}</Text>
+                     <Text style={[styles.geoText, { color: colors.subtext }]}>SIM: {simInfo}</Text>
                      <TouchableOpacity 
-                       style={[styles.fetchTag, isSimMatched && { backgroundColor: '#f0fdf4' }]}
+                       style={[styles.fetchTag, { backgroundColor: isDark ? colors.surface : (isSimMatched ? '#f0fdf4' : '#1e3a8a') }]}
                        onPress={detectSim}
                      >
-                       <Text style={[styles.fetchTagText, isSimMatched && { color: '#166534' }]}>{isSimMatched ? 'NETWORK MATCH' : 'FETCH SIM'}</Text>
+                       <Text style={[styles.fetchTagText, { color: isSimMatched ? '#166534' : '#fff' }]}>{isSimMatched ? 'NETWORK MATCH' : 'FETCH SIM'}</Text>
                      </TouchableOpacity>
                    </View>
                </View>
@@ -624,9 +580,9 @@ const AttendanceScreen = ({ navigation }: any) => {
                      return (
                        <>
                          {hasUnfilled && !otpVerified && (
-                           <View style={styles.requirementWarning}>
+                           <View style={[styles.requirementWarning, { backgroundColor: isDark ? '#7c2d12' : '#fffbeb', borderColor: isDark ? colors.border : '#fef3c7' }]}>
                               <AlertCircle size={14} color="#f59e0b" />
-                              <Text style={styles.warningText}>
+                              <Text style={[styles.warningText, { color: isDark ? colors.text : '#b45309' }]}>
                                  Requires: {conditions.join(', ')}
                               </Text>
                            </View>
@@ -634,7 +590,7 @@ const AttendanceScreen = ({ navigation }: any) => {
                          
                          {!otpVerified ? (
                            <TouchableOpacity 
-                              style={[styles.punchBtn, (isVerifying || hasUnfilled) && styles.punchBtnDisabled]}
+                              style={[styles.punchBtn, { backgroundColor: colors.accent, shadowColor: colors.accent }, (isVerifying || hasUnfilled) && [styles.punchBtnDisabled, { backgroundColor: isDark ? colors.surface : '#e2e8f0' }]]}
                               onPress={() => handleAttendance('IN')}
                               disabled={isVerifying || hasUnfilled}
                             >
@@ -642,13 +598,13 @@ const AttendanceScreen = ({ navigation }: any) => {
                                <Text style={styles.punchBtnText}>CLOCK IN</Text>
                             </TouchableOpacity>
                          ) : animatingChecks ? (
-                      <View style={styles.animationBox}>
-                         <ActivityIndicator color="#4f46e5" size="large" />
-                         <Text style={styles.animText}>Verifying SIM, GPS & Geofence...</Text>
+                      <View style={[styles.animationBox, { backgroundColor: isDark ? colors.surface : '#eff6ff', borderColor: isDark ? colors.border : '#bfdbfe' }]}>
+                         <ActivityIndicator color={colors.accent} size="large" />
+                         <Text style={[styles.animText, { color: colors.accent }]}>Verifying SIM, GPS & Geofence...</Text>
                       </View>
                    ) : checksCompleted ? (
                       <TouchableOpacity 
-                        style={[styles.punchBtn, { backgroundColor: '#10b981' }, isVerifying && styles.punchBtnDisabled]}
+                        style={[styles.punchBtn, { backgroundColor: '#10b981', shadowColor: '#10b981' }, isVerifying && [styles.punchBtnDisabled, { backgroundColor: isDark ? colors.surface : '#e2e8f0' }]]}
                         onPress={startShift}
                         disabled={isVerifying}
                       >
@@ -662,14 +618,14 @@ const AttendanceScreen = ({ navigation }: any) => {
                  </View>
                ) : !hrStatus?.attendance?.checkOutTime ? (
                  <View style={styles.activePunchContainer}>
-                    <View style={styles.punchedInIndicator}>
-                       <Text style={styles.punchInAtLabel}>CLOCKED IN AT</Text>
-                       <Text style={styles.punchInAtValue}>
+                    <View style={[styles.punchedInIndicator, { backgroundColor: isDark ? '#064e3b' : '#f0fdf4', borderColor: isDark ? colors.border : '#dcfce7' }]}>
+                       <Text style={[styles.punchInAtLabel, { color: isDark ? '#22c55e' : '#166534' }]}>CLOCKED IN AT</Text>
+                       <Text style={[styles.punchInAtValue, { color: isDark ? colors.text : '#14532d' }]}>
                           {new Date(hrStatus.attendance.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                        </Text>
                     </View>
                     <TouchableOpacity 
-                      style={[styles.punchBtn, { backgroundColor: '#ef4444' }, isVerifying && styles.punchBtnDisabled]}
+                      style={[styles.punchBtn, { backgroundColor: '#ef4444', shadowColor: '#ef4444' }, isVerifying && [styles.punchBtnDisabled, { backgroundColor: isDark ? colors.surface : '#e2e8f0' }]]}
                       onPress={() => handleAttendance('OUT')}
                       disabled={isVerifying}
                     >
@@ -678,10 +634,10 @@ const AttendanceScreen = ({ navigation }: any) => {
                     </TouchableOpacity>
                  </View>
                ) : (
-                 <View style={styles.completedBox}>
+                 <View style={[styles.completedBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                     <CheckCircle2 size={32} color="#10b981" />
-                    <Text style={styles.completedTitle}>Shift Completed</Text>
-                    <Text style={styles.completedSub}>Good job! Your day is recorded.</Text>
+                    <Text style={[styles.completedTitle, { color: colors.text }]}>Shift Completed</Text>
+                    <Text style={[styles.completedSub, { color: colors.subtext }]}>Good job! Your day is recorded.</Text>
                  </View>
                )}
             </View>
@@ -689,27 +645,27 @@ const AttendanceScreen = ({ navigation }: any) => {
             {/* Recent History Feed */}
             <View style={styles.historySectionWeb}>
                <View style={styles.historyHeader}>
-                  <History size={16} color="#64748b" />
-                  <Text style={styles.historyTitle}>RECENT ACTIVITY</Text>
+                  <History size={16} color={colors.subtext} />
+                  <Text style={[styles.historyTitle, { color: colors.subtext }]}>RECENT ACTIVITY</Text>
                </View>
                {history.map((item, idx) => (
-                 <View key={item._id || idx} style={styles.historyItemWeb}>
-                    <View style={[styles.histIcon, { backgroundColor: item.status === 'present' ? '#f0fdf4' : '#fffbeb' }]}>
+                 <View key={item._id || idx} style={[styles.historyItemWeb, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                    <View style={[styles.histIcon, { backgroundColor: isDark ? colors.surface : (item.status === 'present' ? '#f0fdf4' : '#fffbeb') }]}>
                        <Clock size={16} color={item.status === 'present' ? '#10b981' : '#f59e0b'} />
                     </View>
                     <View style={styles.histMain}>
-                       <Text style={styles.histDate}>{new Date(item.date).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}</Text>
-                       <Text style={styles.histTimes}>
+                       <Text style={[styles.histDate, { color: colors.text }]}>{new Date(item.date).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}</Text>
+                       <Text style={[styles.histTimes, { color: colors.subtext }]}>
                           {item.checkInTime ? new Date(item.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'} - {item.checkOutTime ? new Date(item.checkOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
                        </Text>
                     </View>
-                    <View style={[styles.histTag, { backgroundColor: item.status === 'present' ? '#eff6ff' : '#fef2f2' }]}>
+                    <View style={[styles.histTag, { backgroundColor: isDark ? colors.surface : (item.status === 'present' ? '#eff6ff' : '#fef2f2') }]}>
                        <Text style={[styles.histTagText, { color: item.status === 'present' ? '#3b82f6' : '#ef4444' }]}>{item.status.toUpperCase()}</Text>
                     </View>
                  </View>
                ))}
                {history.length === 0 && (
-                 <Text style={styles.noHistoryText}>No recent activity found</Text>
+                 <Text style={[styles.noHistoryText, { color: colors.subtext }]}>No recent activity found</Text>
                )}
             </View>
           </View>
@@ -718,55 +674,55 @@ const AttendanceScreen = ({ navigation }: any) => {
         {/* Module Grid - Neat & Clean as Web */}
         <View style={styles.moduleGrid}>
            <TouchableOpacity 
-             style={styles.moduleCard} 
+             style={[styles.moduleCard, { backgroundColor: colors.card, borderColor: colors.border }]} 
              onPress={() => navigation.navigate('AttendanceManagement')}
            >
-              <View style={[styles.moduleIcon, { backgroundColor: '#eff6ff' }]}>
+              <View style={[styles.moduleIcon, { backgroundColor: isDark ? colors.surface : '#eff6ff' }]}>
                 <Clock size={22} color="#1e40af" />
               </View>
-              <Text style={styles.moduleTitle}>HR Reports</Text>
-              <Text style={styles.moduleSub}>Attendance & Analysis</Text>
-              <ArrowUpRight size={14} color="#94a3b8" style={styles.moduleArrow} />
+              <Text style={[styles.moduleTitle, { color: colors.text }]}>HR Reports</Text>
+              <Text style={[styles.moduleSub, { color: colors.subtext }]}>Attendance & Analysis</Text>
+              <ArrowUpRight size={14} color={colors.subtext} style={styles.moduleArrow} />
            </TouchableOpacity>
 
            <TouchableOpacity 
-             style={styles.moduleCard}
+             style={[styles.moduleCard, { backgroundColor: colors.card, borderColor: colors.border }]}
              onPress={() => navigation.navigate('LeaveManagement')}
            >
-              <View style={[styles.moduleIcon, { backgroundColor: '#fdf2f8' }]}>
+              <View style={[styles.moduleIcon, { backgroundColor: isDark ? colors.surface : '#fdf2f8' }]}>
                 <Calendar size={22} color="#be185d" />
               </View>
-              <Text style={styles.moduleTitle}>Leaves</Text>
-              <Text style={styles.moduleSub}>Request & Balance</Text>
-              <ArrowUpRight size={14} color="#94a3b8" style={styles.moduleArrow} />
+              <Text style={[styles.moduleTitle, { color: colors.text }]}>Leaves</Text>
+              <Text style={[styles.moduleSub, { color: colors.subtext }]}>Request & Balance</Text>
+              <ArrowUpRight size={14} color={colors.subtext} style={styles.moduleArrow} />
            </TouchableOpacity>
 
            <TouchableOpacity 
-             style={styles.moduleCard}
+             style={[styles.moduleCard, { backgroundColor: colors.card, borderColor: colors.border }]}
              onPress={() => navigation.navigate('PermissionManagement')}
            >
-              <View style={[styles.moduleIcon, { backgroundColor: '#ecfdf5' }]}>
+              <View style={[styles.moduleIcon, { backgroundColor: isDark ? colors.surface : '#ecfdf5' }]}>
                 <ClipboardCheck size={22} color="#059669" />
               </View>
-              <Text style={styles.moduleTitle}>Permissions</Text>
-              <Text style={styles.moduleSub}>Daily Gate Pass</Text>
-              <ArrowUpRight size={14} color="#94a3b8" style={styles.moduleArrow} />
+              <Text style={[styles.moduleTitle, { color: colors.text }]}>Permissions</Text>
+              <Text style={[styles.moduleSub, { color: colors.subtext }]}>Daily Gate Pass</Text>
+              <ArrowUpRight size={14} color={colors.subtext} style={styles.moduleArrow} />
            </TouchableOpacity>
 
             <TouchableOpacity 
-              style={styles.moduleCard}
+              style={[styles.moduleCard, { backgroundColor: colors.card, borderColor: colors.border }]}
               onPress={() => navigation.navigate(isSubAdmin ? 'AdminShiftManagement' : 'ShiftManagement')}
             >
-               <View style={[styles.moduleIcon, { backgroundColor: '#fff7ed' }]}>
+               <View style={[styles.moduleIcon, { backgroundColor: isDark ? colors.surface : '#fff7ed' }]}>
                  <Zap size={22} color="#ea580c" />
                </View>
-               <Text style={styles.moduleTitle}>{isSubAdmin ? 'Shift Management' : 'My Shifts'}</Text>
-               <Text style={styles.moduleSub}>{isSubAdmin ? 'Assign & Manage' : 'Schedule & Rotations'}</Text>
-               <ArrowUpRight size={14} color="#94a3b8" style={styles.moduleArrow} />
+               <Text style={[styles.moduleTitle, { color: colors.text }]}>{isSubAdmin ? 'Shift Management' : 'My Shifts'}</Text>
+               <Text style={[styles.moduleSub, { color: colors.subtext }]}>{isSubAdmin ? 'Assign & Manage' : 'Schedule & Rotations'}</Text>
+               <ArrowUpRight size={14} color={colors.subtext} style={styles.moduleArrow} />
             </TouchableOpacity>
         </View>
 
-        <TouchableOpacity onPress={logout} style={styles.logoutBtn}>
+        <TouchableOpacity onPress={logout} style={[styles.logoutBtn, { backgroundColor: colors.card, borderColor: isDark ? colors.border : '#fee2e2' }]}>
           <Power size={18} color="#ef4444" />
           <Text style={styles.logoutText}>SIGN OUT</Text>
         </TouchableOpacity>
@@ -780,23 +736,23 @@ const AttendanceScreen = ({ navigation }: any) => {
         onRequestClose={() => setShowOTPModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
+          <View style={[styles.modalContainer, { backgroundColor: colors.card }]}>
             <View style={styles.modalHeader}>
-              <View style={styles.modalIconBox}>
-                <KeyRound size={28} color="#4f46e5" />
+              <View style={[styles.modalIconBox, { backgroundColor: colors.surface }]}>
+                <KeyRound size={28} color={colors.accent} />
               </View>
               <TouchableOpacity onPress={() => setShowOTPModal(false)} style={styles.closeBtn}>
-                <X size={20} color="#94a3b8" />
+                <X size={20} color={colors.subtext} />
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.modalTitle}>Verify Check-{otpType}</Text>
-            <Text style={styles.modalSub}>Enter the 4-digit code sent to your registered WhatsApp/Device</Text>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Verify Check-{otpType}</Text>
+            <Text style={[styles.modalSub, { color: colors.subtext }]}>Enter the 4-digit code sent to your registered WhatsApp/Device</Text>
             
             <TextInput
-              style={styles.otpInput}
+              style={[styles.otpInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.accent }]}
               placeholder="0000"
-              placeholderTextColor="#cbd5e1"
+              placeholderTextColor={colors.subtext}
               keyboardType="number-pad"
               maxLength={4}
               value={otpCode}
@@ -805,7 +761,7 @@ const AttendanceScreen = ({ navigation }: any) => {
             />
 
             <TouchableOpacity 
-              style={[styles.verifyBtn, isVerifying && styles.verifyBtnDisabled]}
+              style={[styles.verifyBtn, { backgroundColor: colors.accent, shadowColor: colors.accent }, isVerifying && styles.verifyBtnDisabled]}
               onPress={verifyOTP}
               disabled={isVerifying}
             >
@@ -820,7 +776,7 @@ const AttendanceScreen = ({ navigation }: any) => {
               onPress={() => handleAttendance(otpType)}
               disabled={isVerifying}
             >
-              <Text style={styles.resendText}>Didn't receive code? <Text style={styles.resendLink}>Resend OTP</Text></Text>
+              <Text style={[styles.resendText, { color: colors.subtext }]}>Didn't receive code? <Text style={[styles.resendLink, { color: colors.accent }]}>Resend OTP</Text></Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1557,6 +1513,58 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
+  },
+  menuBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    marginBottom: 12,
+  },
+  iconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  btnTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  btnSub: {
+    fontSize: 11,
+    color: '#94a3b8',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  logTime: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  logoCircleBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    padding: 4,
+  },
+  headerLogoImage: {
+    width: '100%',
+    height: '100%',
   },
 });
 

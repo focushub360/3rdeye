@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import LoginScreen from './src/screens/LoginScreen';
 import ServiceAnalyticsScreen from './src/screens/ServiceAnalyticsScreen';
 import ChatListScreen from './src/screens/ChatbotScreen'; // Renamed to ChatList
@@ -22,6 +23,8 @@ import { ActivityIndicator, View, StyleSheet, StatusBar, Platform, Text } from '
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LayoutDashboard, MessageSquareText, Clock, ClipboardList, CalendarDays, ShieldCheck, BarChart3 } from 'lucide-react-native';
 import DashboardScreen from './src/screens/DashboardScreen';
+import SuperAdminPerformanceScreen from './src/screens/SuperAdminPerformanceScreen';
+
 
 import ResponseFeedbackScreen from './src/screens/ResponseFeedbackScreen';
 import AccountScreen from './src/screens/AccountScreen';
@@ -36,25 +39,27 @@ const TabNavigator = () => {
 
   const isInspector = user?.role === 'inspector';
 
+  const { colors, isDark } = useTheme();
+
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#ffffff',
+          backgroundColor: colors.card,
           borderTopWidth: 1,
-          borderTopColor: '#f1f5f9',
+          borderTopColor: colors.border,
           height: Platform.OS === 'ios' ? 100 : 85,
           paddingBottom: Platform.OS === 'ios' ? 38 : 22,
           paddingTop: 12,
           elevation: 20,
-          shadowColor: '#1e3a8a',
+          shadowColor: isDark ? '#000' : '#1e3a8a',
           shadowOffset: { width: 0, height: -4 },
           shadowOpacity: 0.1,
           shadowRadius: 10,
         },
-        tabBarActiveTintColor: '#1e3a8a',
-        tabBarInactiveTintColor: '#94a3b8',
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.subtext,
         tabBarLabelStyle: {
           fontSize: 9,
           fontWeight: '800',
@@ -107,6 +112,7 @@ const TabNavigator = () => {
 
 const NavigationWrapper = () => {
   const { token, isLoading } = useAuth();
+  const { colors, isDark } = useTheme();
   const [splashFinished, setSplashFinished] = useState(false);
 
   // Seemless Transition: Keep splash until BOTH animation is done AND auth is checked
@@ -116,7 +122,7 @@ const NavigationWrapper = () => {
 
   return (
     <NavigationContainer>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.card} />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {token ? (
           <>
@@ -131,6 +137,7 @@ const NavigationWrapper = () => {
             <Stack.Screen name="AdminShiftManagement" component={AdminShiftManagementScreen} />
             <Stack.Screen name="ResponseFeedback" component={ResponseFeedbackScreen} />
             <Stack.Screen name="Account" component={AccountScreen} />
+            <Stack.Screen name="SuperAdminPerformance" component={SuperAdminPerformanceScreen} />
           </>
 
         ) : (
@@ -172,7 +179,9 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <NavigationWrapper />
+        <ThemeProvider>
+          <NavigationWrapper />
+        </ThemeProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

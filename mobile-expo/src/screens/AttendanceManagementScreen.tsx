@@ -31,12 +31,13 @@ import {
   Users
 } from 'lucide-react-native';
 import apiClient from '../api/config';
-
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
 const AttendanceManagementScreen = ({ navigation }: any) => {
+  const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'subadmin' || user?.role === 'lmadmin' || user?.role === 'manager';
   const [loading, setLoading] = useState(true);
@@ -51,38 +52,59 @@ const AttendanceManagementScreen = ({ navigation }: any) => {
   const fetchLogs = useCallback(async () => {
     try {
       setLoading(true);
-      // Format dates for API query
+      // Format dates for API query in local timezone to match backend parser
       const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
       const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+
+      const formatDateLocal = (date: Date) => {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      };
+
+      const startStr = formatDateLocal(startOfMonth);
+      const endStr = formatDateLocal(endOfMonth);
       
-      const [attendanceRes, statsRes, perfRes] = await Promise.all([
-        apiClient.get('/attendance', {
+      // Fetch each endpoint independently to ensure robust error isolation
+      try {
+        const attendanceRes = await apiClient.get('/attendance', {
           params: {
-            startDate: startOfMonth.toISOString(),
-            endDate: endOfMonth.toISOString()
+            startDate: startStr,
+            endDate: endStr
           }
-        }),
-        apiClient.get('/hr/attendance/summary'),
-        apiClient.get('/analytics/performance-table', {
+        });
+        if (attendanceRes.data.success) {
+          setLogs(attendanceRes.data.logs || attendanceRes.data.data?.detailedLogs || []);
+        }
+      } catch (err) {
+        console.error('HRMS error fetching logs:', err);
+      }
+
+      try {
+        const statsRes = await apiClient.get('/hr/attendance/summary');
+        if (statsRes.data.success) {
+          console.log('📊 HR Stats Received:', statsRes.data.data);
+          setStats(statsRes.data.data);
+        }
+      } catch (err) {
+        console.error('HRMS error fetching stats summary:', err);
+      }
+
+      try {
+        const perfRes = await apiClient.get('/analytics/performance-table', {
           params: {
-            startDate: startOfMonth.toISOString(),
-            endDate: endOfMonth.toISOString()
+            startDate: startStr,
+            endDate: endStr
           }
-        })
-      ]);
-
-      if (attendanceRes.data.success) {
-        setLogs(attendanceRes.data.logs || attendanceRes.data.data?.detailedLogs || []);
+        });
+        if (perfRes.data.success) {
+          setInspectorPerformance(perfRes.data.data);
+        }
+      } catch (err) {
+        console.error('HRMS error fetching performance table:', err);
       }
 
-      if (statsRes.data.success) {
-        console.log('📊 HR Stats Received:', statsRes.data.data);
-        setStats(statsRes.data.data);
-      }
-
-      if (perfRes.data.success) {
-        setInspectorPerformance(perfRes.data.data);
-      }
     } catch (error) {
       console.error('Fetch Analytics Error:', error);
     } finally {
@@ -153,39 +175,39 @@ const AttendanceManagementScreen = ({ navigation }: any) => {
     }
   };
 
-  const renderPerformanceItem = (item: any) => (
-    <View key={item.id} style={styles.perfCard}>
-      <View style={styles.perfHeader}>
+  const renderPerformanceItem = (item: any, idx: number) => (
+    <View key={item.username || item.name || idx} style={[styles.perfCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={[styles.perfHeader, { borderBottomColor: colors.border }]}>
         <View style={styles.perfUserBox}>
-          <View style={styles.perfAvatar}>
-             <Text style={styles.perfAvatarText}>
+          <View style={[styles.perfAvatar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+             <Text style={[styles.perfAvatarText, { color: colors.accent }]}>
                {(item.name || 'User').split(' ').filter(Boolean).map((n:any) => n[0]).join('').toUpperCase()}
              </Text>
 
           </View>
           <View>
-            <Text style={styles.perfName}>{item.name}</Text>
-            <Text style={styles.perfEmail}>{item.email || item.username}</Text>
+            <Text style={[styles.perfName, { color: colors.text }]}>{item.name}</Text>
+            <Text style={[styles.perfEmail, { color: colors.subtext }]}>{item.email || item.username}</Text>
           </View>
         </View>
-        <View style={styles.perfTotalBox}>
-          <Text style={styles.perfTotalVal}>{item.totalForms}</Text>
-          <Text style={styles.perfTotalLab}>FORMS</Text>
+        <View style={[styles.perfTotalBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.perfTotalVal, { color: colors.accent }]}>{item.totalForms}</Text>
+          <Text style={[styles.perfTotalLab, { color: colors.subtext }]}>FORMS</Text>
         </View>
       </View>
 
       <View style={styles.perfStatsRow}>
-        <View style={[styles.perfStat, { borderLeftColor: '#22c55e' }]}>
-          <Text style={styles.perfStatVal}>{item.accepted}</Text>
-          <Text style={styles.perfStatLab}>ACCEPTED</Text>
+        <View style={[styles.perfStat, { backgroundColor: colors.surface, borderLeftColor: '#22c55e' }]}>
+          <Text style={[styles.perfStatVal, { color: colors.text }]}>{item.accepted}</Text>
+          <Text style={[styles.perfStatLab, { color: colors.subtext }]}>ACCEPTED</Text>
         </View>
-        <View style={[styles.perfStat, { borderLeftColor: '#ef4444' }]}>
-          <Text style={styles.perfStatVal}>{item.rejected}</Text>
-          <Text style={styles.perfStatLab}>REJECTED</Text>
+        <View style={[styles.perfStat, { backgroundColor: colors.surface, borderLeftColor: '#ef4444' }]}>
+          <Text style={[styles.perfStatVal, { color: colors.text }]}>{item.rejected}</Text>
+          <Text style={[styles.perfStatLab, { color: colors.subtext }]}>REJECTED</Text>
         </View>
-        <View style={[styles.perfStat, { borderLeftColor: '#f59e0b' }]}>
-          <Text style={styles.perfStatVal}>{item.rework}</Text>
-          <Text style={styles.perfStatLab}>REWORK</Text>
+        <View style={[styles.perfStat, { backgroundColor: colors.surface, borderLeftColor: '#f59e0b' }]}>
+          <Text style={[styles.perfStatVal, { color: colors.text }]}>{item.rework}</Text>
+          <Text style={[styles.perfStatLab, { color: colors.subtext }]}>REWORK</Text>
         </View>
       </View>
     </View>
@@ -197,38 +219,38 @@ const AttendanceManagementScreen = ({ navigation }: any) => {
     const dayName = new Date(log.date).toLocaleDateString('en-US', { weekday: 'short' });
 
     return (
-      <View key={log._id || idx} style={styles.logCard}>
-        <View style={styles.logDateColumn}>
-          <Text style={styles.dayText}>{dayName}</Text>
-          <Text style={styles.dateText}>{dateStr}</Text>
+      <View key={log._id || idx} style={[styles.logCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={[styles.logDateColumn, { borderRightColor: colors.border }]}>
+          <Text style={[styles.dayText, { color: colors.subtext }]}>{dayName}</Text>
+          <Text style={[styles.dateText, { color: colors.accent }]}>{dateStr}</Text>
         </View>
         <View style={styles.logInfoColumn}>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>{inspectorName}</Text>
+            <Text style={[styles.userName, { color: colors.text }]}>{inspectorName}</Text>
             <View style={[styles.statusBadge, { backgroundColor: getStatusColor(log.status) + '15' }]}>
                <Text style={[styles.statusBadgeText, { color: getStatusColor(log.status) }]}>{log.status?.toUpperCase() || 'P'}</Text>
             </View>
           </View>
-          <Text style={styles.userRole}>{log.inspector?.role || 'Inspector'}</Text>
+          <Text style={[styles.userRole, { color: colors.subtext }]}>{log.inspector?.role || 'Inspector'}</Text>
           
-          <View style={styles.timeRow}>
+          <View style={[styles.timeRow, { backgroundColor: colors.surface }]}>
             <View style={styles.timeBlock}>
-              <Text style={styles.timeLabel}>LOGIN</Text>
-              <Text style={styles.timeValue}>
+              <Text style={[styles.timeLabel, { color: colors.subtext }]}>LOGIN</Text>
+              <Text style={[styles.timeValue, { color: colors.text }]}>
                 {log.checkInTime ? new Date(log.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
               </Text>
             </View>
-            <ArrowBigRightDash size={16} color="#cbd5e1" />
+            <ArrowBigRightDash size={16} color={colors.subtext} />
             <View style={styles.timeBlock}>
-              <Text style={styles.timeLabel}>LOGOUT</Text>
-              <Text style={styles.timeValue}>
+              <Text style={[styles.timeLabel, { color: colors.subtext }]}>LOGOUT</Text>
+              <Text style={[styles.timeValue, { color: colors.text }]}>
                 {log.checkOutTime ? new Date(log.checkOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
               </Text>
             </View>
-            <View style={styles.vDivider} />
+            <View style={[styles.vDivider, { backgroundColor: colors.border }]} />
             <View style={[styles.timeBlock, { alignItems: 'flex-end' }]}>
-              <Text style={styles.timeLabel}>TOTAL</Text>
-              <Text style={[styles.timeValue, { color: '#0f172a' }]}>{log.workingHours ? `${Math.floor(log.workingHours)}h ${Math.round((log.workingHours % 1) * 60)}m` : '0h'}</Text>
+              <Text style={[styles.timeLabel, { color: colors.subtext }]}>TOTAL</Text>
+              <Text style={[styles.timeValue, { color: colors.text }]}>{log.workingHours ? `${Math.floor(log.workingHours)}h ${Math.round((log.workingHours % 1) * 60)}m` : '0h'}</Text>
             </View>
           </View>
         </View>
@@ -237,38 +259,38 @@ const AttendanceManagementScreen = ({ navigation }: any) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <ChevronLeft size={24} color="#1e3a8a" />
+          <ChevronLeft size={24} color={colors.accent} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>HR Analytics & Reports</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>HR Analytics & Reports</Text>
       </View>
 
-      <View style={styles.filterSection}>
-        <View style={styles.monthSelector}>
+      <View style={[styles.filterSection, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+        <View style={[styles.monthSelector, { backgroundColor: colors.surface }]}>
           <TouchableOpacity onPress={() => changeMonth(-1)} style={styles.monthArrow}>
-            <ChevronLeft size={20} color="#64748b" />
+            <ChevronLeft size={20} color={colors.subtext} />
           </TouchableOpacity>
           <View style={styles.monthDisplay}>
-            <Calendar size={16} color="#1e3a8a" style={{ marginRight: 8 }} />
-            <Text style={styles.monthText}>
+            <Calendar size={16} color={colors.accent} style={{ marginRight: 8 }} />
+            <Text style={[styles.monthText, { color: colors.text }]}>
               {currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
             </Text>
           </View>
           <TouchableOpacity onPress={() => changeMonth(1)} style={styles.monthArrow}>
-            <ChevronRight size={20} color="#64748b" />
+            <ChevronRight size={20} color={colors.subtext} />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.searchBar}>
-          <Search size={18} color="#94a3b8" />
+        <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Search size={18} color={colors.subtext} />
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: colors.text }]}
             placeholder="Search inspector or status..."
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.subtext}
           />
         </View>
       </View>
@@ -278,99 +300,45 @@ const AttendanceManagementScreen = ({ navigation }: any) => {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         showsVerticalScrollIndicator={false}
       >
-        {/* Attendance Pulse - New Section (Live & Sync) */}
-        {(isAdmin && stats) && (
-          <View style={[styles.pulseContainer, { borderColor: '#e2e8f0', backgroundColor: '#f8fafc' }]}>
-            <View style={styles.pulseHeader}>
-              <View style={styles.pulseTitleRow}>
-                <TrendingUp size={16} color="#4f46e5" />
-                <Text style={[styles.pulseTitle, { color: '#4f46e5' }]}>ATTENDANCE PULSE</Text>
-              </View>
-              <View style={[styles.liveBadge, { backgroundColor: '#eff6ff', borderColor: '#dbeafe' }]}>
-                <View style={[styles.liveDot, { backgroundColor: '#3b82f6' }]} />
-                <Text style={[styles.liveText, { color: '#2563eb' }]}>LIVE</Text>
-              </View>
-            </View>
-
-            <View style={styles.pulseGrid}>
-              <View style={styles.pulseRow}>
-                <View style={styles.pulseItem}>
-                  <View style={styles.pulseIconBg}>
-                    <Users size={18} color="#6366f1" />
-                  </View>
-                  <Text style={styles.pulseValue}>{stats.totalStaff || 0}</Text>
-                  <Text style={styles.pulseLabel}>Total Staff</Text>
-                </View>
-                <View style={styles.pulseDivider} />
-                <View style={styles.pulseItem}>
-                  <View style={[styles.pulseIconBg, { backgroundColor: '#f0fdf4' }]}>
-                    <Clock size={18} color="#22c55e" />
-                  </View>
-                  <Text style={[styles.pulseValue, { color: '#22c55e' }]}>{stats.clockInToday || 0}</Text>
-                  <Text style={styles.pulseLabel}>Clock In Today</Text>
-                </View>
-              </View>
-              <View style={[styles.pulseRow, { marginTop: 24, paddingTop: 20, borderTopWidth: 1, borderTopColor: '#e2e8f0' }]}>
-                <View style={styles.pulseItem}>
-                  <View style={[styles.pulseIconBg, { backgroundColor: '#fff7ed' }]}>
-                    <History size={18} color="#f59e0b" />
-                  </View>
-                  <Text style={[styles.pulseValue, { color: '#f59e0b' }]}>{stats.postShift || 0}</Text>
-                  <Text style={styles.pulseLabel}>Post Shift</Text>
-                </View>
-                <View style={styles.pulseDivider} />
-                <View style={styles.pulseItem}>
-                  <View style={[styles.pulseIconBg, { backgroundColor: '#fef2f2' }]}>
-                    <CalendarCheck size={18} color="#ef4444" />
-                  </View>
-                  <Text style={[styles.pulseValue, { color: '#ef4444' }]}>{stats.approvedLeave || 0}</Text>
-                  <Text style={styles.pulseLabel}>Approved Leave</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-        )}
-
-
         <View style={styles.sectionHeader}>
-           <Text style={styles.sectionTitle}>Inspector Performance</Text>
-           <Text style={styles.sectionSubtitle}>Work quality & throughput</Text>
+           <Text style={[styles.sectionTitle, { color: colors.text }]}>Inspector Performance</Text>
+           <Text style={[styles.sectionSubtitle, { color: colors.subtext }]}>Work quality & throughput</Text>
         </View>
 
         {loading && !refreshing ? (
           <View style={styles.centered}>
-            <ActivityIndicator size="small" color="#1e3a8a" />
+            <ActivityIndicator size="small" color={colors.accent} />
           </View>
         ) : filteredPerformance.length > 0 ? (
-          filteredPerformance.map(item => renderPerformanceItem(item))
+          filteredPerformance.map((item, idx) => renderPerformanceItem(item, idx))
         ) : (
-          <Text style={styles.noDataSmall}>No performance data available</Text>
+          <Text style={[styles.noDataSmall, { color: colors.subtext }]}>No performance data available</Text>
         )}
 
         <View style={[styles.sectionHeader, { marginTop: 24 }]}>
-           <Text style={styles.sectionTitle}>Attendance Logs</Text>
-           <Text style={styles.sectionSubtitle}>Daily activity stream</Text>
+           <Text style={[styles.sectionTitle, { color: colors.text }]}>Attendance Logs</Text>
+           <Text style={[styles.sectionSubtitle, { color: colors.subtext }]}>Daily activity stream</Text>
         </View>
 
         {loading && !refreshing ? (
           <View style={styles.centered}>
-            <ActivityIndicator size="large" color="#1e3a8a" />
-            <Text style={styles.loadingText}>Loading records...</Text>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <Text style={[styles.loadingText, { color: colors.subtext }]}>Loading records...</Text>
           </View>
         ) : filteredLogs.length > 0 ? (
           filteredLogs.map((log, idx) => renderAttendanceItem(log, idx))
         ) : (
           <View style={styles.emptyContainer}>
-            <Calendar size={64} color="#f1f5f9" />
-            <Text style={styles.emptyText}>No attendance records found for this period</Text>
+            <Calendar size={64} color={colors.border} />
+            <Text style={[styles.emptyText, { color: colors.subtext }]}>No attendance records found for this period</Text>
           </View>
         )}
       </ScrollView>
 
 
       {/* Footer Summary / Export (Simulation) */}
-      <View style={styles.footer}>
-        <TouchableOpacity style={styles.exportBtn} onPress={() => Alert.alert('Export', 'Sending attendance report to your email.')}>
+      <View style={[styles.footer, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+        <TouchableOpacity style={[styles.exportBtn, { backgroundColor: colors.accent, shadowColor: colors.accent }]} onPress={() => Alert.alert('Export', 'Sending attendance report to your email.')}>
           <Text style={styles.exportText}>EXPORT MONTHLY REPORT</Text>
         </TouchableOpacity>
       </View>

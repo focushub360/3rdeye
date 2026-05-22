@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "3w-wheeler-expo",
-    "slug": "3w-wheeler-expo",
+    "slug": "wheeler3",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/logo.jpeg",
@@ -35,7 +35,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "25ba420e-d7ed-4d90-b1e9-8f65cf87b98f"
+        "projectId": "408b1c9c-0981-43d7-8a07-3ebbb920a297"
       }
     }
   }

@@ -344,13 +344,35 @@ export const getFormAnalytics = async (req, res) => {
     // If not owner/superadmin, and only have chassis share or regular share
     // We only need to bypass tenantFilter if we are NOT the owner.
     let responseQuery = { ...baseQuery };
-    if (!isOwner && req.user.role !== 'superadmin') {
-       // We can't use req.tenantFilter because the responses belong to the owner
-    } else {
+    if (isOwner || req.user.role === 'superadmin') {
        responseQuery = { ...responseQuery, ...req.tenantFilter };
     }
 
-    let allResponses = await Response.find(responseQuery)
+    const { summaryOnly = 'false' } = req.query;
+
+    if (summaryOnly === 'true') {
+      const totalResponses = await Response.countDocuments(responseQuery);
+      return res.json({
+        success: true,
+        data: {
+          form: { _id: form._id, title: form.title, description: form.description },
+          totalResponses,
+          responseStats: { completed: 0, pending: 0, inProgress: 0 },
+          responses: [],
+          timeline: [],
+          questionInsights: { sections: form.sections || [], responses: [] }
+        }
+      });
+    }
+
+    // Optimize: Use projection to only fetch fields we actually use in analytics
+    const responseProjection = {
+      id: 1, _id: 1, questionId: 1, answers: 1, status: 1, 
+      createdAt: 1, updatedAt: 1, submittedBy: 1, submitterContact: 1,
+      assignedTo: 1, createdBy: 1, timeSpent: 1, chassisNumber: 1, isDispatched: 1
+    };
+
+    let allResponses = await Response.find(responseQuery, responseProjection)
       .sort({ createdAt: -1 })
       .populate('assignedTo', 'firstName lastName email')
       .populate('createdBy', 'firstName lastName username email')
@@ -459,35 +481,30 @@ export const getFormAnalytics = async (req, res) => {
                 ? Object.fromEntries(response.answers)
                 : (response.answers || {});
             
-            // Extract chassis number from answers
+            // Fast extraction of chassis
             const chassisNumber = answers.chassis_number || answers.chassisNumber || response.chassisNumber || '-';
             
-            // Resolve real name from submittedBy or populated createdBy user
+            // Resolve name efficiently
             let resolvedName = response.submittedBy || 'Anonymous';
             if ((!resolvedName || resolvedName === 'Anonymous') && response.createdBy) {
-              if (response.createdBy.firstName || response.createdBy.lastName) {
-                resolvedName = `${response.createdBy.firstName || ''} ${response.createdBy.lastName || ''}`.trim();
-              } else {
-                resolvedName = response.createdBy.username || response.createdBy.email || resolvedName;
-              }
+              const c = response.createdBy;
+              resolvedName = c.firstName || c.lastName ? `${c.firstName || ''} ${c.lastName || ''}`.trim() : (c.username || c.email || resolvedName);
             }
 
             return {
               id: response.id,
               _id: response._id,
-              questionId: response.questionId,
               answers,
               status: response.status,
               createdAt: response.createdAt,
               submittedBy: resolvedName,
-              inspectorName: resolvedName, // Alias for mobile app
+              inspectorName: resolvedName,
               timeSpent: response.timeSpent,
-              totalTimeSpent: response.timeSpent, // Alias
               chassisNumber,
+              isDispatched: response.isDispatched,
               review: reviewMap[response.id] ? {
                 option: reviewMap[response.id].reviewOption,
-                reviewer: reviewMap[response.id].reviewerName,
-                createdAt: reviewMap[response.id].createdAt
+                reviewer: reviewMap[response.id].reviewerName
               } : null
             };
           }),
@@ -1934,7 +1951,7 @@ export const getInspectorSummary = async (req, res) => {
     console.log(`getInspectorSummary - found: ${responses?.length || 0} responses`);
     
     if (!responses || responses.length === 0) {
-      return res.json({ success: true, data: [], allStatuses: [] });
+      return res.json({ success: true, data: { summary: [], allStatuses: [] } });
     }
 
     // Get all unique form IDs from these responses
@@ -2145,7 +2162,7 @@ export const getInspectorSummary = async (req, res) => {
 
 
       const tenant = tenants.find(t => t._id.toString() === user.tenantId?.toString());
-      const shift = shifts.find(s => s.assignedInspectors.some(id => id.toString() === stats.userId));
+      const shift = shifts.find(s => s.assignedInspectors && Array.isArray(s.assignedInspectors) && s.assignedInspectors.some(id => id?.toString() === stats.userId));
 
       finalSummary.push({
         tenantName: tenant ? (tenant.companyName || tenant.name) : 'N/A',

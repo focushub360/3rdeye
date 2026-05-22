@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import {
   Camera, CheckCircle2, AlertCircle, ChevronDown,
-  Check, X, Hash, Upload
+  Check, X, Hash, Upload, ChevronLeft, ChevronRight
 } from 'lucide-react-native';
 import ChassisInspection from './QuestionTypes/ChassisInspection';
 import ZoneIn from './QuestionTypes/ZoneIn';
@@ -59,6 +59,8 @@ interface QuestionRendererProps {
   trackingValue?: string;
   onTrackingChange?: (val: string) => void;
   hideLabel?: boolean;
+  historicalValue?: any;
+  selectedRank?: number;
   totalHistorical?: number;
   historicalStatus?: string;
   historicalReview?: any;
@@ -100,12 +102,36 @@ export default function QuestionRenderer({
   const isQuestionTrackingEnabled =
     question.trackResponseQuestion === true || String(question.trackResponseQuestion) === 'true';
 
-  const rankLabel = question.trackResponseRankLabel || 'Tracking Value';
-  const rankInputType = question.trackResponseRankType || 'text';
+  const isTrackingEnabled = isRankTrackingEnabled || isQuestionTrackingEnabled;
+
+  const trackingLabel = isQuestionTrackingEnabled
+    ? (question.trackResponseQuestionLabel || 'Tracking Question')
+    : (question.trackResponseRankLabel || 'Tracking Value');
+
+  const trackingInputType = isQuestionTrackingEnabled
+    ? (question.trackResponseQuestionType || 'text')
+    : (question.trackResponseRankType || 'text');
 
   // Internal tracking value for rank (used when no external prop provided)
   const [internalTrackingValue, setInternalTrackingValue] = useState('');
-  const effectiveTrackingValue = trackingValue !== undefined ? trackingValue : internalTrackingValue;
+  
+  // Logic parity with web: Determine which value to use for fetching rank
+  const effectiveTrackingValue = React.useMemo(() => {
+    // If a tracking value is provided via props (from parent form), use it
+    if (trackingValue !== undefined && trackingValue !== '') return trackingValue;
+    
+    // If trackResponseQuestion is enabled but no trackingValue provided, use internal
+    if (isQuestionTrackingEnabled && internalTrackingValue) return internalTrackingValue;
+    
+    // Fallback: Use the main question value (extract chassisNumber if object)
+    let val = value;
+    if (typeof val === 'object' && val !== null) {
+      val = val.chassisNumber || val.value || '';
+    }
+    
+    return val || internalTrackingValue || '';
+  }, [trackingValue, internalTrackingValue, value, isQuestionTrackingEnabled]);
+
   const handleTrackingChange = (val: string) => {
     setInternalTrackingValue(val);
     if (onTrackingChange) onTrackingChange(val);
@@ -119,7 +145,7 @@ export default function QuestionRenderer({
   // Fetch rank when tracking value changes
   useEffect(() => {
     const fetchRank = async () => {
-      if (!isRankTrackingEnabled || !formId || !effectiveTrackingValue.trim()) {
+      if (!isTrackingEnabled || !formId || !effectiveTrackingValue.trim()) {
         setRank(null);
         return;
       }
@@ -146,7 +172,7 @@ export default function QuestionRenderer({
 
     const timer = setTimeout(fetchRank, 600);
     return () => clearTimeout(timer);
-  }, [isRankTrackingEnabled, effectiveTrackingValue, formId, question.id, question._id]);
+  }, [isTrackingEnabled, effectiveTrackingValue, formId, question.id, question._id]);
 
   // Fetch suggestions for question tracking
   useEffect(() => {
@@ -155,7 +181,7 @@ export default function QuestionRenderer({
         try {
           setLoadingSuggestions(true);
           const response = await apiClient.get('/responses/suggestions', {
-            params: { formId, questionId: question.id || question._id, answer: value || '' },
+            params: { formId, questionId: question.id || question._id, answer: effectiveTrackingValue || '' },
           });
           if (response.data?.success) {
             setSuggestions(response.data.data?.suggestedAnswers || []);
@@ -168,7 +194,7 @@ export default function QuestionRenderer({
       }
     };
     fetchSuggestions();
-  }, [isQuestionTrackingEnabled, formId, question.id, question._id, value]);
+  }, [isQuestionTrackingEnabled, formId, question.id, question._id, effectiveTrackingValue]);
 
   const toggleOption = (option: string) => {
     const cur = Array.isArray(value) ? value : [];
@@ -179,38 +205,44 @@ export default function QuestionRenderer({
   const clearAll = () => onChange([]);
 
   const getRankColor = (r: number) => {
-    if (r === 1) return { bg: '#dcfce7', text: '#166534', border: '#86efac' };
-    if (r === 2) return { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd' };
-    if (r === 3) return { bg: '#fef3c7', text: '#92400e', border: '#fcd34d' };
-    return { bg: '#f1f5f9', text: '#475569', border: '#cbd5e1' };
+    if (r === 1) return { bg: '#10b981', text: '#ffffff', border: '#059669' }; // Premium Green for #1
+    if (r === 2) return { bg: '#3b82f6', text: '#ffffff', border: '#2563eb' }; // Blue for #2
+    if (r === 3) return { bg: '#f59e0b', text: '#ffffff', border: '#d97706' }; // Amber for #3
+    return { bg: '#64748b', text: '#ffffff', border: '#475569' }; // Slate for others
   };
 
   const renderTrackRankInput = () => {
-    if (!isRankTrackingEnabled || readOnly) return null;
+    if (!isTrackingEnabled || readOnly) return null;
 
     return (
       <View style={styles.trackRankContainer}>
         <View style={styles.trackRankHeader}>
           <View style={styles.trackRankDot} />
-          <Text style={styles.trackRankTitle}>TRACK RANK</Text>
+          <Text style={styles.trackRankTitle}>{isQuestionTrackingEnabled ? 'TRACK QUESTION' : 'TRACK RANK'}</Text>
         </View>
         <View style={styles.trackRankBody}>
-          <Text style={styles.trackRankLabel}>{rankLabel}</Text>
+          <View style={styles.trackRankLabelRow}>
+            <Text style={styles.trackRankLabel}>{trackingLabel}</Text>
+            {rank !== null && renderRankBadge()}
+          </View>
           <TextInput
             style={styles.trackRankInput}
             value={effectiveTrackingValue}
             onChangeText={handleTrackingChange}
-            placeholder={`Enter ${rankLabel.toLowerCase()}…`}
+            placeholder={`Enter ${trackingLabel.toLowerCase()}…`}
             placeholderTextColor="#9ca3af"
-            keyboardType={rankInputType === 'number' ? 'numeric' : 'default'}
+            keyboardType={trackingInputType === 'number' ? 'numeric' : 'default'}
           />
+          {rank === null && effectiveTrackingValue.trim() !== '' && !loadingRank && (
+            <Text style={styles.rankBadgeHint}>No previous records found for this {trackingLabel.toLowerCase()}.</Text>
+          )}
         </View>
       </View>
     );
   };
 
   const renderRankBadge = () => {
-    if (!isRankTrackingEnabled) return null;
+    if (!isTrackingEnabled) return null;
     if (loadingRank) {
       return (
         <View style={styles.rankBadgeLoading}>
@@ -222,12 +254,60 @@ export default function QuestionRenderer({
       const colors = getRankColor(rank);
       return (
         <View style={[styles.rankBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-          <Hash size={10} color={colors.text} />
-          <Text style={[styles.rankBadgeText, { color: colors.text }]}>{rank}</Text>
+          <Text style={[styles.rankBadgeText, { color: colors.text }]}>#{rank}</Text>
         </View>
       );
     }
     return null;
+  };
+
+  const renderHistoricalSuggestions = () => {
+    if (readOnly || !suggestions || suggestions.length === 0 || !effectiveTrackingValue.trim()) return null;
+
+    // Group suggestions by value to match web logic
+    const grouped = new Map<string, { ranks: number[], status: string[] }>();
+    
+    suggestions.forEach((s: any) => {
+      const val = s.answers?.[question.id || question._id];
+      if (!val) return;
+      
+      const displayVal = typeof val === 'object' ? (val.chassisNumber || JSON.stringify(val)) : String(val);
+      const existing = grouped.get(displayVal);
+      if (existing) {
+        existing.ranks.push(s.rank || 0);
+        if (s.status) existing.status.push(s.status);
+      } else {
+        grouped.set(displayVal, { 
+          ranks: [s.rank || 0], 
+          status: s.status ? [s.status] : [] 
+        });
+      }
+    });
+
+    if (grouped.size === 0) return null;
+
+    return (
+      <View style={styles.suggestionsContainer}>
+        <Text style={styles.suggestionsTitle}>HISTORICAL RECORDS</Text>
+        {Array.from(grouped.entries()).map(([val, data], idx) => (
+          <View key={idx} style={styles.suggestionItem}>
+            <View style={styles.suggestionRanks}>
+              {data.ranks.sort((a,b) => a-b).map(r => (
+                <View key={r} style={[styles.suggestionRankBadge, { backgroundColor: getRankColor(r).bg }]}>
+                  <Text style={styles.suggestionRankText}>#{r}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={styles.suggestionValue} numberOfLines={2}>{val}</Text>
+            <View style={styles.suggestionStatusRow}>
+               {[...new Set(data.status)].map((s, sIdx) => (
+                 <Text key={sIdx} style={styles.suggestionStatusText}>{s.toUpperCase()}</Text>
+               ))}
+            </View>
+          </View>
+        ))}
+      </View>
+    );
   };
 
   const renderInput = () => {
@@ -517,6 +597,11 @@ export default function QuestionRenderer({
             {question.text || question.label || question.title || "Untitled Question"}
             {question.required && <Text style={styles.requiredAsterisk}> *</Text>}
           </Text>
+          {isTrackingEnabled && rank !== null && (
+            <View style={{ marginLeft: 8 }}>
+              {renderRankBadge()}
+            </View>
+          )}
           {question.subParam1 && (
             <View style={styles.subParamBadge}>
               <Text style={styles.subParamText}>{question.subParam1.toUpperCase()}</Text>
@@ -539,15 +624,10 @@ export default function QuestionRenderer({
           />
         </View>
       )}
-      {/* Track Rank Badge — shown inline next to main input */}
-      {isRankTrackingEnabled && (
+      {/* Track Rank Badge Row (Fallback) */}
+      {isTrackingEnabled && !hideLabel && rank === null && (
         <View style={styles.rankBadgeRow}>
           {renderRankBadge()}
-          {(typeof rank === 'number' && rank > 0) && (
-            <Text style={styles.rankBadgeHint}>
-              {rankLabel}
-            </Text>
-          )}
         </View>
       )}
 
@@ -557,8 +637,11 @@ export default function QuestionRenderer({
       {/* Main question input */}
       {renderInput()}
 
+      {/* Historical Suggestions (Grouped List) */}
+      {renderHistoricalSuggestions()}
+
       {/* Historical Record Display */}
-      {historicalValue !== undefined && historicalValue !== null && historicalValue !== '' && (
+      {historicalValue !== undefined && historicalValue !== null && historicalValue !== '' && effectiveTrackingValue.trim() !== '' && (
         <View style={styles.historicalContainer}>
           <View style={styles.historicalHeader}>
             <View style={styles.historicalBadgeRow}>
@@ -731,6 +814,12 @@ const styles = StyleSheet.create({
   trackRankLabel: {
     fontSize: 11, fontWeight: '700', color: '#2563eb', textTransform: 'uppercase', letterSpacing: 0.5,
   },
+  trackRankLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
   trackRankInput: {
     backgroundColor: '#fff',
     borderWidth: 1.5,
@@ -750,17 +839,72 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   rankBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    borderRadius: 12,
     borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1,
+    minWidth: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  rankBadgeText: { fontSize: 11, fontWeight: '900' },
+  rankBadgeText: { fontSize: 10, fontWeight: '900', letterSpacing: -0.5 },
   rankBadgeLoading: { paddingVertical: 3 },
-  rankBadgeHint: { fontSize: 10, fontWeight: '600', color: '#64748b' },
+  rankBadgeHint: { fontSize: 10, fontWeight: '600', color: '#64748b', marginTop: 4 },
+
+  // Suggestions styles
+  suggestionsContainer: {
+    marginTop: 12,
+    gap: 8,
+  },
+  suggestionsTitle: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#94a3b8',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  suggestionItem: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    padding: 10,
+    gap: 4,
+  },
+  suggestionRanks: {
+    flexDirection: 'row',
+    gap: 4,
+    marginBottom: 2,
+  },
+  suggestionRankBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  suggestionRankText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#fff',
+  },
+  suggestionValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  suggestionStatusRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  suggestionStatusText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#64748b',
+  },
 
   // Text inputs
   textInput: {
@@ -967,9 +1111,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#64748b',
     letterSpacing: 0.5,
-  },
-  historicalContent: {
-    paddingLeft: 4,
   },
   historicalValueText: {
     fontSize: 14,

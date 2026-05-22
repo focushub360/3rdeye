@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -11,6 +11,7 @@ import {
   RefreshControl,
   Image,
   Modal,
+  FlatList,
   Alert,
   LayoutAnimation,
   UIManager,
@@ -50,11 +51,13 @@ import {
 import { io } from 'socket.io-client';
 import apiClient, { BASE_URL } from '../api/config';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 const SOCKET_URL = BASE_URL.replace('/api', '');
 
 const FormAnalyticsScreen = ({ route, navigation }: any) => {
+  const { colors, isDark } = useTheme();
   const { title, id, activeTab: initialTab } = route.params || {};
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -113,7 +116,7 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
       const payload = {
         responseId,
         reviewOption: option,
-        reviewerName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || user?.username || 'Admin',
+        reviewerName: `${(user as any)?.firstName || ''} ${(user as any)?.lastName || ''}`.trim() || user?.username || 'Admin',
         reviewerId: user?._id || user?.id,
         createdAt: new Date().toISOString()
       };
@@ -175,58 +178,22 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
     fetchAnalytics();
   }, [fetchAnalytics]);
 
-  if (loading && !refreshing && !data) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <ChevronLeft size={24} color="#1e3a8a" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{title || 'Analytics'}</Text>
-        </View>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#1e3a8a" />
-          <Text style={styles.loadingText}>Fetching insights...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // Fallback if data is missing
-  const stats = data || {
+  // Memoized stats extraction to avoid recalculating on every render
+  const stats = useMemo(() => data || {
     totalResponses: 0,
     responseStats: { completed: 0, pending: 0, inProgress: 0 },
     questionInsights: { sections: [], responses: [], followUpQuestions: [] }
-  };
+  }, [data]);
 
-  // Calculate real metrics from response data
-  const calculateRealMetrics = () => {
+  // Wrap calculation in useMemo to prevent UI jank during rendering
+  const metrics = useMemo(() => {
     if (!stats.questionInsights || !stats.questionInsights.sections) {
-      return { sections: [], questions: [], overallScore: 0, totalQuestions: 0, totalFollowUps: 0 };
+      return { sections: [], questions: [], overallScore: 0, totalQuestions: 0, totalFollowUps: 0, globalAccepted: 0, globalRejected: 0, globalRework: 0, responseStatuses: {} };
     }
 
     const sections = stats.questionInsights.sections || [];
     const responses = stats.questionInsights.responses || [];
     const followUps = stats.questionInsights.followUpQuestions || [];
-    
-    // Debug: log to trace question data
-    console.log('=== ANALYTICS DEBUG ===');
-    console.log('Form Title:', stats.form?.title);
-    console.log('Sections count:', sections.length);
-    console.log('Responses count:', responses.length);
-    if (sections.length > 0) {
-      console.log('First section keys:', Object.keys(sections[0]));
-      console.log('First section title:', sections[0].title);
-      console.log('First section questions count:', sections[0].questions?.length);
-      if (sections[0].questions?.length > 0) {
-        console.log('First question keys:', Object.keys(sections[0].questions[0]));
-        console.log('First question:', JSON.stringify(sections[0].questions[0]).substring(0, 300));
-      }
-    }
-    if (responses.length > 0) {
-      console.log('First response keys:', Object.keys(responses[0]));
-      console.log('First response answers keys:', Object.keys(responses[0].answers || {}));
-    }
     
     let totalSectionsScore = 0;
     let scoredSectionsCount = 0;
@@ -305,11 +272,10 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
       ? Math.round(totalSectionsScore / scoredSectionsCount) 
       : 0;
 
-    // --- DERIVED STATUS CALCULATION (Web Parity) ---
+    // --- Status Mapping (Web Parity) ---
     const responseStatuses: Record<string, string> = {};
     const itemGroups: Record<string, any[]> = {};
     
-    // Find Chassis Question ID
     const chassisQuestion = sections.flatMap((s: any) => s.questions || []).find((q: any) => 
       q.type === 'chassisNumber' || 
       (q.title || q.text || q.label || '').toLowerCase().includes('chassis number') ||
@@ -317,7 +283,6 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
     );
     const cQId = chassisQuestion?.id || chassisQuestion?._id || 'chassis_number';
 
-    // Group and Sort
     const sortedResponses = [...responses].sort((a, b) => 
       new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
@@ -370,38 +335,55 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
       globalAccepted,
       globalRejected,
       globalRework,
-      responseStatuses // Return the new mapping
+      responseStatuses 
     };
-  };
+  }, [stats]);
+
+  if (loading && !refreshing && !data) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.header, { backgroundColor: colors.background, borderColor: colors.border }]}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <ChevronLeft size={24} color={isDark ? colors.text : "#1e3a8a"} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>{title || 'Analytics'}</Text>
+        </View>
+        <View style={[styles.centered, { backgroundColor: colors.background }]}>
+          <ActivityIndicator size="large" color={colors.accent} />
+          <Text style={[styles.loadingText, { color: colors.subtext }]}>Fetching insights...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const { 
     sections: realSections, 
     questions: realQuestions, 
     overallScore: realOverallScore, 
-    totalQuestions, 
+    totalQuestions: totalQsCount, 
     totalFollowUps,
     globalAccepted,
     globalRejected,
     globalRework,
     responseStatuses
-  } = calculateRealMetrics();
+  } = metrics;
 
   const renderDashboard = () => (
-    <View style={styles.dashboardContainer}>
+    <View style={[styles.dashboardContainer, { backgroundColor: colors.background }]}>
       <View style={styles.liveIndicatorRow}>
-        <View style={styles.liveBadge}>
+        <View style={[styles.liveBadge, { backgroundColor: isDark ? '#064e3b' : '#ecfdf5' }]}>
           <View style={styles.liveDot} />
-          <Text style={styles.liveText}>LIVE MONITORING</Text>
+          <Text style={[styles.liveText, { color: '#10b981' }]}>LIVE MONITORING</Text>
         </View>
-        <Text style={styles.lastUpdatedText}>Auto-refreshing every 30s</Text>
+        <Text style={[styles.lastUpdatedText, { color: colors.subtext }]}>Auto-refreshing every 30s</Text>
       </View>
       <View style={styles.heroStatsRow}>
-        <View style={[styles.heroCard, { backgroundColor: '#fff', borderColor: '#1e3a8a', borderWidth: 2 }]}>
-          <Text style={[styles.heroLabel, { color: '#1e3a8a' }]}>OVERALL QUALITY SCORE</Text>
+        <View style={[styles.heroCard, { backgroundColor: colors.card, borderColor: colors.accent, borderWidth: 2 }]}>
+          <Text style={[styles.heroLabel, { color: colors.accent }]}>OVERALL QUALITY SCORE</Text>
           <Text style={[styles.heroValue, { fontSize: 36, color: realOverallScore >= 90 ? '#059669' : realOverallScore >= 70 ? '#d97706' : '#ef4444' }]}>
             {realOverallScore}%
           </Text>
-          <View style={[styles.statusBadgeSmall, { backgroundColor: realOverallScore >= 90 ? '#ecfdf5' : realOverallScore >= 70 ? '#fffbeb' : '#fef2f2', marginTop: 4 }]}>
+          <View style={[styles.statusBadgeSmall, { backgroundColor: realOverallScore >= 90 ? (isDark ? '#064e3b' : '#ecfdf5') : realOverallScore >= 70 ? (isDark ? '#7c2d12' : '#fffbeb') : (isDark ? '#450a0a' : '#fef2f2'), marginTop: 4 }]}>
             <Text style={[styles.statusBadgeTextSmall, { color: realOverallScore >= 90 ? '#059669' : realOverallScore >= 70 ? '#d97706' : '#ef4444' }]}>
               {realOverallScore >= 90 ? 'EXCELLENT' : realOverallScore >= 70 ? 'STABLE' : 'CRITICAL LEVEL'}
             </Text>
@@ -410,20 +392,20 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
       </View>
 
       <View style={styles.heroStatsRow}>
-        <View style={styles.heroCard}>
-          <Text style={styles.heroLabel}>COMPLETED RESPONSES</Text>
+        <View style={[styles.heroCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.heroLabel, { color: colors.subtext }]}>COMPLETED RESPONSES</Text>
           <Text style={[styles.heroValue, { color: '#22c55e' }]}>{stats.responseStats.completed}</Text>
-             <View style={styles.miniBadge}>
-               <History size={12} color="#64748b" />
-               <Text style={styles.miniBadgeText}>Verified</Text>
+             <View style={[styles.miniBadge, { backgroundColor: colors.surface }]}>
+               <History size={12} color={colors.subtext} />
+               <Text style={[styles.miniBadgeText, { color: colors.subtext }]}>Verified</Text>
              </View>
         </View>
-        <View style={styles.heroCard}>
-          <Text style={styles.heroLabel}>TOTAL ENTRIES</Text>
-          <Text style={styles.heroValue}>{stats.totalResponses}</Text>
+        <View style={[styles.heroCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.heroLabel, { color: colors.subtext }]}>TOTAL ENTRIES</Text>
+          <Text style={[styles.heroValue, { color: colors.text }]}>{stats.totalResponses}</Text>
           <View style={styles.heroTrend}>
-             <TrendingUp size={12} color="#64748b" />
-             <Text style={[styles.trendText, { color: '#64748b' }]}>Live Feed</Text>
+             <TrendingUp size={12} color={colors.subtext} />
+             <Text style={[styles.trendText, { color: colors.subtext }]}>Live Feed</Text>
           </View>
         </View>
       </View>
@@ -431,39 +413,39 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
 
       <View style={styles.webParityGrid}>
         {/* Overall Response Quality - Pie Chart Visual */}
-        <View style={styles.webParityCard}>
+        <View style={[styles.webParityCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.webParityCardHeader}>
-             <View style={[styles.webIconBox, { backgroundColor: '#f5f3ff' }]}>
-               <History size={18} color="#8b5cf6" />
+             <View style={[styles.webIconBox, { backgroundColor: colors.surface }]}>
+               <History size={18} color={colors.accent} />
              </View>
             <View>
-              <Text style={styles.webParityCardTitle}>Quality Distribution</Text>
-              <Text style={styles.webParityCardSub}>Overall Performance Score</Text>
+              <Text style={[styles.webParityCardTitle, { color: colors.text }]}>Quality Distribution</Text>
+              <Text style={[styles.webParityCardSub, { color: colors.subtext }]}>Overall Performance Score</Text>
             </View>
           </View>
           <View style={styles.qualityCircleContainer}>
-             <View style={styles.qualityDonut}>
-                <Text style={styles.qualityPercent}>{realOverallScore}%</Text>
-                <Text style={styles.qualityLabel}>SCORE</Text>
-             </View>
-             <View style={styles.qualityLegendList}>
-                <View style={styles.legendRow}>
-                   <View style={[styles.dotSmall, { backgroundColor: '#22c55e' }]} />
-                   <Text style={styles.legendTxt}>Accepted ({globalAccepted || 0})</Text>
-                </View>
-                <View style={styles.legendRow}>
-                   <View style={[styles.dotSmall, { backgroundColor: '#ef4444' }]} />
-                   <Text style={styles.legendTxt}>Rejected ({globalRejected || 0})</Text>
-                </View>
-                <View style={styles.legendRow}>
-                   <View style={[styles.dotSmall, { backgroundColor: '#f59e0b' }]} />
-                   <Text style={styles.legendTxt}>Rework ({globalRework || 0})</Text>
-                </View>
-                <View style={styles.legendRow}>
-                   <View style={[styles.dotSmall, { backgroundColor: '#94a3b8' }]} />
-                   <Text style={styles.legendTxt}>N/A</Text>
-                </View>
-             </View>
+              <View style={[styles.qualityDonut, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                 <Text style={[styles.qualityPercent, { color: colors.text }]}>{realOverallScore}%</Text>
+                 <Text style={[styles.qualityLabel, { color: colors.subtext }]}>SCORE</Text>
+              </View>
+              <View style={styles.qualityLegendList}>
+                 <View style={styles.legendRow}>
+                    <View style={[styles.dotSmall, { backgroundColor: '#22c55e' }]} />
+                    <Text style={[styles.legendTxt, { color: colors.text }]}>Accepted ({globalAccepted || 0})</Text>
+                 </View>
+                 <View style={styles.legendRow}>
+                    <View style={[styles.dotSmall, { backgroundColor: '#ef4444' }]} />
+                    <Text style={[styles.legendTxt, { color: colors.text }]}>Rejected ({globalRejected || 0})</Text>
+                 </View>
+                 <View style={styles.legendRow}>
+                    <View style={[styles.dotSmall, { backgroundColor: '#f59e0b' }]} />
+                    <Text style={[styles.legendTxt, { color: colors.text }]}>Rework ({globalRework || 0})</Text>
+                 </View>
+                 <View style={styles.legendRow}>
+                    <View style={[styles.dotSmall, { backgroundColor: colors.subtext }]} />
+                    <Text style={[styles.legendTxt, { color: colors.text }]}>N/A</Text>
+                 </View>
+              </View>
           </View>
         </View>
       </View>
@@ -471,7 +453,7 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
   );
 
   const renderTableCellContent = (answer: any, questionObj: any) => {
-    if (!answer) return <Text style={styles.tableTextSub}>No response</Text>;
+    if (!answer) return <Text style={[styles.tableTextSub, { color: colors.subtext }]}>No response</Text>;
 
     const isObject = typeof answer === 'object' && answer !== null;
     
@@ -564,20 +546,20 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
        index === self.findIndex(t => t.label === p.label && t.value === p.value)
     );
 
-    if (filteredParts.length === 0) return <Text style={styles.tableTextSub}>No response</Text>;
+    if (filteredParts.length === 0) return <Text style={[styles.tableTextSub, { color: colors.subtext }]}>No response</Text>;
 
     return (
       <View style={styles.questionCell}>
          {filteredParts.map((part, pIdx) => (
             <View key={pIdx} style={styles.cellDataRow}>
-               <Text style={styles.miniLabel}>{part.label.toUpperCase()}</Text>
+               <Text style={[styles.miniLabel, { backgroundColor: colors.surface, color: colors.subtext }]}>{part.label.toUpperCase()}</Text>
                {part.isImage ? (
                   <TouchableOpacity 
                     onPress={() => { setZoomImage(getImageUrl(part.value)); setIsZoomVisible(true); }} 
-                    style={styles.cellImageWrapper}
+                    style={[styles.cellImageWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}
                   >
                      <Image 
-                       source={{ uri: getImageUrl(part.value) }} 
+                       source={{ uri: getImageUrl(part.value) || undefined }} 
                        style={styles.cellImageThumbnail} 
                        resizeMode="cover"
                      />
@@ -589,7 +571,7 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
                     </Text>
                   </View>
                ) : (
-                  <Text style={styles.tableTextMain} numberOfLines={2}>{part.value}</Text>
+                  <Text style={[styles.tableTextMain, { color: colors.text }]} numberOfLines={2}>{part.value}</Text>
                )}
             </View>
          ))}
@@ -598,18 +580,177 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
   };
 
 
+  // --- Optimized ResponseRow Component ---
+  const ResponseRow = React.memo(({ item: resp, index: idx }: { item: any, index: number }) => {
+    // Extract rework tags and defects for the REVIEW column
+    const extractReviewTags = (answers: any) => {
+      const tags: string[] = [];
+      if (!answers) return tags;
+      
+      const scan = (obj: any) => {
+        if (!obj || typeof obj !== 'object') return;
+        if (obj.name && (String(obj.name).length > 1)) tags.push(obj.name);
+        if (obj.remark && obj.remark.length < 20 && obj.remark.toLowerCase() !== 'no response') tags.push(obj.remark);
+        Object.values(obj).forEach(val => { if (val && typeof val === 'object') scan(val); });
+      };
+
+      Object.values(answers).forEach(ans => scan(ans));
+      return [...new Set(tags)].filter(t => !['YES', 'NO', 'N/A', 'OK', 'ACCEPTED', 'REJECTED'].includes(t.toUpperCase()));
+    };
+
+    const reviewTags = extractReviewTags(resp.answers);
+    const isRework = resp.review?.option === 'Rework' || String(resp.status).toLowerCase().includes('rework');
+    const reviewerName = resp.review?.reviewer || resp.inspectorName || 'Admin';
+
+    return (
+      <View style={[styles.tableRow, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+        {/* DISPATCH (A) */}
+        <View style={[styles.tableCell, { width: 100, flexShrink: 0, alignItems: 'center' }]}>
+          <TouchableOpacity 
+            onPress={() => toggleDispatch(resp.id || resp._id, !!resp.isDispatched)}
+            style={[styles.dispatchCheckbox, { backgroundColor: colors.surface, borderColor: colors.border }, resp.isDispatched && [styles.dispatchCheckboxChecked, { backgroundColor: colors.accent, borderColor: colors.accent }]]}
+          >
+            {resp.isDispatched && <Check size={10} color="#fff" strokeWidth={4} />}
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.tableCell, { width: 220, flexDirection: 'row', gap: 10, alignItems: 'center' }]}>
+          <View style={[styles.tableCheckbox, { backgroundColor: colors.surface, borderColor: colors.border }]} />
+          <TouchableOpacity onPress={() => {}} style={[styles.actionIconBtn, { backgroundColor: isDark ? colors.surface : '#eff6ff', borderColor: colors.border }]}>
+            <Edit size={12} color="#3b82f6" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => {}} style={[styles.actionIconBtn, { backgroundColor: isDark ? '#450a0a' : '#fee2e2', borderColor: colors.border }]}>
+            <Trash2 size={12} color="#ef4444" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.actionIconBtn, { backgroundColor: isDark ? colors.surface : '#f1f5f9', borderColor: colors.border }]}
+            onPress={() => navigation.navigate('FormPreview', { 
+              id: id,
+              responseId: resp.id || resp._id, 
+              title: `Submission #${(stats.questionInsights?.responses?.length || 0) - idx}`, 
+              answers: resp.answers, 
+              chassisNumber: resp.chassisNumber,
+              status: resp.status,
+              isDispatched: resp.isDispatched,
+              submittedBy: resp.submittedBy,
+              readOnly: true 
+            })}
+          >
+            <Eye size={12} color={colors.text} />
+          </TouchableOpacity>
+          {user?.role !== 'inspector' && (
+            <>
+              <TouchableOpacity 
+                style={[styles.actionIconBtn, { backgroundColor: isDark ? '#064e3b' : '#ecfdf5', borderColor: colors.border }]}
+                onPress={() => handleReviewSubmit(resp.id || resp._id, 'Accepted')}
+              >
+                <CheckCircle2 size={12} color="#059669" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.actionIconBtn, { backgroundColor: isDark ? '#7c2d12' : '#fff7ed', borderColor: colors.border }]}
+                onPress={() => handleReviewSubmit(resp.id || resp._id, 'Rework')}
+              >
+                <RefreshCw size={12} color="#d97706" />
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+
+        <View style={[styles.tableCell, { width: 160, marginLeft: 10 }]}>
+           <Text style={[styles.tableTextMain, { color: colors.text }]} numberOfLines={1}>{resp.submittedBy || 'Anonymous'}</Text>
+        </View>
+
+        <View style={[styles.tableCell, { width: 110 }]}>
+           <View style={[
+             styles.statusBadgeSmall, 
+             { 
+               backgroundColor: 
+                 (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('rework') ? (isDark ? '#7c2d12' : '#fff7ed') : 
+                 (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('accepted') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('verified') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('ok') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('direct') ? (isDark ? '#064e3b' : '#ecfdf5') : 
+                 (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('rejected') ? (isDark ? '#450a0a' : '#fef2f2') : (isDark ? '#1e293b' : '#f1f5f9') 
+             }
+           ]}>
+             <Text style={[
+               styles.statusBadgeTextSmall, 
+               { 
+                 color: 
+                   (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('rework') ? '#d97706' : 
+                   (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('accepted') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('verified') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('ok') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('direct') ? '#059669' : 
+                   (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('rejected') ? '#ef4444' : colors.subtext 
+               }
+             ]}>
+               {responseStatuses[resp.id || resp._id] || 'PENDING'}
+             </Text>
+           </View>
+        </View>
+
+        <View style={[styles.tableCell, { width: 220 }]}>
+           <View style={styles.reviewContent}>
+              {isRework && (
+                <View style={styles.reworkHeader}>
+                   <View style={[styles.reworkBadge, { backgroundColor: isDark ? '#7c2d12' : '#fff7ed', borderColor: isDark ? colors.border : '#fed7aa' }]}>
+                      <Text style={styles.reworkBadgeText}>REWORK</Text>
+                   </View>
+                   <Text style={[styles.reworkInspector, { color: colors.subtext }]}>by {reviewerName}</Text>
+                </View>
+              )}
+              <View style={styles.reviewTagsRow}>
+                {reviewTags.map((tag, tIdx) => (
+                  <View key={tIdx} style={[styles.reviewTag, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                    <Text style={[styles.reviewTagText, { color: colors.text }]}>{tag}</Text>
+                  </View>
+                ))}
+                {reviewTags.length === 0 && !isRework && <Text style={[styles.tableTextSub, { color: colors.subtext }]}>-</Text>}
+              </View>
+           </View>
+        </View>
+
+        <View style={[styles.tableCell, { width: 150 }]}>
+          <Text style={[styles.tableTextSub, { color: colors.subtext }]}>
+            {new Date(resp.createdAt).toLocaleString([], { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+          </Text>
+        </View>
+
+        <View style={[styles.tableCell, { width: 100 }]}>
+          {(() => {
+            const timeSpent = resp.timeSpent;
+            return timeSpent ? (
+              <View style={[styles.timeTakenRow, { backgroundColor: isDark ? colors.surface : '#eff6ff', borderColor: colors.border }]}>
+                <History size={10} color={colors.accent} />
+                <Text style={[styles.tableTextMain, { color: colors.accent, marginLeft: 4 }]}>
+                  {timeSpent > 60 ? `${Math.floor(timeSpent / 60)}m ${timeSpent % 60}s` : `${timeSpent}s`}
+                </Text>
+              </View>
+            ) : ( <Text style={[styles.tableTextSub, { color: colors.subtext }]}>-</Text> );
+          })()}
+        </View>
+
+        <View style={[styles.tableCell, { width: 150 }]}>
+           <View style={[styles.chassisBadge, { backgroundColor: isDark ? colors.surface : '#eff6ff', borderColor: colors.border }]}>
+            <Text style={[styles.chassisBadgeText, { color: colors.accent }]}>{resp.chassisNumber || '-'}</Text>
+           </View>
+        </View>
+
+        {realQuestions.map((q, qIdx) => (
+          <View key={`c-${qIdx}`} style={[styles.tableCell, { width: 220, borderLeftWidth: 1, borderLeftColor: colors.border, paddingLeft: 12 }]}>
+            {renderTableCellContent(resp.answers?.[q.id], q)}
+          </View>
+        ))}
+      </View>
+    );
+  });
+
   const renderResponses = () => (
-    <View style={styles.responsesContainer}>
-      {/* Web Parity Header Board */}
-      <View style={styles.responsesTableHeader}>
+    <View style={[styles.responsesContainer, { backgroundColor: colors.background }]}>
+      <View style={[styles.responsesTableHeader, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <View style={styles.tableHeaderTop}>
           <View style={styles.tableHeaderTitleGroup}>
-            <Layout size={18} color="#4f46e5" />
-            <Text style={styles.tableHeaderTitle}>All Responses - Table View</Text>
+            <Layout size={18} color={colors.accent} />
+            <Text style={[styles.tableHeaderTitle, { color: colors.text }]}>All Responses - Table View</Text>
           </View>
           <View style={styles.tableActions}>
-            <TouchableOpacity style={styles.tableMiniBtn}>
-              <Filter size={14} color="#4f46e5" />
+            <TouchableOpacity style={[styles.tableMiniBtn, { backgroundColor: colors.surface }]}>
+              <Filter size={14} color={colors.accent} />
             </TouchableOpacity>
             <TouchableOpacity style={[styles.tableMiniBtn, { backgroundColor: '#10b981' }]}>
               <Download size={14} color="#fff" />
@@ -617,328 +758,135 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
           </View>
         </View>
 
-        <View style={styles.tablePerformanceBoard}>
+        <View style={[styles.tablePerformanceBoard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.perfItem}>
             <View style={styles.perfItemHeader}>
-               <Activity size={14} color="#64748b" />
+               <Activity size={14} color={colors.subtext} />
                <View style={{ marginLeft: 6 }}>
                   <Text style={styles.perfItemLabel}>OVERALL INSPECTION</Text>
-                  <Text style={styles.perfItemTitle}>Form Performance</Text>
+                  <Text style={[styles.perfItemTitle, { color: colors.text }]}>Form Performance</Text>
                </View>
             </View>
           </View>
-          <View style={styles.perfMetricsRow}>
+          <View style={[styles.perfMetricsRow, { borderColor: colors.border }]}>
             <View style={styles.perfMetric}>
-              <Text style={styles.perfMetricLabel}>Total Accepted</Text>
+              <Text style={[styles.perfMetricLabel, { color: colors.subtext }]}>Total Accepted</Text>
               <Text style={[styles.perfMetricValue, { color: '#10b981' }]}>{globalAccepted}</Text>
             </View>
             <View style={styles.perfMetric}>
-              <Text style={styles.perfMetricLabel}>Total Rejected</Text>
+              <Text style={[styles.perfMetricLabel, { color: colors.subtext }]}>Total Rejected</Text>
               <Text style={[styles.perfMetricValue, { color: '#ef4444' }]}>{globalRejected}</Text>
             </View>
             <View style={styles.perfMetric}>
-              <Text style={styles.perfMetricLabel}>Total Rework</Text>
+              <Text style={[styles.perfMetricLabel, { color: colors.subtext }]}>Total Rework</Text>
               <Text style={[styles.perfMetricValue, { color: '#f59e0b' }]}>{globalRework}</Text>
             </View>
           </View>
         </View>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.tableScrollView}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={true} style={[styles.tableScrollView, { backgroundColor: colors.card, borderColor: colors.border }]} scrollEventThrottle={16}>
         <View style={styles.tableView}>
-          {/* Table Header Row */}
-          <View style={styles.tableRowHeader}>
+          <View style={[styles.tableRowHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
             <View style={[styles.tableHeaderCell, { width: 100 }]}>
-               <Text style={styles.tableColHeader}>DISPATCH</Text>
+               <Text style={[styles.tableColHeader, { color: colors.text }]}>DISPATCH</Text>
             </View>
             <View style={[styles.tableHeaderCell, { width: 220 }]}>
-               <Text style={styles.tableColHeader}>ACTIONS</Text>
-               <Filter size={8} color="#94a3b8" />
+               <Text style={[styles.tableColHeader, { color: colors.text }]}>ACTIONS</Text>
+               <Filter size={8} color={colors.subtext} />
             </View>
             <View style={[styles.tableHeaderCell, { width: 160, marginLeft: 10 }]}>
-               <Text style={styles.tableColHeader}>SUBMITTED BY</Text>
+               <Text style={[styles.tableColHeader, { color: colors.text }]}>SUBMITTED BY</Text>
             </View>
             <View style={[styles.tableHeaderCell, { width: 110 }]}>
-               <Text style={styles.tableColHeader}>STATUS</Text>
-               <Filter size={8} color="#94a3b8" />
+               <Text style={[styles.tableColHeader, { color: colors.text }]}>STATUS</Text>
+               <Filter size={8} color={colors.subtext} />
             </View>
             <View style={[styles.tableHeaderCell, { width: 220 }]}>
-               <Text style={styles.tableColHeader}>REVIEW</Text>
-               <Filter size={8} color="#94a3b8" />
+               <Text style={[styles.tableColHeader, { color: colors.text }]}>REVIEW</Text>
+               <Filter size={8} color={colors.subtext} />
             </View>
             <View style={[styles.tableHeaderCell, { width: 150 }]}>
-               <Text style={styles.tableColHeader}>TIMESTAMP</Text>
-               <Filter size={8} color="#94a3b8" />
+               <Text style={[styles.tableColHeader, { color: colors.text }]}>TIMESTAMP</Text>
+               <Filter size={8} color={colors.subtext} />
             </View>
             <View style={[styles.tableHeaderCell, { width: 100 }]}>
-               <Text style={styles.tableColHeader}>TIME TAKEN</Text>
+               <Text style={[styles.tableColHeader, { color: colors.text }]}>TIME TAKEN</Text>
             </View>
             <View style={[styles.tableHeaderCell, { width: 150 }]}>
-               <Text style={styles.tableColHeader}>CHASSIS NUMBER</Text>
-               <Filter size={8} color="#94a3b8" />
+               <Text style={[styles.tableColHeader, { color: colors.text }]}>CHASSIS NUMBER</Text>
+               <Filter size={8} color={colors.subtext} />
             </View>
             
-            {/* Dynamic Question Headers */}
             {realQuestions.map((q, qIdx) => (
-              <View key={`h-${qIdx}`} style={[styles.tableHeaderCell, { width: 220, borderLeftWidth: 1, borderLeftColor: '#f1f5f9', paddingLeft: 12 }]}>
-                <Text style={styles.tableColHeader}>
+              <View key={`h-${qIdx}`} style={[styles.tableHeaderCell, { width: 220, borderLeftWidth: 1, borderLeftColor: colors.border, paddingLeft: 12 }]}>
+                <Text style={[styles.tableColHeader, { color: colors.text }]}>
                   {(q.label || q.title || q.text || q.id || 'Question').toUpperCase()}
                 </Text>
-                <Filter size={8} color="#94a3b8" />
+                <Filter size={8} color={colors.subtext} />
               </View>
             ))}
           </View>
 
-          {/* EXPECTED ANSWER ROW (Web Parity) */}
-          <View style={styles.expectedAnswerRow}>
-            <View style={[styles.tableCell, { width: 100, backgroundColor: '#fff7ed' }]}>
-               <Text style={styles.expectedValue}>-</Text>
+          <View style={[styles.expectedAnswerRow, { backgroundColor: isDark ? colors.surface : '#fff7ed', borderBottomColor: isDark ? colors.border : '#ffedd5' }]}>
+            <View style={[styles.tableCell, { width: 100, backgroundColor: isDark ? colors.surface : '#fff7ed' }]}>
+                <Text style={[styles.expectedValue, { color: isDark ? colors.text : '#c2410c' }]}>-</Text>
             </View>
-            <View style={[styles.tableCell, { width: 220, backgroundColor: '#fff7ed' }]}>
-               <Text style={styles.expectedLabel}>EXPECTED ANSWER</Text>
+            <View style={[styles.tableCell, { width: 220, backgroundColor: isDark ? colors.surface : '#fff7ed' }]}>
+                <Text style={[styles.expectedLabel, { color: isDark ? colors.accent : '#9a3412' }]}>EXPECTED ANSWER</Text>
             </View>
-            <View style={[styles.tableCell, { width: 160, marginLeft: 10, backgroundColor: '#fff7ed' }]}>
-               <Text style={styles.expectedValue}>-</Text>
+            <View style={[styles.tableCell, { width: 160, marginLeft: 10, backgroundColor: isDark ? colors.surface : '#fff7ed' }]}>
+                <Text style={[styles.expectedValue, { color: isDark ? colors.text : '#c2410c' }]}>-</Text>
             </View>
-            <View style={[styles.tableCell, { width: 110, backgroundColor: '#fff7ed' }]}>
-               <Text style={styles.expectedValue}>-</Text>
+            <View style={[styles.tableCell, { width: 110, backgroundColor: isDark ? colors.surface : '#fff7ed' }]}>
+                <Text style={[styles.expectedValue, { color: isDark ? colors.text : '#c2410c' }]}>-</Text>
             </View>
-            <View style={[styles.tableCell, { width: 220, backgroundColor: '#fff7ed' }]}>
-               <Text style={styles.expectedValue}>-</Text>
+            <View style={[styles.tableCell, { width: 220, backgroundColor: isDark ? colors.surface : '#fff7ed' }]}>
+                <Text style={[styles.expectedValue, { color: isDark ? colors.text : '#c2410c' }]}>-</Text>
             </View>
-            <View style={[styles.tableCell, { width: 150, backgroundColor: '#fff7ed' }]}>
-               <Text style={styles.expectedValue}>-</Text>
+            <View style={[styles.tableCell, { width: 150, backgroundColor: isDark ? colors.surface : '#fff7ed' }]}>
+                <Text style={[styles.expectedValue, { color: isDark ? colors.text : '#c2410c' }]}>-</Text>
             </View>
-            <View style={[styles.tableCell, { width: 100, backgroundColor: '#fff7ed' }]}>
-               <Text style={styles.expectedValue}>-</Text>
+            <View style={[styles.tableCell, { width: 100, backgroundColor: isDark ? colors.surface : '#fff7ed' }]}>
+                <Text style={[styles.expectedValue, { color: isDark ? colors.text : '#c2410c' }]}>-</Text>
             </View>
-            <View style={[styles.tableCell, { width: 150, backgroundColor: '#fff7ed' }]}>
-               <Text style={styles.expectedValue}>-</Text>
+            <View style={[styles.tableCell, { width: 150, backgroundColor: isDark ? colors.surface : '#fff7ed' }]}>
+                <Text style={[styles.expectedValue, { color: isDark ? colors.text : '#c2410c' }]}>-</Text>
             </View>
             {realQuestions.map((q, qIdx) => (
-              <View key={`exp-${qIdx}`} style={[styles.tableCell, { width: 220, backgroundColor: '#fff7ed', borderLeftWidth: 1, borderLeftColor: '#ffedd5' }]}>
-                <Text style={styles.expectedValue}>{q.expectedAnswer || '-'}</Text>
+              <View key={`exp-${qIdx}`} style={[styles.tableCell, { width: 220, backgroundColor: isDark ? colors.surface : '#fff7ed', borderLeftWidth: 1, borderLeftColor: isDark ? colors.border : '#ffedd5' }]}>
+                <Text style={[styles.expectedValue, { color: isDark ? colors.text : '#c2410c' }]}>{q.expectedAnswer || '-'}</Text>
               </View>
             ))}
           </View>
 
-          {/* Table Data Rows */}
-          {(stats.questionInsights?.responses || []).map((resp: any, idx: number) => {
-            // Extract rework tags and defects for the REVIEW column
-            const extractReviewTags = (answers: any) => {
-              const tags: string[] = [];
-              if (!answers) return tags;
-              
-              const scan = (obj: any) => {
-                if (!obj || typeof obj !== 'object') return;
-                
-                // Defects/Categories
-                if (obj.name && (String(obj.name).length > 1)) {
-                   tags.push(obj.name);
-                }
-                
-                // Remark as tag if it's short
-                if (obj.remark && obj.remark.length < 20 && obj.remark.toLowerCase() !== 'no response') {
-                   tags.push(obj.remark);
-                }
-
-                Object.values(obj).forEach(val => {
-                  if (val && typeof val === 'object') scan(val);
-                });
-              };
-
-              Object.values(answers).forEach(ans => scan(ans));
-              return [...new Set(tags)].filter(t => !['YES', 'NO', 'N/A', 'OK', 'ACCEPTED', 'REJECTED'].includes(t.toUpperCase()));
-            };
-
-            const reviewTags = extractReviewTags(resp.answers);
-            const isRework = resp.review?.option === 'Rework' || String(resp.status).toLowerCase().includes('rework');
-            const reviewerName = resp.review?.reviewer || resp.inspectorName || 'Admin';
-
-            return (
-              <View 
-                key={resp._id || resp.id || idx} 
-                style={styles.tableRow}
-              >
-                {/* DISPATCH (A) */}
-                <View style={[styles.tableCell, { width: 100, flexShrink: 0, alignItems: 'center' }]}>
-                  <TouchableOpacity 
-                    onPress={() => toggleDispatch(resp.id || resp._id, !!resp.isDispatched)}
-                    style={[
-                      styles.dispatchCheckbox, 
-                      resp.isDispatched && styles.dispatchCheckboxChecked
-                    ]}
-                  >
-                    {resp.isDispatched && <Check size={10} color="#fff" strokeWidth={4} />}
-                  </TouchableOpacity>
-                </View>
-
-                <View style={[styles.tableCell, { width: 220, flexDirection: 'row', gap: 10, alignItems: 'center' }]}>
-                  <View style={styles.tableCheckbox} />
-                  <TouchableOpacity onPress={() => {}} style={styles.actionIconBtn}>
-                    <Edit size={12} color="#3b82f6" />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => {}} style={[styles.actionIconBtn, { backgroundColor: '#fee2e2' }]}>
-                    <Trash2 size={12} color="#ef4444" />
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={[styles.actionIconBtn, { backgroundColor: '#f1f5f9' }]}
-                    onPress={() => navigation.navigate('FormPreview', { 
-                      id: id,
-                      responseId: resp.id || resp._id, 
-                      title: `Submission #${(stats.questionInsights?.responses?.length || 0) - idx}`, 
-                      answers: resp.answers, 
-                      chassisNumber: resp.chassisNumber,
-                      shift: resp.shift,
-                      status: resp.status,
-                      isDispatched: resp.isDispatched,
-                      submittedBy: resp.submittedBy,
-                      submitterContact: resp.submitterContact,
-                      readOnly: true 
-                    })}
-                  >
-                    <Eye size={12} color="#64748b" />
-                  </TouchableOpacity>
-
-                  {/* Direct Review Actions (Web Parity) */}
-                  {user?.role !== 'inspector' && (
-                    <>
-                      <TouchableOpacity 
-                        style={[styles.actionIconBtn, { backgroundColor: '#ecfdf5' }]}
-                        onPress={() => handleReviewSubmit(resp.id || resp._id, 'Accepted')}
-                      >
-                        <CheckCircle2 size={12} color="#059669" />
-                      </TouchableOpacity>
-                      <TouchableOpacity 
-                        style={[styles.actionIconBtn, { backgroundColor: '#fff7ed' }]}
-                        onPress={() => handleReviewSubmit(resp.id || resp._id, 'Rework')}
-                      >
-                        <RefreshCw size={12} color="#d97706" />
-                      </TouchableOpacity>
-                    </>
-                  )}
-
-                  {resp.isDispatched && (
-                    <TouchableOpacity 
-                      style={[styles.actionIconBtn, { backgroundColor: '#e0e7ff' }]}
-                      onPress={() => navigation.navigate('ResponseFeedback', { response: resp, formTitle: title, sections: stats.questionInsights?.sections })}
-                    >
-                      <MessageSquareText size={12} color="#4f46e5" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                <View style={[styles.tableCell, { width: 160, marginLeft: 10 }]}>
-                  <Text style={styles.tableTextMain}>
-                    {resp.submittedBy || resp.inspectorName || 'Anonymous'}
-                  </Text>
-                  {resp.inspectorMobile ? (
-                    <Text style={[styles.tableTextSub, { fontSize: 9, color: '#6366f1', marginTop: 2 }]}>
-                      📞 {resp.inspectorMobile}
-                    </Text>
-                  ) : null}
-                </View>
-
-                 <View style={[styles.tableCell, { width: 110 }]}>
-                   <View style={[
-                     styles.statusBadgeSmall, 
-                     { 
-                       backgroundColor: 
-                         (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('rework') ? '#fff7ed' : 
-                         (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('accepted') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('verified') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('ok') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('direct') ? '#ecfdf5' : 
-                         (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('rejected') ? '#fef2f2' : '#f1f5f9' 
-                     }
-                   ]}>
-                     <Text style={[
-                       styles.statusBadgeTextSmall, 
-                       { 
-                         color: 
-                           (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('rework') ? '#d97706' : 
-                           (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('accepted') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('verified') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('ok') || (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('direct') ? '#059669' : 
-                           (responseStatuses[resp.id || resp._id] || '').toLowerCase().includes('rejected') ? '#ef4444' : '#64748b' 
-                       }
-                     ]}>
-                       {responseStatuses[resp.id || resp._id] || 'PENDING'}
-                     </Text>
-                   </View>
-                 </View>
-
-                {/* REVIEW COLUMN (Web Parity) */}
-                <View style={[styles.tableCell, { width: 220 }]}>
-                   <View style={styles.reviewContent}>
-                      {isRework && (
-                        <View style={styles.reworkHeader}>
-                           <View style={styles.reworkBadge}>
-                              <Text style={styles.reworkBadgeText}>REWORK</Text>
-                           </View>
-                           <Text style={styles.reworkInspector}>by {reviewerName}</Text>
-                        </View>
-                      )}
-                      <View style={styles.reviewTagsRow}>
-                        {reviewTags.map((tag, tIdx) => (
-                          <View key={tIdx} style={styles.reviewTag}>
-                            <Text style={styles.reviewTagText}>{tag}</Text>
-                          </View>
-                        ))}
-                        {reviewTags.length === 0 && !isRework && <Text style={styles.tableTextSub}>-</Text>}
-                      </View>
-                   </View>
-                </View>
-
-                <View style={[styles.tableCell, { width: 150 }]}>
-                  <Text style={styles.tableTextSub}>
-                    {new Date(resp.createdAt).toLocaleString([], { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                  </Text>
-                </View>
-
-                <View style={[styles.tableCell, { width: 100 }]}>
-                  {(() => {
-                    const timeSpent = resp.timeSpent ?? resp.totalTimeSpent;
-                    return timeSpent ? (
-                      <View style={styles.timeTakenRow}>
-                        <History size={10} color="#3b82f6" />
-                        <Text style={[styles.tableTextMain, { color: '#3b82f6', marginLeft: 4 }]}>
-                          {timeSpent > 60 ? `${Math.floor(timeSpent / 60)}m ${timeSpent % 60}s` : `${timeSpent}s`}
-                        </Text>
-                      </View>
-                    ) : (
-                      <Text style={styles.tableTextSub}>-</Text>
-                    );
-                  })()}
-                </View>
-
-                <View style={[styles.tableCell, { width: 150 }]}>
-                   <View style={styles.chassisBadge}>
-                    <Text style={styles.chassisBadgeText}>
-                      {resp.answers?.chassis_number || resp.chassisNumber || (resp.answers instanceof Map ? (resp.answers.get('chassisNumber') || resp.answers.get('chassis_number')) : (resp.answers?.chassisNumber)) || '-'}
-                    </Text>
-                   </View>
-                </View>
-
-                {/* Dynamic Question Cells */}
-                {realQuestions.map((q, qIdx) => (
-                  <View key={`c-${qIdx}`} style={[styles.tableCell, { width: 220, borderLeftWidth: 1, borderLeftColor: '#f1f5f9', paddingLeft: 12 }]}>
-                    {renderTableCellContent(resp.answers?.[q.id], q)}
-                  </View>
-                ))}
-              </View>
-            );
-          })}
+          <FlatList
+            data={stats.questionInsights?.responses || []}
+            keyExtractor={(item: any, index: number) => item._id || item.id || `row-${index}`}
+            renderItem={({ item, index }: { item: any, index: number }) => (
+              <ResponseRow item={item} index={index} />
+            )}
+            removeClippedSubviews={true}
+            initialNumToRender={10}
+            maxToRenderPerBatch={5}
+            windowSize={5}
+            scrollEnabled={false}
+          />
         </View>
       </ScrollView>
 
       {(stats.questionInsights?.responses || []).length === 0 && (
-        <View style={styles.emptyContainer}>
-          <MessageSquare size={48} color="#cbd5e1" />
-          <Text style={styles.emptyText}>No responses yet</Text>
+        <View style={[styles.emptyContainer, { backgroundColor: colors.background }]}>
+          <MessageSquare size={48} color={colors.subtext} />
+          <Text style={[styles.emptyText, { color: colors.subtext }]}>No responses yet</Text>
         </View>
       )}
     </View>
   );
 
   const renderQuestions = () => (
-    <View style={styles.questionsContainer}>
-      <View style={styles.questionsHeaderCard}>
+    <View style={[styles.questionsContainer, { backgroundColor: colors.background }]}>
+      <View style={[styles.questionsHeaderCard, { backgroundColor: colors.accent }]}>
         <View style={styles.qHeaderTop}>
           <TrendingUp size={20} color="#fff" />
           <Text style={styles.questionsHeaderTitle}>Response Distribution by Question</Text>
@@ -956,19 +904,19 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
         </View>
       </View>
 
-      <Text style={styles.sectionHeading}>Performance Heatmap</Text>
+      <Text style={[styles.sectionHeading, { color: colors.text }]}>Performance Heatmap</Text>
       <View style={styles.qHeatmapGrid}>
         {realQuestions.map((q, idx) => {
           const passRate = q.stats.total > 0 ? Math.round((q.stats.yes / q.stats.total) * 100) : 0;
           return (
-            <View key={`q-grid-${idx}`} style={styles.qGridItem}>
+            <View key={`q-grid-${idx}`} style={[styles.qGridItem, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={styles.qGridHeader}>
-                <Text style={styles.qGridLabel} numberOfLines={1}>{(q.label || q.title || q.text || 'Q').toUpperCase()}</Text>
-                <Text style={styles.qGridPercent}>{passRate}%</Text>
+                <Text style={[styles.qGridLabel, { color: colors.subtext }]} numberOfLines={1}>{(q.label || q.title || q.text || 'Q').toUpperCase()}</Text>
+                <Text style={[styles.qGridPercent, { color: colors.text }]}>{passRate}%</Text>
               </View>
               <View style={[
                 styles.qStatusBadge, 
-                { backgroundColor: passRate >= 90 ? '#ecfdf5' : passRate >= 70 ? '#fffbeb' : '#fef2f2' }
+                { backgroundColor: passRate >= 90 ? (isDark ? '#064e3b' : '#ecfdf5') : passRate >= 70 ? (isDark ? '#7c2d12' : '#fffbeb') : (isDark ? '#450a0a' : '#fef2f2') }
               ]}>
                 <Text style={[
                   styles.qStatusText, 
@@ -977,7 +925,7 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
                   {passRate >= 90 ? 'EXCELLENT' : passRate >= 70 ? 'STABLE' : 'CRITICAL'}
                 </Text>
               </View>
-              <View style={styles.miniProgressContainer}>
+              <View style={[styles.miniProgressContainer, { backgroundColor: colors.border }]}>
                 <View style={[styles.miniProgressBar, { width: `${passRate}%`, backgroundColor: passRate >= 70 ? '#10b981' : '#f59e0b' }]} />
               </View>
             </View>
@@ -985,22 +933,22 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
         })}
       </View>
 
-      <Text style={styles.sectionHeading}>Distribution Details</Text>
+      <Text style={[styles.sectionHeading, { color: colors.text }]}>Distribution Details</Text>
       {realQuestions.map((q, idx) => (
-        <View key={q.id || idx} style={styles.questionCard}>
+        <View key={q.id || idx} style={[styles.questionCard, { backgroundColor: colors.card, borderColor: colors.border, padding: 16, borderRadius: 16, borderWidth: 1 }]}>
           <View style={styles.qCardHeader}>
-            <Text style={styles.qSectionName}>{q.sectionTitle}</Text>
-            <Text style={styles.qResponseCount}>{q.stats.total} responses</Text>
+            <Text style={[styles.qSectionName, { color: colors.accent }]}>{q.sectionTitle}</Text>
+            <Text style={[styles.qResponseCount, { color: colors.subtext }]}>{q.stats.total} responses</Text>
           </View>
-          <Text style={styles.qText}>{q.label || q.title || q.text || 'Untitled Question'}</Text>
+          <Text style={[styles.qText, { color: colors.text, marginVertical: 8 }]}>{q.label || q.title || q.text || 'Untitled Question'}</Text>
           
           <View style={styles.distributionContainer}>
             <View style={styles.distRow}>
               <View style={styles.distLabelGroup}>
-                <Text style={styles.distLabel}>YES</Text>
-                <Text style={styles.distValue}>{q.stats.yes}</Text>
+                <Text style={[styles.distLabel, { color: colors.subtext }]}>YES</Text>
+                <Text style={[styles.distValue, { color: colors.text }]}>{q.stats.yes}</Text>
               </View>
-              <View style={styles.distBarBg}>
+              <View style={[styles.distBarBg, { backgroundColor: colors.border }]}>
                 <View style={[styles.distBarFill, { 
                   width: q.stats.total > 0 ? `${(q.stats.yes / q.stats.total) * 100}%` : '0%',
                   backgroundColor: '#22c55e' 
@@ -1010,10 +958,10 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
 
             <View style={styles.distRow}>
               <View style={styles.distLabelGroup}>
-                <Text style={styles.distLabel}>NO</Text>
-                <Text style={styles.distValue}>{q.stats.no}</Text>
+                <Text style={[styles.distLabel, { color: colors.subtext }]}>NO</Text>
+                <Text style={[styles.distValue, { color: colors.text }]}>{q.stats.no}</Text>
               </View>
-              <View style={styles.distBarBg}>
+              <View style={[styles.distBarBg, { backgroundColor: colors.border }]}>
                 <View style={[styles.distBarFill, { 
                   width: q.stats.total > 0 ? `${(q.stats.no / q.stats.total) * 100}%` : '0%',
                   backgroundColor: '#ef4444' 
@@ -1024,13 +972,13 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
             {q.stats.na > 0 && (
               <View style={styles.distRow}>
                 <View style={styles.distLabelGroup}>
-                  <Text style={styles.distLabel}>N/A</Text>
-                  <Text style={styles.distValue}>{q.stats.na}</Text>
+                  <Text style={[styles.distLabel, { color: colors.subtext }]}>N/A</Text>
+                  <Text style={[styles.distValue, { color: colors.text }]}>{q.stats.na}</Text>
                 </View>
-                <View style={styles.distBarBg}>
+                <View style={[styles.distBarBg, { backgroundColor: colors.border }]}>
                   <View style={[styles.distBarFill, { 
                     width: q.stats.total > 0 ? `${(q.stats.na / q.stats.total) * 100}%` : '0%',
-                    backgroundColor: '#94a3b8' 
+                    backgroundColor: colors.subtext 
                   }]} />
                 </View>
               </View>
@@ -1041,8 +989,8 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
 
       {realQuestions.length === 0 && (
         <View style={styles.emptyContainer}>
-          <Info size={48} color="#cbd5e1" />
-          <Text style={styles.emptyText}>No questions found in this form</Text>
+          <Info size={48} color={colors.subtext} />
+          <Text style={[styles.emptyText, { color: colors.subtext }]}>No questions found in this form</Text>
         </View>
       )}
     </View>
@@ -1050,68 +998,43 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
 
   const renderSections = () => (
     <>
-      {/* Form Performance Pulse (Web Parity) */}
-      <View style={styles.formPerformanceBoard}>
-        <View style={styles.perfPulseItem}>
-          <Text style={styles.perfPulseLabel}>TOTAL ACCEPTED</Text>
-          <View style={styles.perfPulseValueRow}>
-            <Text style={[styles.perfPulseValue, { color: '#10b981' }]}>{globalAccepted}</Text>
-            <CheckCircle2 size={12} color="#10b981" />
-          </View>
-        </View>
-        <View style={styles.perfPulseDivider} />
-        <View style={styles.perfPulseItem}>
-          <Text style={styles.perfPulseLabel}>TOTAL REJECTED</Text>
-          <View style={styles.perfPulseValueRow}>
-            <Text style={[styles.perfPulseValue, { color: '#ef4444' }]}>{globalRejected}</Text>
-            <AlertCircle size={12} color="#ef4444" />
-          </View>
-        </View>
-        <View style={styles.perfPulseDivider} />
-        <View style={styles.perfPulseItem}>
-          <Text style={styles.perfPulseLabel}>TOTAL REWORK</Text>
-          <View style={styles.perfPulseValueRow}>
-            <Text style={[styles.perfPulseValue, { color: '#f59e0b' }]}>{globalRework}</Text>
-            <RefreshCw size={12} color="#f59e0b" />
-          </View>
-        </View>
-      </View>
+      {/* Performance Pulse removed as requested */}
 
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalStats}>
 
-        <View style={[styles.miniStatCard, { backgroundColor: '#eff6ff', borderColor: '#dbeafe' }]}>
-          <Text style={[styles.miniStatValue, { color: '#1e40af' }]}>{realSections.length}</Text>
-          <Text style={styles.miniStatLabel}>Total Sections</Text>
+        <View style={[styles.miniStatCard, { backgroundColor: isDark ? colors.card : '#eff6ff', borderColor: isDark ? colors.border : '#dbeafe' }]}>
+          <Text style={[styles.miniStatValue, { color: isDark ? colors.text : '#1e40af' }]}>{realSections.length}</Text>
+          <Text style={[styles.miniStatLabel, { color: colors.subtext }]}>Total Sections</Text>
         </View>
-        <View style={[styles.miniStatCard, { backgroundColor: '#f0fdf4', borderColor: '#dcfce7' }]}>
-          <Text style={[styles.miniStatValue, { color: '#166534' }]}>{totalQuestions}</Text>
-          <Text style={styles.miniStatLabel}>Primary Qs</Text>
+        <View style={[styles.miniStatCard, { backgroundColor: isDark ? colors.card : '#f0fdf4', borderColor: isDark ? colors.border : '#dcfce7' }]}>
+          <Text style={[styles.miniStatValue, { color: isDark ? colors.text : '#166534' }]}>{totalQsCount}</Text>
+          <Text style={[styles.miniStatLabel, { color: colors.subtext }]}>Primary Qs</Text>
         </View>
-        <View style={[styles.miniStatCard, { backgroundColor: '#faf5ff', borderColor: '#f3e8ff' }]}>
-          <Text style={[styles.miniStatValue, { color: '#6b21a8' }]}>{totalFollowUps}</Text>
-          <Text style={styles.miniStatLabel}>Follow-ups</Text>
+        <View style={[styles.miniStatCard, { backgroundColor: isDark ? colors.card : '#faf5ff', borderColor: isDark ? colors.border : '#f3e8ff' }]}>
+          <Text style={[styles.miniStatValue, { color: isDark ? colors.text : '#6b21a8' }]}>{totalFollowUps}</Text>
+          <Text style={[styles.miniStatLabel, { color: colors.subtext }]}>Follow-ups</Text>
         </View>
-        <View style={[styles.miniStatCard, { backgroundColor: '#fff7ed', borderColor: '#ffedd5' }]}>
-          <Text style={[styles.miniStatValue, { color: '#9a3412' }]}>{stats.totalResponses}</Text>
-          <Text style={styles.miniStatLabel}>Responses</Text>
+        <View style={[styles.miniStatCard, { backgroundColor: isDark ? colors.card : '#fff7ed', borderColor: isDark ? colors.border : '#ffedd5' }]}>
+          <Text style={[styles.miniStatValue, { color: isDark ? colors.text : '#9a3412' }]}>{stats.totalResponses}</Text>
+          <Text style={[styles.miniStatLabel, { color: colors.subtext }]}>Responses</Text>
         </View>
       </ScrollView>
-
-      <Text style={styles.sectionHeading}>Section Details</Text>
+ 
+      <Text style={[styles.sectionHeading, { color: colors.text }]}>Section Details</Text>
       
-      {realSections.map((section, idx) => (
-        <View key={idx} style={styles.detailedSectionCard}>
+      {realSections.map((section: any, idx: number) => (
+        <View key={idx} style={[styles.detailedSectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.detailedSectionHeader}>
             <View style={styles.sectionTitleGroup}>
-              <View style={styles.sectionIndexBadge}>
-                <Text style={styles.sectionIndexText}>{idx + 1}</Text>
+              <View style={[styles.sectionIndexBadge, { backgroundColor: colors.surface }]}>
+                <Text style={[styles.sectionIndexText, { color: colors.text }]}>{idx + 1}</Text>
               </View>
-              <Text style={styles.detailedSectionTitle} numberOfLines={1}>{section.title}</Text>
+              <Text style={[styles.detailedSectionTitle, { color: colors.text }]} numberOfLines={1}>{section.title}</Text>
             </View>
             <View style={[
               styles.scoreBadge, 
-              { backgroundColor: section.score >= 90 ? '#ecfdf5' : section.score >= 70 ? '#fffbeb' : '#fef2f2' }
+              { backgroundColor: section.score >= 90 ? (isDark ? '#064e3b' : '#ecfdf5') : section.score >= 70 ? (isDark ? '#7c2d12' : '#fffbeb') : (isDark ? '#450a0a' : '#fef2f2') }
             ]}>
               <Text style={[
                 styles.scoreBadgeText, 
@@ -1124,86 +1047,87 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
 
           <View style={styles.detailedStatRow}>
             <View style={styles.detailedStatItem}>
-              <Text style={styles.detailedStatLabel}>Questions</Text>
-              <Text style={styles.detailedStatValue}>{section.questionCount}</Text>
+              <Text style={[styles.detailedStatLabel, { color: colors.subtext }]}>Questions</Text>
+              <Text style={[styles.detailedStatValue, { color: colors.text }]}>{section.questionCount}</Text>
             </View>
-            <View style={styles.detailedDivider} />
+            <View style={[styles.detailedDivider, { backgroundColor: colors.border }]} />
             <View style={styles.detailedStatItem}>
-              <Text style={styles.detailedStatLabel}>Samples</Text>
-              <Text style={styles.detailedStatValue}>{section.totalAnswers}</Text>
+              <Text style={[styles.detailedStatLabel, { color: colors.subtext }]}>Samples</Text>
+              <Text style={[styles.detailedStatValue, { color: colors.text }]}>{section.totalAnswers}</Text>
             </View>
-            <View style={styles.detailedDivider} />
+            <View style={[styles.detailedDivider, { backgroundColor: colors.border }]} />
             <View style={styles.detailedStatItem}>
-              <Text style={styles.detailedStatLabel}>Weight</Text>
-              <Text style={styles.detailedStatValue}>{section.weightage || 0}%</Text>
+              <Text style={[styles.detailedStatLabel, { color: colors.subtext }]}>Weight</Text>
+              <Text style={[styles.detailedStatValue, { color: colors.text }]}>{section.weightage || 0}%</Text>
             </View>
           </View>
 
-          <View style={styles.detailedSectionBarBg}>
-            <View style={[styles.detailedSectionBarFill, { width: `100%`, backgroundColor: '#3b82f6' }]} />
+          <View style={[styles.detailedSectionBarBg, { backgroundColor: colors.border }]}>
+            <View style={[styles.detailedSectionBarFill, { width: `100%`, backgroundColor: colors.accent }]} />
           </View>
         </View>
       ))}
 
       {realSections.length === 0 && (
         <View style={styles.emptyContainer}>
-          <PieChart size={48} color="#cbd5e1" />
-          <Text style={styles.emptyText}>No section data available</Text>
+          <PieChart size={48} color={colors.subtext} />
+          <Text style={[styles.emptyText, { color: colors.subtext }]}>No section data available</Text>
         </View>
       )}
     </>
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.background, borderColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <ChevronLeft size={24} color="#1e3a8a" />
+          <ChevronLeft size={24} color={isDark ? colors.text : "#1e3a8a"} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{title ? `${title} Analytics` : 'Form Analytics'}</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>{title ? `${title} Analytics` : 'Form Analytics'}</Text>
       </View>
 
-      <View style={styles.tabBar}>
+      <View style={[styles.tabBar, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBarScroll}>
           {!isInspector && (
             <>
               <TouchableOpacity 
-                style={[styles.tabItem, activeTab === 'dashboard' && styles.activeTabItem]} 
+                style={[styles.tabItem, activeTab === 'dashboard' && [styles.activeTabItem, { borderBottomColor: colors.accent }]]} 
                 onPress={() => switchTab('dashboard')}
               >
-                <LayoutDashboard size={18} color={activeTab === 'dashboard' ? '#1e3a8a' : '#64748b'} />
-                <Text style={[styles.tabText, activeTab === 'dashboard' && styles.activeTabText]}>Dashboard</Text>
+                <LayoutDashboard size={18} color={activeTab === 'dashboard' ? colors.accent : colors.subtext} />
+                <Text style={[styles.tabText, { color: colors.subtext }, activeTab === 'dashboard' && [styles.activeTabText, { color: colors.text }]]}>Dashboard</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.tabItem, activeTab === 'questions' && styles.activeTabItem]} 
+                style={[styles.tabItem, activeTab === 'questions' && [styles.activeTabItem, { borderBottomColor: colors.accent }]]} 
                 onPress={() => switchTab('questions')}
               >
-                <TrendingUp size={18} color={activeTab === 'questions' ? '#1e3a8a' : '#64748b'} />
-                <Text style={[styles.tabText, activeTab === 'questions' && styles.activeTabText]}>Questions</Text>
+                <TrendingUp size={18} color={activeTab === 'questions' ? colors.accent : colors.subtext} />
+                <Text style={[styles.tabText, { color: colors.subtext }, activeTab === 'questions' && [styles.activeTabText, { color: colors.text }]]}>Questions</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.tabItem, activeTab === 'sections' && styles.activeTabItem]} 
+                style={[styles.tabItem, activeTab === 'sections' && [styles.activeTabItem, { borderBottomColor: colors.accent }]]} 
                 onPress={() => switchTab('sections')}
               >
-                <PieChart size={18} color={activeTab === 'sections' ? '#1e3a8a' : '#64748b'} />
-                <Text style={[styles.tabText, activeTab === 'sections' && styles.activeTabText]}>Sections</Text>
+                <PieChart size={18} color={activeTab === 'sections' ? colors.accent : colors.subtext} />
+                <Text style={[styles.tabText, { color: colors.subtext }, activeTab === 'sections' && [styles.activeTabText, { color: colors.text }]]}>Sections</Text>
               </TouchableOpacity>
             </>
           )}
           <TouchableOpacity 
-            style={[styles.tabItem, activeTab === 'responses' && styles.activeTabItem]} 
+            style={[styles.tabItem, activeTab === 'responses' && [styles.activeTabItem, { borderBottomColor: colors.accent }]]} 
             onPress={() => switchTab('responses')}
           >
-            <MessageSquare size={18} color={activeTab === 'responses' ? '#1e3a8a' : '#64748b'} />
-            <Text style={[styles.tabText, activeTab === 'responses' && styles.activeTabText]}>Responses</Text>
+            <MessageSquare size={18} color={activeTab === 'responses' ? colors.accent : colors.subtext} />
+            <Text style={[styles.tabText, { color: colors.subtext }, activeTab === 'responses' && [styles.activeTabText, { color: colors.text }]]}>Responses</Text>
           </TouchableOpacity>
         </ScrollView>
       </View>
 
       <ScrollView 
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
         showsVerticalScrollIndicator={false}
+        style={{ backgroundColor: colors.background }}
       >
         {activeTab === 'dashboard' ? renderDashboard() : 
          activeTab === 'questions' ? renderQuestions() : 

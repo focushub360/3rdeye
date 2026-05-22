@@ -10,17 +10,20 @@ import {
   RefreshControl,
   Modal,
   Dimensions,
-  Platform
+  Platform,
+  Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Search, MessageSquare, Plus, UserCircle, X, ShieldCheck, Users, RefreshCcw, Filter } from 'lucide-react-native';
 import apiClient from '../api/config';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 
 const { height } = Dimensions.get('window');
 
 const ChatListScreen = () => {
+  const { colors, isDark } = useTheme();
   const [conversations, setConversations] = useState<any[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,7 +103,7 @@ const ChatListScreen = () => {
     const contact = item.user;
     return (
       <TouchableOpacity 
-        style={styles.chatItem}
+        style={[styles.chatItem, { backgroundColor: colors.background, borderBottomColor: colors.border }]}
         onPress={() => navigation.navigate('ChatDetail', { 
           contactId: item._id, 
           name: `${contact.firstName} ${contact.lastName}`,
@@ -110,15 +113,15 @@ const ChatListScreen = () => {
         })}
       >
         <View style={styles.avatarContainer}>
-          <View style={styles.webAvatarWrapper}>
-            <UserCircle size={32} color="#4f46e5" />
+          <View style={[styles.webAvatarWrapper, { backgroundColor: colors.surface }]}>
+            <UserCircle size={32} color={colors.accent} />
           </View>
-          {item.unreadCount > 0 && <View style={styles.unreadBadge}><Text style={styles.unreadText}>{item.unreadCount}</Text></View>}
+          {item.unreadCount > 0 && <View style={[styles.unreadBadge, { borderColor: colors.background }]}><Text style={styles.unreadText}>{item.unreadCount}</Text></View>}
         </View>
         <View style={styles.chatInfo}>
           <View style={styles.chatHeader}>
-            <Text style={styles.chatName}>ID: {String(item._id).substring(0, 16)}</Text>
-            <Text style={styles.chatTime}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+            <Text style={[styles.chatName, { color: colors.text }]}>ID: {String(item._id).substring(0, 16)}</Text>
+            <Text style={[styles.chatTime, { color: colors.subtext }]}>{new Date(item.createdAt).toLocaleDateString()}</Text>
           </View>
         </View>
       </TouchableOpacity>
@@ -127,7 +130,7 @@ const ChatListScreen = () => {
 
   const renderContactItem = ({ item }: any) => (
     <TouchableOpacity 
-      style={styles.modalChatItem}
+      style={[styles.modalChatItem, { backgroundColor: colors.surface, borderColor: colors.border }]}
       onPress={() => {
         setIsModalVisible(false);
         navigation.navigate('ChatDetail', { 
@@ -137,46 +140,56 @@ const ChatListScreen = () => {
         });
       }}
     >
-      <UserCircle size={40} color="#cbd5e1" />
+      <UserCircle size={40} color={colors.subtext} />
       <View style={styles.modalChatInfo}>
-        <Text style={styles.modalChatName}>{item.firstName} {item.lastName}</Text>
-        <Text style={styles.modalChatRole}>{(item.role || 'GUEST').toUpperCase()}</Text>
+        <Text style={[styles.modalChatName, { color: colors.text }]}>{item.firstName} {item.lastName}</Text>
+        <Text style={[styles.modalChatRole, { color: colors.accent }]}>{(item.role || 'GUEST').toUpperCase()}</Text>
       </View>
-      <ShieldCheck size={18} color="#1e3a8a" />
+      <ShieldCheck size={18} color={colors.accent} />
     </TouchableOpacity>
   );
 
   if (loading && !refreshing && conversations.length === 0) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#1e3a8a" />
+      <View style={[styles.centered, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.webHeader}>
-        <Text style={styles.webTitle}>Chat System</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.webHeader, { backgroundColor: colors.background }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={[styles.logoCircleBox, { backgroundColor: isDark ? colors.card : '#fff', borderColor: colors.border }]}>
+            <Image 
+              source={require('../../assets/header_logo.png')} 
+              style={styles.headerLogoImage} 
+              resizeMode="contain"
+            />
+          </View>
+          <Text style={[styles.webTitle, { color: colors.text }]}>Chat System</Text>
+        </View>
         <View style={styles.webHeaderActions}>
-          <TouchableOpacity onPress={onRefresh} style={styles.iconBtn}>
-            <RefreshCcw size={18} color="#64748b" />
+          <TouchableOpacity onPress={onRefresh} style={[styles.iconBtn, { backgroundColor: colors.surface }]}>
+            <RefreshCcw size={18} color={colors.subtext} />
           </TouchableOpacity>
         </View>
       </View>
 
       <View style={styles.searchContainer}>
-        <View style={styles.searchBox}>
-          <Search size={18} color="#94a3b8" />
+        <View style={[styles.searchBox, { backgroundColor: colors.surface }]}>
+          <Search size={18} color={colors.subtext} />
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: colors.text }]}
             placeholder="Search conversation..."
+            placeholderTextColor={colors.subtext}
             value={search}
             onChangeText={setSearch}
           />
         </View>
-        <TouchableOpacity style={styles.filterBtn}>
-          <Filter size={18} color="#64748b" />
+        <TouchableOpacity style={[styles.filterBtn, { backgroundColor: colors.surface }]}>
+          <Filter size={18} color={colors.subtext} />
         </TouchableOpacity>
       </View>
 
@@ -184,17 +197,17 @@ const ChatListScreen = () => {
         data={filteredConversations}
         keyExtractor={(item) => item._id}
         renderItem={renderConversationItem}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <View style={styles.webEmptyIconOuter}>
-              <View style={styles.webEmptyIconInner}>
-                <MessageSquare size={32} color="#4f46e5" />
+            <View style={[styles.webEmptyIconOuter, { backgroundColor: colors.surface, borderColor: colors.background }]}>
+              <View style={[styles.webEmptyIconInner, { backgroundColor: colors.surface }]}>
+                <MessageSquare size={32} color={colors.accent} />
               </View>
             </View>
-            <Text style={styles.emptyTitle}>Your Workspace Chat</Text>
-            <Text style={styles.emptySub}>Select a conversation from the list to start messaging.</Text>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>Your Workspace Chat</Text>
+            <Text style={[styles.emptySub, { color: colors.subtext }]}>Select a conversation from the list to start messaging.</Text>
           </View>
         }
       />
@@ -208,15 +221,15 @@ const ChatListScreen = () => {
         visible={isModalVisible}
         onRequestClose={() => setIsModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
+        <View style={[styles.modalOverlay, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.6)' : 'rgba(15, 23, 42, 0.4)' }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
               <View>
-                <Text style={styles.modalTitle}>Contact Authority</Text>
-                <Text style={styles.modalSubtitle}>Select a Subadmin or Superadmin</Text>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Contact Authority</Text>
+                 <Text style={[styles.modalSubtitle, { color: colors.subtext }]}>Select a Subadmin or Superadmin</Text>
               </View>
               <TouchableOpacity onPress={() => setIsModalVisible(false)}>
-                <X size={24} color="#64748b" />
+                <X size={24} color={colors.subtext} />
               </TouchableOpacity>
             </View>
             
@@ -226,7 +239,7 @@ const ChatListScreen = () => {
               renderItem={renderContactItem}
               contentContainerStyle={styles.modalList}
               ListHeaderComponent={
-                <Text style={styles.authorityLabel}>AVAILABLE HIGHER AUTHORITIES</Text>
+                <Text style={[styles.authorityLabel, { color: colors.subtext }]}>AVAILABLE HIGHER AUTHORITIES</Text>
               }
             />
           </View>
@@ -517,7 +530,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 40,
     lineHeight: 18,
-  }
+  },
+  logoCircleBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    padding: 4,
+  },
+  headerLogoImage: {
+    width: '100%',
+    height: '100%',
+  },
 });
 
 export default ChatListScreen;

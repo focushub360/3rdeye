@@ -30,7 +30,8 @@ import {
   AlertCircle,
   Sparkles,
   Clock,
-  History
+  History,
+  MessageSquare
 } from 'lucide-react-native';
 
 
@@ -44,6 +45,7 @@ import QuestionRenderer from '../components/QuestionRenderer';
 import NetInfo from '@react-native-community/netinfo';
 import { offlineQueue } from '../api/OfflineQueue';
 import { useQuestionLogic } from '../hooks/useQuestionLogic';
+import { useTheme } from '../context/ThemeContext';
 // import * as Location from 'expo-location';
 
 // Helper to normalize image URLs for reference images
@@ -73,6 +75,7 @@ const getReferenceImageUrl = (path: string) => {
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
 const FormPreviewScreen = ({ route, navigation }: any) => {
+  const { colors, isDark } = useTheme();
   const { 
     title, 
     id, 
@@ -177,7 +180,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
       for (const s of form.sections) {
         if (s.questions) {
           for (const q of s.questions) {
-            if (q.trackResponseRank) {
+            if (q.trackResponseRank || q.trackResponseQuestion) {
               foundId = q.id || q._id;
               break;
             }
@@ -400,8 +403,8 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
             if (ans.status === '' || ans.status === undefined) isAnswered = false;
           }
 
-          const isTrackingAnswered = answers[`${q.id}_tracking`] !== undefined && answers[`${q.id}_tracking`] !== '';
-          const isChassisFilled = (q.type === 'chassisNumber' || q.text?.toLowerCase().includes('chassis number')) && selectedChassis;
+          const isTrackingAnswered = answers[`${q.id}_tracking`] !== undefined && answers[`${q.id}_tracking`] !== '' && answers[`${q.id}_tracking`] !== null;
+          const isChassisFilled = (q.type === 'chassisNumber' || q.text?.toLowerCase().includes('chassis number') || q.trackResponseRank || q.trackResponseQuestion) && selectedChassis;
           
           if (!isAnswered && !isTrackingAnswered && !isChassisFilled) {
              missing.push(q.text || q.label || 'Unknown Question');
@@ -510,8 +513,8 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
             if (ans.status === '' || ans.status === undefined) isAnswered = false;
           }
 
-          const isTrackingAnswered = answers[`${q.id}_tracking`] !== undefined && answers[`${q.id}_tracking`] !== '';
-          const isChassisFilled = (q.type === 'chassisNumber' || q.text?.toLowerCase().includes('chassis number')) && selectedChassis;
+          const isTrackingAnswered = answers[`${q.id}_tracking`] !== undefined && answers[`${q.id}_tracking`] !== '' && answers[`${q.id}_tracking`] !== null;
+          const isChassisFilled = (q.type === 'chassisNumber' || q.text?.toLowerCase().includes('chassis number') || q.trackResponseRank || q.trackResponseQuestion) && selectedChassis;
           
           if (!isAnswered && !isTrackingAnswered && !isChassisFilled) {
             missingRequired.push(q.text || q.label || 'Unknown Question');
@@ -719,20 +722,20 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
   // Loading state
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.header, { backgroundColor: colors.background, borderColor: colors.border }]}>
           <View style={styles.headerTop}>
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-              <X size={24} color="#64748b" />
+              <X size={24} color={colors.text} />
             </TouchableOpacity>
             <View style={styles.titleGroup}>
-              <Text style={styles.formTitle} numberOfLines={1}>{title || 'Form Preview'}</Text>
+              <Text style={[styles.formTitle, { color: colors.text }]} numberOfLines={1}>{title || 'Form Preview'}</Text>
             </View>
           </View>
         </View>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#4f46e5" />
-          <Text style={styles.loadingText}>Fetching form structure...</Text>
+        <View style={[styles.centered, { backgroundColor: colors.background }]}>
+          <ActivityIndicator size="large" color={colors.accent} />
+          <Text style={[styles.loadingText, { color: colors.subtext }]}>Fetching form structure...</Text>
         </View>
       </SafeAreaView>
     );
@@ -741,21 +744,21 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
   // Error state
   if (error) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.header, { backgroundColor: colors.background, borderColor: colors.border }]}>
           <View style={styles.headerTop}>
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-              <X size={24} color="#64748b" />
+              <X size={24} color={colors.text} />
             </TouchableOpacity>
             <View style={styles.titleGroup}>
-              <Text style={styles.formTitle} numberOfLines={1}>{title || 'Form Preview'}</Text>
+              <Text style={[styles.formTitle, { color: colors.text }]} numberOfLines={1}>{title || 'Form Preview'}</Text>
             </View>
           </View>
         </View>
-        <View style={styles.centered}>
-          <AlertCircle size={48} color="#ef4444" />
-          <Text style={[styles.errorText, { marginTop: 16 }]}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={fetchForm}>
+        <View style={[styles.centered, { backgroundColor: colors.background }]}>
+          <AlertCircle size={48} color={colors.error} />
+          <Text style={[styles.errorText, { marginTop: 16, color: colors.error }]}>{error}</Text>
+          <TouchableOpacity style={[styles.retryBtn, { backgroundColor: colors.accent }]} onPress={fetchForm}>
             <Text style={styles.retryBtnText}>Retry Fetch</Text>
           </TouchableOpacity>
         </View>
@@ -781,14 +784,14 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
   // Submitted state
   if (submitted) {
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" />
-        <View style={styles.centered}>
-          <View style={styles.successIconContainer}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+        <View style={[styles.centered, { backgroundColor: colors.background }]}>
+          <View style={[styles.successIconContainer, { backgroundColor: isDark ? '#064e3b' : '#f0fdf4', borderColor: colors.border }]}>
             <CheckCircle size={80} color="#10b981" />
           </View>
-          <Text style={styles.successTitle}>Inspection Complete!</Text>
-          <Text style={styles.successSubtitle}>
+          <Text style={[styles.successTitle, { color: colors.text }]}>Inspection Complete!</Text>
+          <Text style={[styles.successSubtitle, { color: colors.subtext }]}>
             {wasQueued 
               ? `Your report for chassis ${selectedChassis || chassisNumber || 'N/A'} is saved safely on your device and will sync automatically when your connection is better.`
               : `Your report for chassis ${selectedChassis || chassisNumber || 'N/A'} has been securely submitted and synced with the dashboard.`
@@ -796,17 +799,17 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
           </Text>
           
           <TouchableOpacity 
-            style={styles.viewDetailsBtn} 
+            style={[styles.viewDetailsBtn, { backgroundColor: colors.accent }]} 
             onPress={() => navigation.goBack()}
           >
             <Text style={styles.viewDetailsBtnText}>BACK TO DASHBOARD</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
-            style={styles.historyBtn} 
+            style={[styles.historyBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
             onPress={handleStartNew}
           >
-            <Text style={styles.historyBtnText}>START NEW INSPECTION</Text>
+            <Text style={[styles.historyBtnText, { color: colors.text }]}>START NEW INSPECTION</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -826,32 +829,32 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: colors.background, borderColor: colors.border }]}>
         <View style={styles.headerTop}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <X size={24} color="#64748b" />
+            <X size={24} color={colors.text} />
           </TouchableOpacity>
           <View style={styles.titleGroup}>
-            <Text style={styles.formTitle} numberOfLines={1}>{form?.title || title || 'Form Preview'}</Text>
-            <View style={[styles.previewBadge, readOnly && { backgroundColor: '#f1f5f9', borderColor: '#e2e8f0' }]}>
-              <Text style={[styles.previewBadgeText, readOnly && { color: '#64748b' }]}>{readOnly ? 'VIEW ONLY' : 'PREVIEW MODE'}</Text>
+            <Text style={[styles.formTitle, { color: colors.text }]} numberOfLines={1}>{form?.title || title || 'Form Preview'}</Text>
+            <View style={[styles.previewBadge, { backgroundColor: isDark ? colors.surface : '#fffbeb', borderColor: colors.border }]}>
+              <Text style={[styles.previewBadgeText, { color: colors.accent }]}>{readOnly ? 'VIEW ONLY' : 'PREVIEW MODE'}</Text>
             </View>
           </View>
           <View style={styles.headerRight}>
-            <Text style={styles.progressText}>
+            <Text style={[styles.progressText, { color: colors.accent }]}>
               {mainSections.length > 0 ? Math.round(((currentSectionIndex + 1) / mainSections.length) * 100) : 0}%
             </Text>
-            <Text style={styles.pageCount}>
+            <Text style={[styles.pageCount, { color: colors.subtext }]}>
               {currentSectionIndex + 1}/{mainSections.length || 1}
             </Text>
           </View>
         </View>
-        <View style={styles.progressBarContainer}>
-          <View style={[styles.progressBar, { width: `${mainSections.length > 0 ? ((currentSectionIndex + 1) / mainSections.length) * 100 : 0}%` }]} />
+        <View style={[styles.progressBarContainer, { backgroundColor: colors.border }]}>
+          <View style={[styles.progressBar, { backgroundColor: colors.accent, width: `${mainSections.length > 0 ? ((currentSectionIndex + 1) / mainSections.length) * 100 : 0}%` }]} />
         </View>
       </View>
 
@@ -862,23 +865,23 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
         >
          <ScrollView 
            ref={scrollViewRef}
-           style={styles.content} 
+           style={[styles.content, { backgroundColor: colors.background }]} 
            contentContainerStyle={styles.contentInner}
            showsVerticalScrollIndicator={false}
            keyboardShouldPersistTaps="handled"
          >
             {/* Chassis Selection - Web Parity */}
             {!readOnly && availableChassis.length > 0 && currentSectionIndex === 0 && (
-              <View style={styles.chassisSelectionContainer}>
+              <View style={[styles.chassisSelectionContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.chassisHeader}>
-            <View style={styles.chassisIconBox}>
-              <View style={styles.innerIconBox}>
-                <ClipboardCheck size={18} color="#4f46e5" />
+            <View style={[styles.chassisIconBox, { backgroundColor: colors.surface }]}>
+              <View style={[styles.innerIconBox, { backgroundColor: colors.card }]}>
+                <ClipboardCheck size={18} color={colors.accent} />
               </View>
             </View>
             <View>
-              <Text style={styles.chassisMainTitle}>Select Chassis Number *</Text>
-              <Text style={styles.chassisSubTitle}>Please identify the vehicle you are inspecting</Text>
+              <Text style={[styles.chassisMainTitle, { color: colors.text }]}>Select Chassis Number *</Text>
+              <Text style={[styles.chassisSubTitle, { color: colors.subtext }]}>Please identify the vehicle you are inspecting</Text>
             </View>
           </View>
 
@@ -888,19 +891,23 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                     return (
                       <TouchableOpacity 
                         key={idx} 
-                        style={[styles.chassisCard, isSelected && styles.chassisCardSelected]}
+                        style={[
+                          styles.chassisCard, 
+                          { backgroundColor: colors.surface, borderColor: colors.border },
+                          isSelected && [styles.chassisCardSelected, { backgroundColor: isDark ? '#1e293b' : '#f5f7ff', borderColor: colors.accent }]
+                        ]}
                         onPress={() => setSelectedChassis(item.chassisNumber)}
                       >
                          <View style={styles.chassisCardTop}>
-                            <Text style={[styles.chassisCardId, isSelected && styles.chassisCardIdSelected]}>
+                            <Text style={[styles.chassisCardId, { color: colors.text }, isSelected && [styles.chassisCardIdSelected, { color: colors.accent }]]}>
                               {item.chassisNumber}
                             </Text>
                             <View style={[styles.statusIndicator, { backgroundColor: isSelected ? '#fff' : '#10b981' }]} />
                          </View>
-                         <Text style={[styles.chassisCardDesc, isSelected && styles.chassisCardDescSelected]}>
+                         <Text style={[styles.chassisCardDesc, { color: colors.subtext }, isSelected && [styles.chassisCardDescSelected, { color: colors.accent }]]}>
                            {item.partDescription || 'Standard Chassis Unit'}
                          </Text>
-                         <Text style={[styles.chassisStatus, isSelected && styles.chassisStatusSelected]}>
+                         <Text style={[styles.chassisStatus, isSelected && [styles.chassisStatusSelected, { color: colors.accent }]]}>
                            {isSelected ? 'SELECTED' : 'AVAILABLE'}
                          </Text>
                       </TouchableOpacity>
@@ -912,14 +919,14 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
 
             {/* Historical Records Selector (Web Parity) */}
             {!readOnly && historicalRecords.length > 0 && currentSectionIndex === 0 && (
-              <View style={styles.historicalSelectorContainer}>
+              <View style={[styles.historicalSelectorContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.historicalSelectorHeader}>
-                  <View style={styles.sparklesIconBox}>
+                  <View style={[styles.sparklesIconBox, { backgroundColor: isDark ? '#064e3b' : '#ecfdf5' }]}>
                     <Sparkles size={16} color="#10b981" />
                   </View>
-                  <Text style={styles.historicalSelectorTitle}>HISTORICAL RECORDS</Text>
+                  <Text style={[styles.historicalSelectorTitle, { color: isDark ? colors.success : '#065f46' }]}>HISTORICAL RECORDS</Text>
                 </View>
-                <Text style={styles.historicalSelectorSub}>
+                <Text style={[styles.historicalSelectorSub, { color: colors.subtext }]}>
                   {historicalRecords.length} previous reports found for this chassis. Switching records will update the historical data shown below each question.
                 </Text>
                 <View style={styles.rankList}>
@@ -928,10 +935,14 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                     return (
                       <TouchableOpacity
                         key={rec.rank}
-                        style={[styles.rankButton, isActive && styles.rankButtonActive]}
+                        style={[
+                          styles.rankButton, 
+                          { backgroundColor: colors.surface, borderColor: colors.border },
+                          isActive && [styles.rankButtonActive, { backgroundColor: colors.success, borderColor: colors.success }]
+                        ]}
                         onPress={() => setSelectedRank(rec.rank)}
                       >
-                        <Text style={[styles.rankButtonText, isActive && styles.rankButtonTextActive]}>#{rec.rank}</Text>
+                        <Text style={[styles.rankButtonText, { color: colors.subtext }, isActive && [styles.rankButtonTextActive, { color: '#fff' }]]}>#{rec.rank}</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -940,14 +951,14 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
             )}
            {/* Response Summary (Web Parity) */}
            {readOnly && (
-             <View style={styles.responseSummaryCard}>
+             <View style={[styles.responseSummaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                <View style={styles.summaryHeader}>
-                 <View style={styles.summaryIconBox}>
-                   <ClipboardCheck size={20} color="#4f46e5" />
+                 <View style={[styles.summaryIconBox, { backgroundColor: colors.surface }]}>
+                   <ClipboardCheck size={20} color={colors.accent} />
                  </View>
                  <View style={{ flex: 1 }}>
-                   <Text style={styles.summaryHeaderTitle}>RESPONSE SUMMARY</Text>
-                   <Text style={styles.summaryHeaderSub}>Submission Metadata</Text>
+                   <Text style={[styles.summaryHeaderTitle, { color: colors.text }]}>RESPONSE SUMMARY</Text>
+                   <Text style={[styles.summaryHeaderSub, { color: colors.subtext }]}>Submission Metadata</Text>
                  </View>
 
                  {/* Dispatch Action (Submitter Only) */}
@@ -962,7 +973,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                         <View style={{ flexDirection: 'row', gap: 8 }}>
                           {/* Chat Button */}
                           <TouchableOpacity 
-                            style={[styles.dispatchToggle, { borderColor: '#4f46e5' }]}
+                            style={[styles.dispatchToggle, { backgroundColor: colors.surface, borderColor: colors.accent }]}
                             onPress={() => navigation.navigate('ResponseFeedback', { 
                               response: { 
                                 id: responseId, 
@@ -978,24 +989,24 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                               sections: form?.sections 
                             })}
                           >
-                            <MessageSquareText size={10} color="#4f46e5" />
-                            <Text style={[styles.dispatchToggleText, { color: '#4f46e5' }]}>CHAT</Text>
+                            <MessageSquare size={10} color={colors.accent} />
+                            <Text style={[styles.dispatchToggleText, { color: colors.accent }]}>CHAT</Text>
                           </TouchableOpacity>
 
                           {/* Dispatch Toggle */}
                           <TouchableOpacity 
-                            style={[styles.dispatchToggle, isDispatched && styles.dispatchToggleActive]}
+                            style={[styles.dispatchToggle, { backgroundColor: colors.surface, borderColor: colors.success }, isDispatched && [styles.dispatchToggleActive, { backgroundColor: colors.success }]]}
                             onPress={handleDispatchToggle}
                             disabled={dispatching}
                           >
                             {dispatching ? (
-                              <ActivityIndicator size="small" color={isDispatched ? "#fff" : "#10b981"} />
+                              <ActivityIndicator size="small" color={isDispatched ? "#fff" : colors.success} />
                             ) : (
                               <>
-                                <View style={[styles.miniCheckbox, isDispatched && styles.miniCheckboxChecked]}>
+                                <View style={[styles.miniCheckbox, { borderColor: colors.success }, isDispatched && [styles.miniCheckboxChecked, { borderColor: '#fff' }]]}>
                                   {isDispatched && <CheckCircle size={10} color="#fff" />}
                                 </View>
-                                <Text style={[styles.dispatchToggleText, isDispatched && styles.dispatchToggleTextActive]}>
+                                <Text style={[styles.dispatchToggleText, { color: colors.success }, isDispatched && [styles.dispatchToggleTextActive, { color: '#fff' }]]}>
                                   {isDispatched ? 'DISPATCHED' : 'DISPATCH'}
                                 </Text>
                               </>
@@ -1007,22 +1018,22 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                     return null;
                  })()}
                </View>
-               <View style={styles.summaryGrid}>
+               <View style={[styles.summaryGrid, { borderTopColor: colors.border }]}>
                  <View style={styles.summaryItem}>
                    <Text style={styles.summaryLabel}>CHASSIS NUMBER</Text>
-                   <Text style={styles.summaryValue}>{chassisNumber || 'N/A'}</Text>
+                   <Text style={[styles.summaryValue, { color: colors.accent }]}>{chassisNumber || 'N/A'}</Text>
                  </View>
-                 <View style={styles.summaryDivider} />
+                 <View style={[styles.summaryDivider, { backgroundColor: colors.border }]} />
                  <View style={styles.summaryItem}>
                    <Text style={styles.summaryLabel}>SHIFT</Text>
-                   <Text style={styles.summaryValue}>{shift || 'N/A'}</Text>
+                   <Text style={[styles.summaryValue, { color: colors.accent }]}>{shift || 'N/A'}</Text>
                  </View>
-                 <View style={styles.summaryDivider} />
+                 <View style={[styles.summaryDivider, { backgroundColor: colors.border }]} />
                  <View style={styles.summaryItem}>
                    <Text style={styles.summaryLabel}>STATUS</Text>
                    <View style={[
                      styles.summaryStatusBadge,
-                     { backgroundColor: String(status).toLowerCase().includes('accepted') ? '#ecfdf5' : String(status).toLowerCase().includes('rejected') ? '#fef2f2' : '#fff7ed' }
+                     { backgroundColor: String(status).toLowerCase().includes('accepted') ? (isDark ? '#064e3b' : '#ecfdf5') : String(status).toLowerCase().includes('rejected') ? (isDark ? '#450a0a' : '#fef2f2') : (isDark ? '#7c2d12' : '#fff7ed') }
                    ]}>
                       <Text style={[
                         styles.summaryStatusText,
@@ -1038,7 +1049,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
  
             {/* Phase Badge */}
             <View style={styles.phaseContainer}>
-              <View style={styles.phaseIcon}>
+              <View style={[styles.phaseIcon, { backgroundColor: colors.accent }]}>
                 <Text style={styles.phaseIconText}>{currentSectionIndex + 1}</Text>
               </View>
               <View>
@@ -1047,7 +1058,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                     ? `SECTION ${currentSection.originalSectionIndex + 1}`
                     : "CURRENT PHASE"}
                 </Text>
-                <Text style={styles.phaseCount}>
+                <Text style={[styles.phaseCount, { color: colors.accent }]}>
                   {effectiveViewType === "question-wise" && currentSection?.isVirtual ? (
                     `Question ${currentSection.questionIndex + 1} of ${currentSection.totalQuestionsInSection}`
                   ) : (
@@ -1057,9 +1068,9 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
               </View>
             </View>
 
-            <Text style={styles.sectionTitle}>{currentSection?.title || `Section ${currentSectionIndex + 1}`}</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>{currentSection?.title || `Section ${currentSectionIndex + 1}`}</Text>
             {currentSection?.description && (
-              <Text style={styles.sectionDesc}>{currentSection.description}</Text>
+              <Text style={[styles.sectionDesc, { color: colors.subtext }]}>{currentSection.description}</Text>
             )}
  
             <View style={styles.questionsList}>
@@ -1067,13 +1078,13 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                 const renderQuestion = (question: any) => (
                   <View key={question.id} style={styles.questionCard}>
                     <View style={styles.questionHeaderRow}>
-                      <Text style={styles.questionText}>
+                      <Text style={[styles.questionText, { color: colors.text }]}>
                         {question.text || question.label || "Untitled Question"}
                         {question.required && <Text style={styles.requiredAsterisk}> *</Text>}
                       </Text>
                       {question.subParam1 && (
-                        <View style={styles.subParamBadge}>
-                          <Text style={styles.subParamText}>{question.subParam1.toUpperCase()}</Text>
+                        <View style={[styles.subParamBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                          <Text style={[styles.subParamText, { color: colors.accent }]}>{question.subParam1.toUpperCase()}</Text>
                         </View>
                       )}
                     </View>
@@ -1103,10 +1114,10 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                   <>
                     {visibleQuestions.map(renderQuestion)}
                     {subsections.map((sub: any) => (
-                      <View key={sub.id || sub._id} style={styles.subsectionContainer}>
-                        <View style={styles.subsectionHeader}>
-                          <Text style={styles.subsectionTitle}>{sub.title}</Text>
-                          {sub.description && <Text style={styles.subsectionDesc}>{sub.description}</Text>}
+                      <View key={sub.id || sub._id} style={[styles.subsectionContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <View style={[styles.subsectionHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+                          <Text style={[styles.subsectionTitle, { color: colors.text }]}>{sub.title}</Text>
+                          {sub.description && <Text style={[styles.subsectionDesc, { color: colors.subtext }]}>{sub.description}</Text>}
                         </View>
                         {getVisibleQuestionsForSection(sub).map(renderQuestion)}
                       </View>
@@ -1119,12 +1130,12 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
        </KeyboardAvoidingView>
 
       {/* Footer */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
         <TouchableOpacity 
-          style={styles.backPortalBtn} 
+          style={[styles.backPortalBtn, { backgroundColor: colors.surface }]} 
           onPress={() => navigation.goBack()}
         >
-          <Text style={styles.backPortalText}>BACK TO PORTAL</Text>
+          <Text style={[styles.backPortalText, { color: colors.subtext }]}>BACK TO PORTAL</Text>
         </TouchableOpacity>
 
         {/* Location badge removed as per request */}
@@ -1133,8 +1144,8 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
         <TouchableOpacity 
           style={[
             styles.submitBtn, 
-            (submitting || (isLast && readOnly)) && styles.submitBtnDisabled,
-            (isLast && readOnly) && { backgroundColor: '#94a3b8' }
+            { backgroundColor: isLast ? (readOnly ? colors.border : colors.success) : colors.accent },
+            (submitting || (isLast && readOnly)) && styles.submitBtnDisabled
           ]}
           onPress={isLast ? (readOnly ? undefined : handleSubmit) : handleNext}
           disabled={submitting || (isLast && readOnly)}
@@ -1158,17 +1169,17 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
 
       {/* Submission Overlay for Smooth Experience */}
       {submitting && (
-        <View style={styles.submissionOverlay}>
+        <View style={[styles.submissionOverlay, { backgroundColor: isDark ? 'rgba(15,23,42,0.95)' : 'rgba(255,255,255,0.9)' }]}>
           <View style={styles.overlayContent}>
-            <ActivityIndicator size="large" color="#4f46e5" />
-            <Text style={styles.overlayTitle}>{submittingProgress || 'Submitting Report...'}</Text>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <Text style={[styles.overlayTitle, { color: colors.text }]}>{submittingProgress || 'Submitting Report...'}</Text>
             {uploadProgress.total > 0 && (
-              <View style={styles.overlayProgressContainer}>
-                <View style={[styles.overlayProgressBar, { width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }]} />
-                <Text style={styles.overlayProgressText}>Step {uploadProgress.current} of {uploadProgress.total}</Text>
+              <View style={[styles.overlayProgressContainer, { backgroundColor: colors.border }]}>
+                <View style={[styles.overlayProgressBar, { backgroundColor: colors.accent, width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }]} />
+                <Text style={[styles.overlayProgressText, { color: colors.subtext }]}>Step {uploadProgress.current} of {uploadProgress.total}</Text>
               </View>
             )}
-            <Text style={styles.overlaySub}>
+            <Text style={[styles.overlaySub, { color: colors.subtext }]}>
               {uploadProgress.total > 0 
                 ? 'Uploading inspection evidence to secure cloud...' 
                 : 'Finalizing and synchronizing your report with the dashboard...'}

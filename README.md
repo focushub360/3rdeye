@@ -9,7 +9,7 @@ This repository is organized into the following main components:
 - **Root Directory**: The primary web frontend project (React + Vite).
 - **`3w-wheeler-backend/`**: Node.js/Express backend server with MongoDB integration.
 - **`3W-WHEELERTVS-FRONTEND/`**: Primary frontend source folder.
-- **`3w-wheeler-expo/`**: Mobile application built with Expo.
+- **`mobile-expo/`**: Mobile application built with Expo.
 
 ---
 
