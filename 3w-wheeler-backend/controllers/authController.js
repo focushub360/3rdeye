@@ -85,8 +85,13 @@ export const login = async (req, res) => {
       console.log('Searching by username:', normalizedUsername);
       user = await User.findOne({ username: normalizedUsername });
     } else if (normalizedEmail) {
-      console.log('Searching by email:', normalizedEmail);
-      user = await User.findOne({ email: normalizedEmail });
+      console.log('Searching by email or username:', normalizedEmail);
+      user = await User.findOne({
+        $or: [
+          { email: normalizedEmail },
+          { username: normalizedEmail }
+        ]
+      });
     } else {
       console.log('Login failed: Username or email is required');
       return res.status(400).json({
