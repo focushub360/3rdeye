@@ -64,10 +64,15 @@ npm.cmd run dev
 
 ## 🔑 Default Credentials (Development)
 
+### 🌐 Web Dashboard / Admin Portal
 - **Superadmin (System)**: `superadmin@focus.com` / `superadmin123#`
 - **Superadmin (Seeded)**: `superadmin@gmail.com` / `srimathi123`
 - **Admin**: `admin@focus.com` / `admin123#`
 - **Teacher/Staff**: `teacher@focus.com` / `teacher123`
+
+### 📱 Mobile Application (Expo)
+- **Inspector (Default)**: `krishna@focusengineering.in` / `123456`
+- **Inspector (Alternative)**: `krishnaa@focusengineering.in` / `krish@123`
 
 ---
 
