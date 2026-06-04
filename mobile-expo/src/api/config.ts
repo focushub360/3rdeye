@@ -9,8 +9,8 @@ const IS_DEV = __DEV__;
 
 // Use localhost for web to avoid CORS/Network issues on the same machine
 const DEV_URL = Platform.OS === 'web' 
-  ? `http://localhost:5001/api/` 
-  : `http://${LOCAL_IP}:5001/api/`;
+  ? `http://localhost:5000/api/` 
+  : `http://${LOCAL_IP}:5000/api/`;
 
 console.log('🛡️ API Client Module Loading...');
 console.log('🔗 Mobile API Base URL:', IS_DEV ? DEV_URL : 'Production URL');
