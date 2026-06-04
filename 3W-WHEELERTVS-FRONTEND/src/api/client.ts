@@ -9,8 +9,8 @@ const API_BASE_URL = (() => {
     hostname.startsWith("172.");
 
   const baseUrl = isLocal
-    ? `http://${hostname}:5001/api`
-    : (import.meta.env.VITE_API_URL || "https://3wheelertvsbackend.focusengineeringapp.com/api");
+    ? "http://127.0.0.1:5000/api"
+    : "https://3wheelertvsbackend.focusengineeringapp.com/api";
 
   console.log(
     `🔗 API Base URL: ${baseUrl} (Environment: ${
@@ -857,12 +857,13 @@ class ApiClient {
     }>("/analytics/my-review-stats");
   }
 
-  async getPerformanceTable(params?: { startDate?: string; endDate?: string }) {
+  async getPerformanceTable(params?: { startDate?: string; endDate?: string; formId?: string }) {
     let url = "/analytics/performance-table";
     if (params) {
       const searchParams = new URLSearchParams();
       if (params.startDate) searchParams.append("startDate", params.startDate);
       if (params.endDate) searchParams.append("endDate", params.endDate);
+      if (params.formId) searchParams.append("formId", params.formId);
       const query = searchParams.toString();
       if (query) url += `?${query}`;
     }
@@ -2435,7 +2436,7 @@ class ApiClient {
     console.log("Calling submitReview API with:", reviewData);
 
     // Use fetch directly to avoid the request() wrapper issues
-    const url = `${this.baseUrl}/responses/reviews`;
+    const url = `${this.baseUrl}/users/reviews`;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-App-Type": "website",

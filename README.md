@@ -6,9 +6,8 @@ A comprehensive form management and analytics system for 3W Wheeler TVS, featuri
 
 This repository is organized into the following main components:
 
-- **Root Directory**: The primary web frontend project (React + Vite).
 - **`3w-wheeler-backend/`**: Node.js/Express backend server with MongoDB integration.
-- **`3W-WHEELERTVS-FRONTEND/`**: Primary frontend source folder.
+- **`3W-WHEELERTVS-FRONTEND/`**: Primary React + Vite web frontend project.
 - **`mobile-expo/`**: Mobile application built with Expo.
 
 ---
@@ -21,17 +20,37 @@ Navigate to the backend directory and start the server:
 cd 3w-wheeler-backend
 npm install
 npm run init       # Initialize database roles and users
-node server.js     # Start the backend server
+npm run dev        # Start the backend server (uses nodemon)
 ```
-*The backend runs on `http://localhost:5001`*
+*The backend runs on `http://localhost:5000`*
 
 ### 2. Frontend Setup
-Run the web application from the root directory:
+Navigate to the frontend directory and start the web application:
 ```powershell
+cd 3W-WHEELERTVS-FRONTEND
 npm install
 npm run dev
 ```
 *The frontend is available at `http://localhost:5173`*
+
+### 💡 Portable Workspace Node.js (Windows)
+If Node.js is not globally installed on your Windows machine, a fully functional portable Node.js v22.15.1 has been prepared directly in the workspace at:
+`F:\Projects\3W\node-dist\PFiles64\nodejs`
+
+To run the commands using this portable environment, prepending the local Node directory to your terminal `PATH` is recommended:
+```powershell
+# 1. Update PATH in your current terminal session
+$env:PATH = "F:\Projects\3W\node-dist\PFiles64\nodejs;" + $env:PATH
+
+# 2. Run backend
+cd 3w-wheeler-backend
+npm.cmd run dev
+
+# 3. Run frontend (in a separate terminal after updating PATH)
+cd 3W-WHEELERTVS-FRONTEND
+npm.cmd run dev
+```
+*Note: Using `npm.cmd` instead of `npm` avoids any PowerShell script execution restrictions.*
 
 ---
 
@@ -45,7 +64,8 @@ npm run dev
 
 ## 🔑 Default Credentials (Development)
 
-- **Superadmin**: `superadmin@focus.com` / `superadmin123#`
+- **Superadmin (System)**: `superadmin@focus.com` / `superadmin123#`
+- **Superadmin (Seeded)**: `superadmin@gmail.com` / `srimathi123`
 - **Admin**: `admin@focus.com` / `admin123#`
 - **Teacher/Staff**: `teacher@focus.com` / `teacher123`
 

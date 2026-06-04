@@ -94,7 +94,7 @@ export default function AnswerTemplateImport({
       const port = window.location.port;
 
       if (hostname === "localhost" || hostname === "127.0.0.1") {
-        return "http://localhost:5001";
+        return "http://localhost:5000";
       }
 
       return `${protocol}//${hostname}${port ? ":" + port : ""}`;

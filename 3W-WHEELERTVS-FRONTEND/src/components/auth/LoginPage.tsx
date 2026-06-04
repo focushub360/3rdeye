@@ -18,8 +18,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
-  const [isRedirecting, setIsRedirecting] = useState(false);
-
 
   // Forgot Password workflow states
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -42,25 +40,17 @@ export default function LoginPage() {
    const [otpSentMobile, setOtpSentMobile] = useState("");
    const [verificationId, setVerificationId] = useState("");
    const [isOtpVerified, setIsOtpVerified] = useState(false);
-   const [prefetchedLocation, setPrefetchedLocation] = useState<{ status: string; latitude?: number; longitude?: number } | null>(null);
 
-
+  // Redirect to dashboard if already authenticated
   useEffect(() => {
-    if (isAuthenticated && user && !authLoading) {
-      setIsRedirecting(true);
+    if (isAuthenticated && user) {
       if (user.role === 'inspector') {
         navigate("/attendance-dashboard");
       } else {
         navigate("/dashboard");
       }
     }
-  }, [isAuthenticated, user, authLoading, navigate]);
-
-
-
-
-
-
+  }, [isAuthenticated, user, navigate]);
 
   // OTP Resend Timer
   useEffect(() => {
@@ -111,17 +101,6 @@ export default function LoginPage() {
     }
   }, [otpCode]);
 
-  if (authLoading || isRedirecting) {
-    return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-white">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-[#1e3a8a]/20 border-t-[#1e3a8a] rounded-full animate-spin"></div>
-          <p className="text-gray-500 font-medium animate-pulse">Verifying session...</p>
-        </div>
-      </div>
-    );
-  }
-
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -142,15 +121,14 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // Use prefetched location if available, otherwise try a quick fetch
-      let locationData = prefetchedLocation || { status: 'unknown' };
+      let locationData: { status: string; latitude?: number; longitude?: number } = { status: 'unknown' };
 
-      if (locationData.status === 'unknown' && "geolocation" in navigator) {
+      if ("geolocation" in navigator) {
         try {
           const position = await new Promise<GeolocationPosition>((resolve, reject) => {
             navigator.geolocation.getCurrentPosition(resolve, reject, {
-              timeout: 1500, // Reduced timeout for speed
-              maximumAge: 30000
+              timeout: 5000,
+              maximumAge: 0
             });
           });
           locationData = {

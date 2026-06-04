@@ -8,8 +8,6 @@ export default function SignupPage() {
   const { signup, error: authError, loading: authLoading, isAuthenticated } = useAuth();
   const { showSuccess } = useNotification();
   const navigate = useNavigate();
-  const [isRedirecting, setIsRedirecting] = useState(false);
-
 
   const [formData, setFormData] = useState({
     name: "",
@@ -24,23 +22,10 @@ export default function SignupPage() {
 
   // Redirect to dashboard if already authenticated
   useEffect(() => {
-    if (isAuthenticated && !authLoading) {
-      setIsRedirecting(true);
+    if (isAuthenticated) {
       navigate("/dashboard");
     }
-  }, [isAuthenticated, authLoading, navigate]);
-
-  if (authLoading || isRedirecting) {
-    return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-white">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-[#1e3a8a]/20 border-t-[#1e3a8a] rounded-full animate-spin"></div>
-          <p className="text-gray-500 font-medium animate-pulse">Verifying session...</p>
-        </div>
-      </div>
-    );
-  }
-
+  }, [isAuthenticated, navigate]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;

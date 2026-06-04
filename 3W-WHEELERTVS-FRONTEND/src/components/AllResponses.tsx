@@ -765,7 +765,7 @@ useEffect(() => {
         apiClient.getForms(),
       ]);
 
-      const formsMap = (formsData?.forms || []).reduce(
+      const formsMap = formsData.forms.reduce(
         (map: Record<string, Form>, form: any) => {
           if (form?._id) map[form._id] = form as Form;
           if (form?.id) map[form.id] = form as Form;
@@ -781,9 +781,9 @@ useEffect(() => {
         const formId = form._id || form.id;
         if (!formId) return;
 
-        if (form.sections && Array.isArray(form.sections) && form.sections.length > 0) {
+        if (form.sections && form.sections.length > 0) {
           const firstSection = form.sections[0];
-          if (firstSection.questions && Array.isArray(firstSection.questions) && firstSection.questions.length > 0) {
+          if (firstSection.questions && firstSection.questions.length > 0) {
             for (const question of firstSection.questions) {
               const questionText = (question.text || question.label || '').toLowerCase();
               const isDealerField = questionText.includes('dealer') ||
@@ -813,7 +813,7 @@ useEffect(() => {
         if (dealerQuestionId) {
           const answer = response.answers[dealerQuestionId];
           if (answer && hasAnswerValue(answer)) {
-            const q = (form.sections || []).flatMap(s => s.questions || []).find(q => q.id === dealerQuestionId);
+            const q = form.sections.flatMap(s => s.questions || []).find(q => q.id === dealerQuestionId);
             return { 
               name: renderAnswerDisplay(answer, q) as string,
               rank: response.responseRanks?.[dealerQuestionId] || null
@@ -822,9 +822,10 @@ useEffect(() => {
         }
 
         // Fallback: if no specific dealer field found or no answer, check first section's first answer
-        if (form.sections && Array.isArray(form.sections) && form.sections.length > 0) {
+        // This mimics the original behavior's fallback
+        if (form.sections && form.sections.length > 0) {
            const firstSection = form.sections[0];
-           if (firstSection.questions && Array.isArray(firstSection.questions) && firstSection.questions.length > 0) {
+           if (firstSection.questions && firstSection.questions.length > 0) {
              for (const question of firstSection.questions) {
                const answer = response.answers[question.id];
                if (answer && hasAnswerValue(answer)) {
@@ -840,7 +841,7 @@ useEffect(() => {
         return { name: null, rank: null };
       };
 
-      const responsesWithTitles = (responsesData?.responses || []).map(
+      const responsesWithTitles = responsesData.responses.map(
         (response: Response) => {
           const form = formsMap[response.questionId];
           const dealerInfo = extractDealerName(response, form);

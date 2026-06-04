@@ -2308,7 +2308,6 @@ const handleBulkDownloadZip = async () => {
                                   <div className="grid grid-cols-2 gap-2">
                                     <div className="flex items-center justify-between p-1.5 bg-emerald-100/50 dark:bg-emerald-900/20 rounded border border-emerald-200 dark:border-emerald-800/40">
                                       <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase">{complianceLabels.correct}</span>
-
                                       <div className="text-right">
                                         <p className="text-xs font-bold text-emerald-800 dark:text-emerald-200 leading-none">{totalCorrect}</p>
                                         <p className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold">{correctPercent}%</p>
@@ -2316,7 +2315,6 @@ const handleBulkDownloadZip = async () => {
                                     </div>
                                     <div className="flex items-center justify-between p-1.5 bg-rose-100/50 dark:bg-rose-900/20 rounded border border-rose-200 dark:border-rose-800/40">
                                       <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase">{complianceLabels.wrong}</span>
-
                                       <div className="text-right">
                                         <p className="text-xs font-bold text-rose-800 dark:text-rose-200 leading-none">{totalWrong}</p>
                                         <p className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{wrongPercent}%</p>
@@ -3000,7 +2998,6 @@ const handleBulkDownloadZip = async () => {
                                   </th>
                                   <th className="px-3 py-2 text-center font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider w-[30%]">
                                     {complianceLabels.wrong}
-
                                   </th>
                                 </tr>
                               </thead>
