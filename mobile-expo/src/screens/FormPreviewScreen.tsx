@@ -47,6 +47,7 @@ import { offlineQueue } from '../api/OfflineQueue';
 import { useQuestionLogic } from '../hooks/useQuestionLogic';
 import { useTheme } from '../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import offlineFallbackForm from '../config/offline_fallback_form.json';
 // import * as Location from 'expo-location';
 
 // Helper to normalize image URLs for reference images
@@ -155,6 +156,26 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
           }
           setLoading(false);
           return;
+        } else if (id === '6a1324a75a44432034552775' || id === '840227cc-aa84-43c5-9ce0-ec6120084868') {
+          // Fallback to pre-packaged fallback form asset if it matches the fallback form ID
+          const formData = offlineFallbackForm;
+          setForm(formData);
+          if (formData.chassisNumbers && formData.chassisNumbers.length > 0) {
+            let list = formData.chassisNumbers;
+            if (formData.chassisTenantAssignments && user?.tenantId) {
+              const tenantIdStr = user.tenantId.toString();
+              const assigned = formData.chassisTenantAssignments
+                .filter((a: any) => a.assignedTenants && a.assignedTenants.includes(tenantIdStr))
+                .map((a: any) => a.chassisNumber);
+              
+              if (assigned.length > 0) {
+                list = list.filter((c: any) => assigned.includes(c.chassisNumber));
+              }
+            }
+            setAvailableChassis(list);
+          }
+          setLoading(false);
+          return;
         } else {
           throw new Error('No internet connection and form is not cached.');
         }
@@ -192,6 +213,24 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
         const cached = await AsyncStorage.getItem(`@cached_form_details_${id}`);
         if (cached) {
           const formData = JSON.parse(cached);
+          setForm(formData);
+          if (formData.chassisNumbers && formData.chassisNumbers.length > 0) {
+            let list = formData.chassisNumbers;
+            if (formData.chassisTenantAssignments && user?.tenantId) {
+              const tenantIdStr = user.tenantId.toString();
+              const assigned = formData.chassisTenantAssignments
+                .filter((a: any) => a.assignedTenants && a.assignedTenants.includes(tenantIdStr))
+                .map((a: any) => a.chassisNumber);
+              
+              if (assigned.length > 0) {
+                list = list.filter((c: any) => assigned.includes(c.chassisNumber));
+              }
+            }
+            setAvailableChassis(list);
+          }
+          return;
+        } else if (id === '6a1324a75a44432034552775' || id === '840227cc-aa84-43c5-9ce0-ec6120084868') {
+          const formData = offlineFallbackForm;
           setForm(formData);
           if (formData.chassisNumbers && formData.chassisNumbers.length > 0) {
             let list = formData.chassisNumbers;

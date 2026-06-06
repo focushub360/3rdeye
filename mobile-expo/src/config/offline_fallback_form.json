@@ -1,0 +1,4503 @@
+{
+  "_id": "6a1324a75a44432034552775",
+  "id": "840227cc-aa84-43c5-9ce0-ec6120084868",
+  "title": "LB Aft Yes Paint",
+  "description": "Imported form from Excel template",
+  "sections": [
+    {
+      "id": "f04936fb-32c9-4bf2-8faf-e37561101128",
+      "title": "Basic Information",
+      "description": "Section description",
+      "weightage": 0,
+      "isSubsection": false,
+      "questions": [
+        {
+          "id": "a8f3aa84-86b5-4a71-a963-0d54524ab128",
+          "text": "Chassis number",
+          "type": "text",
+          "required": false,
+          "options": [],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "sectionId": "f04936fb-32c9-4bf2-8faf-e37561101128",
+          "followUpQuestions": []
+        }
+      ]
+    },
+    {
+      "id": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+      "title": "Load body",
+      "description": "Section description",
+      "weightage": 0,
+      "isSubsection": false,
+      "questions": [
+        {
+          "id": "4c1d815d-26b5-4516-a1c3-c10da786b7da",
+          "text": "Paint uncover",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "No bare / ED coating visible after painting",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "52f2fd4a-4e22-4307-8566-c9c8dcda7df4",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "4c1d815d-26b5-4516-a1c3-c10da786b7da",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "9e0f9cc6-6f4d-4a39-9e44-04f7ec0cb854",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "4c1d815d-26b5-4516-a1c3-c10da786b7da",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "b7729b9b-0053-4bfd-a275-0aa25efcee1d",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "4c1d815d-26b5-4516-a1c3-c10da786b7da",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "88fa1639-102d-4749-a742-a1e9d5cf0077",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "4c1d815d-26b5-4516-a1c3-c10da786b7da",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "a6e7c15e-e3d8-49ca-8296-78bdb824cf0b",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "4c1d815d-26b5-4516-a1c3-c10da786b7da",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "4433591e-cd72-45ca-87df-ef46f2d8d137",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "4c1d815d-26b5-4516-a1c3-c10da786b7da",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "5f617e4a-16c1-4c3a-bbf1-4710db0b3343",
+          "text": "Paint peel/ flaking",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "No peeling",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "a3f5c6ce-9deb-42d1-83c1-6cac6f1583bc",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5f617e4a-16c1-4c3a-bbf1-4710db0b3343",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "e56524ad-795e-4b80-9674-c10a2b466349",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5f617e4a-16c1-4c3a-bbf1-4710db0b3343",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "761e691e-02cd-44a2-840f-a776d3ea749e",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5f617e4a-16c1-4c3a-bbf1-4710db0b3343",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "1e95b1ad-30e7-4ee4-a024-042881698db7",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5f617e4a-16c1-4c3a-bbf1-4710db0b3343",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "1d4f1ae4-64b4-4d3e-8967-efcea5543303",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5f617e4a-16c1-4c3a-bbf1-4710db0b3343",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "dc77f270-7b0e-4d52-99c1-a3bd02e25503",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5f617e4a-16c1-4c3a-bbf1-4710db0b3343",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "09dade89-487e-4779-82a5-cc2c41e890a2",
+          "text": "Paint rundown/ sagging",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "No paint flow mark",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "e524b49c-b146-4892-8851-8755b0640757",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "09dade89-487e-4779-82a5-cc2c41e890a2",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "a613ab07-209a-4859-88fd-0ab777c3e356",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "09dade89-487e-4779-82a5-cc2c41e890a2",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "e7625cb4-f416-4c29-a79f-6703fb8bce70",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "09dade89-487e-4779-82a5-cc2c41e890a2",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "59898efc-6ced-4026-be9d-3a5d73427445",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "09dade89-487e-4779-82a5-cc2c41e890a2",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "e8a3b3fd-a78d-4135-aaee-4492b016656b",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "09dade89-487e-4779-82a5-cc2c41e890a2",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "e5d396f1-f7d9-4ac4-91d1-deee0adc5b7e",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "09dade89-487e-4779-82a5-cc2c41e890a2",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "0deaadf8-806f-40d4-9589-fb6a3a178bd2",
+          "text": "Orange peel surface",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Smooth paint surface",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "0e288981-c092-419a-a049-5751d114ab66",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "0deaadf8-806f-40d4-9589-fb6a3a178bd2",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "70fb363f-9d63-4fc5-b564-04fb6c80e04a",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "0deaadf8-806f-40d4-9589-fb6a3a178bd2",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "b5b521fe-176f-4ede-989a-9fbe0f2eb169",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "0deaadf8-806f-40d4-9589-fb6a3a178bd2",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "4e3028d5-84d7-481f-aafc-e110caec9f34",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "0deaadf8-806f-40d4-9589-fb6a3a178bd2",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "ecb6edf1-71db-41d9-92cd-2bea66a164af",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "0deaadf8-806f-40d4-9589-fb6a3a178bd2",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "d04d42fe-c9e7-4aca-9f25-9813451eaec8",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "0deaadf8-806f-40d4-9589-fb6a3a178bd2",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "cdc0b223-e25c-4caf-8246-716df5eb1d18",
+          "text": "Dust/ dirt inclusion",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "No particles inside paint",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "55ecd86a-b98b-400b-9d5d-0c0329d16cf5",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "cdc0b223-e25c-4caf-8246-716df5eb1d18",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "e2e1d07c-3d96-4347-99c7-e3fedefb02d7",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "cdc0b223-e25c-4caf-8246-716df5eb1d18",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "9a16cb2c-1575-4301-b8bf-f598dc06a19e",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "cdc0b223-e25c-4caf-8246-716df5eb1d18",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "4be2ec70-0768-41e5-9770-6ab680dfa19a",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "cdc0b223-e25c-4caf-8246-716df5eb1d18",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "75425a2b-38e3-4a9a-88e9-b0855ee1e8dc",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "cdc0b223-e25c-4caf-8246-716df5eb1d18",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "629874b3-ffcf-4854-96bb-37657b3c39db",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "cdc0b223-e25c-4caf-8246-716df5eb1d18",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "af5e12ba-72a3-4590-ad97-671780668e71",
+          "text": "Paint bubble/ blisters",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "No bubble formation",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "a007215d-9ff5-4757-9960-142b02f5315d",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "af5e12ba-72a3-4590-ad97-671780668e71",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "aa35c169-4d45-4583-aab0-38382fb4ac66",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "af5e12ba-72a3-4590-ad97-671780668e71",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "f62bbe16-da79-4c59-bf39-cbf11229c563",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "af5e12ba-72a3-4590-ad97-671780668e71",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "ee1d8a63-0fe8-4e65-a8df-f2644719e738",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "af5e12ba-72a3-4590-ad97-671780668e71",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "8d3b340a-2e08-4c7a-ab36-97732be86a46",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "af5e12ba-72a3-4590-ad97-671780668e71",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "5c8f1d58-090d-4a65-a19f-1676cf894dc7",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "af5e12ba-72a3-4590-ad97-671780668e71",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "6a6f9e53-9c26-4c57-9e7c-e2c5a6c6b2eb",
+          "text": "Scratch/damage",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "No scratch exposing metal",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Handling",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "5f80ea7d-e4a2-4b23-a34d-25a433cdd0d7",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "6a6f9e53-9c26-4c57-9e7c-e2c5a6c6b2eb",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "5acf3e0a-20be-46e6-b498-5767c5777769",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "6a6f9e53-9c26-4c57-9e7c-e2c5a6c6b2eb",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "59d4f875-d663-4017-a306-0f4ebf9dc8ec",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "6a6f9e53-9c26-4c57-9e7c-e2c5a6c6b2eb",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "21b6dcb4-795e-4677-8ea5-3e00a46d9be7",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "6a6f9e53-9c26-4c57-9e7c-e2c5a6c6b2eb",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "a81531f5-edeb-41ef-9b0e-0242bb19c94a",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "6a6f9e53-9c26-4c57-9e7c-e2c5a6c6b2eb",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "58491673-09a2-4df7-8edd-95a436e88436",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "6a6f9e53-9c26-4c57-9e7c-e2c5a6c6b2eb",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "aaf6451e-8f51-4de9-89f5-3905b290b24d",
+          "text": "Rust presence",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "No rust allowed",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "b8852ffb-87a1-46db-99a5-b0f50cd96de9",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "aaf6451e-8f51-4de9-89f5-3905b290b24d",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "6c421a55-c5eb-4268-aaf7-641dee94beb1",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "aaf6451e-8f51-4de9-89f5-3905b290b24d",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "eb65dbdd-3958-49d8-9c65-650ffee92960",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "aaf6451e-8f51-4de9-89f5-3905b290b24d",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "019febef-4269-4ce6-87e9-df085905b1c1",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "aaf6451e-8f51-4de9-89f5-3905b290b24d",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "9ea0ddd7-118a-4d6f-a1a3-904676b2a3a5",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "aaf6451e-8f51-4de9-89f5-3905b290b24d",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "fd74481a-9b7e-4b4b-8b20-93ec5a3211f8",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "aaf6451e-8f51-4de9-89f5-3905b290b24d",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "7208ae57-06e7-4fab-83c2-34ff04404429",
+          "text": "Weld area paint coverage",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Weld joints fully coated",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "268959a8-8e27-4e73-931c-d158711e00f8",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "7208ae57-06e7-4fab-83c2-34ff04404429",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "726c277a-1390-474b-b731-62e31b603316",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "7208ae57-06e7-4fab-83c2-34ff04404429",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "a01aedd5-9ebe-4c24-94b8-0443d0355d24",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "7208ae57-06e7-4fab-83c2-34ff04404429",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "36c31989-f9a4-4429-9481-c0620959504a",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "7208ae57-06e7-4fab-83c2-34ff04404429",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "c868e5cc-c981-4060-9a16-d4b578df3e0f",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "7208ae57-06e7-4fab-83c2-34ff04404429",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "6978d088-0bd3-4b0e-9db4-531e69d81002",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "7208ae57-06e7-4fab-83c2-34ff04404429",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "29e51ee0-be55-4f84-a8b0-bed9642e3832",
+          "text": "Hole paint blockage",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "No paint blocking holes",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "e6c72300-1a8e-4fed-9190-cf90350edade",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "29e51ee0-be55-4f84-a8b0-bed9642e3832",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "b1c5f29d-0629-410c-aab4-496aef8fb380",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "29e51ee0-be55-4f84-a8b0-bed9642e3832",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "026c1dc9-72e5-4195-97c8-c95b8f26a081",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "29e51ee0-be55-4f84-a8b0-bed9642e3832",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "6fe6cd3b-3d99-43a2-b957-0ca445146f62",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "29e51ee0-be55-4f84-a8b0-bed9642e3832",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "04abeb46-10ca-4a00-b5b4-65b44c218a90",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "29e51ee0-be55-4f84-a8b0-bed9642e3832",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "ff69f474-f2db-4f8a-9f2f-ecf3f3d59670",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "29e51ee0-be55-4f84-a8b0-bed9642e3832",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "28b26852-59cc-4cfb-9fd3-a37f87320813",
+          "text": "Thread condition",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Bolt should fit properaly ( Verify retapping of all the nuts)/ Thread gauge",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Assembly",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "ed037314-f7e1-4178-917f-f78223d371de",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "28b26852-59cc-4cfb-9fd3-a37f87320813",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "871a50c5-0ab4-4142-930e-4a5bf970f998",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "28b26852-59cc-4cfb-9fd3-a37f87320813",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "35785724-8854-46b2-92f2-27d83e83f578",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "28b26852-59cc-4cfb-9fd3-a37f87320813",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "73c58b80-b91c-4941-83c4-9df2088dd23f",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "28b26852-59cc-4cfb-9fd3-a37f87320813",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "9f6f70a2-54a9-48ae-9a4c-08aeb7a6d8ab",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "28b26852-59cc-4cfb-9fd3-a37f87320813",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "468979ad-7540-46fe-ae8f-8d8a6b39b113",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "28b26852-59cc-4cfb-9fd3-a37f87320813",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "75955a5f-1d28-4950-b1a3-7c0bc3f83630",
+          "text": "DFT of load deck",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "80 to 120 micron",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "fdfa2dd8-de6a-42af-9c5d-bd135ca47b60",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "75955a5f-1d28-4950-b1a3-7c0bc3f83630",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "ce14ffda-d61e-4e73-860a-45bda269dec5",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "75955a5f-1d28-4950-b1a3-7c0bc3f83630",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "c90ccfcd-e6bf-44b9-99fc-7d662867a2d9",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "75955a5f-1d28-4950-b1a3-7c0bc3f83630",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "eea1e5f7-cc07-4ba0-a9bf-6971285ef7a6",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "75955a5f-1d28-4950-b1a3-7c0bc3f83630",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "434a9f37-4e0c-4055-9a05-ea2d42d14f36",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "75955a5f-1d28-4950-b1a3-7c0bc3f83630",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "ce1bea47-f782-4d2b-84c4-873248793fb1",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "75955a5f-1d28-4950-b1a3-7c0bc3f83630",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "40f8f2fc-a67a-4ed4-8edd-fa078c5cdb3b",
+          "text": "Cissing mark",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "No circular crater marks on paint surface",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "33bc167c-2b66-466f-9971-66325b8cdc2b",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "40f8f2fc-a67a-4ed4-8edd-fa078c5cdb3b",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "59ce1d03-9fb8-4117-a831-23cbf9cedcfd",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "40f8f2fc-a67a-4ed4-8edd-fa078c5cdb3b",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "0c7c9b6c-2ee9-43ba-a488-cde16fb8f4b3",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "40f8f2fc-a67a-4ed4-8edd-fa078c5cdb3b",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "0719a966-1713-46c7-9517-febd257ac854",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "40f8f2fc-a67a-4ed4-8edd-fa078c5cdb3b",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "457011aa-88fc-4104-9900-22e48119d0e2",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "40f8f2fc-a67a-4ed4-8edd-fa078c5cdb3b",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "9fe36bee-9bc0-4e73-b65f-62271cbe17bc",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "40f8f2fc-a67a-4ed4-8edd-fa078c5cdb3b",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "9285562b-ff13-410f-a7bc-9b09c8669b4a",
+          "text": "Colour missmatch",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Verify with respective shade panel",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "abb888b3-3029-4d6b-ace0-7d6d7b0c5b81",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9285562b-ff13-410f-a7bc-9b09c8669b4a",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "96c6d8a4-2295-4afe-ab9b-3bc8f81f3333",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9285562b-ff13-410f-a7bc-9b09c8669b4a",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "d1a2adcc-5cb2-42da-8c05-96f9403334dd",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9285562b-ff13-410f-a7bc-9b09c8669b4a",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "cdc4ac42-d370-4d72-ab92-47310a366644",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9285562b-ff13-410f-a7bc-9b09c8669b4a",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "df4ddf5f-ab03-47e8-9f59-57e768a74f78",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9285562b-ff13-410f-a7bc-9b09c8669b4a",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "a63bb373-69db-4f04-b8da-81a8fc8c20d0",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9285562b-ff13-410f-a7bc-9b09c8669b4a",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "1874d3e2-8e95-4d4d-ac05-c324bf10cd57",
+          "text": "Dry spray/ rough surface",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Surface should be smooth",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "7accc11d-8e71-4a8c-ba30-fef336d5d5f5",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "1874d3e2-8e95-4d4d-ac05-c324bf10cd57",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "f215e0c6-1df2-4c09-8387-587a81a2e0cd",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "1874d3e2-8e95-4d4d-ac05-c324bf10cd57",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "2418e593-c0bb-49d0-bc41-761ee1a4f8ba",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "1874d3e2-8e95-4d4d-ac05-c324bf10cd57",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "c260a065-3ed7-4508-8b13-17bce2153084",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "1874d3e2-8e95-4d4d-ac05-c324bf10cd57",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "4aa8ebbf-37b6-43c1-85ed-8fce47834166",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "1874d3e2-8e95-4d4d-ac05-c324bf10cd57",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "9d5c0177-52b4-460e-b94f-465b1fa342df",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "1874d3e2-8e95-4d4d-ac05-c324bf10cd57",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "850e6051-de2a-4895-be85-33dac91bc00d",
+          "text": "Spot dent",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Spot welding",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Welding",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "95df4878-f6b2-4f53-a259-42847e7e3098",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "850e6051-de2a-4895-be85-33dac91bc00d",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "6a815655-3114-46b7-81e1-e21d10c5c9e5",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "850e6051-de2a-4895-be85-33dac91bc00d",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "16080589-d155-4d10-ab9e-0611eb60ac17",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "850e6051-de2a-4895-be85-33dac91bc00d",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "bc194187-d400-4d40-ac86-ff00a82036d3",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "850e6051-de2a-4895-be85-33dac91bc00d",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "9766ddfe-5ac9-49b1-b443-12001ac6d33d",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "850e6051-de2a-4895-be85-33dac91bc00d",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "84c3be7e-9384-436e-9d28-c049fd503caa",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "850e6051-de2a-4895-be85-33dac91bc00d",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "9c32429b-4752-4ab6-aa53-ac719b075a76",
+          "text": "Rear door rubbing with side panel",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Assembly / welding",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Assembly",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "6c59d666-9669-4f78-9122-fe4a19d345f2",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9c32429b-4752-4ab6-aa53-ac719b075a76",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "ef089b47-0edc-4a68-a845-2daf487c23e2",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9c32429b-4752-4ab6-aa53-ac719b075a76",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "379312d9-d749-47fb-9fb1-e06836620193",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9c32429b-4752-4ab6-aa53-ac719b075a76",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "eccd6a3d-2742-4446-ac9a-3f93ec4dbd51",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9c32429b-4752-4ab6-aa53-ac719b075a76",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "920b4e9f-55d4-40bb-9352-c3ea2ad1550b",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9c32429b-4752-4ab6-aa53-ac719b075a76",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "43199d4e-4372-42b5-9602-277c6183c9da",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9c32429b-4752-4ab6-aa53-ac719b075a76",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "deef0e19-a497-4c4a-9ed2-3d1051813097",
+          "text": "Dent on the side panel",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "No dent are allowed",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Handling",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "5897c95e-9689-472a-94ad-9b5f530a3bb0",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "deef0e19-a497-4c4a-9ed2-3d1051813097",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "011e590c-0e9a-4df9-ba09-456bad7f782f",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "deef0e19-a497-4c4a-9ed2-3d1051813097",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "b3de9890-6e1d-4263-9dbb-7d0a939bcf36",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "deef0e19-a497-4c4a-9ed2-3d1051813097",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "7c93262b-4958-432d-9193-6155c7153920",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "deef0e19-a497-4c4a-9ed2-3d1051813097",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "51988e5e-872a-4c2c-a312-864a7c178ff8",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "deef0e19-a497-4c4a-9ed2-3d1051813097",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "75f25002-42f1-4161-ab2f-777403129552",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "deef0e19-a497-4c4a-9ed2-3d1051813097",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "5c886e16-0621-4eaa-a160-b7a0ef199061",
+          "text": "Welding burn through near front panel mounting bracket",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "No hole allowed",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Welding",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "93c2d84b-19e5-4a49-9253-b4c037a89289",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5c886e16-0621-4eaa-a160-b7a0ef199061",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "702453a7-1534-40c5-b235-8b5a190e65e6",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5c886e16-0621-4eaa-a160-b7a0ef199061",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "3d60362c-cd91-4f8b-94b5-06ecfeb0b352",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5c886e16-0621-4eaa-a160-b7a0ef199061",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "48dff8b1-4e55-430a-ade0-7e6831aeb3da",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5c886e16-0621-4eaa-a160-b7a0ef199061",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "cb3435eb-50b1-44ae-9e25-3afdf0f8d9ce",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5c886e16-0621-4eaa-a160-b7a0ef199061",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "96ed6010-e783-49c5-b7df-5230e975ba4b",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5c886e16-0621-4eaa-a160-b7a0ef199061",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "e547808d-23cf-4f86-8ff5-102cdcfdff22",
+          "text": "Rear door hinge pin play",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Not allowed",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Assembly",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "3fdd423f-d735-403d-9538-297f3bc11c99",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "e547808d-23cf-4f86-8ff5-102cdcfdff22",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "e90fb801-1f47-49d2-aec4-2cb92ee0655a",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "e547808d-23cf-4f86-8ff5-102cdcfdff22",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "fc083239-d636-4876-820f-d1cf2faab22f",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "e547808d-23cf-4f86-8ff5-102cdcfdff22",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "75f9273b-bf84-47f6-b9bc-38f15ce29591",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "e547808d-23cf-4f86-8ff5-102cdcfdff22",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "ec931741-ce22-452d-ba0b-ed26592690f6",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "e547808d-23cf-4f86-8ff5-102cdcfdff22",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "ae56d0a7-670a-4f3c-bc99-a45ee81fa50e",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "e547808d-23cf-4f86-8ff5-102cdcfdff22",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "f1a46707-ef89-464a-b429-c989f1eb0571",
+          "text": "Service door after assy no play",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Service door shaking not allowed",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Assembly",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "6107b8dd-1df5-4615-ab18-4fce5dfe62cd",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "f1a46707-ef89-464a-b429-c989f1eb0571",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "dfb834dc-607e-445b-953f-956b05179252",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "f1a46707-ef89-464a-b429-c989f1eb0571",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "e93b10ab-c91d-451a-832e-3a92170ab9ee",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "f1a46707-ef89-464a-b429-c989f1eb0571",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "a6478478-bfe2-4490-970d-894cee3d286e",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "f1a46707-ef89-464a-b429-c989f1eb0571",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "583623ff-3bcd-4211-9311-25ff6eb3c68b",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "f1a46707-ef89-464a-b429-c989f1eb0571",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "6975f53d-adca-4598-8ddc-414ca9cff22d",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "f1a46707-ef89-464a-b429-c989f1eb0571",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "4108273a-c2a2-47c8-852c-a3828fec951a",
+          "text": "Part missing",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Not allowed",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Assembly",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "401ffe43-f40e-45d6-91c6-8013f8124fcb",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "4108273a-c2a2-47c8-852c-a3828fec951a",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "38652c1c-97b0-42ad-a59b-501eb3884d5b",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "4108273a-c2a2-47c8-852c-a3828fec951a",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "25618a89-3d25-4c21-8316-c96be3d39190",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "4108273a-c2a2-47c8-852c-a3828fec951a",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "74714262-ef7f-40dd-b450-32b651d575e1",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "4108273a-c2a2-47c8-852c-a3828fec951a",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "f3462037-e6a0-4c91-9ab5-8ee17012daa8",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "4108273a-c2a2-47c8-852c-a3828fec951a",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "3ac85d8a-d211-46cc-8125-429e2bee1901",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "4108273a-c2a2-47c8-852c-a3828fec951a",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "9b2ff4fe-59a5-48b2-8bf6-23399061aea5",
+          "text": "Low DFT",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Less than 80 Micron",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "fdb817e5-e141-40c5-8b92-38996cc8cd95",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9b2ff4fe-59a5-48b2-8bf6-23399061aea5",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "8854d90e-c037-4e9a-96c0-aa82d17643a4",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9b2ff4fe-59a5-48b2-8bf6-23399061aea5",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "b3046fa1-4b88-4355-89cd-84c0aff30da2",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9b2ff4fe-59a5-48b2-8bf6-23399061aea5",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "b704b332-002b-4e67-8ba2-9ce8741a584a",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9b2ff4fe-59a5-48b2-8bf6-23399061aea5",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "e717fdc8-0061-415d-958d-03d12dcb5414",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9b2ff4fe-59a5-48b2-8bf6-23399061aea5",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "68e76e80-8f6f-4b27-b377-81cf97df4f6c",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9b2ff4fe-59a5-48b2-8bf6-23399061aea5",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "5cfea89c-5c0b-47f2-90e6-c49080dfe678",
+          "text": "High DFT",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Greater than 120 Micron",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Painting",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "8e482cae-da5f-4b5a-8c55-631fc924d178",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5cfea89c-5c0b-47f2-90e6-c49080dfe678",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "093efc60-1c9d-4380-8b5c-60d8a2ebf6eb",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5cfea89c-5c0b-47f2-90e6-c49080dfe678",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "ce6ded1a-1f8b-4efd-a3cd-886cb0deed89",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5cfea89c-5c0b-47f2-90e6-c49080dfe678",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "3f0145ef-47aa-4964-9e55-3da28df8a70c",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5cfea89c-5c0b-47f2-90e6-c49080dfe678",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "e2fbb83e-caab-4497-abaf-9c9b5ac6a590",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5cfea89c-5c0b-47f2-90e6-c49080dfe678",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "5c99e2ce-47c4-47d4-9e71-a9ca06464a58",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "5cfea89c-5c0b-47f2-90e6-c49080dfe678",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "edf82821-d246-425d-ad87-bd60f2dde981",
+          "text": "Pin hole on load deck outer area",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Not allowed A class area",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Welding",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "604da225-c2f2-4359-8635-df5f9b32e851",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "edf82821-d246-425d-ad87-bd60f2dde981",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "28249d91-27b7-4a00-b490-657f935aeace",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "edf82821-d246-425d-ad87-bd60f2dde981",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "30101e00-b904-46da-9215-f2920d5046c1",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "edf82821-d246-425d-ad87-bd60f2dde981",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "1bdece0d-4566-4086-8271-e294f6e57e7e",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "edf82821-d246-425d-ad87-bd60f2dde981",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "0f072cbb-e0c2-493d-8580-4a2a2f1072af",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "edf82821-d246-425d-ad87-bd60f2dde981",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "236ee019-c5c4-4111-a5e7-32c09a657ec0",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "edf82821-d246-425d-ad87-bd60f2dde981",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "841b8559-2374-40a8-8cf3-8032c6b6a7e5",
+          "text": "Dent on the side panel top",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Not allowed",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Handling",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "4f267d23-8b05-43e3-95f0-414ab08c72f4",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "841b8559-2374-40a8-8cf3-8032c6b6a7e5",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "5b9b26f9-7e69-4f9e-b9a5-401e88beb95b",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "841b8559-2374-40a8-8cf3-8032c6b6a7e5",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "93c2ffd8-a88b-4cc8-be44-d5245ac3b7d9",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "841b8559-2374-40a8-8cf3-8032c6b6a7e5",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "5ac33f47-00d7-4a0c-943c-cbd72a60433a",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "841b8559-2374-40a8-8cf3-8032c6b6a7e5",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "2b420747-0635-4d00-98e8-bfeac7f82dd4",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "841b8559-2374-40a8-8cf3-8032c6b6a7e5",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "c24ed53a-237d-49b3-84f0-e1a6e5afc066",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "841b8559-2374-40a8-8cf3-8032c6b6a7e5",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "9a23b69d-3491-45a5-b07d-eeb76a53fb7c",
+          "text": "Circlip missing on hinge bracket stud",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "description": "Not allowed & Verify hinge pin play after assembly",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Assembly",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "154c60e5-acd4-490a-bbba-d34fe9093d35",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9a23b69d-3491-45a5-b07d-eeb76a53fb7c",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "6baea348-e91a-4736-aa77-f91f929d63bf",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9a23b69d-3491-45a5-b07d-eeb76a53fb7c",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "e2fbd61e-89a6-44a6-a16b-f819df1acb07",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9a23b69d-3491-45a5-b07d-eeb76a53fb7c",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "0eddd7db-7217-4c10-a136-e90d5f8fc982",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9a23b69d-3491-45a5-b07d-eeb76a53fb7c",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "e8d3fc3c-ca2a-44bd-a3e9-3d7c4f19c460",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9a23b69d-3491-45a5-b07d-eeb76a53fb7c",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "8ca85261-0651-401e-95d6-82f1c811d864",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9a23b69d-3491-45a5-b07d-eeb76a53fb7c",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "dadfec3a-4ea6-48cd-9d73-8c7ccd68c560",
+          "text": "Service door grommet assembly missing",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "imageUrl": "https://drive.google.com/file/d/19jZqgQu_HyXr75i6Alpr7yrCVt8by5Ue/view?usp=sharing",
+          "description": "Assemble as per drawing/image",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Assembly",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "109580f1-370f-4b68-a8a0-97b8346c9125",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "dadfec3a-4ea6-48cd-9d73-8c7ccd68c560",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "dffe646d-9d61-41dd-a52b-a61bb8735419",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "dadfec3a-4ea6-48cd-9d73-8c7ccd68c560",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "511e9d5d-2f07-469a-b125-49d1e71c4a5c",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "dadfec3a-4ea6-48cd-9d73-8c7ccd68c560",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "d826b600-8663-4c52-a6f0-8649226df256",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "dadfec3a-4ea6-48cd-9d73-8c7ccd68c560",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "55fdf75d-e7ab-4efb-a199-7ca1591230aa",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "dadfec3a-4ea6-48cd-9d73-8c7ccd68c560",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "6715352e-6ed9-4a14-8b82-f22414f662bc",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "dadfec3a-4ea6-48cd-9d73-8c7ccd68c560",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "2b78ee42-98b6-4017-8327-5210ef5fb9c7",
+          "text": "Service door latch assembly with cap missing",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "imageUrl": "https://drive.google.com/file/d/1F5yczphaC9lfxIiMIaA4DxotVkfnGTYD/view?usp=drive_link",
+          "description": "Assemble as per drawing/image & Ensure the service door latch lever cap fully inserted and properly assembled with the pip in the service door latch link as shown in image",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Assembly",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "b8c6410c-f5bf-4b25-ab04-7eb71bb6e586",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "2b78ee42-98b6-4017-8327-5210ef5fb9c7",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "2b122ec6-3eb9-4ae1-98f7-2bda07cd94e5",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "2b78ee42-98b6-4017-8327-5210ef5fb9c7",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "0aff4e6e-c928-4de8-8bd1-9e2e5310f39b",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "2b78ee42-98b6-4017-8327-5210ef5fb9c7",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "a8a6cec9-96d3-4aec-9dc1-1b626462a829",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "2b78ee42-98b6-4017-8327-5210ef5fb9c7",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "88366ebd-8831-4254-9fb5-61ff3808a6a7",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "2b78ee42-98b6-4017-8327-5210ef5fb9c7",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "8ef6a995-5e89-46b7-b0e4-6828ca1f887c",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "2b78ee42-98b6-4017-8327-5210ef5fb9c7",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "0e41809a-73ef-47d9-b9f0-b921b0ecff68",
+          "text": "Latch stopper assembly missing",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "imageUrl": "https://drive.google.com/file/d/1OVcZ2L9Rfags38MTZ3iP-gaUEJ3esh0k/view?usp=drive_link",
+          "description": "Aligning the position of latch stopper with",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Assembly",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "71712a2f-d6dd-4d2b-8b0d-5521808b0c34",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "0e41809a-73ef-47d9-b9f0-b921b0ecff68",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "83ea44e6-552c-43b9-a436-5b9d3a40cceb",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "0e41809a-73ef-47d9-b9f0-b921b0ecff68",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "18c41862-f1f9-44d7-93fc-baece7475298",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "0e41809a-73ef-47d9-b9f0-b921b0ecff68",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "690c639d-f959-459b-8356-7b8bdadb255e",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "0e41809a-73ef-47d9-b9f0-b921b0ecff68",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "dd0450b4-3b2a-42dc-a166-8c6e184fc243",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "0e41809a-73ef-47d9-b9f0-b921b0ecff68",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "21741616-b7cb-4100-9b40-3e5736c04d83",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "0e41809a-73ef-47d9-b9f0-b921b0ecff68",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "8e7fe75d-6431-42af-93c6-d4fa015f0103",
+          "text": "Service door handle assembly missing",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "imageUrl": "https://drive.google.com/file/d/1-5PmZUARDkPfO1bLpGBzUfN_mvNDXoiO/view?usp=drive_link",
+          "description": ".Assemble Service door handle Assy (G8223540) & Serv Door Latch Washer(GE225080) in the Engine Service door panel (G8222829) & Ensure tightening torque of the serv door latch nutbetween 5 - 6Nm & While assembling, Ensure TVSM Symbol in service doorhandle rod facing toward the rear.",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Assembly",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "dbb1d7eb-3c23-469b-82c7-ddb840cc0d8f",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "8e7fe75d-6431-42af-93c6-d4fa015f0103",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "2207a6e9-32de-4724-a40e-bd1afeac3aad",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "8e7fe75d-6431-42af-93c6-d4fa015f0103",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "f5428702-7fc5-4318-8be2-35ffc93dcf7f",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "8e7fe75d-6431-42af-93c6-d4fa015f0103",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "0c4a37cc-04ac-46fc-9360-fd18e781b522",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "8e7fe75d-6431-42af-93c6-d4fa015f0103",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "b6bc4eaa-90ea-472a-a76f-16fa3b81aaa7",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "8e7fe75d-6431-42af-93c6-d4fa015f0103",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "b5e66259-1264-44ae-a900-13e440908b3b",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "8e7fe75d-6431-42af-93c6-d4fa015f0103",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "9105daaa-abb4-41c3-8e52-20cf81c1cefb",
+          "text": "Hinge side door assembly",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "imageUrl": "https://drive.google.com/file/d/1_jnDTDiyzHoarJokxo_4PCfGTMqoLcRj/view?usp=drive_link",
+          "description": "Assemble the Hinge side door (G8223039) in the Load body Assy (GE220790) & ensuring tightening torque of the bolt between 7-8 Nm",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Assembly",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "450ada62-f172-4312-8050-63475463d1e1",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9105daaa-abb4-41c3-8e52-20cf81c1cefb",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "d66f8a89-b04d-4ad3-97ca-10ed079ead01",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9105daaa-abb4-41c3-8e52-20cf81c1cefb",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "ab8d5555-4b11-414f-8ab2-9297c4942089",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9105daaa-abb4-41c3-8e52-20cf81c1cefb",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "80169d4d-e621-4c19-af7e-3fd5a452bf7a",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9105daaa-abb4-41c3-8e52-20cf81c1cefb",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "402ef6c1-3034-44d4-9a74-fa631974bf13",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9105daaa-abb4-41c3-8e52-20cf81c1cefb",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "dacc327d-89e5-4daa-8044-ad8ccbfd79b6",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "9105daaa-abb4-41c3-8e52-20cf81c1cefb",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "38b478d0-c727-415e-9eaa-caf6351cdb02",
+          "text": "Latch rod LH/RH assembly missing",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "imageUrl": "https://drive.google.com/file/d/1eMZ8NtDKpaCt7YZlvcGbxFK8SpUEPv4R/view?usp=drive_link",
+          "description": "Latch rod assembly as per drawing /image Tightening torque of the hexagonal nut shall be within22 - 30 Nm.(Note: Ensure easy opening and closing of latch rod after tightening of hexagonal nut)",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Assembly",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "021449f4-478b-47bf-b78e-32f1d98cec72",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "38b478d0-c727-415e-9eaa-caf6351cdb02",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "e2236fc8-1338-47c8-89de-f9c216e10fd5",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "38b478d0-c727-415e-9eaa-caf6351cdb02",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "b56579b4-d60f-4e60-8e64-bf1673ca1f9a",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "38b478d0-c727-415e-9eaa-caf6351cdb02",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "6105163c-7cba-4fef-9a7a-c09246d8523a",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "38b478d0-c727-415e-9eaa-caf6351cdb02",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "99e2e7a7-0b78-4a0c-b343-278556c6f5b6",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "38b478d0-c727-415e-9eaa-caf6351cdb02",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "17e6cfa2-ea50-4288-8824-ebb088318712",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "38b478d0-c727-415e-9eaa-caf6351cdb02",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        },
+        {
+          "id": "d96a7ec0-a688-4e2e-b184-7690362f9e19",
+          "text": "Service door lamp bracket availability",
+          "type": "yesNoNA",
+          "required": false,
+          "options": [
+            "Accepted",
+            "Rework",
+            "Rejected"
+          ],
+          "allowedFileTypes": [],
+          "correctAnswers": [],
+          "imageUrl": "https://drive.google.com/file/d/1TlWaCyK13FPbCT14Qa6Yw9B2hWd6pp9w/view?usp=drive_link",
+          "description": "Bracket should be hanged with service door handle /ensure nut should be retapped",
+          "trackResponseRank": false,
+          "trackResponseQuestion": false,
+          "subParam1": "Assembly",
+          "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+          "followUpQuestions": [
+            {
+              "id": "f8dc688e-03db-43b3-9d49-bff3ab5a92c4",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "d96a7ec0-a688-4e2e-b184-7690362f9e19",
+                "value": "Rework"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "fc5d1a98-d648-4b9c-94d2-4a34eea98dca",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "d96a7ec0-a688-4e2e-b184-7690362f9e19",
+                "value": "Rejected"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "dadd76d7-34f1-4a1f-9cab-f4b7ddcbdbcb",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "d96a7ec0-a688-4e2e-b184-7690362f9e19",
+                "value": "Rework"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "63879734-676b-4ade-a9fc-ba092fd50842",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "d96a7ec0-a688-4e2e-b184-7690362f9e19",
+                "value": "Rejected"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "b860f48d-6e36-411b-98dc-6b8425a315aa",
+              "text": "File update",
+              "type": "file",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "d96a7ec0-a688-4e2e-b184-7690362f9e19",
+                "value": "Accepted"
+              },
+              "subParam1": "File update",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            },
+            {
+              "id": "cebd078f-0ac5-40b2-942f-cdcf763b3f21",
+              "text": "Remark",
+              "type": "text",
+              "required": false,
+              "description": "",
+              "followUpQuestions": [],
+              "sectionId": "2ea8881a-f4f8-4dd1-a836-cbb6ec35598e",
+              "showWhen": {
+                "questionId": "d96a7ec0-a688-4e2e-b184-7690362f9e19",
+                "value": "Accepted"
+              },
+              "subParam1": "Remark",
+              "trackResponseRank": false,
+              "trackResponseQuestion": false
+            }
+          ],
+          "followUpConfig": {
+            "Accepted": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rework": {
+              "hasFollowUp": true,
+              "required": false
+            },
+            "Rejected": {
+              "hasFollowUp": true,
+              "required": false
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "followUpQuestions": [],
+  "sectionBranching": [],
+  "isVisible": true,
+  "createdBy": {
+    "_id": "6a13247a5a444320345526f4",
+    "username": "smtsrimathii-srimathi-testing",
+    "email": "smtsrimathii@gmail.com",
+    "firstName": "SRIMATHI",
+    "lastName": "SRIMATHI"
+  },
+  "tenantId": "6a13247a5a444320345526f5",
+  "isGlobal": false,
+  "sharedWithTenants": [],
+  "isActive": true,
+  "locationEnabled": true,
+  "viewType": "section-wise",
+  "inviteOnlyTracking": true,
+  "permissions": {
+    "canRespond": [],
+    "canViewResponses": [],
+    "canEdit": [],
+    "canAddFollowUp": [],
+    "canDelete": []
+  },
+  "autoSendConfig": {
+    "enabled": false,
+    "includePdf": false,
+    "includeLink": false,
+    "status": "stopped",
+    "recipients": []
+  },
+  "childForms": [],
+  "chassisNumbers": [],
+  "chassisTenantAssignments": [],
+  "createdAt": "2026-05-24T16:17:43.825Z",
+  "updatedAt": "2026-05-24T16:17:43.825Z",
+  "__v": 0
+}
