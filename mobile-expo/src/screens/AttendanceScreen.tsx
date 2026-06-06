@@ -53,6 +53,9 @@ import { useTheme } from '../context/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
 import apiClient, { BASE_URL } from '../api/config';
 import { io } from 'socket.io-client';
+import NetInfo from '@react-native-community/netinfo';
+import { offlineQueue } from '../api/OfflineQueue';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 
@@ -99,6 +102,18 @@ const AttendanceScreen = ({ navigation }: any) => {
   const DEFAULT_LOCATION = { lat: 12.9455, lng: 78.8754 };
   const DEFAULT_RADIUS = 100;
 
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsOfflineMode(!state.isConnected);
+    });
+    NetInfo.fetch().then(state => {
+      setIsOfflineMode(!state.isConnected);
+    });
+    return () => unsubscribe();
+  }, []);
+
   const getDistance = (lat1: number, lng1: number, lat2: number, lng2: number) => {
     const R = 6371e3;
     const φ1 = (lat1 * Math.PI) / 180;
@@ -129,8 +144,8 @@ const AttendanceScreen = ({ navigation }: any) => {
 
   const fetchHRData = async () => {
     if (user?.role !== 'inspector') return;
+    const userId = user._id || user.id;
     try {
-
       const [statusRes, historyRes] = await Promise.all([
         apiClient.get('/hr/attendance/my-status'),
         apiClient.get('/hr/attendance/my-history')
@@ -141,12 +156,33 @@ const AttendanceScreen = ({ navigation }: any) => {
         setHrStatus(statusData);
         const isChecked = !!statusData?.attendance?.checkInTime && !statusData?.attendance?.checkOutTime;
         setIsCheckedIn(isChecked);
+        await AsyncStorage.setItem(`@hr_status_${userId}`, JSON.stringify(statusData));
       }
-      if (historyRes.data.success) setHistory(historyRes.data.data.history || []);
+      if (historyRes.data.success) {
+        const historyData = historyRes.data.data.history || [];
+        setHistory(historyData);
+        await AsyncStorage.setItem(`@hr_history_${userId}`, JSON.stringify(historyData));
+      }
     } catch (error) {
       console.log('Error fetching HR data:', error);
-      setHrStatus(null);
-      setHistory([]);
+      
+      // Fallback to offline cached data
+      try {
+        const cachedStatus = await AsyncStorage.getItem(`@hr_status_${userId}`);
+        const cachedHistory = await AsyncStorage.getItem(`@hr_history_${userId}`);
+        
+        if (cachedStatus) {
+          const statusData = JSON.parse(cachedStatus);
+          setHrStatus(statusData);
+          const isChecked = !!statusData?.attendance?.checkInTime && !statusData?.attendance?.checkOutTime;
+          setIsCheckedIn(isChecked);
+        }
+        if (cachedHistory) {
+          setHistory(JSON.parse(cachedHistory));
+        }
+      } catch (cacheErr) {
+        console.error('Failed to load cached HR data:', cacheErr);
+      }
     }
   };
 
@@ -191,14 +227,24 @@ const AttendanceScreen = ({ navigation }: any) => {
     try {
       const response = await apiClient.get('tenants/office-location');
       if (response.data.success && response.data.data) {
-        setOfficeLocation({
+        const locData = {
           lat: response.data.data.lat,
           lng: response.data.data.lng,
           radius: response.data.data.radius || 100
-        });
+        };
+        setOfficeLocation(locData);
+        await AsyncStorage.setItem(`@office_location_${user?.tenantId}`, JSON.stringify(locData));
       }
     } catch (error) {
       console.error('Error fetching office location:', error);
+      try {
+        const cachedLoc = await AsyncStorage.getItem(`@office_location_${user?.tenantId}`);
+        if (cachedLoc) {
+          setOfficeLocation(JSON.parse(cachedLoc));
+        }
+      } catch (cacheErr) {
+        console.error('Failed to load cached office location:', cacheErr);
+      }
     }
   };
 
@@ -263,7 +309,7 @@ const AttendanceScreen = ({ navigation }: any) => {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      await refreshProfile(); // Ensure we have the latest mobile number for SIM matching
+      refreshProfile().catch(err => console.log('Offline profile refresh skipped:', err));
       await Promise.all([
         fetchAttendanceSummary(),
         fetchHRData(),
@@ -298,33 +344,163 @@ const AttendanceScreen = ({ navigation }: any) => {
     fetchAttendanceSummary();
   }, []);
 
-  const handleAttendance = async (type: 'IN' | 'OUT') => {
-    if (type === 'IN') {
-      if (!user?.phone && !user?.mobile) {
-        Alert.alert('Phone Required', 'Your admin must register a phone number for your account before you can clock in.');
-        return;
-      }
+  const startShiftOffline = async (type: 'IN' | 'OUT') => {
+    setIsVerifying(true);
+    const userId = user?._id || user?.id;
+    try {
+      const timestamp = new Date().toISOString();
+      const mockLocation = location || { lat: DEFAULT_LOCATION.lat, lng: DEFAULT_LOCATION.lng, accuracy: 0 };
       
-      // SIM verification - must have physical SIM matching registered number
-      if (!isSimMatched) {
+      if (type === 'IN') {
+        // 1. Queue checkin request
+        await offlineQueue.addRequestToQueue('hr/attendance/checkin', 'POST', {
+          otp: null,
+          lat: mockLocation.lat,
+          lng: mockLocation.lng,
+          accuracy: mockLocation.accuracy,
+          offlineTime: timestamp
+        });
+
+        // 2. Update local state
+        setLastCheck(`Checked In (Offline): ${new Date().toLocaleTimeString()}`);
+        Alert.alert('Offline Success', 'Successfully Checked In locally. It will synchronize automatically once you are back online.');
+        setIsCheckedIn(true);
+        setOtpVerified(false);
+        setChecksCompleted(false);
+
+        // Update hrStatus locally
+        const newStatus = {
+          ...hrStatus,
+          attendance: {
+            checkInTime: timestamp,
+            checkInLat: mockLocation.lat,
+            checkInLng: mockLocation.lng,
+            checkInAccuracy: mockLocation.accuracy,
+            status: 'present',
+            date: timestamp
+          }
+        };
+        setHrStatus(newStatus);
+
+        // Add to history
+        const newHistoryItem = {
+          _id: `offline_att_${Date.now()}`,
+          date: timestamp,
+          checkInTime: timestamp,
+          status: 'present'
+        };
+        setHistory((prev) => [newHistoryItem, ...prev]);
+        
+        // Cache updated status and history
+        await AsyncStorage.setItem(`@hr_status_${userId}`, JSON.stringify(newStatus));
+      } else {
+        // type === 'OUT'
+        // 1. Queue checkout request
+        await offlineQueue.addRequestToQueue('hr/attendance/checkout', 'POST', {
+          lat: mockLocation.lat,
+          lng: mockLocation.lng,
+          accuracy: mockLocation.accuracy,
+          offlineTime: timestamp
+        });
+
+        // 2. Update local state
+        setLastCheck(`Checked Out (Offline): ${new Date().toLocaleTimeString()}`);
+        Alert.alert('Offline Success', 'Successfully Checked Out locally. It will synchronize automatically once you are back online.');
+        setIsCheckedIn(false);
+
+        // Update hrStatus locally
+        setHrStatus((prev) => {
+          if (!prev || !prev.attendance) return prev;
+          return {
+            ...prev,
+            attendance: {
+              ...prev.attendance,
+              checkOutTime: timestamp
+            }
+          };
+        });
+
+        // Update history locally
+        setHistory((prev) => {
+          if (prev.length === 0) return prev;
+          const updated = [...prev];
+          updated[0] = {
+            ...updated[0],
+            checkOutTime: timestamp
+          };
+          return updated;
+        });
+
+        // Cache updated status and history
+        if (hrStatus && hrStatus.attendance) {
+          const updatedStatus = {
+            ...hrStatus,
+            attendance: {
+              ...hrStatus.attendance,
+              checkOutTime: timestamp
+            }
+          };
+          await AsyncStorage.setItem(`@hr_status_${userId}`, JSON.stringify(updatedStatus));
+        }
+      }
+    } catch (err) {
+      console.error('Offline start shift error:', err);
+      Alert.alert('Offline Error', 'Failed to record action offline.');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleAttendance = async (type: 'IN' | 'OUT') => {
+    // Check network connectivity first
+    const netState = await NetInfo.fetch();
+    const isOffline = !netState.isConnected;
+
+    if (type === 'IN') {
+      if (!isOffline) {
+        if (!user?.phone && !user?.mobile) {
+          Alert.alert('Phone Required', 'Your admin must register a phone number for your account before you can clock in.');
+          return;
+        }
+        
+        // SIM verification - must have physical SIM matching registered number
+        if (!isSimMatched) {
+          Alert.alert(
+            'SIM Verification Failed', 
+            'The registered phone number SIM must be present in this device to clock in. Please insert the correct SIM card and tap "FETCH SIM" to retry.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+        
+        // GPS verification
+        if (!location) {
+          Alert.alert('GPS Verification Failed', 'GPS signal not found. Please enable location services.');
+          return;
+        }
+        
+        if (!isWithinRadius) {
+          Alert.alert('Geofence Alert', 'You must be inside the office geofence to clock in.');
+          return;
+        }
+      }
+    }
+
+    if (isOffline) {
+      if (type === 'IN') {
+        setOtpType('IN');
+        setOtpVerified(true);
+        setChecksCompleted(true);
         Alert.alert(
-          'SIM Verification Failed', 
-          'The registered phone number SIM must be present in this device to clock in. Please insert the correct SIM card and tap "FETCH SIM" to retry.',
+          'Offline Mode Active',
+          'You are offline. OTP verification is bypassed. Tap "START SHIFT" to clock in locally.',
           [{ text: 'OK' }]
         );
-        return;
+      } else {
+        setOtpType('OUT');
+        await startShiftOffline('OUT');
       }
-      
-      // GPS verification
-      if (!location) {
-        Alert.alert('GPS Verification Failed', 'GPS signal not found. Please enable location services.');
-        return;
-      }
-      
-      if (!isWithinRadius) {
-        Alert.alert('Geofence Alert', 'You must be inside the office geofence to clock in.');
-        return;
-      }
+      return;
     }
 
     setOtpType(type);
@@ -337,9 +513,23 @@ const AttendanceScreen = ({ navigation }: any) => {
       } else {
         Alert.alert('Error', response.data.message || 'Failed to send OTP');
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Send OTP Error:', error);
-      Alert.alert('Error', error.response?.data?.message || 'Failed to connect to server');
+      // Fallback if request fails because of connection
+      const isOffline = !(await NetInfo.fetch()).isConnected;
+      if (isOffline) {
+        if (type === 'IN') {
+          setOtpType('IN');
+          setOtpVerified(true);
+          setChecksCompleted(true);
+          Alert.alert('Offline Mode Active', 'Connection lost. Bypassing OTP. Tap "START SHIFT" to clock in locally.');
+        } else {
+          setOtpType('OUT');
+          await startShiftOffline('OUT');
+        }
+      } else {
+        Alert.alert('Error', error.response?.data?.message || 'Failed to connect to server');
+      }
     } finally {
       setIsVerifying(false);
     }
@@ -353,6 +543,20 @@ const AttendanceScreen = ({ navigation }: any) => {
 
     setIsVerifying(true);
     try {
+      // Check if offline before request
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        if (otpType === 'OUT') {
+          setShowOTPModal(false);
+          setOtpCode('');
+          await startShiftOffline('OUT');
+        } else {
+          Alert.alert('Offline Mode', 'Verification is offline. Close and click START SHIFT.');
+        }
+        setIsVerifying(false);
+        return;
+      }
+
       const endpoint = otpType === 'IN' ? 'hr/attendance/verify-otp' : 'hr/attendance/checkout';
       const response = await apiClient.post(endpoint, {
         otp: otpCode,
@@ -386,9 +590,17 @@ const AttendanceScreen = ({ navigation }: any) => {
       } else {
         Alert.alert('Verification Failed', response.data.message || 'Invalid OTP');
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Verify OTP Error:', error);
-      Alert.alert('Error', error.response?.data?.message || 'Verification failed');
+      // Fallback if request fails because of connection
+      const isOffline = !(await NetInfo.fetch()).isConnected;
+      if (isOffline && otpType === 'OUT') {
+        setShowOTPModal(false);
+        setOtpCode('');
+        await startShiftOffline('OUT');
+      } else {
+        Alert.alert('Error', error.response?.data?.message || 'Verification failed');
+      }
     } finally {
       setIsVerifying(false);
     }
@@ -396,6 +608,14 @@ const AttendanceScreen = ({ navigation }: any) => {
 
   const startShift = async () => {
     setIsVerifying(true);
+    
+    // Check if offline
+    const netState = await NetInfo.fetch();
+    if (!netState.isConnected) {
+      await startShiftOffline('IN');
+      return;
+    }
+
     try {
       const response = await apiClient.post('hr/attendance/checkin', {
           otp: null, // Already verified
@@ -414,11 +634,16 @@ const AttendanceScreen = ({ navigation }: any) => {
        } else {
          Alert.alert('Check-In Failed', response.data.message);
        }
-     } catch(e: any) {
-       Alert.alert('Error', e.response?.data?.message || 'Failed to start shift');
+     } catch(e) {
+       const isOffline = !(await NetInfo.fetch()).isConnected;
+       if (isOffline) {
+         await startShiftOffline('IN');
+       } else {
+         Alert.alert('Error', e.response?.data?.message || 'Failed to start shift');
+       }
      } finally {
        setIsVerifying(false);
-    }
+     }
   };
 
   // Real-time synchronization via Socket.IO
@@ -539,48 +764,61 @@ const AttendanceScreen = ({ navigation }: any) => {
                     <Text style={[styles.geoText, { color: colors.subtext }]}>GPS: {location ? 'ACTIVE' : 'OFF'}</Text>
                   </View>
                   <View style={styles.geoItem}>
-                    <View style={[styles.geoDot, { backgroundColor: isWithinRadius ? '#22c55e' : '#ef4444' }]} />
-                    <Text style={[styles.geoText, { color: colors.subtext }]}>
-                      GEOSYNC: {isWithinRadius ? 'IN RANGE' : 'OUTSIDE'}
-                      {!isWithinRadius && location && officeLocation && (
-                        <Text style={{ color: '#ef4444', fontWeight: 'bold' }}>
-                          {' '}({Math.round(getDistance(location.lat, location.lng, officeLocation.lat, officeLocation.lng) - officeLocation.radius)}m away)
-                        </Text>
-                      )}
-                    </Text>
-                  </View>
-                  <View style={styles.geoItem}>
-                    <View style={[styles.geoDot, { backgroundColor: (user?.phone || user?.mobile) ? '#22c55e' : '#f59e0b' }]} />
-                    <Text style={[styles.geoText, { color: colors.subtext }]}>PHONE: {(user?.phone || user?.mobile) ? String(user?.phone || user?.mobile) : 'MISSING'}</Text>
-                  </View>
-                  <View style={styles.geoItem}>
-                     <View style={[styles.geoDot, { backgroundColor: isSimMatched ? '#22c55e' : '#f59e0b' }]} />
-                     <Text style={[styles.geoText, { color: colors.subtext }]}>SIM: {simInfo}</Text>
-                     <TouchableOpacity 
-                       style={[styles.fetchTag, { backgroundColor: isDark ? colors.surface : (isSimMatched ? '#f0fdf4' : '#1e3a8a') }]}
-                       onPress={detectSim}
-                     >
-                       <Text style={[styles.fetchTagText, { color: isSimMatched ? '#166534' : '#fff' }]}>{isSimMatched ? 'NETWORK MATCH' : 'FETCH SIM'}</Text>
-                     </TouchableOpacity>
+                     <View style={[styles.geoDot, { backgroundColor: isOfflineMode ? '#f59e0b' : (isWithinRadius ? '#22c55e' : '#ef4444') }]} />
+                     <Text style={[styles.geoText, { color: colors.subtext }]}>
+                       GEOSYNC: {isOfflineMode ? 'BYPASSED (OFFLINE)' : (isWithinRadius ? 'IN RANGE' : 'OUTSIDE')}
+                       {!isOfflineMode && !isWithinRadius && location && officeLocation && (
+                         <Text style={{ color: '#ef4444', fontWeight: 'bold' }}>
+                           {' '}({Math.round(getDistance(location.lat, location.lng, officeLocation.lat, officeLocation.lng) - officeLocation.radius)}m away)
+                         </Text>
+                       )}
+                     </Text>
                    </View>
+                   <View style={styles.geoItem}>
+                     <View style={[styles.geoDot, { backgroundColor: (user?.phone || user?.mobile) ? '#22c55e' : '#f59e0b' }]} />
+                     <Text style={[styles.geoText, { color: colors.subtext }]}>PHONE: {(user?.phone || user?.mobile) ? String(user?.phone || user?.mobile) : 'MISSING'}</Text>
+                   </View>
+                   <View style={styles.geoItem}>
+                      <View style={[styles.geoDot, { backgroundColor: isOfflineMode ? '#f59e0b' : (isSimMatched ? '#22c55e' : '#f59e0b') }]} />
+                      <Text style={[styles.geoText, { color: colors.subtext }]}>SIM: {isOfflineMode ? 'BYPASSED (OFFLINE)' : simInfo}</Text>
+                      {!isOfflineMode && (
+                        <TouchableOpacity 
+                          style={[styles.fetchTag, { backgroundColor: isDark ? colors.surface : (isSimMatched ? '#f0fdf4' : '#1e3a8a') }]}
+                          onPress={detectSim}
+                        >
+                          <Text style={[styles.fetchTagText, { color: isSimMatched ? '#166534' : '#fff' }]}>{isSimMatched ? 'NETWORK MATCH' : 'FETCH SIM'}</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                </View>
 
                {!hrStatus?.attendance?.checkInTime ? (
                  <View>
                    {(() => {
-                     const conditions = [];
-                     if (!hrStatus?.shift) conditions.push('No Shift Assigned');
-                     if (!(user?.phone || user?.mobile)) conditions.push('No Phone Registered');
-                     else if (!isSimMatched) conditions.push('SIM Not Matched');
-                     if (!location) conditions.push('GPS Not Active');
-                     else if (!isWithinRadius) conditions.push('Outside Geofence');
-                     
-                     const hasUnfilled = conditions.length > 0;
-                     
-                     return (
-                       <>
-                         {hasUnfilled && !otpVerified && (
-                           <View style={[styles.requirementWarning, { backgroundColor: isDark ? '#7c2d12' : '#fffbeb', borderColor: isDark ? colors.border : '#fef3c7' }]}>
+                      const conditions = [];
+                      if (!isOfflineMode) {
+                        if (!hrStatus?.shift) conditions.push('No Shift Assigned');
+                        if (!(user?.phone || user?.mobile)) conditions.push('No Phone Registered');
+                        else if (!isSimMatched) conditions.push('SIM Not Matched');
+                        if (!location) conditions.push('GPS Not Active');
+                        else if (!isWithinRadius) conditions.push('Outside Geofence');
+                      }
+                      
+                      const hasUnfilled = conditions.length > 0;
+                      
+                      return (
+                        <>
+                          {isOfflineMode && !otpVerified && (
+                            <View style={[styles.requirementWarning, { backgroundColor: isDark ? '#1e1b4b' : '#f0f9ff', borderColor: isDark ? colors.border : '#bae6fd' }]}>
+                               <Globe size={14} color="#0284c7" />
+                               <Text style={[styles.warningText, { color: isDark ? colors.text : '#0369a1' }]}>
+                                  Offline Mode: Attendance will be recorded locally and synced when online.
+                               </Text>
+                            </View>
+                          )}
+                          
+                          {hasUnfilled && !otpVerified && !isOfflineMode && (
+                            <View style={[styles.requirementWarning, { backgroundColor: isDark ? '#7c2d12' : '#fffbeb', borderColor: isDark ? colors.border : '#fef3c7' }]}>
                               <AlertCircle size={14} color="#f59e0b" />
                               <Text style={[styles.warningText, { color: isDark ? colors.text : '#b45309' }]}>
                                  Requires: {conditions.join(', ')}

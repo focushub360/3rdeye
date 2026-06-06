@@ -35,8 +35,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "408b1c9c-0981-43d7-8a07-3ebbb920a297"
+        "projectId": "208761e8-361d-450d-bc2f-74433911d0af"
       }
-    }
+    },
+    "owner": "bharathan25"
   }
 }

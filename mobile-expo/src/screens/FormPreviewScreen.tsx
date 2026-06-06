@@ -46,6 +46,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { offlineQueue } from '../api/OfflineQueue';
 import { useQuestionLogic } from '../hooks/useQuestionLogic';
 import { useTheme } from '../context/ThemeContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // import * as Location from 'expo-location';
 
 // Helper to normalize image URLs for reference images
@@ -128,9 +129,43 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
     try {
       setLoading(true);
       setError(null);
+
+      // Check network connectivity first
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        // Retrieve from cache
+        const cached = await AsyncStorage.getItem(`@cached_form_details_${id}`);
+        if (cached) {
+          const formData = JSON.parse(cached);
+          setForm(formData);
+          
+          if (formData.chassisNumbers && formData.chassisNumbers.length > 0) {
+            let list = formData.chassisNumbers;
+            if (formData.chassisTenantAssignments && user?.tenantId) {
+              const tenantIdStr = user.tenantId.toString();
+              const assigned = formData.chassisTenantAssignments
+                .filter((a: any) => a.assignedTenants && a.assignedTenants.includes(tenantIdStr))
+                .map((a: any) => a.chassisNumber);
+              
+              if (assigned.length > 0) {
+                list = list.filter((c: any) => assigned.includes(c.chassisNumber));
+              }
+            }
+            setAvailableChassis(list);
+          }
+          setLoading(false);
+          return;
+        } else {
+          throw new Error('No internet connection and form is not cached.');
+        }
+      }
+
       const response = await apiClient.get(`/forms/${id}`);
       const formData = response.data?.data?.form || response.data?.data || response.data?.form || response.data;
       setForm(formData);
+
+      // Save/update cache
+      await AsyncStorage.setItem(`@cached_form_details_${id}`, JSON.stringify(formData));
 
       // Extract available chassis based on tenant assignments
       if (formData.chassisNumbers && formData.chassisNumbers.length > 0) {
@@ -151,11 +186,38 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
       }
     } catch (err: any) {
       console.error('FormPreview fetch error:', err.message);
-      setError('Could not load form. Please try again.');
+      
+      // Try to load from cache on failure (even if we thought we were online)
+      try {
+        const cached = await AsyncStorage.getItem(`@cached_form_details_${id}`);
+        if (cached) {
+          const formData = JSON.parse(cached);
+          setForm(formData);
+          if (formData.chassisNumbers && formData.chassisNumbers.length > 0) {
+            let list = formData.chassisNumbers;
+            if (formData.chassisTenantAssignments && user?.tenantId) {
+              const tenantIdStr = user.tenantId.toString();
+              const assigned = formData.chassisTenantAssignments
+                .filter((a: any) => a.assignedTenants && a.assignedTenants.includes(tenantIdStr))
+                .map((a: any) => a.chassisNumber);
+              
+              if (assigned.length > 0) {
+                list = list.filter((c: any) => assigned.includes(c.chassisNumber));
+              }
+            }
+            setAvailableChassis(list);
+          }
+          return;
+        }
+      } catch (cacheErr) {
+        console.error('Cache load fallback failed:', cacheErr);
+      }
+
+      setError('Could not load form. Please check your internet connection and try again.');
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, user?.tenantId]);
 
   useEffect(() => { fetchForm(); }, [fetchForm]);
 
@@ -658,18 +720,14 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
             
             setUploadProgress(prev => ({ ...prev, current: prev.current + 1 }));
           } catch (uploadErr: any) {
-            console.error('Final upload failure after retries:', task.path![0], uploadErr);
+            console.error('Final upload failure, falling back to local queue:', task.path![0], uploadErr);
             
-            // Strictly follow user requirement: Only queue if internet is OFF
-            // If we get here, we are "online" but the upload failed.
-            // We should show an error instead of silent queuing.
-            const errorMsg = uploadErr.response?.data?.message || uploadErr.message || 'Network timeout or server error';
-            Alert.alert(
-              'Upload Failed',
-              `Could not upload image: ${task.path![0].split('/').pop()}\n\nError: ${errorMsg}\n\nSince you are online, please check your connection or try again.`,
-              [{ text: 'OK' }]
-            );
-            throw new Error('UPLOAD_FAILED');
+            // Queue payload locally in offline queue (with local file paths)
+            await offlineQueue.addToQueue(id, payload);
+            setWasQueued(true);
+            setSubmitting(false);
+            setSubmitted(true);
+            return;
           }
 
           // Small pause between uploads
@@ -687,20 +745,10 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
         throw new Error(response.data.message || 'Server rejected submission');
       }
     } catch (err: any) {
-      if (err.message === 'UPLOAD_FAILED') return;
-      console.error('Submission error:', err);
-      
-      // We already checked isOnline at the start. 
-      // If it fails here, and we aren't explicitly offline, show error.
-      const netState = await NetInfo.fetch();
-      if (!netState.isConnected) {
-        await offlineQueue.addToQueue(id, payload);
-        setWasQueued(true);
-        setSubmitted(true);
-      } else {
-        const errorMessage = err.response?.data?.message || err.message || 'Unknown error';
-        Alert.alert('Submission Error', `The submission could not be completed. \n\nDetails: ${errorMessage}\n\nPlease try again.`, [{ text: 'OK' }]);
-      }
+      console.error('Submission error, falling back to local queue:', err);
+      await offlineQueue.addToQueue(id, payload);
+      setWasQueued(true);
+      setSubmitted(true);
     } finally {
       setSubmitting(false);
     }
@@ -946,103 +994,6 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
                       </TouchableOpacity>
                     );
                   })}
-                </View>
-              </View>
-            )}
-           {/* Response Summary (Web Parity) */}
-           {readOnly && (
-             <View style={[styles.responseSummaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-               <View style={styles.summaryHeader}>
-                 <View style={[styles.summaryIconBox, { backgroundColor: colors.surface }]}>
-                   <ClipboardCheck size={20} color={colors.accent} />
-                 </View>
-                 <View style={{ flex: 1 }}>
-                   <Text style={[styles.summaryHeaderTitle, { color: colors.text }]}>RESPONSE SUMMARY</Text>
-                   <Text style={[styles.summaryHeaderSub, { color: colors.subtext }]}>Submission Metadata</Text>
-                 </View>
-
-                 {/* Dispatch Action (Submitter Only) */}
-                 {(() => {
-                    const s = String(status || '').toLowerCase();
-                    const canShowDispatch = s.includes('accepted') || s.includes('verified') || s.includes('ok') || s.includes('direct');
-                    const userEmail = user?.email || '';
-                    const isSubmitter = initialSubmittedBy === userEmail || initialSubmitterContact?.email === userEmail || (user?.name && initialSubmittedBy === user.name);
-
-                    if (canShowDispatch && isSubmitter) {
-                      return (
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
-                          {/* Chat Button */}
-                          <TouchableOpacity 
-                            style={[styles.dispatchToggle, { backgroundColor: colors.surface, borderColor: colors.accent }]}
-                            onPress={() => navigation.navigate('ResponseFeedback', { 
-                              response: { 
-                                id: responseId, 
-                                _id: responseId,
-                                answers: initialAnswers,
-                                chassisNumber,
-                                shift,
-                                status,
-                                submittedBy: initialSubmittedBy,
-                                submitterContact: initialSubmitterContact
-                              }, 
-                              formTitle: title,
-                              sections: form?.sections 
-                            })}
-                          >
-                            <MessageSquare size={10} color={colors.accent} />
-                            <Text style={[styles.dispatchToggleText, { color: colors.accent }]}>CHAT</Text>
-                          </TouchableOpacity>
-
-                          {/* Dispatch Toggle */}
-                          <TouchableOpacity 
-                            style={[styles.dispatchToggle, { backgroundColor: colors.surface, borderColor: colors.success }, isDispatched && [styles.dispatchToggleActive, { backgroundColor: colors.success }]]}
-                            onPress={handleDispatchToggle}
-                            disabled={dispatching}
-                          >
-                            {dispatching ? (
-                              <ActivityIndicator size="small" color={isDispatched ? "#fff" : colors.success} />
-                            ) : (
-                              <>
-                                <View style={[styles.miniCheckbox, { borderColor: colors.success }, isDispatched && [styles.miniCheckboxChecked, { borderColor: '#fff' }]]}>
-                                  {isDispatched && <CheckCircle size={10} color="#fff" />}
-                                </View>
-                                <Text style={[styles.dispatchToggleText, { color: colors.success }, isDispatched && [styles.dispatchToggleTextActive, { color: '#fff' }]]}>
-                                  {isDispatched ? 'DISPATCHED' : 'DISPATCH'}
-                                </Text>
-                              </>
-                            )}
-                          </TouchableOpacity>
-                        </View>
-                      );
-                    }
-                    return null;
-                 })()}
-               </View>
-               <View style={[styles.summaryGrid, { borderTopColor: colors.border }]}>
-                 <View style={styles.summaryItem}>
-                   <Text style={styles.summaryLabel}>CHASSIS NUMBER</Text>
-                   <Text style={[styles.summaryValue, { color: colors.accent }]}>{chassisNumber || 'N/A'}</Text>
-                 </View>
-                 <View style={[styles.summaryDivider, { backgroundColor: colors.border }]} />
-                 <View style={styles.summaryItem}>
-                   <Text style={styles.summaryLabel}>SHIFT</Text>
-                   <Text style={[styles.summaryValue, { color: colors.accent }]}>{shift || 'N/A'}</Text>
-                 </View>
-                 <View style={[styles.summaryDivider, { backgroundColor: colors.border }]} />
-                 <View style={styles.summaryItem}>
-                   <Text style={styles.summaryLabel}>STATUS</Text>
-                   <View style={[
-                     styles.summaryStatusBadge,
-                     { backgroundColor: String(status).toLowerCase().includes('accepted') ? (isDark ? '#064e3b' : '#ecfdf5') : String(status).toLowerCase().includes('rejected') ? (isDark ? '#450a0a' : '#fef2f2') : (isDark ? '#7c2d12' : '#fff7ed') }
-                   ]}>
-                      <Text style={[
-                        styles.summaryStatusText,
-                        { color: String(status).toLowerCase().includes('accepted') ? '#059669' : String(status).toLowerCase().includes('rejected') ? '#ef4444' : '#d97706' }
-                      ]}>
-                        {(status || 'PENDING').toString().toUpperCase()}
-                      </Text>
-                    </View>
-                  </View>
                 </View>
               </View>
             )}

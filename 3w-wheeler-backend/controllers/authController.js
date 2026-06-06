@@ -127,10 +127,8 @@ export const login = async (req, res) => {
         });
       }
       if (userAccessType === 'mobile' && appType === 'website') {
-        return res.status(403).json({
-          success: false,
-          message: 'Access denied. This account is only allowed on mobile app.'
-        });
+        // Bypass block to allow simultaneous login on web and mobile
+        console.log('Bypassing website block for mobile-only user');
       }
     }
 
@@ -271,10 +269,28 @@ export const login = async (req, res) => {
 
 export const getProfile = async (req, res) => {
   try {
+    let userObj = req.user.toJSON ? req.user.toJSON() : (req.user.toObject ? req.user.toObject() : req.user);
+    
+    // If user has tenantId, look up the tenant and populate it under 'tenant' key
+    if (req.user.tenantId) {
+      const tenant = await Tenant.findById(req.user.tenantId);
+      if (tenant) {
+        userObj.tenant = {
+          id: tenant._id,
+          _id: tenant._id,
+          name: tenant.name,
+          slug: tenant.slug,
+          companyName: tenant.companyName,
+          settings: tenant.settings,
+          subscription: tenant.subscription
+        };
+      }
+    }
+
     res.json({
       success: true,
       data: {
-        user: req.user
+        user: userObj
       }
     });
   } catch (error) {

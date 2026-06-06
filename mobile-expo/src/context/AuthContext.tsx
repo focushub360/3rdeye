@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiClient from '../api/config';
 
 interface User {
@@ -97,15 +98,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const fetchCheckInStatus = async () => {
       if (user?.role === 'inspector' && token) {
+        const userId = user._id || user.id;
         try {
           const res = await apiClient.get('/hr/attendance/my-status');
           if (res.data.success) {
             const statusData = res.data.data;
             const isChecked = !!statusData?.attendance?.checkInTime && !statusData?.attendance?.checkOutTime;
             setIsCheckedIn(isChecked);
+            await AsyncStorage.setItem(`@hr_status_${userId}`, JSON.stringify(statusData));
           }
         } catch (error) {
-          // console.log('Failed to fetch initial check-in status:', error);
+          // Fallback to offline cached check-in status
+          try {
+            const cachedStatus = await AsyncStorage.getItem(`@hr_status_${userId}`);
+            if (cachedStatus) {
+              const statusData = JSON.parse(cachedStatus);
+              const isChecked = !!statusData?.attendance?.checkInTime && !statusData?.attendance?.checkOutTime;
+              setIsCheckedIn(isChecked);
+            }
+          } catch (cacheErr) {
+            console.error('Failed to load cached check-in status:', cacheErr);
+          }
         }
       }
     };

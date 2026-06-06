@@ -29,6 +29,7 @@ import apiClient from '../api/config';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 
@@ -43,6 +44,7 @@ export default function FormsListScreen() {
   const { user } = useAuth();
 
   const fetchForms = async () => {
+    const userId = user?._id || user?.id;
     try {
       // Use authenticated endpoint for logged-in users to respect tenant isolation
       const endpoint = '/forms';
@@ -53,11 +55,44 @@ export default function FormsListScreen() {
         const validForms = Array.isArray(formData) ? formData : [];
         setForms(validForms);
         setStats(prev => ({ ...prev, totalForms: validForms.length }));
+        
+        await AsyncStorage.setItem(`@cached_forms_${userId}`, JSON.stringify(validForms));
+
+        // Pre-fetch each form's details in background for offline readiness
+        validForms.forEach(async (formItem: any) => {
+          const formId = formItem.id || formItem._id;
+          if (formId) {
+            try {
+              const formDetailRes = await apiClient.get(`/forms/${formId}`);
+              const formData = formDetailRes.data?.data?.form || formDetailRes.data?.data || formDetailRes.data?.form || formDetailRes.data;
+              if (formData) {
+                await AsyncStorage.setItem(`@cached_form_details_${formId}`, JSON.stringify(formData));
+                console.log(`Pre-fetched and cached form ${formId} for offline use.`);
+              }
+            } catch (detailErr) {
+              console.log(`Failed to pre-fetch form ${formId}:`, detailErr);
+            }
+          }
+        });
       }
     } catch (error: any) {
       console.error('Fetch forms error:', error?.response?.data || error.message);
-      Alert.alert("Connection Issue", "Could not fetch your forms. Please check your network.");
-      setForms([]);
+      
+      // Cache recovery fallback
+      try {
+        const cached = await AsyncStorage.getItem(`@cached_forms_${userId}`);
+        if (cached) {
+          const validForms = JSON.parse(cached);
+          setForms(validForms);
+          setStats(prev => ({ ...prev, totalForms: validForms.length }));
+        } else {
+          Alert.alert("Connection Issue", "Could not fetch your forms. Please check your network.");
+          setForms([]);
+        }
+      } catch (cacheErr) {
+        Alert.alert("Connection Issue", "Could not fetch your forms. Please check your network.");
+        setForms([]);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);

@@ -28,6 +28,9 @@ import {
 } from 'lucide-react-native';
 import apiClient from '../api/config';
 import { useAuth } from '../context/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
+import { offlineQueue } from '../api/OfflineQueue';
 
 const { width } = Dimensions.get('window');
 
@@ -50,21 +53,36 @@ const PermissionManagementScreen = ({ navigation }: any) => {
   });
 
   const fetchData = async () => {
+    const userId = user?._id || user?.id;
+    const cacheKey = activeTab === 'all' ? `@cached_permissions_all_${userId}` : `@cached_permissions_my_${userId}`;
     try {
       setLoading(true);
       const endpoint = activeTab === 'all' ? '/hr/permissions/all' : '/hr/permissions/my';
       const response = await apiClient.get(endpoint);
       
       if (response.data.success) {
-        setPermissions(response.data.data || []);
+        const permData = response.data.data || [];
+        setPermissions(permData);
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(permData));
       }
     } catch (error) {
       console.error('Fetch permissions error:', error);
-      // Mock data
-      setPermissions([
-        { _id: '1', type: 'personal', date: '2026-04-12', startTime: '10:00', endTime: '12:00', reason: 'Bank work', status: 'approved', inspector: { firstName: 'Suresh', lastName: 'Kumar' } },
-        { _id: '2', type: 'official', date: '2026-04-14', startTime: '15:00', endTime: '17:00', reason: 'Client meeting', status: 'pending', inspector: { firstName: 'Karthik', lastName: 'Rao' } },
-      ]);
+      
+      // Fallback to offline cached permissions
+      try {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) {
+          setPermissions(JSON.parse(cached));
+        } else {
+          // Default mock data if no cache exists
+          setPermissions([
+            { _id: '1', type: 'personal', date: '2026-04-12', startTime: '10:00', endTime: '12:00', reason: 'Bank work', status: 'approved', inspector: { firstName: 'Suresh', lastName: 'Kumar' } },
+            { _id: '2', type: 'official', date: '2026-04-14', startTime: '15:00', endTime: '17:00', reason: 'Client meeting', status: 'pending', inspector: { firstName: 'Karthik', lastName: 'Rao' } },
+          ]);
+        }
+      } catch (cacheErr) {
+        setPermissions([]);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -83,6 +101,46 @@ const PermissionManagementScreen = ({ navigation }: any) => {
   const handleApply = async () => {
     if (!formData.reason) {
       Alert.alert('Error', 'Please provide a reason for permission.');
+      return;
+    }
+    
+    // Check network connectivity
+    const netState = await NetInfo.fetch();
+    if (!netState.isConnected) {
+      try {
+        const userId = user?._id || user?.id;
+        
+        // Queue the request locally
+        await offlineQueue.addRequestToQueue('hr/permissions/apply', 'POST', formData);
+        Alert.alert('Offline Success', 'Permission request saved locally. It will synchronize automatically once you are back online.');
+        setShowApplyModal(false);
+        
+        // Optimistically add to current listing
+        const newPermItem = {
+          _id: `offline_perm_${Date.now()}`,
+          type: formData.type,
+          date: formData.date,
+          startTime: formData.startTime,
+          endTime: formData.endTime,
+          reason: formData.reason,
+          status: 'pending',
+          inspector: {
+            firstName: (user as any)?.firstName || (user?.name ? user.name.split(' ')[0] : 'My'),
+            lastName: (user as any)?.lastName || (user?.name ? user.name.split(' ').slice(1).join(' ') : 'Permission')
+          }
+        };
+        
+        setPermissions(prev => [newPermItem, ...prev]);
+        
+        // Cache the updated list
+        const cacheKey = activeTab === 'all' ? `@cached_permissions_all_${userId}` : `@cached_permissions_my_${userId}`;
+        const cached = await AsyncStorage.getItem(cacheKey);
+        const list = cached ? JSON.parse(cached) : [];
+        await AsyncStorage.setItem(cacheKey, JSON.stringify([newPermItem, ...list]));
+      } catch (err) {
+        console.error('Failed to queue permission request:', err);
+        Alert.alert('Error', 'Failed to save request locally.');
+      }
       return;
     }
     

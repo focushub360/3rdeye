@@ -25,3 +25,7 @@ Thumbs.db
 
 # cache
 .cache/
+
+# local dev folders
+.mongodb_data/
+node-dist/

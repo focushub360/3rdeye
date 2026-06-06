@@ -7,8 +7,8 @@ import XLSX from 'xlsx';
 import smsService from '../services/smsService.js';
 
 // Helper to get current IST time
-const getISTNow = () => {
-  const now = new Date();
+const getISTNow = (customDate) => {
+  const now = customDate ? new Date(customDate) : new Date();
   // IST is UTC + 5:30. Calculate UTC time first, then add IST offset.
   const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
   const istTime = new Date(utc + (5.5 * 60 * 60 * 1000));
@@ -16,14 +16,14 @@ const getISTNow = () => {
 };
 
 // Helper to get today's date boundary in IST (Midnight IST)
-const getISTToday = () => {
-  const istNow = getISTNow();
+const getISTToday = (customDate) => {
+  const istNow = getISTNow(customDate);
   istNow.setHours(0, 0, 0, 0);
   return istNow;
 };
 
-const getISTDate = () => {
-  const istNow = getISTNow();
+const getISTDate = (customDate) => {
+  const istNow = getISTNow(customDate);
   istNow.setHours(0, 0, 0, 0);
   return istNow;
 };
@@ -74,7 +74,7 @@ const findShiftByTime = (currentMins, shifts, bufferMins = 15) => {
  */
 export const checkIn = async (req, res) => {
   try {
-    const { lat, lng, accuracy, otp } = req.body;
+    const { lat, lng, accuracy, otp, offlineTime } = req.body;
     const inspectorId = req.user._id;
     const tenantId = req.user.tenantId;
     
@@ -91,8 +91,8 @@ export const checkIn = async (req, res) => {
     }
 
     // 2. Check for existing attendance today
-    const now = getISTNow();
-    const today = getISTToday();
+    const now = getISTNow(offlineTime);
+    const today = getISTToday(offlineTime);
 
     let existingAttendance = await Attendance.findOne({
       inspector: inspectorId,
@@ -190,11 +190,11 @@ export const checkIn = async (req, res) => {
  */
 export const checkOut = async (req, res) => {
   try {
-    const { lat, lng, accuracy } = req.body;
+    const { lat, lng, accuracy, offlineTime } = req.body;
     const inspectorId = req.user._id;
     const tenantId = req.user.tenantId;
-    const now = getISTNow();
-    const today = getISTToday();
+    const now = getISTNow(offlineTime);
+    const today = getISTToday(offlineTime);
 
     const attendance = await Attendance.findOne({
       inspector: inspectorId,
@@ -546,6 +546,35 @@ export const sendAttendanceOTP = async (req, res) => {
     
     res.json({ success: true, message: 'OTP sent to your mobile number' });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Verify OTP for attendance verification
+ */
+export const verifyAttendanceOTP = async (req, res) => {
+  try {
+    const { otp } = req.body;
+    const inspectorId = req.user._id;
+
+    const user = await User.findById(inspectorId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (user.attendanceOTP !== otp) {
+      return res.status(400).json({ success: false, message: 'Invalid OTP' });
+    }
+
+    // Clear OTP and mark as verified
+    user.attendanceOTP = null;
+    user.attendanceOTPVerified = true;
+    await user.save();
+
+    res.json({ success: true, message: 'OTP verified successfully' });
+  } catch (error) {
+    console.error('Verify attendance OTP error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

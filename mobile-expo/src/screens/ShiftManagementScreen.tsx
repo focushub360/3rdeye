@@ -27,6 +27,7 @@ import {
 } from 'lucide-react-native';
 import apiClient from '../api/config';
 import { useAuth } from '../context/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 
@@ -38,31 +39,44 @@ const ShiftManagementScreen = ({ navigation }: any) => {
   const [shiftData, setShiftData] = useState<any>(null);
 
   const fetchShiftDetails = async () => {
+    const userId = user?._id || user?.id;
+    const cacheKey = `@cached_my_shift_${userId}`;
     try {
       setLoading(true);
       const response = await apiClient.get('/hr/attendance/my-shift');
       if (response.data.success) {
         setShiftData(response.data.data);
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(response.data.data));
       }
     } catch (error) {
-      console.log('Mocking shift data for demo');
-      setShiftData({
-        currentShift: {
-          name: 'General Shift',
-          startTime: '09:00',
-          endTime: '18:00',
-          breakTime: '13:00 - 14:00',
-          days: 'Mon - Fri',
-          color: '#1e3a8a'
-        },
-        roster: [
-          { day: 'Mon', date: '24 Apr', shift: 'General' },
-          { day: 'Tue', date: '25 Apr', shift: 'General' },
-          { day: 'Wed', date: '26 Apr', shift: 'General' },
-          { day: 'Thu', date: '27 Apr', shift: 'Weekly Off', isOff: true },
-          { day: 'Fri', date: '28 Apr', shift: 'Morning', isRotating: true },
-        ]
-      });
+      console.log('Error fetching shift details, loading fallback from cache');
+      try {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) {
+          setShiftData(JSON.parse(cached));
+        } else {
+          // Mock data fallback if no cache exists
+          setShiftData({
+            currentShift: {
+              name: 'General Shift',
+              startTime: '09:00',
+              endTime: '18:00',
+              breakTime: '13:00 - 14:00',
+              days: 'Mon - Fri',
+              color: '#1e3a8a'
+            },
+            roster: [
+              { day: 'Mon', date: '24 Apr', shift: 'General' },
+              { day: 'Tue', date: '25 Apr', shift: 'General' },
+              { day: 'Wed', date: '26 Apr', shift: 'General' },
+              { day: 'Thu', date: '27 Apr', shift: 'Weekly Off', isOff: true },
+              { day: 'Fri', date: '28 Apr', shift: 'Morning', isRotating: true },
+            ]
+          });
+        }
+      } catch (cacheErr) {
+        // Fallback to mock data on error
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);

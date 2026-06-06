@@ -28,6 +28,9 @@ import {
 } from 'lucide-react-native';
 import apiClient from '../api/config';
 import { useAuth } from '../context/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
+import { offlineQueue } from '../api/OfflineQueue';
 
 const { width } = Dimensions.get('window');
 
@@ -49,21 +52,36 @@ const LeaveManagementScreen = ({ navigation }: any) => {
   });
 
   const fetchData = async () => {
+    const userId = user?._id || user?.id;
+    const cacheKey = activeTab === 'all' ? `@cached_leaves_all_${userId}` : `@cached_leaves_my_${userId}`;
     try {
       setLoading(true);
       const endpoint = activeTab === 'all' ? '/hr/leaves/all' : '/hr/leaves/my';
       const response = await apiClient.get(endpoint);
       
       if (response.data.success) {
-        setLeaves(response.data.data || []);
+        const leaveData = response.data.data || [];
+        setLeaves(leaveData);
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(leaveData));
       }
     } catch (error) {
       console.error('Fetch leaves error:', error);
-      // Mock data for demo if API fails
-      setLeaves([
-        { _id: '1', leaveType: 'sick', startDate: '2026-04-10', endDate: '2026-04-11', totalDays: 2, reason: 'Flu symptoms', status: 'approved', inspector: { firstName: 'Karthik', lastName: 'Rao' } },
-        { _id: '2', leaveType: 'casual', startDate: '2026-04-15', endDate: '2026-04-15', totalDays: 1, reason: 'Family event', status: 'pending', inspector: { firstName: 'Karthik', lastName: 'Rao' } },
-      ]);
+      
+      // Fallback to offline cached leaves
+      try {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) {
+          setLeaves(JSON.parse(cached));
+        } else {
+          // Default mock data if no cache exists
+          setLeaves([
+            { _id: '1', leaveType: 'sick', startDate: '2026-04-10', endDate: '2026-04-11', totalDays: 2, reason: 'Flu symptoms', status: 'approved', inspector: { firstName: 'Karthik', lastName: 'Rao' } },
+            { _id: '2', leaveType: 'casual', startDate: '2026-04-15', endDate: '2026-04-15', totalDays: 1, reason: 'Family event', status: 'pending', inspector: { firstName: 'Karthik', lastName: 'Rao' } },
+          ]);
+        }
+      } catch (cacheErr) {
+        setLeaves([]);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -82,6 +100,54 @@ const LeaveManagementScreen = ({ navigation }: any) => {
   const handleApply = async () => {
     if (!formData.reason) {
       Alert.alert('Error', 'Please provide a reason for leave.');
+      return;
+    }
+    
+    // Check network connectivity
+    const netState = await NetInfo.fetch();
+    if (!netState.isConnected) {
+      try {
+        const userId = user?._id || user?.id;
+        const timestamp = new Date().toISOString();
+        
+        // Queue the request locally
+        await offlineQueue.addRequestToQueue('hr/leaves/apply', 'POST', formData);
+        Alert.alert('Offline Success', 'Leave request saved locally. It will synchronize automatically once you are back online.');
+        setShowApplyModal(false);
+        
+        // Optimistically add to current listing
+        const newLeaveItem = {
+          _id: `offline_leave_${Date.now()}`,
+          leaveType: formData.leaveType,
+          startDate: formData.startDate,
+          endDate: formData.endDate,
+          reason: formData.reason,
+          totalDays: Math.round((new Date(formData.endDate).getTime() - new Date(formData.startDate).getTime()) / (1000 * 60 * 60 * 24)) + 1,
+          status: 'pending',
+          inspector: {
+            firstName: (user as any)?.firstName || (user?.name ? user.name.split(' ')[0] : 'My'),
+            lastName: (user as any)?.lastName || (user?.name ? user.name.split(' ').slice(1).join(' ') : 'Leave')
+          }
+        };
+        
+        setLeaves(prev => [newLeaveItem, ...prev]);
+        
+        // Cache the updated list
+        const cacheKey = activeTab === 'all' ? `@cached_leaves_all_${userId}` : `@cached_leaves_my_${userId}`;
+        const cached = await AsyncStorage.getItem(cacheKey);
+        const list = cached ? JSON.parse(cached) : [];
+        await AsyncStorage.setItem(cacheKey, JSON.stringify([newLeaveItem, ...list]));
+        
+        setFormData({
+          leaveType: 'sick',
+          startDate: new Date().toISOString().split('T')[0],
+          endDate: new Date().toISOString().split('T')[0],
+          reason: '',
+        });
+      } catch (err) {
+        console.error('Failed to queue leave request:', err);
+        Alert.alert('Error', 'Failed to save request locally.');
+      }
       return;
     }
     

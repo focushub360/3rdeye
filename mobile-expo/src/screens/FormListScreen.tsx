@@ -19,6 +19,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import apiClient, { BASE_URL } from '../api/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { 
   FileText, 
   ChevronRight,
@@ -148,15 +149,36 @@ const FormListScreen = ({ navigation }: any) => {
 
   const fetchForms = async () => {
     setNetworkError(false);
+    const userId = user?._id || user?.id;
     try {
       const response = await apiClient.get('/forms');
       if (response.data.success) {
-        // Safely handle different API response shapes
         const formsData = response.data.data?.forms 
           || response.data.data 
           || response.data.forms 
           || [];
+        
         setForms(Array.isArray(formsData) ? formsData : []);
+        await AsyncStorage.setItem(`@cached_forms_${userId}`, JSON.stringify(formsData));
+
+        // Pre-fetch each form's details in background for offline readiness
+        if (Array.isArray(formsData)) {
+          formsData.forEach(async (formItem: any) => {
+            const formId = formItem.id || formItem._id;
+            if (formId) {
+              try {
+                const formDetailRes = await apiClient.get(`/forms/${formId}`);
+                const formData = formDetailRes.data?.data?.form || formDetailRes.data?.data || formDetailRes.data?.form || formDetailRes.data;
+                if (formData) {
+                  await AsyncStorage.setItem(`@cached_form_details_${formId}`, JSON.stringify(formData));
+                  console.log(`Pre-fetched and cached form ${formId} for offline use.`);
+                }
+              } catch (detailErr) {
+                console.log(`Failed to pre-fetch form ${formId}:`, detailErr);
+              }
+            }
+          });
+        }
       }
     } catch (error: any) {
       if (error.response?.status === 401) {
@@ -172,8 +194,18 @@ const FormListScreen = ({ navigation }: any) => {
       } else if (error.request) {
         console.log('No response received. Request details:', JSON.stringify(error.request).substring(0, 200));
       }
-      setNetworkError(true);
-      // Keep existing forms if already loaded; don't wipe them out
+      
+      // Fallback to offline cached forms list
+      try {
+        const cached = await AsyncStorage.getItem(`@cached_forms_${userId}`);
+        if (cached) {
+          setForms(JSON.parse(cached));
+        } else {
+          setNetworkError(true);
+        }
+      } catch (cacheErr) {
+        setNetworkError(true);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -214,7 +246,8 @@ const FormListScreen = ({ navigation }: any) => {
   }, []);
 
   const handleFormPreview = (id: string, title: string) => {
-    navigation.navigate('FormPreview', { id, title, readOnly: isInspector });
+    // Inspectors need to fill out and submit forms, so they should not be in read-only mode.
+    navigation.navigate('FormPreview', { id, title, readOnly: !isInspector });
   };
 
   const handleFormAnalytics = (id: string, title: string) => {

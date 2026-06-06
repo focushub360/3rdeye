@@ -10,7 +10,9 @@ const QUEUE_KEY = '@inspection_offline_queue';
 
 export interface QueuedSubmission {
   id: string;
-  formId: string;
+  formId?: string;
+  endpoint?: string;
+  method?: 'POST' | 'PUT';
   payload: any;
   timestamp: string;
   retries: number;
@@ -72,6 +74,33 @@ class OfflineQueueService {
       return newEntry.id;
     } catch (error) {
       console.error('[OfflineQueue] Error adding to queue:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add a general API request (check-in/check-out) to the offline queue
+   */
+  async addRequestToQueue(endpoint: string, method: 'POST' | 'PUT', payload: any) {
+    try {
+      const queueJson = await AsyncStorage.getItem(QUEUE_KEY);
+      const queue: QueuedSubmission[] = queueJson ? JSON.parse(queueJson) : [];
+      
+      const newEntry: QueuedSubmission = {
+        id: `offline_req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        endpoint,
+        method,
+        payload,
+        timestamp: new Date().toISOString(),
+        retries: 0
+      };
+
+      queue.push(newEntry);
+      await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+      console.log(`[OfflineQueue] Added request to queue: ${method} ${endpoint}. Total: ${queue.length}`);
+      return newEntry.id;
+    } catch (error) {
+      console.error('[OfflineQueue] Error adding request to queue:', error);
       throw error;
     }
   }
@@ -190,33 +219,41 @@ class OfflineQueueService {
 
     for (const item of queue) {
       try {
-        console.log(`[OfflineQueue] Syncing item ${item.id} for form ${item.formId}...`);
-        
-        // 1. Process any pending local file:// images in the payload
-        const processedPayload = await this.processPayloadImages(item.payload);
+        let response;
+        if (item.endpoint) {
+          console.log(`[OfflineQueue] Syncing request ${item.id}: ${item.method || 'POST'} ${item.endpoint}...`);
+          const method = item.method || 'POST';
+          if (method === 'POST') {
+            response = await apiClient.post(item.endpoint, item.payload);
+          } else if (method === 'PUT') {
+            response = await apiClient.put(item.endpoint, item.payload);
+          } else {
+            throw new Error(`Unsupported method: ${method}`);
+          }
+        } else {
+          console.log(`[OfflineQueue] Syncing item ${item.id} for form ${item.formId}...`);
+          
+          // 1. Process any pending local file:// images in the payload
+          const processedPayload = await this.processPayloadImages(item.payload);
 
-        // 2. Use the same endpoint as real submission
-        const response = await apiClient.post(`/responses/${item.formId}`, processedPayload);
+          // 2. Use the same endpoint as real submission
+          response = await apiClient.post(`/responses/${item.formId}`, processedPayload);
+        }
         
-        if (response.data.success) {
+        if (response && response.data && response.data.success) {
           console.log(`[OfflineQueue] Successfully synced ${item.id}`);
         } else {
-          throw new Error(response.data.message || 'Server error during sync');
+          throw new Error((response && response.data && response.data.message) || 'Server error during sync');
         }
       } catch (error: any) {
         const errorMsg = error.response?.data?.message || error.message;
         const errorStatus = error.response?.status;
-        console.error(`[OfflineQueue] Failed to sync ${item.id}:`, errorMsg, `(Status: ${errorStatus})`);
         
-        // Keep in queue if it's a network error or transient server error
-        if (item.retries < 10) {
-          remainingQueue.push({
-            ...item,
-            retries: item.retries + 1
-          });
-        } else {
-          console.error(`[OfflineQueue] Max retries reached for ${item.id}. Dropping.`);
-        }
+        console.warn(`[OfflineQueue] Sync failure for ${item.id}:`, errorMsg, `(Status: ${errorStatus}). Keeping in queue for retry.`);
+        remainingQueue.push({
+          ...item,
+          retries: item.retries + 1
+        });
       }
 
       // Update stored queue and trigger callback
@@ -231,6 +268,23 @@ class OfflineQueueService {
       console.log(`[OfflineQueue] Finished processing. ${remainingQueue.length} items remain in queue.`);
     } else {
       console.log('[OfflineQueue] All items synced successfully!');
+    }
+  }
+
+  /**
+   * Remove a specific item from the queue by ID
+   */
+  async removeFromQueue(id: string) {
+    try {
+      const queueJson = await AsyncStorage.getItem(QUEUE_KEY);
+      if (!queueJson) return;
+      const queue: QueuedSubmission[] = JSON.parse(queueJson);
+      const filtered = queue.filter(item => item.id !== id);
+      await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(filtered));
+      if (this.onProgressCallback) this.onProgressCallback(filtered.length);
+      console.log(`[OfflineQueue] Removed ${id} from queue. Remaining: ${filtered.length}`);
+    } catch (error) {
+      console.error('[OfflineQueue] Error removing from queue:', error);
     }
   }
 

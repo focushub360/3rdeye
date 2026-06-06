@@ -50,6 +50,7 @@ import {
 } from 'lucide-react-native';
 import { io } from 'socket.io-client';
 import apiClient, { BASE_URL } from '../api/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 
@@ -101,10 +102,22 @@ const FormAnalyticsScreen = ({ route, navigation }: any) => {
       console.log(`[FormAnalytics] API Response Success: ${response.data.success}, Data: ${!!response.data.data}`);
       if (response.data.success) {
         setData(response.data.data);
+        await AsyncStorage.setItem(`@cached_analytics_${id}`, JSON.stringify(response.data.data));
       }
     } catch (err: any) {
       console.error('FormAnalytics fetch error:', err.message);
-      setError('Could not load analytics for this form.');
+      
+      // Fallback to offline cached analytics/response data
+      try {
+        const cached = await AsyncStorage.getItem(`@cached_analytics_${id}`);
+        if (cached) {
+          setData(JSON.parse(cached));
+        } else {
+          setError('Could not load analytics for this form.');
+        }
+      } catch (cacheErr) {
+        setError('Could not load analytics for this form.');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);

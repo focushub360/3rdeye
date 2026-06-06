@@ -14,7 +14,7 @@ import {
   submitReview,
   getReviewsForResponse
 } from '../controllers/userController.js';
-import { authenticate, adminOnly, inspectorOrAdmin, authorize } from '../middleware/auth.js';
+import { authenticate, adminOnly, inspectorOrAdmin, authorize, superAdminOnly } from '../middleware/auth.js';
 import { addTenantFilter } from '../middleware/tenantIsolation.js';
 import { validateUserCreation } from '../middleware/validation.js';
 
@@ -36,26 +36,25 @@ router.get('/performance-scores', inspectorOrAdmin, getPerformanceScores);
 router.post('/reviews', authorize('admin', 'superadmin', 'subadmin', 'inspector'), submitReview);
 
 router.use(addTenantFilter);
-router.use(adminOnly);
 
 // @route   POST /api/users
 // @desc    Create a new user
 // @access  Private (Admin only)
-router.post('/', validateUserCreation, createUser);
+router.post('/', adminOnly, validateUserCreation, createUser);
 
 // @route   GET /api/users
 // @desc    Get all users with pagination and filtering
-// @access  Private (Admin only)
-router.get('/', getAllUsers);
+// @access  Private (Admin, SuperAdmin, SubAdmin, Inspector)
+router.get('/', authorize('admin', 'superadmin', 'subadmin', 'inspector'), getAllUsers);
 
 // Add these new routes
-router.get('/available-admins', getAvailableAdmins);
-router.get('/activity-logs', getUserActivityLogs); // Fixed: Added route matching frontend endpoint
-router.get('/:userId/activity', getUserActivityLogs);
-router.get('/hierarchy', getUsersHierarchy);
+router.get('/available-admins', authorize('admin', 'superadmin', 'subadmin', 'inspector'), getAvailableAdmins);
+router.get('/activity-logs', authorize('admin', 'superadmin', 'subadmin', 'inspector'), getUserActivityLogs); // Fixed: Added route matching frontend endpoint
+router.get('/:userId/activity', authorize('admin', 'superadmin', 'subadmin', 'inspector'), getUserActivityLogs);
+router.get('/hierarchy', adminOnly, getUsersHierarchy);
 
 // SuperAdmin route - get all tenants performance (must be BEFORE /:id to avoid conflict)
-router.get('/all-tenants-performance', getAllTenantsPerformance);
+router.get('/all-tenants-performance', superAdminOnly, getAllTenantsPerformance);
 
 // Performance scores routes - bypass tenant filter for cross-tenant visibility
 // @route   GET /api/users/performance-scores
@@ -67,21 +66,21 @@ router.get('/all-tenants-performance', getAllTenantsPerformance);
 // @route   GET /api/users/:id
 // @desc    Get user by ID
 // @access  Private (Admin only)
-router.get('/:id', getUserById);
+router.get('/:id', adminOnly, getUserById);
 
 // @route   PUT /api/users/:id
 // @desc    Update user
 // @access  Private (Admin only)
-router.put('/:id', updateUser);
+router.put('/:id', adminOnly, updateUser);
 
 // @route   DELETE /api/users/:id
 // @desc    Delete user
 // @access  Private (Admin only)
-router.delete('/:id', deleteUser);
+router.delete('/:id', adminOnly, deleteUser);
 
 // @route   PUT /api/users/:id/reset-password
 // @desc    Reset user password
 // @access  Private (Admin only)
-router.put('/:id/reset-password', resetUserPassword);
+router.put('/:id/reset-password', adminOnly, resetUserPassword);
 
 export default router;

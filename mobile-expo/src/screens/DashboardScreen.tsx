@@ -12,6 +12,7 @@ import {
   RefreshControl,
   Alert,
   Image,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -37,6 +38,10 @@ import {
   CheckCircle,
   ShieldCheck,
   ShieldAlert,
+  X,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react-native';
 import { offlineQueue } from '../api/OfflineQueue';
 
@@ -62,6 +67,119 @@ const DashboardScreen = () => {
   const [pendingItems, setPendingItems] = useState<any[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [initialSyncCount, setInitialSyncCount] = useState(0);
+  const [showPendingModal, setShowPendingModal] = useState(false);
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+
+  const handleDeletePendingItem = async (id: string) => {
+    Alert.alert(
+      'Discard Request',
+      'Are you sure you want to discard this offline queued request? This will permanently delete the unsaved data.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Discard', 
+          style: 'destructive',
+          onPress: async () => {
+            await offlineQueue.removeFromQueue(id);
+            const queue = await offlineQueue.getQueue();
+            setPendingItems(queue || []);
+            if (expandedItemId === id) {
+              setExpandedItemId(null);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const getPendingItemTitle = (item: any) => {
+    if (item.formId) return 'Inspection Report';
+    if (item.endpoint === 'hr/attendance/checkin') return 'Shift Check-In';
+    if (item.endpoint === 'hr/attendance/checkout') return 'Shift Check-Out';
+    if (item.endpoint === 'hr/leaves/apply') return 'Leave Request';
+    if (item.endpoint === 'hr/permissions/apply') return 'Permission / Gate Pass';
+    return `API Request (${item.endpoint || 'Unknown'})`;
+  };
+
+  const getPendingItemSummary = (item: any) => {
+    if (item.formId) {
+      return `Chassis: ${item.payload?.chassisNumber || item.payload?.answers?.q1 || 'N/A'}`;
+    }
+    if (item.endpoint === 'hr/attendance/checkin') {
+      return `Accuracy: ${item.payload?.accuracy ? `${item.payload.accuracy.toFixed(1)}m` : 'N/A'}`;
+    }
+    if (item.endpoint === 'hr/attendance/checkout') {
+      const time = item.payload?.offlineTime ? new Date(item.payload.offlineTime).toLocaleTimeString() : 'N/A';
+      return `Time: ${time}`;
+    }
+    if (item.endpoint === 'hr/leaves/apply') {
+      return `${item.payload?.leaveType?.toUpperCase() || 'Sick'} (${item.payload?.startDate} to ${item.payload?.endDate})`;
+    }
+    if (item.endpoint === 'hr/permissions/apply') {
+      return `${item.payload?.type?.toUpperCase() || 'Gate Pass'} (${item.payload?.startTime} - ${item.payload?.endTime})`;
+    }
+    return `Method: ${item.method || 'POST'}`;
+  };
+
+  const renderItemDetailsList = (item: any) => {
+    const payload = item.payload || {};
+    const details = [];
+
+    if (item.formId) {
+      details.push({ label: 'Form ID', value: item.formId });
+      details.push({ label: 'Chassis No', value: payload.chassisNumber || 'N/A' });
+      details.push({ label: 'Started At', value: payload.startedAt ? new Date(payload.startedAt).toLocaleString() : 'N/A' });
+      details.push({ label: 'Completed At', value: payload.completedAt ? new Date(payload.completedAt).toLocaleString() : 'N/A' });
+      
+      const numQuestions = payload.answers ? Object.keys(payload.answers).length : 0;
+      details.push({ label: 'Questions Filled', value: numQuestions.toString() });
+    } else if (item.endpoint === 'hr/attendance/checkin' || item.endpoint === 'hr/attendance/checkout') {
+      details.push({ label: 'Latitude', value: payload.latitude || payload.lat || 'N/A' });
+      details.push({ label: 'Longitude', value: payload.longitude || payload.lng || 'N/A' });
+      details.push({ label: 'Accuracy', value: payload.accuracy ? `${payload.accuracy.toFixed(2)} meters` : 'N/A' });
+      if (payload.offlineTime) {
+        details.push({ label: 'Offline Timestamp', value: new Date(payload.offlineTime).toLocaleString() });
+      }
+    } else if (item.endpoint === 'hr/leaves/apply') {
+      details.push({ label: 'Leave Type', value: payload.leaveType || 'N/A' });
+      details.push({ label: 'Start Date', value: payload.startDate || 'N/A' });
+      details.push({ label: 'End Date', value: payload.endDate || 'N/A' });
+      details.push({ label: 'Reason', value: payload.reason || 'N/A' });
+    } else if (item.endpoint === 'hr/permissions/apply') {
+      details.push({ label: 'Permission Type', value: payload.type || 'N/A' });
+      details.push({ label: 'Date', value: payload.date || 'N/A' });
+      details.push({ label: 'Start Time', value: payload.startTime || 'N/A' });
+      details.push({ label: 'End Time', value: payload.endTime || 'N/A' });
+      details.push({ label: 'Reason', value: payload.reason || 'N/A' });
+    } else {
+      details.push({ label: 'Endpoint', value: item.endpoint || 'N/A' });
+      details.push({ label: 'Method', value: item.method || 'N/A' });
+    }
+
+    return (
+      <View style={[styles.detailContainer, { backgroundColor: isDark ? colors.surface : '#f8fafc', borderColor: colors.border }]}>
+        {details.map((d, index) => (
+          <View key={index} style={styles.detailRow}>
+            <Text style={[styles.detailLabel, { color: colors.subtext }]}>{d.label}:</Text>
+            <Text style={[styles.detailVal, { color: colors.text }]}>{d.value}</Text>
+          </View>
+        ))}
+        <TouchableOpacity 
+          style={styles.jsonToggle} 
+          onPress={() => {
+            Alert.alert(
+              'Raw Request Payload',
+              JSON.stringify(payload, null, 2),
+              [{ text: 'Close' }],
+              { cancelable: true }
+            );
+          }}
+        >
+          <Text style={{ color: colors.accent, fontSize: 11, fontWeight: '700' }}>VIEW RAW PAYLOAD (JSON)</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'subadmin' || user?.role === 'lmadmin' || user?.role === 'manager';
 
@@ -239,17 +357,21 @@ const DashboardScreen = () => {
 
         {/* Clean Sync Pill */}
         <View style={styles.syncWrapper}>
-           <View style={[styles.syncPill, { backgroundColor: colors.card, borderColor: pendingItems.length > 0 ? colors.error : colors.border }]}>
+           <TouchableOpacity 
+             activeOpacity={pendingItems.length > 0 ? 0.7 : 1}
+             onPress={() => pendingItems.length > 0 && setShowPendingModal(true)}
+             style={[styles.syncPill, { backgroundColor: colors.card, borderColor: pendingItems.length > 0 ? colors.error : colors.border }]}
+           >
               <View style={[styles.syncDot, { backgroundColor: pendingItems.length > 0 ? colors.error : colors.success }]} />
               <Text style={[styles.syncPillText, { color: colors.subtext }]}>
-                 {pendingItems.length > 0 ? `${pendingItems.length} PENDING UPLOADS` : 'ALL DATA SYNCED'}
+                 {pendingItems.length > 0 ? `${pendingItems.length} PENDING UPLOADS (TAP TO VIEW)` : 'ALL DATA SYNCED'}
               </Text>
               {pendingItems.length > 0 && (
-                <TouchableOpacity onPress={handleManualSync} disabled={isSyncing} style={styles.syncMiniBtn}>
+                <View style={styles.syncMiniBtn}>
                    {isSyncing ? <ActivityIndicator size="small" color={colors.accent} /> : <CloudSync size={14} color={colors.accent} />}
-                </TouchableOpacity>
+                </View>
               )}
-           </View>
+           </TouchableOpacity>
         </View>
 
         {user?.role === 'superadmin' && (
@@ -439,6 +561,108 @@ const DashboardScreen = () => {
         </View>
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Pending Uploads Modal */}
+      <Modal
+        visible={showPendingModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowPendingModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <CloudSync size={20} color={colors.accent} />
+                <Text style={[styles.modalTitleText, { color: colors.text }]}>Pending Uploads Queue</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowPendingModal(false)} style={styles.closeBtn}>
+                <X size={20} color={colors.subtext} />
+              </TouchableOpacity>
+            </View>
+
+            {pendingItems.length === 0 ? (
+              <View style={styles.emptyQueue}>
+                <CheckCircle size={48} color={colors.success} />
+                <Text style={[styles.emptyQueueText, { color: colors.text }]}>All data is synchronized!</Text>
+                <Text style={[styles.emptyQueueSub, { color: colors.subtext }]}>No pending items in queue.</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.queueScroll} showsVerticalScrollIndicator={false}>
+                <Text style={[styles.queueInfoText, { color: colors.subtext }]}>
+                  The following requests were saved locally while offline. They will automatically upload when an active internet connection is detected, or you can manually sync them.
+                </Text>
+
+                {pendingItems.map((item) => {
+                  const isExpanded = expandedItemId === item.id;
+                  const itemTitle = getPendingItemTitle(item);
+                  const itemSummary = getPendingItemSummary(item);
+                  const formattedTime = new Date(item.timestamp).toLocaleString();
+
+                  return (
+                    <View 
+                      key={item.id} 
+                      style={[
+                        styles.queueCard, 
+                        { backgroundColor: colors.card, borderColor: colors.border }
+                      ]}
+                    >
+                      <TouchableOpacity 
+                        style={styles.queueCardHeader}
+                        onPress={() => setExpandedItemId(isExpanded ? null : item.id)}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.queueItemTitle, { color: colors.text }]}>{itemTitle}</Text>
+                          <Text style={[styles.queueItemSummary, { color: colors.subtext }]} numberOfLines={1}>{itemSummary}</Text>
+                          <Text style={[styles.queueItemTime, { color: colors.subtext }]}>{formattedTime}</Text>
+                        </View>
+                        
+                        <View style={styles.queueCardActions}>
+                          <TouchableOpacity 
+                            onPress={() => handleDeletePendingItem(item.id)} 
+                            style={styles.actionIconButton}
+                          >
+                            <Trash2 size={16} color={colors.error || '#ef4444'} />
+                          </TouchableOpacity>
+                          {isExpanded ? (
+                            <ChevronUp size={18} color={colors.subtext} />
+                          ) : (
+                            <ChevronDown size={18} color={colors.subtext} />
+                          )}
+                        </View>
+                      </TouchableOpacity>
+
+                      {isExpanded && renderItemDetailsList(item)}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            {pendingItems.length > 0 && (
+              <View style={[styles.modalFooter, { borderTopColor: colors.border }]}>
+                <TouchableOpacity 
+                  style={[styles.syncAllButton, { backgroundColor: colors.accent }]} 
+                  onPress={async () => {
+                    setShowPendingModal(false);
+                    await handleManualSync();
+                  }}
+                  disabled={isSyncing}
+                >
+                  {isSyncing ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <CloudSync size={16} color="#fff" />
+                      <Text style={styles.syncAllButtonText}>SYNC ALL NOW</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -758,6 +982,145 @@ const styles = StyleSheet.create({
   headerLogoImage: {
     width: '100%',
     height: '100%',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    maxHeight: '90%',
+    borderRadius: 24,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+  },
+  modalTitleText: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  closeBtn: {
+    padding: 4,
+  },
+  emptyQueue: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  emptyQueueText: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginTop: 8,
+  },
+  emptyQueueSub: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  queueScroll: {
+    marginTop: 16,
+  },
+  queueInfoText: {
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 20,
+    fontWeight: '600',
+  },
+  queueCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 12,
+  },
+  queueCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  queueItemTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  queueItemSummary: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  queueItemTime: {
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  queueCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  actionIconButton: {
+    padding: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(239, 68, 68, 0.05)',
+  },
+  detailContainer: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  detailLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  detailVal: {
+    fontSize: 11,
+    fontWeight: '700',
+    flex: 1,
+    textAlign: 'right',
+    marginLeft: 16,
+  },
+  jsonToggle: {
+    marginTop: 12,
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  modalFooter: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+  },
+  syncAllButton: {
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  syncAllButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 });
 
