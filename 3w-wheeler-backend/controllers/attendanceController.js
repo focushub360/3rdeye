@@ -6,26 +6,43 @@ import mongoose from 'mongoose';
 import XLSX from 'xlsx';
 import smsService from '../services/smsService.js';
 
-// Helper to get current IST time
+// Timezone-independent IST helper functions
 const getISTNow = (customDate) => {
-  const now = customDate ? new Date(customDate) : new Date();
-  // IST is UTC + 5:30. Calculate UTC time first, then add IST offset.
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const istTime = new Date(utc + (5.5 * 60 * 60 * 1000));
-  return istTime;
+  // Return the actual unshifted Date object representing the correct instant of time
+  return customDate ? new Date(customDate) : new Date();
 };
 
-// Helper to get today's date boundary in IST (Midnight IST)
 const getISTToday = (customDate) => {
-  const istNow = getISTNow(customDate);
-  istNow.setHours(0, 0, 0, 0);
-  return istNow;
+  const date = customDate ? new Date(customDate) : new Date();
+  // Shift by 5.5 hours to represent the calendar day in IST
+  const temp = new Date(date.getTime() + 5.5 * 60 * 60 * 1000);
+  const year = temp.getUTCFullYear();
+  const month = temp.getUTCMonth();
+  const day = temp.getUTCDate();
+  // Return Date representing UTC midnight of that IST calendar day
+  return new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
 };
 
-const getISTDate = (customDate) => {
-  const istNow = getISTNow(customDate);
-  istNow.setHours(0, 0, 0, 0);
-  return istNow;
+const getISTDate = getISTToday;
+
+// Helper to get IST hours and minutes timezone-independently
+const getISTHoursAndMinutes = (date) => {
+  const temp = new Date(date.getTime() + 5.5 * 60 * 60 * 1000);
+  return {
+    hours: temp.getUTCHours(),
+    minutes: temp.getUTCMinutes()
+  };
+};
+
+// Helper to format Date into IST time string timezone-independently
+const formatISTTime = (date) => {
+  return date.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Kolkata'
+  });
 };
 
 // Helper to convert HH:mm to minutes
@@ -90,22 +107,14 @@ export const checkIn = async (req, res) => {
       await user.save();
     }
 
-    // 2. Check for existing attendance today
+    // 2. Setup IST boundaries
     const now = getISTNow(offlineTime);
     const today = getISTToday(offlineTime);
 
-    let existingAttendance = await Attendance.findOne({
-      inspector: inspectorId,
-      date: { $gte: today }
-    });
-
-    if (existingAttendance && existingAttendance.checkInTime) {
-      return res.status(400).json({ success: false, message: 'Already checked in today' });
-    }
-
     // 2.5 Auto Shift Detection
     const allShifts = await Shift.find({ tenantId, isActive: true });
-    const currentMins = now.getHours() * 60 + now.getMinutes();
+    const { hours, minutes } = getISTHoursAndMinutes(now);
+    const currentMins = hours * 60 + minutes;
 
     const shift = findShiftByTime(currentMins, allShifts, 15); // 15 mins buffer
 
@@ -149,6 +158,71 @@ export const checkIn = async (req, res) => {
 
     const place = await reverseGeocode(lat, lng);
 
+    // 4. Check for existing attendance today
+    let existingAttendance = await Attendance.findOne({
+      inspector: inspectorId,
+      date: { $gte: today }
+    });
+
+    if (existingAttendance && existingAttendance.checkInTime) {
+      // Migrate legacy sessions if empty
+      if (!existingAttendance.sessions || existingAttendance.sessions.length === 0) {
+        existingAttendance.sessions = [{
+          checkInTime: existingAttendance.checkInTime,
+          checkInLat: existingAttendance.checkInLat,
+          checkInLng: existingAttendance.checkInLng,
+          checkInPlace: existingAttendance.checkInPlace,
+          checkInAccuracy: existingAttendance.checkInAccuracy,
+          checkOutTime: existingAttendance.checkOutTime,
+          checkOutLat: existingAttendance.checkOutLat,
+          checkOutLng: existingAttendance.checkOutLng,
+          checkOutPlace: existingAttendance.checkOutPlace,
+          checkOutAccuracy: existingAttendance.checkOutAccuracy,
+          workingHours: existingAttendance.workingHours || 0
+        }];
+      }
+
+      // Check if last session is still checked in
+      const lastSession = existingAttendance.sessions[existingAttendance.sessions.length - 1];
+      if (lastSession && !lastSession.checkOutTime) {
+        return res.status(400).json({ success: false, message: 'Already checked in. Please check out first.' });
+      }
+
+      // Check check-in limit
+      if (existingAttendance.sessions.length >= 3) {
+        return res.status(400).json({ success: false, message: 'Maximum limit of 3 check-ins per day reached' });
+      }
+
+      // Allow 2nd or 3rd session check-in
+      existingAttendance.sessions.push({
+        checkInTime: now,
+        checkInLat: lat,
+        checkInLng: lng,
+        checkInPlace: place || 'Position Captured',
+        checkInAccuracy: accuracy
+      });
+
+      existingAttendance.checkInTime = now;
+      existingAttendance.checkInLat = lat;
+      existingAttendance.checkInLng = lng;
+      existingAttendance.checkInPlace = place || 'Position Captured';
+      existingAttendance.checkInAccuracy = accuracy;
+      
+      existingAttendance.checkOutTime = null;
+      existingAttendance.checkOutLat = null;
+      existingAttendance.checkOutLng = null;
+      existingAttendance.checkOutPlace = null;
+      existingAttendance.checkOutAccuracy = null;
+      
+      if (isLate) existingAttendance.isLate = true;
+
+      existingAttendance.notes = `Session ${existingAttendance.sessions.length} check-in: ${formatISTTime(now)}. ${existingAttendance.notes || ''}`;
+      
+      await existingAttendance.save();
+      console.log(`checkIn - registered session ${existingAttendance.sessions.length}:`, existingAttendance);
+      return res.status(201).json({ success: true, data: existingAttendance });
+    }
+
     const attendanceData = {
       inspector: inspectorId,
       tenantId,
@@ -164,15 +238,23 @@ export const checkIn = async (req, res) => {
       checkInAccuracy: accuracy,
       status,
       isLate,
-      isHalfDay
+      isHalfDay,
+      sessions: [{
+        checkInTime: now,
+        checkInLat: lat,
+        checkInLng: lng,
+        checkInPlace: place || 'Position Captured',
+        checkInAccuracy: accuracy
+      }]
     };
 
-    console.log('checkIn - creating attendance:', attendanceData);
+    console.log('checkIn - creating new attendance:', attendanceData);
 
     if (existingAttendance) {
+      // In case an empty/absent record was created by admin
       Object.assign(existingAttendance, attendanceData);
       await existingAttendance.save();
-      console.log('checkIn - updated existing attendance:', existingAttendance);
+      console.log('checkIn - updated existing empty attendance:', existingAttendance);
     } else {
       existingAttendance = await Attendance.create(attendanceData);
       console.log('checkIn - created new attendance:', existingAttendance);
@@ -209,29 +291,67 @@ export const checkOut = async (req, res) => {
 
     const place = await reverseGeocode(lat, lng);
 
+    // Migrate legacy sessions if empty
+    if (!attendance.sessions || attendance.sessions.length === 0) {
+      attendance.sessions = [{
+        checkInTime: attendance.checkInTime,
+        checkInLat: attendance.checkInLat,
+        checkInLng: attendance.checkInLng,
+        checkInPlace: attendance.checkInPlace,
+        checkInAccuracy: attendance.checkInAccuracy,
+        checkOutTime: null,
+        workingHours: 0
+      }];
+    }
+
+    // Find and update the active session check-out
+    const activeSession = attendance.sessions.find(s => !s.checkOutTime);
+    if (activeSession) {
+      activeSession.checkOutTime = now;
+      activeSession.checkOutLat = lat;
+      activeSession.checkOutLng = lng;
+      activeSession.checkOutPlace = place || 'Position Captured';
+      activeSession.checkOutAccuracy = accuracy;
+      
+      const sessionMs = now - activeSession.checkInTime;
+      activeSession.workingHours = parseFloat((sessionMs / (1000 * 60 * 60)).toFixed(2));
+    }
+
     attendance.checkOutTime = now;
     attendance.checkOutLat = lat;
     attendance.checkOutLng = lng;
     attendance.checkOutPlace = place || 'Position Captured';
     attendance.checkOutAccuracy = accuracy;
 
-    // Calculate working hours
-    const workingHoursMs = attendance.checkOutTime - attendance.checkInTime;
-    attendance.workingHours = parseFloat((workingHoursMs / (1000 * 60 * 60)).toFixed(2));
+    // Calculate cumulative working hours to update status
+    let totalWorkingHours = 0;
+    attendance.sessions.forEach(s => {
+      if (s.checkInTime && s.checkOutTime) {
+        const diffMs = s.checkOutTime - s.checkInTime;
+        s.workingHours = parseFloat((diffMs / (1000 * 60 * 60)).toFixed(2));
+        totalWorkingHours += s.workingHours;
+      }
+    });
 
     const shiftEndStr = attendance.shiftEndTime || attendance.shift.endTime;
-    const currentMins = now.getHours() * 60 + now.getMinutes();
+    const { hours: checkoutHours, minutes: checkoutMinutes } = getISTHoursAndMinutes(now);
+    const currentMins = checkoutHours * 60 + checkoutMinutes;
     const shiftEndMins = toMins(shiftEndStr);
 
     if (currentMins < shiftEndMins && !attendance.shift.isNightShift) {
       attendance.isEarlyCheckout = true;
     }
 
-    // Update status based on working hours
-    if (attendance.workingHours < 4) {
+    // Update status based on cumulative working hours
+    if (totalWorkingHours < 4) {
       attendance.status = 'half-day';
       attendance.isHalfDay = true;
+    } else {
+      attendance.isHalfDay = false;
+      attendance.status = attendance.isLate ? 'late' : 'present';
     }
+
+    attendance.notes = `Session ${attendance.sessions.length} check-out: ${formatISTTime(now)}. ${attendance.notes || ''}`;
 
     await attendance.save();
 
@@ -266,12 +386,22 @@ export const getMyStatus = async (req, res) => {
       shift = await Shift.findById(attendance.shift);
     } else {
       const allShifts = await Shift.find({ tenantId, isActive: true });
-      const currentMins = now.getHours() * 60 + now.getMinutes();
-      console.log(`getMyStatus - current IST: ${now.toString()}, currentMins: ${currentMins}, shifts found: ${allShifts.length}`);
+      const { hours: statusHours, minutes: statusMinutes } = getISTHoursAndMinutes(now);
+      const currentMins = statusHours * 60 + statusMinutes;
+      console.log(`getMyStatus - current IST: ${formatISTTime(now)}, currentMins: ${currentMins}, shifts found: ${allShifts.length}`);
       shift = findShiftByTime(currentMins, allShifts, 15);
     }
 
-    let canCheckIn = !!shift && !attendance?.checkInTime;
+    let canCheckIn = false;
+    if (shift) {
+      if (!attendance || !attendance.checkInTime) {
+        canCheckIn = true;
+      } else {
+        const sessions = attendance.sessions || [];
+        canCheckIn = !!attendance.checkOutTime && sessions.length < 3;
+      }
+    }
+
     let canCheckOut = !!attendance && !!attendance.checkInTime && !attendance.checkOutTime;
 
     res.json({
@@ -342,18 +472,17 @@ export const exportAttendance = async (req, res) => {
     const { startDate, endDate } = req.query;
     const tenantId = req.user.tenantId;
 
-    // Parse dates in local timezone
+    // Parse dates timezone-independently to UTC midnight
     const parseLocalDate = (dateStr) => {
       const parts = dateStr.split('-').map(Number);
-      return new Date(parts[0], parts[1] - 1, parts[2]);
+      return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0));
     };
 
     const query = { tenantId };
     if (startDate && endDate) {
       const start = parseLocalDate(startDate);
-      const end = parseLocalDate(endDate);
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
+      const partsEnd = endDate.split('-').map(Number);
+      const end = new Date(Date.UTC(partsEnd[0], partsEnd[1] - 1, partsEnd[2], 23, 59, 59, 999));
       query.date = { $gte: start, $lte: end };
     }
 
@@ -364,12 +493,12 @@ export const exportAttendance = async (req, res) => {
 
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(logs.map(att => ({
-      Date: att.date.toISOString().split('T')[0],
+      Date: new Date(att.date.getTime() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0],
       Inspector: `${att.inspector?.firstName || ''} ${att.inspector?.lastName || ''}`,
       Email: att.inspector?.email || 'N/A',
       Shift: att.shift?.displayName || 'N/A',
-      CheckIn: att.checkInTime ? att.checkInTime.toLocaleTimeString() : 'N/A',
-      CheckOut: att.checkOutTime ? att.checkOutTime.toLocaleTimeString() : 'N/A',
+      CheckIn: att.checkInTime ? formatISTTime(att.checkInTime) : 'N/A',
+      CheckOut: att.checkOutTime ? formatISTTime(att.checkOutTime) : 'N/A',
       WorkingHours: att.workingHours,
       Status: att.status,
       Late: att.isLate ? 'Yes' : 'No'
@@ -397,17 +526,29 @@ export const getAttendance = async (req, res) => {
 
     console.log('getAttendance - startDate:', startDate, 'endDate:', endDate, 'tenantId:', tenantId);
 
-    // Parse dates in local timezone (matching how Attendance.date is stored)
+    // Parse dates timezone-independently to UTC midnight
     const parseLocalDate = (dateStr) => {
       const parts = dateStr.split('-').map(Number);
-      return new Date(parts[0], parts[1] - 1, parts[2]);
+      return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0));
     };
 
     const now = new Date();
-    const start = startDate ? parseLocalDate(startDate) : new Date(now.getFullYear(), now.getMonth(), 1);
-    const end = endDate ? parseLocalDate(endDate) : new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    start.setHours(0, 0, 0, 0);
-    end.setHours(23, 59, 59, 999);
+    let start, end;
+    if (startDate) {
+      start = parseLocalDate(startDate);
+    } else {
+      // Start of current IST month normalized to UTC
+      const temp = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+      start = new Date(Date.UTC(temp.getUTCFullYear(), temp.getUTCMonth(), 1, 0, 0, 0, 0));
+    }
+
+    if (endDate) {
+      const parts = endDate.split('-').map(Number);
+      end = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 23, 59, 59, 999));
+    } else {
+      const temp = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+      end = new Date(Date.UTC(temp.getUTCFullYear(), temp.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+    }
 
     const query = { tenantId, date: { $gte: start, $lte: end } };
     if (inspectorId) query.inspector = inspectorId;
