@@ -43,11 +43,13 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react-native';
-import { offlineQueue } from '../api/OfflineQueue';
+import { offlineQueue, QueueProgressInfo } from '../api/OfflineQueue';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 
 
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import apiClient from '../api/config';
+import apiClient, { checkServerReachability } from '../api/config';
 import Svg, { Circle } from 'react-native-svg';
 
 const { width } = Dimensions.get('window');
@@ -66,9 +68,25 @@ const DashboardScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [pendingItems, setPendingItems] = useState<any[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ percent: number, filename: string, statusText?: string } | null>(null);
   const [initialSyncCount, setInitialSyncCount] = useState(0);
   const [showPendingModal, setShowPendingModal] = useState(false);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const [netStatus, setNetStatus] = useState<{
+    isConnected: boolean | null;
+    type: string | null;
+  }>({ isConnected: null, type: null });
+  const [cardUploadProgress, setCardUploadProgress] = useState<Record<string, { percent: number, statusText: string }>>({});
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setNetStatus({
+        isConnected: state.isConnected,
+        type: state.type,
+      });
+    });
+    return () => unsubscribe();
+  }, []);
 
   const handleDeletePendingItem = async (id: string) => {
     Alert.alert(
@@ -85,6 +103,9 @@ const DashboardScreen = () => {
             setPendingItems(queue || []);
             if (expandedItemId === id) {
               setExpandedItemId(null);
+            }
+            if (!queue || queue.length === 0) {
+              setShowPendingModal(false);
             }
           }
         }
@@ -184,8 +205,45 @@ const DashboardScreen = () => {
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'subadmin' || user?.role === 'lmadmin' || user?.role === 'manager';
 
   const fetchData = async (isBackground = false) => {
+    const userId = user?._id || user?.id;
     try {
       if (!isBackground) setLoading(true);
+
+      // Check network connectivity first
+      const netState = await NetInfo.fetch();
+      if (netState.isConnected) {
+        await checkServerReachability();
+      }
+      if (!netState.isConnected) {
+        console.log('[Dashboard] Device is offline. Loading cached metrics.');
+        try {
+          const cachedOverview = await AsyncStorage.getItem(`@cached_dashboard_overview_${userId}`);
+          const cachedSummary = await AsyncStorage.getItem(`@cached_dashboard_summary_${userId}`);
+          const cachedReviewStats = await AsyncStorage.getItem(`@cached_dashboard_review_stats_${userId}`);
+          const cachedPerformance = await AsyncStorage.getItem(`@cached_dashboard_performance_${userId}`);
+          const cachedStatuses = await AsyncStorage.getItem(`@cached_dashboard_statuses_${userId}`);
+          
+          if (cachedOverview) setSummary(JSON.parse(cachedOverview));
+          if (cachedSummary) setInspectorSummary(JSON.parse(cachedSummary));
+          if (cachedReviewStats) setMyReviewStats(JSON.parse(cachedReviewStats));
+          if (cachedPerformance) setPerformance(JSON.parse(cachedPerformance));
+          if (cachedStatuses) setSummaryStatuses(JSON.parse(cachedStatuses));
+          
+          if (isAdmin) {
+            const cachedTable = await AsyncStorage.getItem(`@cached_dashboard_table_${userId}`);
+            if (cachedTable) setPerformanceTableData(JSON.parse(cachedTable));
+          }
+        } catch (cacheErr) {
+          console.error('Failed to load cached dashboard data:', cacheErr);
+        }
+        
+        // Check offline queue status
+        const queue = await offlineQueue.getQueue();
+        setPendingItems(queue || []);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
       
       const apiCalls = [
         apiClient.get('/analytics/dashboard'),
@@ -208,28 +266,37 @@ const DashboardScreen = () => {
         if (perfRes.data.data.overview) {
           const overview = perfRes.data.data.overview;
           const dist = perfRes.data.data.statusDistribution || {};
-          setSummary({
+          const summaryData = {
             totalForms: overview.totalForms || 0,
             accepted: (dist.verified || 0) + (dist['Direct Ok'] || 0) + (dist.Accepted || 0) + (dist.OK || 0),
             rejected: dist.Rejected || dist.rejected || 0,
             rework: (dist.Rework || 0) + (dist['Rework Required'] || 0) + (dist.rework || 0),
             defectDistribution: perfRes.data.data.defectDistribution || [],
-          });
+          };
+          setSummary(summaryData);
+          await AsyncStorage.setItem(`@cached_dashboard_overview_${userId}`, JSON.stringify(summaryData));
         }
         setPerformance(perfRes.data.data.topForms || []);
+        await AsyncStorage.setItem(`@cached_dashboard_performance_${userId}`, JSON.stringify(perfRes.data.data.topForms || []));
       }
 
       if (summaryRes?.data?.success) {
-        setInspectorSummary(summaryRes.data.data.summary || []);
-        setSummaryStatuses(summaryRes.data.data.allStatuses || []);
+        const summaryData = summaryRes.data.data.summary || [];
+        const statuses = summaryRes.data.data.allStatuses || [];
+        setInspectorSummary(summaryData);
+        setSummaryStatuses(statuses);
+        await AsyncStorage.setItem(`@cached_dashboard_summary_${userId}`, JSON.stringify(summaryData));
+        await AsyncStorage.setItem(`@cached_dashboard_statuses_${userId}`, JSON.stringify(statuses));
       }
 
       if (reviewStatsRes?.data?.success) {
         setMyReviewStats(reviewStatsRes.data.data);
+        await AsyncStorage.setItem(`@cached_dashboard_review_stats_${userId}`, JSON.stringify(reviewStatsRes.data.data));
       }
 
       if (isAdmin && tableRes?.data?.success) {
         setPerformanceTableData(tableRes.data.data || []);
+        await AsyncStorage.setItem(`@cached_dashboard_table_${userId}`, JSON.stringify(tableRes.data.data || []));
       }
 
       // Check offline queue status
@@ -249,14 +316,39 @@ const DashboardScreen = () => {
     
     setInitialSyncCount(queue.length);
     setIsSyncing(true);
+    setSyncProgress(null);
     try {
-      await offlineQueue.processQueue();
+      await checkServerReachability(true); // Force reachability check right before manual sync
+      const result = await offlineQueue.processQueue();
       const finalQueue = await offlineQueue.getQueue();
       setPendingItems(finalQueue || []);
+      
+      if (result && result.success) {
+        setShowPendingModal(false);
+        Alert.alert(
+          'Sync Success',
+          'All offline items have been uploaded successfully, reflecting immediately in the web portal.'
+        );
+      } else {
+        const failedCount = finalQueue.length;
+        const successCount = queue.length - failedCount;
+        const errorList = result && result.errors && result.errors.length > 0 
+          ? `\n\nErrors:\n• ${result.errors.join('\n• ')}`
+          : '';
+        Alert.alert(
+          'Sync Incomplete',
+          `Successfully synced ${successCount} item(s). ${failedCount} item(s) failed to sync. Please check your network connection and try again.${errorList}`
+        );
+      }
     } catch (error) {
       console.error('Manual sync failed:', error);
+      Alert.alert(
+        'Sync Error',
+        'An unexpected error occurred during synchronization. Please try again.'
+      );
     } finally {
       setIsSyncing(false);
+      setSyncProgress(null);
       setInitialSyncCount(0);
     }
   };
@@ -273,8 +365,28 @@ const DashboardScreen = () => {
       checkQueue();
 
       // Listen for background sync updates
-      offlineQueue.setCallback((count) => {
+      offlineQueue.setCallback((count, progressInfo, isProcessing) => {
         checkQueue();
+        if (isProcessing !== undefined) {
+          setIsSyncing(isProcessing);
+        }
+        if (progressInfo) {
+          setSyncProgress(progressInfo);
+          if (progressInfo.itemId) {
+            setCardUploadProgress(prev => ({
+              ...prev,
+              [progressInfo.itemId!]: {
+                percent: progressInfo.percent,
+                statusText: progressInfo.statusText || ''
+              }
+            }));
+          }
+        } else {
+          setSyncProgress(null);
+          if (!isProcessing) {
+            setCardUploadProgress({});
+          }
+        }
       });
 
       // Socket real-time integration
@@ -355,24 +467,54 @@ const DashboardScreen = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Clean Sync Pill */}
-        <View style={styles.syncWrapper}>
-           <TouchableOpacity 
-             activeOpacity={pendingItems.length > 0 ? 0.7 : 1}
-             onPress={() => pendingItems.length > 0 && setShowPendingModal(true)}
-             style={[styles.syncPill, { backgroundColor: colors.card, borderColor: pendingItems.length > 0 ? colors.error : colors.border }]}
-           >
-              <View style={[styles.syncDot, { backgroundColor: pendingItems.length > 0 ? colors.error : colors.success }]} />
-              <Text style={[styles.syncPillText, { color: colors.subtext }]}>
-                 {pendingItems.length > 0 ? `${pendingItems.length} PENDING UPLOADS (TAP TO VIEW)` : 'ALL DATA SYNCED'}
+        {/* Real-time Network Connection Status Bar */}
+        <View style={styles.networkStatusWrapper}>
+          <View style={[
+            styles.networkStatusBar, 
+            { 
+              backgroundColor: netStatus.isConnected ? (isDark ? 'rgba(34, 197, 94, 0.1)' : '#f0fdf4') : (isDark ? 'rgba(239, 68, 68, 0.1)' : '#fef2f2'),
+              borderColor: netStatus.isConnected ? (isDark ? 'rgba(34, 197, 94, 0.2)' : '#bbf7d0') : (isDark ? 'rgba(239, 68, 68, 0.2)' : '#fecaca')
+            }
+          ]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {netStatus.isConnected ? (
+                <Wifi size={14} color={isDark ? '#4ade80' : '#15803d'} />
+              ) : (
+                <WifiOff size={14} color={isDark ? '#f87171' : '#b91c1c'} />
+              )}
+              <Text style={[
+                styles.networkStatusText, 
+                { color: netStatus.isConnected ? (isDark ? '#4ade80' : '#15803d') : (isDark ? '#f87171' : '#b91c1c') }
+              ]}>
+                {netStatus.isConnected 
+                  ? `SYSTEM ONLINE (${netStatus.type === 'wifi' ? 'WIFI' : netStatus.type === 'cellular' ? 'CELLULAR' : netStatus.type ? netStatus.type.toUpperCase() : 'CONNECTED'})`
+                  : 'SYSTEM OFFLINE (FORM DATA WILL BE QUEUED)'}
               </Text>
-              {pendingItems.length > 0 && (
+            </View>
+          </View>
+        </View>
+
+        {/* Clean Sync Pill */}
+        {(pendingItems.length > 0 || isSyncing) && (
+          <View style={styles.syncWrapper}>
+             <TouchableOpacity 
+               activeOpacity={0.7}
+               onPress={() => setShowPendingModal(true)}
+               style={[styles.syncPill, { backgroundColor: colors.card, borderColor: isSyncing ? colors.accent : colors.error }]}
+             >
+                <View style={[styles.syncDot, { backgroundColor: isSyncing ? colors.accent : colors.error }]} />
+                <Text style={[styles.syncPillText, { color: colors.subtext }]}>
+                   {isSyncing 
+                     ? (syncProgress ? `SYNCING: ${syncProgress.percent}% (${syncProgress.filename})` : 'SYNCING UPLOADS...')
+                     : `${pendingItems.length} PENDING UPLOADS (TAP TO VIEW)`
+                   }
+                </Text>
                 <View style={styles.syncMiniBtn}>
                    {isSyncing ? <ActivityIndicator size="small" color={colors.accent} /> : <CloudSync size={14} color={colors.accent} />}
                 </View>
-              )}
-           </TouchableOpacity>
-        </View>
+             </TouchableOpacity>
+          </View>
+        )}
 
         {user?.role === 'superadmin' && (
           <TouchableOpacity 
@@ -632,6 +774,26 @@ const DashboardScreen = () => {
                         </View>
                       </TouchableOpacity>
 
+                      {/* Card-wise Upload Progress */}
+                      {cardUploadProgress[item.id] !== undefined && (
+                        <View style={styles.cardProgressContainer}>
+                          <View style={[styles.cardProgressBarBg, { backgroundColor: isDark ? '#1e293b' : '#f1f5f9' }]}>
+                            <View 
+                              style={[
+                                styles.cardProgressBarFill, 
+                                { 
+                                  width: `${cardUploadProgress[item.id].percent}%`, 
+                                  backgroundColor: colors.accent 
+                                }
+                              ]} 
+                            />
+                          </View>
+                          <Text style={[styles.cardProgressText, { color: colors.accent }]}>
+                            {cardUploadProgress[item.id].percent}% - {cardUploadProgress[item.id].statusText || 'Syncing...'}
+                          </Text>
+                        </View>
+                      )}
+
                       {isExpanded && renderItemDetailsList(item)}
                     </View>
                   );
@@ -641,23 +803,54 @@ const DashboardScreen = () => {
 
             {pendingItems.length > 0 && (
               <View style={[styles.modalFooter, { borderTopColor: colors.border }]}>
-                <TouchableOpacity 
-                  style={[styles.syncAllButton, { backgroundColor: colors.accent }]} 
-                  onPress={async () => {
-                    setShowPendingModal(false);
-                    await handleManualSync();
-                  }}
-                  disabled={isSyncing}
-                >
-                  {isSyncing ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
+                {isSyncing ? (
+                  <View style={styles.syncProgressContainer}>
+                    <View style={styles.syncProgressHeader}>
+                      <ActivityIndicator size="small" color={colors.accent} />
+                      <Text style={[styles.syncProgressText, { color: colors.text }]} numberOfLines={1}>
+                        {syncProgress?.statusText 
+                          ? syncProgress.statusText 
+                          : (syncProgress?.filename 
+                              ? `Uploading: ${syncProgress.filename}` 
+                              : 'Processing sync queue...')
+                        }
+                      </Text>
+                    </View>
+                    
+                    <View style={[styles.progressBarBg, { backgroundColor: isDark ? '#1e293b' : '#f1f5f9' }]}>
+                      <View 
+                        style={[
+                          styles.progressBarFill, 
+                          { 
+                            width: `${syncProgress ? syncProgress.percent : 0}%`, 
+                            backgroundColor: colors.accent 
+                          }
+                        ]} 
+                      />
+                    </View>
+                    
+                    <View style={styles.syncProgressSubRow}>
+                      <Text style={[styles.syncProgressSubText, { color: colors.subtext }]}>
+                        {syncProgress && syncProgress.percent > 0 ? `${syncProgress.percent}%` : 'Connecting...'}
+                      </Text>
+                      {initialSyncCount > 0 && (
+                        <Text style={[styles.syncProgressSubText, { color: colors.subtext }]}>
+                          Item {initialSyncCount - pendingItems.length + 1} of {initialSyncCount}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                ) : (
+                  <TouchableOpacity 
+                    style={[styles.syncAllButton, { backgroundColor: colors.accent }]} 
+                    onPress={handleManualSync}
+                  >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <CloudSync size={16} color="#fff" />
                       <Text style={styles.syncAllButtonText}>SYNC ALL NOW</Text>
                     </View>
-                  )}
-                </TouchableOpacity>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
           </View>
@@ -1121,6 +1314,76 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  syncProgressContainer: {
+    paddingVertical: 8,
+    width: '100%',
+  },
+  syncProgressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  syncProgressText: {
+    fontSize: 12,
+    fontWeight: '700',
+    flex: 1,
+  },
+  progressBarBg: {
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  syncProgressSubRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  syncProgressSubText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  networkStatusWrapper: {
+    paddingHorizontal: 24,
+    marginBottom: 16,
+  },
+  networkStatusBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  networkStatusText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  cardProgressContainer: {
+    marginTop: 12,
+    width: '100%',
+  },
+  cardProgressBarBg: {
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  cardProgressBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  cardProgressText: {
+    fontSize: 10,
+    fontWeight: '700',
   },
 });
 

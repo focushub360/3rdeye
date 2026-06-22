@@ -23,7 +23,8 @@ export const reverseGeocode = async (lat, lng) => {
       },
       headers: {
         'User-Agent': 'FocusFormsApp/1.0'
-      }
+      },
+      timeout: 4000 // 4 seconds timeout to prevent hanging the check-in/out endpoints
     });
 
     if (response.data && response.data.display_name) {

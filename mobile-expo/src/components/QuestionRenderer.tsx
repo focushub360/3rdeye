@@ -18,6 +18,7 @@ import SearchSelect from './QuestionTypes/SearchSelect';
 import SliderFeedback from './QuestionTypes/SliderFeedback';
 import * as ImagePicker from 'expo-image-picker';
 import InAppCamera from './InAppCamera';
+import { processCapturedImage } from '../utils/offlineImageHelper';
 import apiClient, { BASE_URL, ROOT_URL } from '../api/config';
 
 const { height } = Dimensions.get('window');
@@ -564,7 +565,10 @@ export default function QuestionRenderer({
                   disabled={readOnly}
                   onPress={async () => {
                     const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.5 });
-                    if (!res.canceled) onChange(res.assets[0].uri);
+                    if (!res.canceled) {
+                      const processedUri = await processCapturedImage(res.assets[0].uri);
+                      onChange(processedUri);
+                    }
                   }}
                 >
                   <Upload size={20} color="#64748b" />
@@ -574,7 +578,11 @@ export default function QuestionRenderer({
             )}
             <InAppCamera
               visible={modalVisible} onClose={() => setModalVisible(false)}
-              onCapture={(uri) => { onChange(uri); setModalVisible(false); }}
+              onCapture={async (uri) => {
+                const processedUri = await processCapturedImage(uri);
+                onChange(processedUri);
+                setModalVisible(false);
+              }}
             />
           </View>
         );

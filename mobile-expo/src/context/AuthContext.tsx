@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import apiClient from '../api/config';
 
 interface User {
@@ -96,6 +97,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
+    // Add global 401 response interceptor
+    const interceptor = apiClient.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        if (error.response?.status === 401 && !error.config?.url?.includes('/auth/logout') && !error.config?._isOfflineQueueRequest) {
+          console.warn('[AUTH] Global 401 detected, logging out user...');
+          await logout();
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      apiClient.interceptors.response.eject(interceptor);
+    };
+  }, [sessionLogId]);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(async (state) => {
+      if (state.isConnected && token) {
+        try {
+          const queuedChange = await AsyncStorage.getItem('@offline_queued_password_update');
+          if (queuedChange) {
+            const { currentPassword, newPassword } = JSON.parse(queuedChange);
+            console.log('🔄 Syncing offline password update to server...');
+            const res = await apiClient.put('/auth/change-password', { currentPassword, newPassword });
+            if (res.data.success) {
+              console.log('✅ Offline password update synced successfully!');
+              await AsyncStorage.removeItem('@offline_queued_password_update');
+            }
+          }
+        } catch (syncErr) {
+          console.error('❌ Failed to sync offline password update:', syncErr);
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, [token]);
+
+  useEffect(() => {
     const fetchCheckInStatus = async () => {
       if (user?.role === 'inspector' && token) {
         const userId = user._id || user.id;
@@ -126,6 +167,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user, token]);
 
   const login = async (data: { token: string; user: User; sessionLogId?: string }) => {
+    // Set authorization header globally synchronously first to prevent race conditions in useEffects
+    apiClient.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
+    apiClient.defaults.headers.common['X-App-Type'] = 'mobile';
+
     setToken(data.token);
     setUser(data.user);
     if (data.sessionLogId) setSessionLogId(data.sessionLogId);
@@ -139,10 +184,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await SecureStore.setItemAsync('user_token', data.token);
     await SecureStore.setItemAsync('user_data', JSON.stringify(data.user));
     if (data.sessionLogId) await SecureStore.setItemAsync('session_log_id', data.sessionLogId);
-    
-    // Set authorization header globally
-    apiClient.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
-    apiClient.defaults.headers.common['X-App-Type'] = 'mobile';
   };
 
   const logout = async () => {

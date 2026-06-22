@@ -170,9 +170,9 @@ const FormListScreen = ({ navigation }: any) => {
     return () => unsubscribe();
   }, []);
 
-  const loadCachedForms = async (userId: string) => {
+  const loadCachedForms = async (userId?: string) => {
     try {
-      let cached = await AsyncStorage.getItem(`@cached_forms_${userId}`);
+      let cached = userId ? await AsyncStorage.getItem(`@cached_forms_${userId}`) : null;
       if (!cached) {
         cached = await AsyncStorage.getItem('@cached_forms_backup');
       }

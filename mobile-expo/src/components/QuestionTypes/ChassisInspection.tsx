@@ -4,6 +4,7 @@ import { CheckCircle2, ChevronDown, ChevronUp, Check, Layers, Image as ImageIcon
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import InAppCamera from '../InAppCamera';
+import { processCapturedImage } from '../../utils/offlineImageHelper';
 import { BASE_URL } from '../../api/config';
 
 const { height, width } = Dimensions.get('window');
@@ -245,7 +246,10 @@ export default function ChassisInspection({
               style={styles.actionBtn} 
               onPress={async () => {
                 const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
-                if (!res.canceled) updateValue({ evidencePhotos: [...evidencePhotos, res.assets[0].uri] });
+                if (!res.canceled) {
+                  const processedUri = await processCapturedImage(res.assets[0].uri);
+                  updateValue({ evidencePhotos: [...evidencePhotos, processedUri] });
+                }
               }}
             >
               <Upload size={18} color="#64748b" />
@@ -347,7 +351,10 @@ export default function ChassisInspection({
                                                                 </TouchableOpacity>
                                                                 <TouchableOpacity style={styles.miniActionBtn} onPress={async () => {
                                                                     const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
-                                                                    if (!res.canceled) updateDefectDetail('zone', z, cat, defName, { evidence: res.assets[0].uri });
+                                                                    if (!res.canceled) {
+                                                                        const processedUri = await processCapturedImage(res.assets[0].uri);
+                                                                        updateDefectDetail('zone', z, cat, defName, { evidence: processedUri });
+                                                                    }
                                                                 }}>
                                                                     <Upload size={14} color="#64748b" />
                                                                     <Text style={styles.miniActionText}>Upload</Text>
@@ -431,7 +438,10 @@ export default function ChassisInspection({
                                                   </TouchableOpacity>
                                                   <TouchableOpacity style={styles.miniActionBtn} onPress={async () => {
                                                       const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
-                                                      if (!res.canceled) updateDefectDetail('rejected', 'global', cat, defName, { evidence: res.assets[0].uri });
+                                                      if (!res.canceled) {
+                                                          const processedUri = await processCapturedImage(res.assets[0].uri);
+                                                          updateDefectDetail('rejected', 'global', cat, defName, { evidence: processedUri });
+                                                      }
                                                   }}>
                                                       <Upload size={14} color="#64748b" />
                                                   </TouchableOpacity>
@@ -478,11 +488,12 @@ export default function ChassisInspection({
       <InAppCamera 
         visible={!!cameraVisible} 
         onClose={() => setCameraVisible(false)} 
-        onCapture={(uri) => {
+        onCapture={async (uri) => {
+            const processedUri = await processCapturedImage(uri);
             if (typeof cameraVisible === 'object') {
-                updateDefectDetail(cameraVisible.mode, cameraVisible.zone || 'global', cameraVisible.cat, cameraVisible.defect, { evidence: uri });
+                updateDefectDetail(cameraVisible.mode, cameraVisible.zone || 'global', cameraVisible.cat, cameraVisible.defect, { evidence: processedUri });
             } else {
-                updateValue({ evidencePhotos: [...evidencePhotos, uri] });
+                updateValue({ evidencePhotos: [...evidencePhotos, processedUri] });
             }
             setCameraVisible(false);
         }} 

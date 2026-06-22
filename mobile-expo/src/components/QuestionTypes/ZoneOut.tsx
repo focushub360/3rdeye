@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, ScrollView,
 import { CheckCircle2, RotateCcw, XCircle, Camera, Upload, X, MessageSquare, Check } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import InAppCamera from '../InAppCamera';
+import { processCapturedImage } from '../../utils/offlineImageHelper';
 import { BASE_URL } from '../../api/config';
 
 const { width } = Dimensions.get('window');
@@ -154,7 +155,10 @@ export default function ZoneOut({
                         style={styles.miniBtn}
                         onPress={async () => {
                           const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
-                          if (!res.canceled) updateValue({ evidenceUrl: res.assets[0].uri });
+                          if (!res.canceled) {
+                            const processedUri = await processCapturedImage(res.assets[0].uri);
+                            updateValue({ evidenceUrl: processedUri });
+                          }
                         }}
                         disabled={readOnly}
                       >
@@ -172,8 +176,9 @@ export default function ZoneOut({
       <InAppCamera
         visible={cameraVisible}
         onClose={() => setCameraVisible(false)}
-        onCapture={(uri) => {
-          updateValue({ evidenceUrl: uri });
+        onCapture={async (uri) => {
+          const processedUri = await processCapturedImage(uri);
+          updateValue({ evidenceUrl: processedUri });
           setCameraVisible(false);
         }}
       />

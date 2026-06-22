@@ -26,6 +26,8 @@ import {
 } from 'lucide-react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import apiClient from '../api/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 
 const { width } = Dimensions.get('window');
 
@@ -54,8 +56,27 @@ const SuperAdminPerformanceScreen = () => {
   });
 
   const fetchData = async (page = 1, search = '') => {
+    const cacheKey = `@cached_superadmin_performance_p${page}_s_${search || 'all'}`;
     try {
       setLoading(true);
+      
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) {
+          const data = JSON.parse(cached);
+          setUsers(data.users || []);
+          setPagination(data.pagination || {});
+          setTotalStats(data.totalStats || {
+            totalUsers: 0,
+            totalFormsSubmitted: 0,
+            activeUsers: 0,
+            totalActiveHours: 0,
+          });
+        }
+        return;
+      }
+
       const response = await apiClient.get('/users/all-tenants-performance', {
         params: {
           page,
@@ -66,27 +87,51 @@ const SuperAdminPerformanceScreen = () => {
 
       if (response.data.success) {
         const data = response.data.data;
-        setUsers(data.users || []);
-        setPagination(data.pagination || {});
+        const usersList = data.users || [];
+        const pag = data.pagination || {};
         
         // Calculate summary stats from the current page/batch
-        // Note: Realistically these should come from backend summary but we'll aggregate what we have
-        const forms = data.users.reduce((sum: number, u: any) => sum + (u.metrics?.formsSubmitted || 0), 0);
-        const active = data.users.filter((u: any) => {
+        const forms = usersList.reduce((sum: number, u: any) => sum + (u.metrics?.formsSubmitted || 0), 0);
+        const active = usersList.filter((u: any) => {
           if (!u.metrics?.lastActive) return false;
           const lastActiveDate = new Date(u.metrics.lastActive);
           return (Date.now() - lastActiveDate.getTime()) < 24 * 60 * 60 * 1000;
         }).length;
         
-        setTotalStats({
-          totalUsers: data.pagination?.totalUsers || 0,
+        const calculatedStats = {
+          totalUsers: pag.totalUsers || 0,
           totalFormsSubmitted: forms,
           activeUsers: active,
-          totalActiveHours: data.users.reduce((sum: number, u: any) => sum + (u.metrics?.activeHours || 0), 0),
-        });
+          totalActiveHours: usersList.reduce((sum: number, u: any) => sum + (u.metrics?.activeHours || 0), 0),
+        };
+
+        setUsers(usersList);
+        setPagination(pag);
+        setTotalStats(calculatedStats);
+
+        // Cache the combined dataset
+        await AsyncStorage.setItem(cacheKey, JSON.stringify({
+          users: usersList,
+          pagination: pag,
+          totalStats: calculatedStats
+        }));
       }
     } catch (error) {
       console.error('Fetch superadmin performance error:', error);
+      try {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) {
+          const data = JSON.parse(cached);
+          setUsers(data.users || []);
+          setPagination(data.pagination || {});
+          setTotalStats(data.totalStats || {
+            totalUsers: 0,
+            totalFormsSubmitted: 0,
+            activeUsers: 0,
+            totalActiveHours: 0,
+          });
+        }
+      } catch (cacheErr) {}
     } finally {
       setLoading(false);
       setRefreshing(false);

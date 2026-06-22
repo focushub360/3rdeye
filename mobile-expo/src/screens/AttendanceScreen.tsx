@@ -259,11 +259,22 @@ const AttendanceScreen = ({ navigation }: any) => {
           : Array.isArray(raw?.records) ? raw.records
           : Array.isArray(raw) ? raw
           : [];
-        setAttendanceSummary({ ...raw, users });
+        const normalizedData = { ...raw, users };
+        setAttendanceSummary(normalizedData);
+        await AsyncStorage.setItem(`@attendance_summary_${user?.tenantId}`, JSON.stringify(normalizedData));
       }
     } catch (error) {
       console.log('Error fetching attendance summary:', error);
-      setAttendanceSummary({ users: [] });
+      try {
+        const cachedSummary = await AsyncStorage.getItem(`@attendance_summary_${user?.tenantId}`);
+        if (cachedSummary) {
+          setAttendanceSummary(JSON.parse(cachedSummary));
+        } else {
+          setAttendanceSummary({ users: [] });
+        }
+      } catch (cacheErr) {
+        setAttendanceSummary({ users: [] });
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -409,7 +420,7 @@ const AttendanceScreen = ({ navigation }: any) => {
         setIsCheckedIn(false);
 
         // Update hrStatus locally
-        setHrStatus((prev) => {
+        setHrStatus((prev: any) => {
           if (!prev || !prev.attendance) return prev;
           return {
             ...prev,
@@ -513,7 +524,7 @@ const AttendanceScreen = ({ navigation }: any) => {
       } else {
         Alert.alert('Error', response.data.message || 'Failed to send OTP');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Send OTP Error:', error);
       // Fallback if request fails because of connection
       const isOffline = !(await NetInfo.fetch()).isConnected;
@@ -590,7 +601,7 @@ const AttendanceScreen = ({ navigation }: any) => {
       } else {
         Alert.alert('Verification Failed', response.data.message || 'Invalid OTP');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Verify OTP Error:', error);
       // Fallback if request fails because of connection
       const isOffline = !(await NetInfo.fetch()).isConnected;
@@ -634,7 +645,7 @@ const AttendanceScreen = ({ navigation }: any) => {
        } else {
          Alert.alert('Check-In Failed', response.data.message);
        }
-     } catch(e) {
+     } catch(e: any) {
        const isOffline = !(await NetInfo.fetch()).isConnected;
        if (isOffline) {
          await startShiftOffline('IN');

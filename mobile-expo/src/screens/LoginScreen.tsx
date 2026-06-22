@@ -82,11 +82,17 @@ const LoginScreen = () => {
       try {
         const offlineEmail = await SecureStore.getItemAsync('offline_email');
         const offlinePassword = await SecureStore.getItemAsync('offline_password');
+        const offlineMobile = await SecureStore.getItemAsync('offline_mobile');
         
-        if (offlineEmail && offlinePassword && 
-            offlineEmail.trim().toLowerCase() === email.trim().toLowerCase() && 
-            offlinePassword === password) {
-          
+        const checkInput = email.trim().toLowerCase();
+        const cleanInputMobile = checkInput.replace(/\D/g, '');
+        
+        const isMatched = (
+          (offlineEmail && offlineEmail.trim().toLowerCase() === checkInput) ||
+          (offlineMobile && offlineMobile.trim().replace(/\D/g, '') === cleanInputMobile)
+        ) && offlinePassword === password;
+        
+        if (isMatched) {
           const storedToken = await SecureStore.getItemAsync('user_token');
           const storedUser = await SecureStore.getItemAsync('user_data');
           const storedLogId = await SecureStore.getItemAsync('session_log_id');
@@ -189,21 +195,43 @@ const LoginScreen = () => {
           }
         };
 
-        const checkEmail = email.trim().toLowerCase();
-        if (preseededUsers[checkEmail] && preseededUsers[checkEmail].pass === password) {
-          const matched = preseededUsers[checkEmail];
+        let matchedUser = null;
+        for (const [key, data] of Object.entries(preseededUsers)) {
+          const userObj = data.user;
+          const userEmail = userObj.email.toLowerCase();
+          const userUsername = (userObj.username || '').toLowerCase();
+          const userMobile = (userObj.mobile || '').replace(/\D/g, '');
+          
+          if (
+            key.toLowerCase() === checkInput ||
+            userEmail === checkInput ||
+            userUsername === checkInput ||
+            (cleanInputMobile.length >= 10 && userMobile.endsWith(cleanInputMobile.slice(-10))) ||
+            (userMobile && userMobile === cleanInputMobile)
+          ) {
+            if (data.pass === password) {
+              matchedUser = data.user;
+              break;
+            }
+          }
+        }
+
+        if (matchedUser) {
           // Mock token & mock session log ID
           const mockToken = 'mock_offline_token_' + Date.now();
           const mockSessionLogId = 'mock_offline_session_' + Date.now();
           
           // Save them to SecureStore so subsequent loads retrieve them
-          await SecureStore.setItemAsync('offline_email', checkEmail);
+          await SecureStore.setItemAsync('offline_email', matchedUser.email);
+          if (matchedUser.mobile) {
+            await SecureStore.setItemAsync('offline_mobile', matchedUser.mobile);
+          }
           await SecureStore.setItemAsync('offline_password', password);
           await SecureStore.setItemAsync('user_token', mockToken);
-          await SecureStore.setItemAsync('user_data', JSON.stringify(matched.user));
+          await SecureStore.setItemAsync('user_data', JSON.stringify(matchedUser));
           await SecureStore.setItemAsync('session_log_id', mockSessionLogId);
           
-          await login({ token: mockToken, user: matched.user, sessionLogId: mockSessionLogId });
+          await login({ token: mockToken, user: matchedUser, sessionLogId: mockSessionLogId });
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           navigation.replace('MainTabs');
           return true;
@@ -216,7 +244,9 @@ const LoginScreen = () => {
 
     // Check connection first
     const netState = await NetInfo.fetch();
+    console.log('[LOGIN] Network connection status:', netState.isConnected, 'Type:', netState.type);
     if (!netState.isConnected) {
+      console.log('[LOGIN] Offline. Attempting offline login fallback.');
       const offlineSuccess = await attemptOfflineLogin();
       if (offlineSuccess) {
         setLoading(false);
@@ -237,34 +267,44 @@ const LoginScreen = () => {
       };
       if (tenantSlug) loginPayload.tenantSlug = tenantSlug;
 
+      console.log('[LOGIN] Sending POST /auth/login with baseURL:', apiClient.defaults.baseURL, 'payload:', JSON.stringify(loginPayload));
       const response = await apiClient.post('/auth/login', loginPayload);
+      console.log('[LOGIN] Success response status:', response.status, 'data success:', response.data?.success);
 
       if (response.data.success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         const { token, user, tenant, sessionLogId } = response.data.data;
         const userWithTenant = { ...user, tenant };
         
+        console.log('[LOGIN] Received user details:', JSON.stringify(userWithTenant));
+        
         // Cache credentials for future offline login
         await SecureStore.setItemAsync('offline_email', email);
+        if (user.mobile) {
+          await SecureStore.setItemAsync('offline_mobile', user.mobile);
+        }
         await SecureStore.setItemAsync('offline_password', password);
         
         await login({ token, user: userWithTenant, sessionLogId });
         
+        console.log('[LOGIN] State initialized. Replacing screen with MainTabs.');
         navigation.replace('MainTabs');
       } else {
+        console.warn('[LOGIN] Request returned success=false:', response.data);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setError(response.data.message || 'Incorrect email or password.');
       }
     } catch (error: any) {
+      console.error('[LOGIN] Request failed:', error.message, 'Response status:', error.response?.status, 'Response data:', error.response?.data);
       // Fallback to offline login if server/connection fails
       const offlineSuccess = await attemptOfflineLogin();
       if (offlineSuccess) {
+        console.log('[LOGIN] Offline login fallback succeeded after API failure.');
         setLoading(false);
         return;
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      console.error('Login error:', error);
       setError(error.response?.data?.message || 'Incorrect email or password. Check your connection.');
     } finally {
       setLoading(false);

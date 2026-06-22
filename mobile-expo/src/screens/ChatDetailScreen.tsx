@@ -21,6 +21,8 @@ import { Modal } from 'react-native';
 import { io } from 'socket.io-client';
 import { useAuth } from '../context/AuthContext';
 import apiClient, { BASE_URL } from '../api/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { useTheme } from '../context/ThemeContext';
 
 const SOCKET_URL = BASE_URL.replace('/api', '');
@@ -45,6 +47,10 @@ const ChatDetailScreen = () => {
   const flatListRef = useRef<any>(null);
 
   const fetchMessages = async () => {
+    const cacheKey = isGroup 
+      ? `@cached_chat_messages_${tenantId || user?.tenantId}_group` 
+      : `@cached_chat_messages_${contactId}`;
+
     try {
       let endpoint = '';
       if (isGroup) {
@@ -53,25 +59,60 @@ const ChatDetailScreen = () => {
         endpoint = `/messages/response/${contactId}`;
       }
       
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) {
+          setMessages(JSON.parse(cached));
+        }
+        return;
+      }
+      
       const response = await apiClient.get(endpoint);
       if (response.data.success) {
-        setMessages(response.data.data);
+        const messageData = response.data.data || [];
+        setMessages(messageData);
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(messageData));
       }
     } catch (error) {
       console.error('Fetch messages error:', error);
+      try {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) {
+          setMessages(JSON.parse(cached));
+        }
+      } catch (cacheErr) {}
     } finally {
       setLoading(false);
     }
   };
 
   const fetchMembers = async () => {
+    const cacheKey = `@cached_group_members_${tenantId || user?.tenantId}`;
     try {
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) {
+          setMembers(JSON.parse(cached));
+        }
+        return;
+      }
+
       const response = await apiClient.get('/users?role=admin&role=superadmin&role=subadmin');
       if (response.data.success) {
-        setMembers(response.data.data.users || []);
+        const membersData = response.data.data.users || [];
+        setMembers(membersData);
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(membersData));
       }
     } catch (error) {
       console.error('Fetch members error:', error);
+      try {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) {
+          setMembers(JSON.parse(cached));
+        }
+      } catch (cacheErr) {}
     }
   };
 
@@ -210,6 +251,12 @@ const ChatDetailScreen = () => {
 
   const handleSend = async (isTYC = false) => {
     if ((!newMessage.trim() && !selectedImage) || !user) return;
+
+    const netState = await NetInfo.fetch();
+    if (!netState.isConnected) {
+      Alert.alert('Offline Mode Active', 'You are offline. Sending messages requires an active internet connection.');
+      return;
+    }
 
     try {
       let attachmentUrl = null;

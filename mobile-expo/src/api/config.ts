@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 
 // Automatically detect environment and set API base URL
 // IMPORTANT: For local development, replace the IP with your computer's local IP address
-const LOCAL_IP = '10.70.235.85'; // Updated to match current network (10.70.235.85)
+const LOCAL_IP = '192.168.31.205'; // Updated to match current network (192.168.31.205)
 const IS_DEV = __DEV__;
 
 // Use localhost for web to avoid CORS/Network issues on the same machine
@@ -12,17 +12,15 @@ const DEV_URL = Platform.OS === 'web'
   ? `http://localhost:5000/api/` 
   : `http://${LOCAL_IP}:5000/api/`;
 
+const STAGING_URL = 'https://threew-vu4v.onrender.com/api/';
+
 console.log('🛡️ API Client Module Loading...');
-console.log('🔗 Mobile API Base URL:', IS_DEV ? DEV_URL : 'Production URL');
 
-export const BASE_URL = IS_DEV 
+export let BASE_URL = IS_DEV 
   ? DEV_URL
-  : 'https://threew-vu4v.onrender.com/api/';
+  : STAGING_URL;
 
-export const ROOT_URL = BASE_URL.replace('/api/', '');
-
-console.log(`🔗 Mobile API Base URL: ${BASE_URL} (Mode: ${IS_DEV ? 'Development' : 'Production'})`);
-
+export let ROOT_URL = BASE_URL.replace('/api/', '');
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -31,6 +29,46 @@ const apiClient = axios.create({
   },
   timeout: 120000, // Increased to 2 minutes for large form submissions
 });
+
+let lastCheckTime = 0;
+const CHECK_COOLDOWN = 30000; // 30 seconds
+
+export const checkServerReachability = async (force = false) => {
+  if (!IS_DEV) return;
+  
+  const now = Date.now();
+  if (!force && now - lastCheckTime < CHECK_COOLDOWN) {
+    return;
+  }
+  
+  lastCheckTime = now;
+  try {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 1500); // 1.5s timeout for fast check
+    
+    const response = await fetch(`http://${LOCAL_IP}:5000/api`, {
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    
+    if (response.status === 200 || response.status === 401 || response.status === 403 || response.status === 404) {
+      console.log(`📶 Local server is REACHABLE. Using local backend: ${DEV_URL}`);
+      apiClient.defaults.baseURL = DEV_URL;
+      BASE_URL = DEV_URL;
+      ROOT_URL = DEV_URL.replace('/api/', '');
+    } else {
+      throw new Error('Unreachable status');
+    }
+  } catch (err) {
+    console.log(`📶 Local server is UNREACHABLE. Falling back to staging/production: ${STAGING_URL}`);
+    apiClient.defaults.baseURL = STAGING_URL;
+    BASE_URL = STAGING_URL;
+    ROOT_URL = STAGING_URL.replace('/api/', '');
+  }
+};
+
+// Start initial check asynchronously
+checkServerReachability();
 
 // Helper to get token based on platform
 const getStoredToken = async () => {
@@ -48,20 +86,15 @@ const getStoredToken = async () => {
 // Add a request interceptor to automatically attach the auth token
 apiClient.interceptors.request.use(
   async (config) => {
-    const token = await getStoredToken();
-    
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-      if (__DEV__ && Platform.OS === 'web') {
-        // console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url} - Token attached`);
-      }
+    // Prioritize the global Authorization header set synchronously in defaults (e.g. by AuthContext during login)
+    const defaultAuth = apiClient.defaults.headers.common['Authorization'];
+    if (defaultAuth) {
+      config.headers.Authorization = defaultAuth;
     } else {
-      // Fallback: check if it's already in the defaults (set by AuthContext)
-      const defaultAuth = apiClient.defaults.headers.common['Authorization'];
-      if (defaultAuth) {
-        config.headers.Authorization = defaultAuth;
-      } else if (__DEV__ && Platform.OS === 'web') {
-        console.warn(`[API Request] ${config.method?.toUpperCase()} ${config.url} - NO TOKEN FOUND`);
+      // Fallback to SecureStore/localStorage if not already in defaults (e.g. at startup)
+      const token = await getStoredToken();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
       }
     }
     
@@ -74,6 +107,9 @@ apiClient.interceptors.request.use(
       config.url = config.url.substring(1);
     }
     
+    const authVal = config.headers.Authorization;
+    const authStr = typeof authVal === 'string' ? authVal : '';
+    console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url} - Auth Header: ${authStr ? authStr.substring(0, 30) + '...' : 'NONE'}`);
     return config;
   },
   (error) => {

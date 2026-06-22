@@ -62,17 +62,47 @@ npm.cmd run dev
 - **Automated Notifications**: Integrated SMS and Email notifications.
 - **Attendance & HR**: Built-in management for staff attendance and permissions.
 
-## 🔑 Default Credentials (Development)
+## 🔑 Default & Active Credentials (Development)
 
-### 🌐 Web Dashboard / Admin Portal
-- **Superadmin (System)**: `superadmin@focus.com` / `superadmin123#`
-- **Superadmin (Seeded)**: `superadmin@gmail.com` / `srimathi123`
-- **Admin**: `admin@focus.com` / `admin123#`
-- **Teacher/Staff**: `teacher@focus.com` / `teacher123`
+### 🌐 Default/Offline Credentials (Hardcoded)
 
-### 📱 Mobile Application (Expo)
-- **Inspector (Default)**: `krishna@focusengineering.in` / `123456`
-- **Inspector (Alternative)**: `krishnaa@focusengineering.in` / `krish@123`
+These credentials are pre-seeded or hardcoded for offline testing in the mobile application:
+
+| User Role | Email / Login ID | Password | Registered Mobile |
+| :--- | :--- | :--- | :--- |
+| **Super Admin** | `superadmin@focus.com` | `superadmin123#` | `+1234567890` |
+| **Admin** | `admin@focus.com` | `admin123#` | `+1234567891` |
+| **Teacher/Staff** | `teacher@focus.com` | `teacher123` | `+1234567892` |
+| **Inspector (Default)** | `krishna@focusengineering.in` | `123456` | `+919486240282` |
+| **Inspector (Alternative)** | `krishnaa@focusengineering.in` | `krish@123` | `+919486240282` |
+
+### 📱 Active Database Credentials (Online)
+
+These are the users currently registered in the active MongoDB database:
+
+| Name | Username / Login ID | Email | Role | Password | Registered Mobile |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Super Admin** | `superadmin` | `superadmin@focus.com` | superadmin | `superadmin123#` / `Super@123` | *None* |
+| **Krishna Inspector** | `krishna` | `krishna@focusengineering.in` | inspector | `123456` | *None* |
+| **Krishna Inspector** | `krishnaa` | `krishnaa@focusengineering.in` | inspector | `krish@123` | *None* |
+| **SRIMATHI SRIMATHI** | `smtsrimathii-srimathi-testing` | `smtsrimathii@gmail.com` | admin | `srimathi123` | *None* |
+| **INSPECTOR INSPECTOR** | `PRIYADHARSHINI-INSP` | `inspector@gmail.com` | inspector | `123456` | `9688356144` |
+| **System Admin** | `admin` | `admin@focus.com` | admin | `admin123#` | `+1234567891` |
+| **John Doe** | `teacher1` | `teacher@focus.com` | teacher | `teacher123` | `+1234567892` |
+| **Bharathan Rajkumar** | `bharathanvicky-srimathi-testing` | `bharathanvicky@gmail.com` | admin | `srimathi123` | `9894286683` |
+| **vicky v** | `vicky` | `vicky@gmail.com` | inspector | `srimathi123` / `123456` | `9894286683` |
+| **srimathi srimathi** | `srimathi-3w-wheeler-tvs` | `srimathi@gmail.com` | admin | `srimathi123` | *None* |
+
+---
+
+## 🙈 Git Ignore Setup (.gitignore)
+
+The root repository and sub-projects are configured to ignore specific system, configuration, and build folders to keep version control clean:
+- **`node_modules/`**: Third-party packages and dependencies.
+- **`.env*`**: Secret environment files containing API keys, database connection strings, and credentials.
+- **`dist/` & `build/`**: Compiled output directories.
+- **`.mongodb_data/`**: Local database folder for MongoDB storage.
+- **`node-dist/`**: Portable Node.js binaries.
 
 ---
 

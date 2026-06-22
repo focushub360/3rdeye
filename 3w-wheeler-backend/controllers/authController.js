@@ -77,26 +77,43 @@ export const login = async (req, res) => {
     const normalizedUsername = typeof username === 'string' ? username.trim() : '';
     const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
 
-    // Find user by username or email
+    // Find user by username, email, or mobile
     let user;
     console.log('--- DEBUG LOGIN START ---');
     console.log('Request Body:', JSON.stringify(req.body, null, 2));
+
+    const inputVal = normalizedUsername || normalizedEmail;
+    const cleanMobile = inputVal.replace(/\D/g, '');
+    const mobileQueries = [];
+    if (cleanMobile) {
+      mobileQueries.push({ mobile: cleanMobile });
+      if (cleanMobile.length >= 10) {
+        mobileQueries.push({ mobile: new RegExp(cleanMobile.slice(-10) + '$') });
+      }
+    }
+
     if (normalizedUsername) {
-      console.log('Searching by username:', normalizedUsername);
-      user = await User.findOne({ username: normalizedUsername });
+      console.log('Searching by username or mobile:', normalizedUsername);
+      user = await User.findOne({
+        $or: [
+          { username: normalizedUsername },
+          ...mobileQueries
+        ]
+      });
     } else if (normalizedEmail) {
-      console.log('Searching by email or username:', normalizedEmail);
+      console.log('Searching by email, username, or mobile:', normalizedEmail);
       user = await User.findOne({
         $or: [
           { email: normalizedEmail },
-          { username: normalizedEmail }
+          { username: normalizedEmail },
+          ...mobileQueries
         ]
       });
     } else {
-      console.log('Login failed: Username or email is required');
+      console.log('Login failed: Username, email, or mobile is required');
       return res.status(400).json({
         success: false,
-        message: 'Username or email is required'
+        message: 'Username, email, or mobile is required'
       });
     }
 
@@ -105,6 +122,14 @@ export const login = async (req, res) => {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
+      });
+    }
+
+    if (!user.isActive) {
+      console.log('Login failed: Account is deactivated');
+      return res.status(401).json({
+        success: false,
+        message: 'Account has been deactivated. Please contact support.'
       });
     }
     

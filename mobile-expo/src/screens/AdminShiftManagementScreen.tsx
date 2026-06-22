@@ -30,6 +30,8 @@ import {
   Calendar
 } from 'lucide-react-native';
 import apiClient from '../api/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 
 const { width } = Dimensions.get('window');
 
@@ -57,13 +59,33 @@ const AdminShiftManagementScreen = ({ navigation }: any) => {
   const fetchShifts = async () => {
     try {
       setLoading(true);
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        const cached = await AsyncStorage.getItem('@cached_admin_shifts');
+        if (cached) {
+          setShifts(JSON.parse(cached));
+        }
+        return;
+      }
+
       const response = await apiClient.get('/hr/shifts');
       if (response.data.success) {
-        setShifts(response.data.data || []);
+        const shiftData = response.data.data || [];
+        setShifts(shiftData);
+        await AsyncStorage.setItem('@cached_admin_shifts', JSON.stringify(shiftData));
       }
     } catch (error) {
       console.error('Fetch Shifts Error:', error);
-      Alert.alert('Error', 'Failed to load shifts');
+      try {
+        const cached = await AsyncStorage.getItem('@cached_admin_shifts');
+        if (cached) {
+          setShifts(JSON.parse(cached));
+        } else {
+          Alert.alert('Error', 'Failed to load shifts');
+        }
+      } catch (cacheErr) {
+        Alert.alert('Error', 'Failed to load shifts');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -73,14 +95,33 @@ const AdminShiftManagementScreen = ({ navigation }: any) => {
   const fetchAvailableInspectors = async (shiftId: string) => {
     try {
       setLoadingInspectors(true);
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        const cached = await AsyncStorage.getItem(`@cached_available_inspectors_${shiftId}`);
+        if (cached) {
+          setAvailableInspectors(JSON.parse(cached));
+        } else {
+          setAvailableInspectors([]);
+        }
+        return;
+      }
+
       const response = await apiClient.get('/hr/shifts/available-inspectors', {
         params: { shiftId }
       });
       if (response.data.success) {
-        setAvailableInspectors(response.data.data || []);
+        const inspectors = response.data.data || [];
+        setAvailableInspectors(inspectors);
+        await AsyncStorage.setItem(`@cached_available_inspectors_${shiftId}`, JSON.stringify(inspectors));
       }
     } catch (error) {
       console.error('Fetch Inspectors Error:', error);
+      try {
+        const cached = await AsyncStorage.getItem(`@cached_available_inspectors_${shiftId}`);
+        if (cached) {
+          setAvailableInspectors(JSON.parse(cached));
+        }
+      } catch (cacheErr) {}
     } finally {
       setLoadingInspectors(false);
     }
@@ -98,6 +139,12 @@ const AdminShiftManagementScreen = ({ navigation }: any) => {
   const handleCreateShift = async () => {
     if (!formData.name || !formData.startTime || !formData.endTime) {
       Alert.alert('Required', 'Please fill in shift name and timings');
+      return;
+    }
+
+    const netState = await NetInfo.fetch();
+    if (!netState.isConnected) {
+      Alert.alert('Offline Mode Active', 'You are offline. Creating shifts requires an active internet connection.');
       return;
     }
 
@@ -132,6 +179,11 @@ const AdminShiftManagementScreen = ({ navigation }: any) => {
           text: 'Delete', 
           style: 'destructive',
           onPress: async () => {
+            const netState = await NetInfo.fetch();
+            if (!netState.isConnected) {
+              Alert.alert('Offline Mode Active', 'You are offline. Deleting shifts requires an active internet connection.');
+              return;
+            }
             try {
               const response = await apiClient.delete(`/hr/shifts/${id}`);
               if (response.data.success) {
@@ -147,6 +199,11 @@ const AdminShiftManagementScreen = ({ navigation }: any) => {
   };
 
   const handleAssignInspectors = async (inspectorIds: string[]) => {
+    const netState = await NetInfo.fetch();
+    if (!netState.isConnected) {
+      Alert.alert('Offline Mode Active', 'You are offline. Assigning inspectors requires an active internet connection.');
+      return;
+    }
     try {
       const response = await apiClient.post(`/hr/shifts/${selectedShift._id}/assign`, {
         inspectorIds

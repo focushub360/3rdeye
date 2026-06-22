@@ -536,7 +536,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
     if (!isFirst) setCurrentSectionIndex(i => i - 1);
   };
 
-  const uploadImage = async (uri: string, attempt = 1): Promise<string> => {
+  const uploadImage = async (uri: string, attempt = 1, onProgress?: (percent: number) => void): Promise<string> => {
     const MAX_RETRIES = 3;
     try {
       const uploadUrl = `${BASE_URL}files/upload`;
@@ -560,22 +560,47 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
       const targetUri = manipulatedImage.uri;
       console.log(`[UPLOAD] Starting FileSystem upload: ${targetUri}`);
 
-      const uploadResult = await FileSystem.uploadAsync(uploadUrl, targetUri, {
-        httpMethod: 'POST',
-        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-        fieldName: 'file',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json',
-          'X-App-Type': 'mobile-app'
+      const uploadTask = FileSystem.createUploadTask(
+        uploadUrl,
+        targetUri,
+        {
+          httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          fieldName: 'file',
+          mimeType: 'image/jpeg',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json',
+            'X-App-Type': 'mobile-app'
+          },
         },
-      });
+        (progress) => {
+          if (progress.totalBytesExpectedToSend > 0 && onProgress) {
+            const percent = Math.round((progress.totalBytesSent / progress.totalBytesExpectedToSend) * 100);
+            onProgress(percent);
+          }
+        }
+      );
+
+      const uploadResult = await uploadTask.uploadAsync();
+      if (!uploadResult) {
+        throw new Error('Upload failed: No result from upload task');
+      }
 
       const responseData = JSON.parse(uploadResult.body);
 
       if (uploadResult.status === 200 || uploadResult.status === 201) {
         if (responseData.success) {
           console.log(`[UPLOAD] Successfully uploaded: ${uri}`);
+          // Clean up local persistent offline image if successful
+          if (uri.startsWith(FileSystem.documentDirectory + '3w_offline_images/')) {
+            try {
+              await FileSystem.deleteAsync(uri, { idempotent: true });
+              console.log(`[UPLOAD] Cleaned up persistent offline image: ${uri}`);
+            } catch (delErr) {
+              console.warn('[UPLOAD] Failed to delete persistent offline file:', delErr);
+            }
+          }
           return responseData.data.url || responseData.data.filename || responseData.data.path || responseData.data.id;
         }
       }
@@ -588,7 +613,7 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
         const delay = attempt * 2000; // Exponential backoff: 2s, 4s...
         console.warn(`[UPLOAD] Attempt ${attempt} failed, retrying in ${delay}ms...`, err.message);
         await new Promise(r => setTimeout(r, delay));
-        return uploadImage(uri, attempt + 1);
+        return uploadImage(uri, attempt + 1, onProgress);
       }
       
       console.error('Final image upload error:', {
@@ -739,11 +764,13 @@ const FormPreviewScreen = ({ route, navigation }: any) => {
         const CONCURRENCY = 1; // Sequential for maximum reliability on mobile networks
         for (let i = 0; i < uploadTasks.length; i++) {
           const task = uploadTasks[i];
-          setSubmittingProgress(`Uploading image ${i + 1} of ${uploadTasks.length}...`);
+          setSubmittingProgress(`Uploading image ${i + 1} of ${uploadTasks.length} (0%)...`);
           
           try {
             // Upload with internal retries already handled in uploadImage
-            const uploadedUrl = await uploadImage(task.path![0]);
+            const uploadedUrl = await uploadImage(task.path![0], 1, (percent) => {
+              setSubmittingProgress(`Uploading image ${i + 1} of ${uploadTasks.length} (${percent}%)...`);
+            });
             
             // Apply the URL back to the processedAnswers structure
             if (task.type === 'single') {

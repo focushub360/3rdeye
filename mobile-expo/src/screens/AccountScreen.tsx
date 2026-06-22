@@ -12,6 +12,10 @@ import {
   Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import NetInfo from '@react-native-community/netinfo';
+import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import apiClient from '../api/config';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { 
@@ -44,19 +48,61 @@ const AccountScreen = ({ navigation }: any) => {
   const [newPassword, setNewPassword] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const handleUpdatePassword = () => {
+  const handleUpdatePassword = async () => {
     if (!currentPassword || !newPassword) {
       Alert.alert("Error", "Please fill all password fields.");
       return;
     }
     setIsUpdating(true);
-    // Mock API call
-    setTimeout(() => {
+    try {
+      const netState = await NetInfo.fetch();
+      if (netState.isConnected) {
+        // Online: call api directly
+        const response = await apiClient.put('/auth/change-password', {
+          currentPassword,
+          newPassword
+        });
+        if (response.data.success) {
+          // Update cached offline credentials
+          await SecureStore.setItemAsync('offline_password', newPassword);
+          Alert.alert("Success", "Password updated successfully.");
+          setCurrentPassword('');
+          setNewPassword('');
+        } else {
+          Alert.alert("Error", response.data.message || "Failed to update password.");
+        }
+      } else {
+        // Offline: update local credentials and queue update for sync
+        const storedPassword = await SecureStore.getItemAsync('offline_password');
+        
+        if (storedPassword && storedPassword !== currentPassword) {
+          Alert.alert("Error", "Incorrect current password entered.");
+          setIsUpdating(false);
+          return;
+        }
+        
+        // Update local SecureStore password so offline login uses the new password immediately
+        await SecureStore.setItemAsync('offline_password', newPassword);
+        
+        // Queue the payload for sync when online
+        await AsyncStorage.setItem('@offline_queued_password_update', JSON.stringify({
+          currentPassword,
+          newPassword
+        }));
+        
+        Alert.alert(
+          "Offline Mode Active", 
+          "Password updated locally. Offline login will now use this new password. The change will sync to the server once internet connection is restored."
+        );
+        setCurrentPassword('');
+        setNewPassword('');
+      }
+    } catch (error: any) {
+      console.error('Password update error:', error);
+      Alert.alert("Error", error.response?.data?.message || "Failed to update password. Check your connection.");
+    } finally {
       setIsUpdating(false);
-      Alert.alert("Success", "Password updated successfully.");
-      setCurrentPassword('');
-      setNewPassword('');
-    }, 1500);
+    }
   };
 
   const renderHeader = (title: string, showBack = false) => (

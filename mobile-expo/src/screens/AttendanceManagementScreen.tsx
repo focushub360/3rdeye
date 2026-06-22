@@ -31,6 +31,8 @@ import {
   Users
 } from 'lucide-react-native';
 import apiClient from '../api/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 
@@ -50,21 +52,40 @@ const AttendanceManagementScreen = ({ navigation }: any) => {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const fetchLogs = useCallback(async () => {
+    const userId = user?._id || user?.id || 'default';
+    
+    // Format dates for API query in local timezone to match backend parser
+    const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+
+    const formatDateLocal = (date: Date) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+
+    const startStr = formatDateLocal(startOfMonth);
+    const endStr = formatDateLocal(endOfMonth);
+    const logsCacheKey = `@cached_attendance_logs_${userId}_${startStr}_${endStr}`;
+    const statsCacheKey = `@cached_attendance_stats_${userId}`;
+    const perfCacheKey = `@cached_attendance_performance_${userId}_${startStr}_${endStr}`;
+
     try {
       setLoading(true);
-      // Format dates for API query in local timezone to match backend parser
-      const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-      const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
 
-      const formatDateLocal = (date: Date) => {
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, '0');
-        const d = String(date.getDate()).padStart(2, '0');
-        return `${y}-${m}-${d}`;
-      };
-
-      const startStr = formatDateLocal(startOfMonth);
-      const endStr = formatDateLocal(endOfMonth);
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        // Retrieve all caches offline
+        const cachedLogs = await AsyncStorage.getItem(logsCacheKey);
+        const cachedStats = await AsyncStorage.getItem(statsCacheKey);
+        const cachedPerf = await AsyncStorage.getItem(perfCacheKey);
+        
+        if (cachedLogs) setLogs(JSON.parse(cachedLogs));
+        if (cachedStats) setStats(JSON.parse(cachedStats));
+        if (cachedPerf) setInspectorPerformance(JSON.parse(cachedPerf));
+        return;
+      }
       
       // Fetch each endpoint independently to ensure robust error isolation
       try {
@@ -75,20 +96,28 @@ const AttendanceManagementScreen = ({ navigation }: any) => {
           }
         });
         if (attendanceRes.data.success) {
-          setLogs(attendanceRes.data.logs || attendanceRes.data.data?.detailedLogs || []);
+          const fetchedLogs = attendanceRes.data.logs || attendanceRes.data.data?.detailedLogs || [];
+          setLogs(fetchedLogs);
+          await AsyncStorage.setItem(logsCacheKey, JSON.stringify(fetchedLogs));
         }
       } catch (err) {
         console.error('HRMS error fetching logs:', err);
+        const cachedLogs = await AsyncStorage.getItem(logsCacheKey);
+        if (cachedLogs) setLogs(JSON.parse(cachedLogs));
       }
 
       try {
         const statsRes = await apiClient.get('/hr/attendance/summary');
         if (statsRes.data.success) {
           console.log('📊 HR Stats Received:', statsRes.data.data);
-          setStats(statsRes.data.data);
+          const fetchedStats = statsRes.data.data;
+          setStats(fetchedStats);
+          await AsyncStorage.setItem(statsCacheKey, JSON.stringify(fetchedStats));
         }
       } catch (err) {
         console.error('HRMS error fetching stats summary:', err);
+        const cachedStats = await AsyncStorage.getItem(statsCacheKey);
+        if (cachedStats) setStats(JSON.parse(cachedStats));
       }
 
       try {
@@ -99,10 +128,14 @@ const AttendanceManagementScreen = ({ navigation }: any) => {
           }
         });
         if (perfRes.data.success) {
-          setInspectorPerformance(perfRes.data.data);
+          const fetchedPerf = perfRes.data.data;
+          setInspectorPerformance(fetchedPerf);
+          await AsyncStorage.setItem(perfCacheKey, JSON.stringify(fetchedPerf));
         }
       } catch (err) {
         console.error('HRMS error fetching performance table:', err);
+        const cachedPerf = await AsyncStorage.getItem(perfCacheKey);
+        if (cachedPerf) setInspectorPerformance(JSON.parse(cachedPerf));
       }
 
     } catch (error) {
@@ -111,7 +144,7 @@ const AttendanceManagementScreen = ({ navigation }: any) => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [currentDate]);
+  }, [currentDate, user]);
 
   useEffect(() => {
     fetchLogs();
