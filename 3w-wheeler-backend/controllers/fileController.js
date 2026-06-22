@@ -157,7 +157,8 @@ export const uploadFile = async (req, res) => {
       await fs.promises.writeFile(localFilePath, req.file.buffer);
       
       // Construct local URL using req host/protocol
-      const localUrl = `${req.protocol}://${req.get('host')}/uploads/${filename}`;
+      const protocol = req.get('x-forwarded-proto') || req.protocol;
+      const localUrl = `${protocol}://${req.get('host')}/uploads/${filename}`;
       console.log(`[UPLOAD] Local fallback upload successful. Served at: ${localUrl}`);
 
       fileRecord = new File({

@@ -46,6 +46,9 @@ initAutoSendJob();
 
 const app = express();
 
+// Trust proxy for secure headers behind reverse proxy/load balancers
+app.set('trust proxy', true);
+
 // Set server timeout for file uploads (default 10 minutes, configurable via env)
 const requestTimeout = parseInt(process.env.REQUEST_TIMEOUT || '600000');
 app.timeout = requestTimeout;
