@@ -278,7 +278,9 @@ export const checkOut = async (req, res) => {
     const now = getISTNow(offlineTime);
     const today = getISTToday(offlineTime);
 
-    const attendance = await Attendance.findOne({
+    const place = await reverseGeocode(lat, lng);
+
+    let attendance = await Attendance.findOne({
       inspector: inspectorId,
       date: { $gte: today },
       checkInTime: { $exists: true },
@@ -286,10 +288,110 @@ export const checkOut = async (req, res) => {
     }).populate('shift');
 
     if (!attendance) {
-      return res.status(400).json({ success: false, message: 'No active check-in found for today' });
-    }
+      // Offline fallback: Auto-create check-in if none exists, or populate empty check-in
+      attendance = await Attendance.findOne({
+        inspector: inspectorId,
+        date: { $gte: today }
+      }).populate('shift');
 
-    const place = await reverseGeocode(lat, lng);
+      if (!attendance) {
+        // Auto-detect shift
+        const allShifts = await Shift.find({ tenantId, isActive: true });
+        const { hours: checkoutHours, minutes: checkoutMinutes } = getISTHoursAndMinutes(now);
+        const currentMins = checkoutHours * 60 + checkoutMinutes;
+        
+        let shift = findShiftByTime(currentMins, allShifts, 15);
+        if (!shift && allShifts.length > 0) {
+          shift = allShifts[0]; // Fallback to first shift if none matching
+        }
+
+        if (!shift) {
+          // Check if there is any shift in the DB for this tenant (even inactive)
+          let existingShift = await Shift.findOne({ tenantId });
+          if (!existingShift) {
+            // Create a default normal shift for this tenant
+            existingShift = await Shift.create({
+              name: 'Normal',
+              displayName: 'Normal',
+              startTime: '09:00',
+              endTime: '18:00',
+              gracePeriod: 15,
+              lateMarkingAfter: 30,
+              halfDayMarkingAfter: 120,
+              isActive: true,
+              tenantId: tenantId,
+              createdBy: inspectorId
+            });
+            console.log(`[OfflineQueue Fix] Auto-created default normal shift for tenant ${tenantId}`);
+          }
+          shift = existingShift;
+        }
+
+        if (!shift) {
+          return res.status(400).json({ success: false, message: 'No active check-in found for today, and failed to configure a default shift.' });
+        }
+
+        // Auto-create check-in at shift start time
+        const shiftStartStr = shift.startTime || '09:00';
+        const [sh, sm] = shiftStartStr.split(':').map(Number);
+        const checkInTime = new Date(today.getTime());
+        const startTotalMins = sh * 60 + sm - 330;
+        checkInTime.setUTCMinutes(startTotalMins);
+
+        const checkInPlace = place || 'Position Captured';
+
+        attendance = new Attendance({
+          inspector: inspectorId,
+          tenantId,
+          shift: shift._id,
+          shiftName: shift.displayName,
+          shiftStartTime: shift.startTime,
+          shiftEndTime: shift.endTime,
+          date: today,
+          checkInTime: checkInTime,
+          checkInLat: lat,
+          checkInLng: lng,
+          checkInPlace: checkInPlace,
+          checkInAccuracy: accuracy,
+          status: 'present',
+          sessions: [{
+            checkInTime: checkInTime,
+            checkInLat: lat,
+            checkInLng: lng,
+            checkInPlace: checkInPlace,
+            checkInAccuracy: accuracy
+          }]
+        });
+        await attendance.save();
+        console.log('[OfflineQueue Fix] Auto-created check-in during check-out sync:', attendance);
+      } else if (!attendance.checkInTime) {
+        // Populate missing check-in fields in empty/absent record
+        const shiftStartStr = attendance.shiftStartTime || attendance.shift?.startTime || '09:00';
+        const [sh, sm] = shiftStartStr.split(':').map(Number);
+        const checkInTime = new Date(today.getTime());
+        const startTotalMins = sh * 60 + sm - 330;
+        checkInTime.setUTCMinutes(startTotalMins);
+
+        attendance.checkInTime = checkInTime;
+        attendance.checkInLat = lat;
+        attendance.checkInLng = lng;
+        attendance.checkInPlace = place || 'Position Captured';
+        attendance.checkInAccuracy = accuracy;
+        attendance.status = 'present';
+        attendance.sessions = [{
+          checkInTime: checkInTime,
+          checkInLat: lat,
+          checkInLng: lng,
+          checkInPlace: place || 'Position Captured',
+          checkInAccuracy: accuracy
+        }];
+        await attendance.save();
+        console.log('[OfflineQueue Fix] Populated empty attendance check-in during check-out sync:', attendance);
+      } else if (attendance.checkOutTime) {
+        // Already checked out? Return success to clear the offline sync queue
+        return res.json({ success: true, data: attendance });
+      }
+    }
 
     // Migrate legacy sessions if empty
     if (!attendance.sessions || attendance.sessions.length === 0) {
