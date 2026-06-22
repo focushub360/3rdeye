@@ -5,7 +5,8 @@ import { Platform } from 'react-native';
 // Automatically detect environment and set API base URL
 // IMPORTANT: For local development, replace the IP with your computer's local IP address
 const LOCAL_IP = '192.168.31.205'; // Updated to match current network (192.168.31.205)
-const IS_DEV = __DEV__;
+const FORCE_STAGING = true; // Set to true to force staging server for remote testing even in development
+const IS_DEV = __DEV__ && !FORCE_STAGING;
 
 // Use localhost for web to avoid CORS/Network issues on the same machine
 const DEV_URL = Platform.OS === 'web' 
