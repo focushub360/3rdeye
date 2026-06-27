@@ -131,7 +131,8 @@ export const processAttendanceForReport = (logs, inspectors, totalDays) => {
    // Format detailed logs
    const detailedLogs = logs.map(log => {
      // Convert stored UTC date to local date (IST = UTC+5:30)
-     const localDate = new Date(log.date.getTime() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0];
+     // Adjust by subtracting timezone offset to get local midnight date
+     const localDate = new Date(log.date.getTime() - (log.date.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
      
      // Get tenant info if available
      const tenantName = log.tenantId?.companyName || log.tenantId?.name || null;
@@ -142,8 +143,8 @@ export const processAttendanceForReport = (logs, inspectors, totalDays) => {
        inspectorId: log.inspector?._id || null,
        tenant: tenantName,
        shift: log.shift?.displayName || log.shift?.name || 'N/A',
-       checkIn: log.checkInTime ? new Date(log.checkInTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : null,
-       checkOut: log.checkOutTime ? new Date(log.checkOutTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : null,
+       checkIn: log.checkInTime ? new Date(log.checkInTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : null,
+       checkOut: log.checkOutTime ? new Date(log.checkOutTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : null,
        hours: log.workingHours,
        status: log.status,
        location: log.checkInPlace || log.checkOutPlace

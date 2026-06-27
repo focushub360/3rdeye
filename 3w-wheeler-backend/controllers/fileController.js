@@ -118,60 +118,29 @@ export const uploadFile = async (req, res) => {
     const associatedType = typeMap[rawAssociatedType] || 'form';
     const associatedIdentifier = normalizeValue(bodyAssociatedId) || normalizeValue(queryAssociatedId);
 
+    // Upload to Cloudinary
+    const folder = `focus_forms/${associatedType}`;
+    const filename = `${Date.now()}_${req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+    
+    const cloudinaryResult = await uploadToCloudinary(req.file.buffer, filename, folder);
+
     const associatedWith = { type: associatedType };
     if (associatedIdentifier) {
       associatedWith.id = associatedIdentifier;
     }
 
-    // Try Uploading to Cloudinary with a local storage fallback
-    const folder = `focus_forms/${associatedType}`;
-    const filename = `${Date.now()}_${req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-    let fileRecord;
-
-    try {
-      const cloudinaryResult = await uploadToCloudinary(req.file.buffer, filename, folder);
-      
-      fileRecord = new File({
-        filename: req.file.originalname,
-        originalName: req.file.originalname,
-        mimetype: req.file.mimetype,
-        size: req.file.size,
-        cloudinaryPublicId: cloudinaryResult.public_id,
-        cloudinaryUrl: cloudinaryResult.secure_url,
-        url: cloudinaryResult.secure_url,
-        uploadedBy: req.user ? req.user._id : null,
-        associatedWith,
-        isPublic: true
-      });
-    } catch (cloudinaryError) {
-      console.warn('[UPLOAD] Cloudinary upload failed. Falling back to local storage:', cloudinaryError.message || cloudinaryError);
-      
-      const localUploadsDir = path.join(__dirname, '..', 'uploads');
-      
-      // Ensure the directory exists
-      if (!fs.existsSync(localUploadsDir)) {
-        fs.mkdirSync(localUploadsDir, { recursive: true });
-      }
-      
-      const localFilePath = path.join(localUploadsDir, filename);
-      await fs.promises.writeFile(localFilePath, req.file.buffer);
-      
-      // Construct local URL using req host/protocol
-      const protocol = req.get('x-forwarded-proto') || req.protocol;
-      const localUrl = `${protocol}://${req.get('host')}/uploads/${filename}`;
-      console.log(`[UPLOAD] Local fallback upload successful. Served at: ${localUrl}`);
-
-      fileRecord = new File({
-        filename: req.file.originalname,
-        originalName: req.file.originalname,
-        mimetype: req.file.mimetype,
-        size: req.file.size,
-        url: localUrl,
-        uploadedBy: req.user ? req.user._id : null,
-        associatedWith,
-        isPublic: true
-      });
-    }
+    const fileRecord = new File({
+      filename: req.file.originalname,
+      originalName: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+      cloudinaryPublicId: cloudinaryResult.public_id,
+      cloudinaryUrl: cloudinaryResult.secure_url,
+      url: cloudinaryResult.secure_url,
+      uploadedBy: req.user ? req.user._id : null,
+      associatedWith,
+      isPublic: true
+    });
 
     await fileRecord.save();
 
@@ -211,25 +180,15 @@ export const getFile = async (req, res) => {
       fileRecord = await File.findOne({ filename });
     }
 
-    if (!fileRecord) {
+    if (!fileRecord || !fileRecord.cloudinaryUrl) {
       return res.status(404).json({
         success: false,
         message: 'File not found'
       });
     }
 
-    if (fileRecord.cloudinaryUrl) {
-      // Redirect to Cloudinary URL
-      res.redirect(fileRecord.cloudinaryUrl);
-    } else if (fileRecord.url) {
-      // Redirect to local URL
-      res.redirect(fileRecord.url);
-    } else {
-      return res.status(404).json({
-        success: false,
-        message: 'File URL not found'
-      });
-    }
+    // Redirect to Cloudinary URL
+    res.redirect(fileRecord.cloudinaryUrl);
 
   } catch (error) {
     console.error('Get file error:', error);
@@ -270,18 +229,6 @@ export const deleteFile = async (req, res) => {
       } catch (cloudinaryError) {
         console.warn('Cloudinary delete warning:', cloudinaryError);
         // Continue with database deletion even if Cloudinary delete fails
-      }
-    } else if (fileRecord.url && fileRecord.url.includes('/uploads/')) {
-      // Delete from local storage
-      try {
-        const filename = fileRecord.url.substring(fileRecord.url.lastIndexOf('/') + 1);
-        const localFilePath = path.join(__dirname, '..', 'uploads', filename);
-        if (fs.existsSync(localFilePath)) {
-          fs.unlinkSync(localFilePath);
-          console.log(`[UPLOAD] Deleted local fallback file: ${localFilePath}`);
-        }
-      } catch (localDeleteError) {
-        console.warn('Local file delete warning:', localDeleteError);
       }
     }
 

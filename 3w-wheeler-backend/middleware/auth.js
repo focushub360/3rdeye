@@ -70,8 +70,11 @@ export const authenticate = async (req, res, next) => {
         });
       }
       if (userAccessType === 'mobile' && appType === 'website') {
-        // Bypass block to allow simultaneous login on web and mobile
-        console.log('Bypassing website block for mobile-only user in middleware');
+        console.log('BLOCKING: website access tries mobile');
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. This account is only allowed on mobile app.'
+        });
       }
     }
 

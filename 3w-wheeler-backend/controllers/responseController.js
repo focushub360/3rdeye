@@ -204,7 +204,7 @@ export const createResponse = async (req, res) => {
     if (inviteId) {
       console.log(`[INVITE] Processing response with inviteId: ${inviteId}`);
 
-      inviteObj = await FormInvite.findOne({
+      const invite = await FormInvite.findOne({
         formId: questionId,
         inviteId: inviteId
       });

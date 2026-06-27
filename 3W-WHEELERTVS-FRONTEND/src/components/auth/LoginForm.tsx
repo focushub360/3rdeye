@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { LogIn, X, Mail, Lock, Eye, EyeOff, User } from "lucide-react";
+import { LogIn, X, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
 interface LoginFormProps {
@@ -76,21 +76,21 @@ export default function LoginForm({ onClose }: LoginFormProps) {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Email / Mobile field */}
+            {/* Email field */}
             <div className="space-y-2">
               <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 ml-1">
-                Email or Mobile Number
+                Email Address
               </label>
               <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <User className="w-5 h-5 text-gray-400 group-focus-within:text-[#1e3a8a] transition-colors" />
+                  <Mail className="w-5 h-5 text-gray-400 group-focus-within:text-[#1e3a8a] transition-colors" />
                 </div>
                 <input
-                  type="text"
+                  type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-12 pr-4 py-3.5 border border-gray-100 dark:border-gray-800 rounded-2xl focus:ring-4 focus:ring-[#1e3a8a]/10 focus:border-[#1e3a8a]/30 transition-all duration-200 bg-gray-50 dark:bg-gray-800/50 hover:bg-white dark:hover:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 text-sm"
-                  placeholder="e.g. admin@focus.com or 9894286683"
+                  placeholder="admin@focus.com"
                   required
                 />
               </div>

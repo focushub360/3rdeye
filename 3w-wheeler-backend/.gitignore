@@ -21,10 +21,5 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
+*.sw?
 .env
-uploads/
-node-dist/
-query-krishna.js
-restore-db.js
-run-checkout-debug.js
-test-upload-remote.js

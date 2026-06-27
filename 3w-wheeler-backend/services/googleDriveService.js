@@ -538,14 +538,16 @@ export const processResponseImages = async (answers, metadata = {}, onProgress =
       return answers;
     }
     
-    const processedAnswers = answers instanceof Map ? new Map(answers) : JSON.parse(JSON.stringify(answers));
+    const entries = answers instanceof Map ? 
+      Array.from(answers.entries()) : 
+      Object.entries(answers);
     
     const imageTasks = [];
     const isImageUrl = (url) => {
       if (!url || typeof url !== 'string') return false;
       // Check for common image URL patterns
       const imagePatterns = [
-        /\.(jpg|jpeg|png|gif|bmp|webp)(\?|#|$)/i,
+        /\.(jpg|jpeg|png|gif|bmp|webp)$/i,
         /drive\.google\.com/i,
         /res\.cloudinary\.com/i,
         /cloudinary\.com/i,
@@ -554,33 +556,37 @@ export const processResponseImages = async (answers, metadata = {}, onProgress =
       return imagePatterns.some(pattern => pattern.test(url));
     };
 
-    const findAndCollectImages = (obj, pathArr = []) => {
-      if (!obj || typeof obj !== 'object') return;
+    entries.forEach(([questionId, answer]) => {
+      if (!answer) return;
       
-      const entriesList = obj instanceof Map ? Array.from(obj.entries()) : Object.entries(obj);
-      for (const [key, val] of entriesList) {
-        if (typeof val === 'string' && isImageUrl(val)) {
-          imageTasks.push({
-            parent: obj,
-            key,
-            url: val,
-            path: [...pathArr, key],
-            source: isGoogleDriveUrl(val) ? 'google-drive' : 'other'
-          });
-        } else if (typeof val === 'object' && val !== null) {
-          findAndCollectImages(val, [...pathArr, key]);
-        }
+      if (typeof answer === 'string' && isImageUrl(answer)) {
+        imageTasks.push({
+          questionId,
+          url: answer,
+          type: 'single',
+          source: isGoogleDriveUrl(answer) ? 'google-drive' : 'other'
+        });
+      } else if (Array.isArray(answer)) {
+        answer.forEach((item, index) => {
+          if (typeof item === 'string' && isImageUrl(item)) {
+            imageTasks.push({
+              questionId,
+              url: item,
+              type: 'array',
+              arrayIndex: index,
+              source: isGoogleDriveUrl(item) ? 'google-drive' : 'other'
+            });
+          }
+        });
       }
-    };
-
-    findAndCollectImages(processedAnswers);
+    });
     
     const totalImages = imageTasks.length;
     console.log(`[BATCH ${batchId || 'PROCESS'}] Found ${totalImages} images to process`);
     
     if (totalImages === 0) {
       return {
-        processedAnswers,
+        processedAnswers: answers,
         driveBackupUrls: {},
         stats: {
           totalImages: 0,
@@ -662,26 +668,26 @@ export const processResponseImages = async (answers, metadata = {}, onProgress =
     console.log(`[BATCH ${batchId || 'PROCESS'}] ${successfulUploads.length}/${validDownloads.length} uploads successful`);
     
     // Map results
-    const driveBackupUrls = {};
+    const processedResults = new Map();
+    const driveBackupUrls = new Map();
     
     successfulUploads.forEach((upload, index) => {
       const task = imageTasks[index];
       if (!task) return;
       
-      // Update in place
-      if (task.parent instanceof Map) {
-        task.parent.set(task.key, upload.cloudinaryUrl);
-      } else {
-        task.parent[task.key] = upload.cloudinaryUrl;
+      if (!processedResults.has(task.questionId)) {
+        processedResults.set(task.questionId, {});
       }
       
+      const questionData = processedResults.get(task.questionId);
+      questionData[upload.originalUrl] = upload.cloudinaryUrl;
+      
       if (upload.driveUrl) {
-        const questionId = task.path[0] || 'unknown';
-        if (!driveBackupUrls[questionId]) {
-          driveBackupUrls[questionId] = [];
+        if (!driveBackupUrls.has(task.questionId)) {
+          driveBackupUrls.set(task.questionId, []);
         }
         
-        driveBackupUrls[questionId].push({
+        driveBackupUrls.get(task.questionId).push({
           cloudinaryUrl: upload.cloudinaryUrl,
           driveUrl: upload.driveUrl,
           driveFileId: upload.driveFileId,
@@ -689,6 +695,34 @@ export const processResponseImages = async (answers, metadata = {}, onProgress =
           originalUrl: upload.originalUrl,
           uploadedAt: new Date().toISOString()
         });
+      }
+    });
+    
+    // Update answers
+    const processedAnswers = answers instanceof Map ? new Map(answers) : { ...answers };
+    
+    entries.forEach(([questionId, answer]) => {
+      if (!answer) return;
+      
+      const replacements = processedResults.get(questionId);
+      if (!replacements) return;
+      
+      if (typeof answer === 'string' && replacements[answer]) {
+        if (answers instanceof Map) {
+          processedAnswers.set(questionId, replacements[answer]);
+        } else {
+          processedAnswers[questionId] = replacements[answer];
+        }
+      } else if (Array.isArray(answer)) {
+        const updatedArray = answer.map(item => 
+          (typeof item === 'string' && replacements[item]) ? replacements[item] : item
+        );
+        
+        if (answers instanceof Map) {
+          processedAnswers.set(questionId, updatedArray);
+        } else {
+          processedAnswers[questionId] = updatedArray;
+        }
       }
     });
     
@@ -707,7 +741,7 @@ export const processResponseImages = async (answers, metadata = {}, onProgress =
     
     return {
       processedAnswers,
-      driveBackupUrls: driveBackupUrls,
+      driveBackupUrls: Object.fromEntries(driveBackupUrls.entries()),
       folderStructure: driveFolderInfo,
       stats: {
         totalImages,
