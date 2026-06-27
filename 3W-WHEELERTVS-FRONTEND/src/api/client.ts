@@ -13,8 +13,7 @@ const API_BASE_URL = (() => {
     : "https://3wheelertvsbackend.focusengineeringapp.com/api";
 
   console.log(
-    `🔗 API Base URL: ${baseUrl} (Environment: ${
-      isLocal ? "Local" : "Production"
+    `🔗 API Base URL: ${baseUrl} (Environment: ${isLocal ? "Local" : "Production"
     })`,
   );
   return baseUrl;
@@ -261,7 +260,7 @@ class ApiClient {
   }
 
   async getProfile() {
-    return this.request<{ user: any }>("/auth/profile");
+    return this.request<{ user: any; tenant?: any }>("/auth/profile");
   }
 
   async changePassword(passwords: {
@@ -465,8 +464,7 @@ class ApiClient {
   }
 
   // Forms
-  // In client.ts
-  async getForms(params?: { isGlobal?: boolean; search?: string }) {
+  async getForms(params?: { isGlobal?: boolean; search?: string; tenantId?: string; limit?: number }) {
     const query = new URLSearchParams();
     if (params?.isGlobal !== undefined) {
       query.set("isGlobal", params.isGlobal.toString());
@@ -474,13 +472,16 @@ class ApiClient {
     if (params?.search) {
       query.set("search", params.search);
     }
+    if (params?.tenantId) {
+      query.set("tenantId", params.tenantId);
+    }
+    if (params?.limit !== undefined) {
+      query.set("limit", params.limit.toString());
+    }
     const endpoint = `/forms${query.toString() ? `?${query.toString()}` : ""}`;
-    const result = await this.request<{ forms: any[] }>(endpoint);
 
-    // DEBUG: Log the response
-    console.log("Forms API Response:", result);
-    result.forms.forEach((form) => {
-      console.log(`Form "${form.title}" responseCount: ${form.responseCount}`);
+    const result = await this.request<{ forms: any[] }>(endpoint, {
+      timeout: 60000 // 60 seconds instead of default 30s
     });
 
     return result;
@@ -688,9 +689,14 @@ class ApiClient {
   }
 
   // Responses
-  async getResponses() {
+  async getResponses(params?: { formIds?: string; limit?: number }) {
+    const query = new URLSearchParams();
+    query.set("limit", (params?.limit ?? 1000).toString());
+    if (params?.formIds) {
+      query.set("formIds", params.formIds);
+    }
     return this.request<{ responses: any[]; pagination?: any }>(
-      "/responses?limit=1000",
+      `/responses?${query.toString()}`, { timeout: 60000 }
     );
   }
 
@@ -842,6 +848,17 @@ class ApiClient {
     return this.request<any>("/analytics/dashboard");
   }
 
+  async getOverallAnalytics(options?: { startDate?: string; endDate?: string; formIds?: string[] }) {
+    const params = new URLSearchParams();
+    if (options?.startDate) params.append("startDate", options.startDate);
+    if (options?.endDate) params.append("endDate", options.endDate);
+    if (options?.formIds && options.formIds.length > 0) {
+      params.append("formIds", options.formIds.join(","));
+    }
+    const query = params.toString() ? `?${params.toString()}` : "";
+    return this.request<any>(`/analytics/overall${query}`);
+  }
+
   async getFormAnalytics(formId: string) {
     return this.request<any>(`/analytics/form/${formId}`);
   }
@@ -868,6 +885,20 @@ class ApiClient {
       if (query) url += `?${query}`;
     }
     return this.get<any[]>(url);
+  }
+
+  async getInternalTrackingPerformance(params?: { page?: number; limit?: number; search?: string; sortBy?: string; sortOrder?: string }) {
+    const query = new URLSearchParams();
+    if (params?.page) query.set("page", params.page.toString());
+    if (params?.limit) query.set("limit", params.limit.toString());
+    if (params?.search) query.set("search", params.search);
+    if (params?.sortBy) query.set("sortBy", params.sortBy);
+    if (params?.sortOrder) query.set("sortOrder", params.sortOrder);
+    return this.get<{ tenants: any[]; users: any[]; pagination: any }>(`/internal-tracking/performance?${query.toString()}`);
+  }
+
+  async getTenantPerformanceDetails(tenantId: string) {
+    return this.get<{ users: any[]; tenant: any }>(`/internal-tracking/tenant/${tenantId}/performance`);
   }
 
   // ── Form Session Tracking ─────────────────────────────────────────────────
@@ -1588,6 +1619,16 @@ class ApiClient {
     });
   }
 
+  async updateTenantInternalTracking(
+    tenantId: string,
+    data: { internalTrackingEnabled: boolean; allowedTenantIds: string[] },
+  ) {
+    return this.request<any>(`/internal-tracking/${tenantId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
   // Parameters
   async getParameters(params?: {
     type?: "main" | "followup";
@@ -1608,9 +1649,8 @@ class ApiClient {
       query.set("formId", params.formId);
     }
 
-    const endpoint = `/parameters${
-      query.toString() ? `?${query.toString()}` : ""
-    }`;
+    const endpoint = `/parameters${query.toString() ? `?${query.toString()}` : ""
+      }`;
 
     return this.request<{ parameters: any[] }>(endpoint);
   }
@@ -1694,8 +1734,8 @@ class ApiClient {
         console.error("API Error Response:", errorData);
         throw new Error(
           errorData.details ||
-            errorData.error ||
-            `PDF generation failed: ${response.statusText}`,
+          errorData.error ||
+          `PDF generation failed: ${response.statusText}`,
         );
       }
 
@@ -1709,7 +1749,53 @@ class ApiClient {
       throw error;
     }
   }
+  // Add this new method to your client class
+  async generateOverallPDF(options: {
+    htmlContent: string;
+    filename?: string;
+  }): Promise<Blob> {
+    const url = `${this.baseUrl}/pdf/generate-overall`;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
 
+    if (this.token) {
+      headers.Authorization = `Bearer ${this.token}`;
+    }
+
+    const requestBody = {
+      htmlContent: options.htmlContent,
+      filename: options.filename || "overall-report.pdf",
+    };
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.details || errorData.error || `PDF generation failed: ${response.statusText}`
+        );
+      }
+
+      return response.blob();
+    } catch (error: any) {
+      if (error.name === "AbortError") {
+        throw new Error("PDF generation timed out (120s).");
+      }
+      throw error;
+    }
+  }
   // Form Invite Management
   async uploadInvites(formId: string, formData: FormData) {
     const url = `${this.baseUrl}/forms/${formId}/invites/upload`;
@@ -1798,9 +1884,8 @@ class ApiClient {
       });
     }
 
-    const endpoint = `/forms/${formId}/invites${
-      query.toString() ? `?${query.toString()}` : ""
-    }`;
+    const endpoint = `/forms/${formId}/invites${query.toString() ? `?${query.toString()}` : ""
+      }`;
     const url = `${this.baseUrl}${endpoint}`;
 
     const headers: Record<string, string> = {
@@ -2156,7 +2241,7 @@ class ApiClient {
     if (params?.limit) query.set("limit", params.limit.toString());
     return this.request<{ data: any }>(
       "/hr/attendance/my-history" +
-        (query.toString() ? `?${query.toString()}` : ""),
+      (query.toString() ? `?${query.toString()}` : ""),
     );
   }
 

@@ -2301,7 +2301,7 @@ export default function FormAnalyticsDashboard() {
     null,
   );
   const [analyticsView, setAnalyticsView] = useState<
-    "question" | "section" | "table" | "responses" | "dashboard" | "comparison"
+    "question" | "section" | "table" | "responses" | "dashboard" | "comparison" | "overall"
   >(
     isGuest
       ? "dashboard"
@@ -6215,6 +6215,11 @@ export default function FormAnalyticsDashboard() {
     navigate(`/responses/${responseId}`);
   };
 
+  const handleEditResponse = (response: Response) => {
+    const responseId = response.id || response._id;
+    navigate(`/responses/${responseId}/edit-form`);
+  };
+
   const handleOpenModal = async (response: Response) => {
     try {
       const formIdentifier = response.questionId;
@@ -7001,6 +7006,17 @@ export default function FormAnalyticsDashboard() {
               >
                 <FileText className="w-4 h-4" />
                 Sections
+              </button>
+              <button
+                onClick={() => setAnalyticsView("overall")}
+                className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${
+                  analyticsView === "overall"
+                    ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
+                    : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
+                }`}
+              >
+                <BarChart3 className="w-4 h-4" />
+                Overall
               </button>
               {/* <button
                   onClick={() => setAnalyticsView("table")}
@@ -8121,6 +8137,20 @@ export default function FormAnalyticsDashboard() {
             </div>
           )}
 
+          {/* Overall Analytics */}
+          {analyticsView === "overall" && (
+            <div className="space-y-6">
+              <div className="card p-6">
+                <SectionAnalytics
+                  question={form}
+                  responses={filteredResponses}
+                  complianceLabels={complianceLabels}
+                  isOverall={true}
+                />
+              </div>
+            </div>
+          )}
+
           {/* Table View */}
           {analyticsView === "table" && (
             <div className="space-y-6">
@@ -8892,7 +8922,7 @@ export default function FormAnalyticsDashboard() {
                                                     <>
                                                       <button
                                                         onClick={() =>
-                                                          handleEditStart(
+                                                          handleEditResponse(
                                                             response,
                                                           )
                                                         }
@@ -10326,7 +10356,7 @@ export default function FormAnalyticsDashboard() {
                       isActualOwnTenant && (
                         <button
                           onClick={() => {
-                            handleEditStart(actionResponse);
+                            handleEditResponse(actionResponse);
                             setShowActionMenuModal(false);
                           }}
                           className="w-full flex items-center gap-3 p-3.5 hover:bg-amber-50 dark:hover:bg-amber-900/20 text-gray-700 dark:text-gray-200 rounded-xl transition-colors font-semibold text-sm"
