@@ -30,6 +30,14 @@ const tenantSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  internalTrackingEnabled: {
+    type: Boolean,
+    default: false
+  },
+  allowedTenantIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant'
+  }],
   settings: {
     logo: String,
     primaryColor: {
@@ -39,6 +47,10 @@ const tenantSchema = new mongoose.Schema({
     companyEmail: String,
     companyPhone: String,
     address: String,
+    showCustomerPortal: {
+      type: Boolean,
+      default: false
+    },
     timezone: {
       type: String,
       default: 'UTC'

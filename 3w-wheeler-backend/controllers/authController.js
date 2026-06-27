@@ -77,43 +77,21 @@ export const login = async (req, res) => {
     const normalizedUsername = typeof username === 'string' ? username.trim() : '';
     const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
 
-    // Find user by username, email, or mobile
+    // Find user by username or email
     let user;
     console.log('--- DEBUG LOGIN START ---');
     console.log('Request Body:', JSON.stringify(req.body, null, 2));
-
-    const inputVal = normalizedUsername || normalizedEmail;
-    const cleanMobile = inputVal.replace(/\D/g, '');
-    const mobileQueries = [];
-    if (cleanMobile) {
-      mobileQueries.push({ mobile: cleanMobile });
-      if (cleanMobile.length >= 10) {
-        mobileQueries.push({ mobile: new RegExp(cleanMobile.slice(-10) + '$') });
-      }
-    }
-
     if (normalizedUsername) {
-      console.log('Searching by username or mobile:', normalizedUsername);
-      user = await User.findOne({
-        $or: [
-          { username: normalizedUsername },
-          ...mobileQueries
-        ]
-      });
+      console.log('Searching by username:', normalizedUsername);
+      user = await User.findOne({ username: normalizedUsername });
     } else if (normalizedEmail) {
-      console.log('Searching by email, username, or mobile:', normalizedEmail);
-      user = await User.findOne({
-        $or: [
-          { email: normalizedEmail },
-          { username: normalizedEmail },
-          ...mobileQueries
-        ]
-      });
+      console.log('Searching by email:', normalizedEmail);
+      user = await User.findOne({ email: normalizedEmail });
     } else {
-      console.log('Login failed: Username, email, or mobile is required');
+      console.log('Login failed: Username or email is required');
       return res.status(400).json({
         success: false,
-        message: 'Username, email, or mobile is required'
+        message: 'Username or email is required'
       });
     }
 
@@ -122,14 +100,6 @@ export const login = async (req, res) => {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
-      });
-    }
-
-    if (!user.isActive) {
-      console.log('Login failed: Account is deactivated');
-      return res.status(401).json({
-        success: false,
-        message: 'Account has been deactivated. Please contact support.'
       });
     }
     
@@ -152,8 +122,10 @@ export const login = async (req, res) => {
         });
       }
       if (userAccessType === 'mobile' && appType === 'website') {
-        // Bypass block to allow simultaneous login on web and mobile
-        console.log('Bypassing website block for mobile-only user');
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. This account is only allowed on mobile app.'
+        });
       }
     }
 
@@ -271,6 +243,8 @@ export const login = async (req, res) => {
         name: tenant.name,
         slug: tenant.slug,
         companyName: tenant.companyName,
+        internalTrackingEnabled: tenant.internalTrackingEnabled,
+        allowedTenantIds: tenant.allowedTenantIds,
         settings: tenant.settings,
         subscription: tenant.subscription
       };
@@ -294,28 +268,28 @@ export const login = async (req, res) => {
 
 export const getProfile = async (req, res) => {
   try {
-    let userObj = req.user.toJSON ? req.user.toJSON() : (req.user.toObject ? req.user.toObject() : req.user);
-    
-    // If user has tenantId, look up the tenant and populate it under 'tenant' key
+    let tenantData = null;
     if (req.user.tenantId) {
-      const tenant = await Tenant.findById(req.user.tenantId);
+      const tenant = await Tenant.findById(req.user.tenantId).select('name slug companyName internalTrackingEnabled allowedTenantIds settings subscription');
       if (tenant) {
-        userObj.tenant = {
+        tenantData = {
           id: tenant._id,
           _id: tenant._id,
           name: tenant.name,
           slug: tenant.slug,
           companyName: tenant.companyName,
+          internalTrackingEnabled: tenant.internalTrackingEnabled,
+          allowedTenantIds: tenant.allowedTenantIds,
           settings: tenant.settings,
           subscription: tenant.subscription
         };
       }
     }
-
     res.json({
       success: true,
       data: {
-        user: userObj
+        user: req.user,
+        ...(tenantData && { tenant: tenantData })
       }
     });
   } catch (error) {
