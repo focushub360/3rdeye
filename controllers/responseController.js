@@ -13,6 +13,51 @@ import FormSession from '../models/FormSession.js';
 import Review from '../models/Review.js';
 import ChatMessage from '../models/ChatMessage.js';
 
+// ─── Shared/Linked-Tenant Response Access Helper ─────────────────────────────
+// Response documents are always stamped with the FORM OWNER's tenantId (see
+// createResponse: `tenantId: form.tenantId`), never the submitting user's own
+// tenantId. Several endpoints used to bake `req.tenantFilter` (the acting
+// user's own tenant) directly into their `Response.findOne`/`deleteMany`/etc.
+// queries, which meant a user from a tenant a form was merely *shared* with
+// could never find, update, dispatch, review, reassign, or delete responses
+// on that shared form — every such call silently 404'd or matched nothing.
+// This mirrors the correct pattern already used in getResponsesByForm:
+// resolve the response/form first, then only enforce the tenant boundary
+// when the acting user is neither the owner tenant, a shared tenant, nor
+// granted chassis-level access.
+const canAccessResponseTenant = async (req, response) => {
+  if (!response) return false;
+  if (req.user?.role === 'superadmin') return true;
+
+  const or_conditions = [{ id: response.questionId }];
+  if (mongoose.Types.ObjectId.isValid(response.questionId)) {
+    or_conditions.push({ _id: response.questionId });
+  }
+
+  const form = await Form.findOne({
+    $or: or_conditions,
+  }).select('tenantId sharedWithTenants chassisTenantAssignments').lean();
+
+  const userTenantIdStr = req.user?.tenantId ? req.user.tenantId.toString() : null;
+  const isOwnerTenant = form?.tenantId && form.tenantId.toString() === userTenantIdStr;
+  const isSharedTenant =
+    form?.sharedWithTenants &&
+    form.sharedWithTenants.some((t) => t.toString() === userTenantIdStr);
+  const hasChassisShare =
+    Array.isArray(form?.chassisTenantAssignments) &&
+    form.chassisTenantAssignments.some(
+      (a) => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr),
+    );
+
+  // Response.tenantId itself always equals the form owner's tenant, so as a
+  // last resort also accept a direct match against it (covers responses
+  // whose form record may have since been deleted/moved).
+  const responseTenantIdStr = response.tenantId ? response.tenantId.toString() : null;
+  const matchesResponseTenant = responseTenantIdStr && responseTenantIdStr === userTenantIdStr;
+
+  return Boolean(isOwnerTenant || isSharedTenant || hasChassisShare || matchesResponseTenant);
+};
+
 export const createResponse = async (req, res) => {
   try {
     console.log('[CREATE RESPONSE] === START ===');
@@ -169,23 +214,51 @@ export const createResponse = async (req, res) => {
         });
       }
 
-      form = await Form.findOne({ id: questionId, tenantId: tenant._id, isVisible: true });
+      // 🔧 FIX: Search by BOTH id (string) AND _id (ObjectId)
+      const searchConditions = [];
+
+      // Search by the string 'id' field
+      searchConditions.push({ id: questionId });
+
+      // Search by MongoDB _id if it's a valid ObjectId
+      if (mongoose.Types.ObjectId.isValid(questionId)) {
+        searchConditions.push({ _id: questionId });
+      }
+
+      form = await Form.findOne({
+        $or: searchConditions,
+        tenantId: tenant._id,
+        isVisible: true
+      });
+
       console.log(`[CREATE RESPONSE DEBUG] Step 3: Form lookup done, found: ${!!form}`);
+      console.log(`[CREATE RESPONSE DEBUG] Search conditions:`, JSON.stringify(searchConditions));
 
       if (!form) {
         return res.status(404).json({
           success: false,
-          message: 'Form not found'
+          message: `Form not found with ID: ${questionId}`
         });
       }
     } else {
-      form = await Form.findOne({ id: questionId, ...req.tenantFilter });
+      // For the else branch (no tenantSlug)
+      const searchConditions = [];
+      searchConditions.push({ id: questionId });
+      if (mongoose.Types.ObjectId.isValid(questionId)) {
+        searchConditions.push({ _id: questionId });
+      }
+
+      form = await Form.findOne({
+        $or: searchConditions,
+        ...req.tenantFilter
+      });
+
       console.log(`[CREATE RESPONSE DEBUG] Step 2: Form lookup done (no tenant), found: ${!!form}`);
 
       if (!form) {
         return res.status(404).json({
           success: false,
-          message: 'Form not found'
+          message: `Form not found with ID: ${questionId}`
         });
       }
 
@@ -949,7 +1022,12 @@ export const batchImportResponses = async (req, res) => {
               status: 'pending',
               tenantId: form.tenantId,
               score: { correct, total },
-              createdBy: (submittedBy && submittedBy !== 'Excel Import') ? null : (req.user?._id || null),
+              createdBy:
+                submittedBy && submittedBy !== 'Excel Import'
+                  ? null
+                  : req.user?._id && mongoose.Types.ObjectId.isValid(req.user._id)
+                    ? req.user._id
+                    : null,
               submittedAt: submittedAt ? new Date(submittedAt) : undefined,
               createdAt: submittedAt ? new Date(submittedAt) : undefined
             };
@@ -1105,7 +1183,10 @@ export const batchImportResponses = async (req, res) => {
             status: 'pending',
             tenantId: form.tenantId,
             score: { correct, total },
-            createdBy: req.user?._id || null,
+            createdBy:
+              req.user?._id && mongoose.Types.ObjectId.isValid(req.user._id)
+                ? req.user._id
+                : null,
             submittedAt: submittedAt ? new Date(submittedAt) : undefined,
             createdAt: submittedAt ? new Date(submittedAt) : undefined
           };
@@ -1189,7 +1270,8 @@ export const batchImportResponses = async (req, res) => {
     console.error('Batch import error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Internal server error during batch import'
+      message: `Internal server error during batch import: ${error?.message || 'unknown error'}`,
+      error: error?.message,
     });
   }
 };
@@ -1765,27 +1847,27 @@ export const getBiwSummary = async (req, res) => {
     if (req.user.role !== 'superadmin') {
       formQuery.tenantId = req.user.tenantId;
     }
-    
-    const forms = await Form.find(formQuery).select('id _id');
+
+    const forms = await Form.find(formQuery).select('id _id').lean();
     const formIds = forms.flatMap(f => [f.id, f._id.toString()]);
-    
+
     // Get ALL responses for these forms (no pagination limit)
     const responses = await Response.find({
       questionId: { $in: formIds }
     }).select('submittedBy createdBy isDispatched biwReview');
-    
+
     console.log(`[BIW] Total responses found: ${responses.length}`);
-    
+
     // Group by user
     const byUser = new Map();
-    
+
     responses.forEach(response => {
       const name = response.submittedBy || response.createdBy || 'Anonymous';
-      
+
       if (name === 'Excel Import' || name === 'System' || name === 'Admin Import') {
         return;
       }
-      
+
       if (!byUser.has(name)) {
         byUser.set(name, {
           name,
@@ -1796,17 +1878,17 @@ export const getBiwSummary = async (req, res) => {
           rework: 0
         });
       }
-      
+
       const stats = byUser.get(name);
       stats.totalSubmitted += 1;
       if (response.isDispatched) stats.dispatched += 1;
-      
+
       const status = response.biwReview?.status;
       if (status === 'Accepted') stats.accepted += 1;
       else if (status === 'Rejected') stats.rejected += 1;
       else if (status === 'Reworked') stats.rework += 1;
     });
-    
+
     const result = Array.from(byUser.values()).map(stats => {
       const totalReviewed = stats.accepted + stats.rejected + stats.rework;
       const performanceScore = totalReviewed > 0
@@ -1814,13 +1896,13 @@ export const getBiwSummary = async (req, res) => {
         : 0;
       return { ...stats, totalReviewed, performanceScore };
     });
-    
+
     res.json({
       success: true,
       data: result,
       totalResponses: responses.length
     });
-    
+
   } catch (error) {
     console.error('BIW summary error:', error);
     res.status(500).json({
@@ -2006,11 +2088,15 @@ export const getResponseById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const response = await Response.findOne({ id, ...req.tenantFilter })
+    const query = mongoose.Types.ObjectId.isValid(id)
+      ? { $or: [{ _id: id }, { id }] }
+      : { id };
+
+    const response = await Response.findOne(query)
       .populate('assignedTo', 'username firstName lastName email')
       .populate('verifiedBy', 'username firstName lastName email');
 
-    if (!response) {
+    if (!response || !(await canAccessResponseTenant(req, response))) {
       return res.status(404).json({
         success: false,
         message: 'Response not found'
@@ -2047,7 +2133,25 @@ export const updateResponse = async (req, res) => {
 
     console.log('Updating response:', { id, answers: !!answers, notes, status, tenantFilter: req.tenantFilter });
 
-    const response = await Response.findOne({ id, ...req.tenantFilter });
+    const query = mongoose.Types.ObjectId.isValid(id)
+      ? { $or: [{ _id: id }, { id }] }
+      : { id };
+
+    let response = await Response.findOne(query);
+
+    if (!response) {
+      return res.status(404).json({
+        success: false,
+        message: 'Response not found'
+      });
+    }
+
+    if (!(await canAccessResponseTenant(req, response))) {
+      return res.status(404).json({
+        success: false,
+        message: 'Response not found'
+      });
+    }
 
     console.log('Found response:', !!response, response?._id);
 
@@ -2103,9 +2207,17 @@ export const updateResponse = async (req, res) => {
       if (req.body.isDispatched === true && !response.isDispatched) {
         response.isDispatched = true;
         response.dispatchedAt = new Date();
+        response.dispatchedBy = req.user._id;
+        response.dispatchedByName =
+          `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() ||
+          req.user.username ||
+          req.user.email ||
+          'Unknown user';
       } else if (req.body.isDispatched === false) {
         response.isDispatched = false;
         response.dispatchedAt = null;
+        response.dispatchedBy = null;
+        response.dispatchedByName = null;
       }
     }
 
@@ -2317,9 +2429,13 @@ export const assignResponse = async (req, res) => {
     const { id } = req.params;
     const { assignedTo } = req.body;
 
-    const response = await Response.findOne({ id, ...req.tenantFilter });
+    const query = mongoose.Types.ObjectId.isValid(id)
+      ? { $or: [{ _id: id }, { id }] }
+      : { id };
 
-    if (!response) {
+    const response = await Response.findOne(query);
+
+    if (!response || !(await canAccessResponseTenant(req, response))) {
       return res.status(404).json({
         success: false,
         message: 'Response not found'
@@ -2357,9 +2473,13 @@ export const deleteResponse = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const response = await Response.findOne({ id, ...req.tenantFilter });
+    const query = mongoose.Types.ObjectId.isValid(id)
+      ? { $or: [{ _id: id }, { id }] }
+      : { id };
 
-    if (!response) {
+    const response = await Response.findOne(query);
+
+    if (!response || !(await canAccessResponseTenant(req, response))) {
       return res.status(404).json({
         success: false,
         message: 'Response not found'
@@ -2367,10 +2487,10 @@ export const deleteResponse = async (req, res) => {
     }
 
     const questionId = response.questionId;
-    await Response.findOneAndDelete({ id, ...req.tenantFilter });
+    await Response.findOneAndDelete({ _id: response._id });
 
-    // Emit real-time event for deleted response
-    emitResponseDeleted(questionId, id);
+    // Emit real-time event for deleted response (using response.id which is the UUID expected by frontend socket listener)
+    emitResponseDeleted(questionId, response.id);
 
     res.json({
       success: true,
@@ -2397,7 +2517,32 @@ export const deleteMultipleResponses = async (req, res) => {
       });
     }
 
-    const result = await Response.deleteMany({ id: { $in: ids }, ...req.tenantFilter });
+    const objectIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
+    const findQuery = {
+      $or: [
+        { id: { $in: ids } },
+        { _id: { $in: objectIds } }
+      ]
+    };
+
+    const candidateResponses = await Response.find(findQuery).select('id _id questionId tenantId');
+    const accessChecks = await Promise.all(
+      candidateResponses.map(async (r) => ({
+        doc: r,
+        allowed: await canAccessResponseTenant(req, r),
+      })),
+    );
+    const allowedDocs = accessChecks.filter((c) => c.allowed).map((c) => c.doc);
+    const allowedDbIds = allowedDocs.map((doc) => doc._id);
+
+    if (allowedDbIds.length === 0) {
+      return res.json({
+        success: true,
+        message: '0 responses deleted successfully'
+      });
+    }
+
+    const result = await Response.deleteMany({ _id: { $in: allowedDbIds } });
 
     res.json({
       success: true,
@@ -2515,7 +2660,7 @@ export const getResponsesByForm = async (req, res) => {
     let responsesQuery = Response.find(query);
     if (isAnalytics) {
       responsesQuery = responsesQuery.select(
-        '_id id questionId formId answers status submissionMetadata responseRanks createdAt timestamp submittedBy createdBy isDispatched dispatchedAt biwReview submittedAt'
+        '_id id questionId formId answers status submissionMetadata responseRanks createdAt timestamp submittedBy createdBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId'
       );
     } else {
       responsesQuery = responsesQuery
@@ -2989,8 +3134,24 @@ export const bulkUpdateBiwReview = async (req, res) => {
       });
     }
 
-    // Find all target responses matching the IDs and the user's tenant filter
-    const responses = await Response.find({ id: { $in: ids }, ...req.tenantFilter });
+    // Find all target responses matching the IDs, then keep only the ones
+    // the acting user actually has tenant access to (owner tenant, shared
+    // tenant, chassis share, or superadmin) — a raw req.tenantFilter match
+    // would silently exclude every response on a form merely shared with
+    // this user's tenant, since Response.tenantId always reflects the form
+    // OWNER's tenant, not the acting user's.
+    const objectIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
+    const findQuery = {
+      $or: [
+        { id: { $in: ids } },
+        { _id: { $in: objectIds } }
+      ]
+    };
+    const candidateResponses = await Response.find(findQuery);
+    const accessFlags = await Promise.all(
+      candidateResponses.map((r) => canAccessResponseTenant(req, r)),
+    );
+    const responses = candidateResponses.filter((_, idx) => accessFlags[idx]);
 
     if (responses.length === 0) {
       return res.status(404).json({
@@ -3061,4 +3222,4 @@ export const bulkUpdateBiwReview = async (req, res) => {
       message: 'Internal server error'
     });
   }
-};
+};
