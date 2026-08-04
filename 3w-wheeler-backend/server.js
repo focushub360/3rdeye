@@ -57,8 +57,8 @@ const allowedOrigins = [
   "https://formsadmin.netlify.app",
   "https://formsuperadmin.focusengineeringapp.com",
   "https://3wheelertvs.focusengineeringapp.com",
-  // AWS CloudFront URL — replace CLOUDFRONT_ID with your actual distribution subdomain
-  // e.g. "https://d1abc1234xyz.cloudfront.net"
+  "https://focus3rdeye.netlify.app",
+  "https://threew-wheeler-backend.onrender.com",
   ...(process.env.CLOUDFRONT_URL ? [process.env.CLOUDFRONT_URL] : []),
   ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(url => url.trim()) : [])
 ];

@@ -22,7 +22,8 @@ export const createTenant = async (req, res) => {
       adminLastName,
       adminMobile,
       settings,
-      subscription
+      subscription,
+      officeLocation
     } = req.body;
 
     // Validate required fields
@@ -70,7 +71,10 @@ export const createTenant = async (req, res) => {
       companyName,
       adminId:[adminUser._id],
       isActive: true,
-      settings: settings || {},
+      settings: {
+        ...(settings || {}),
+        officeLocation: officeLocation || undefined
+      },
       subscription: subscription || {},
       createdBy: req.user._id
     });
@@ -158,7 +162,7 @@ export const getAllTenants = async (req, res) => {
         const allAdmins = await User.find({
           tenantId: tenant._id,
           role: { $in: ['admin', 'subadmin', 'inspector'] }
-        }).select('_id firstName lastName email isActive lastLogin role createdAt').lean();
+        }).select('_id firstName lastName email isActive lastLogin role granularPermissions createdAt').lean();
         
         return {
           ...tenant,
@@ -216,7 +220,7 @@ export const getTenantBySlug = async (req, res) => {
     const { slug } = req.params;
 
     const tenant = await Tenant.findOne({ slug })
-      .populate('adminId', 'firstName lastName email isActive lastLogin role')
+      .populate('adminId', 'firstName lastName email isActive lastLogin role granularPermissions')
       .lean();
 
     if (!tenant) {
@@ -255,7 +259,7 @@ export const updateTenant = async (req, res) => {
       id,
       { $set: updates },
       { new: true, runValidators: true }
-    ).populate('adminId', 'firstName lastName email isActive');
+    ).populate('adminId', 'firstName lastName email isActive granularPermissions');
 
     if (!tenant) {
       return res.status(404).json({

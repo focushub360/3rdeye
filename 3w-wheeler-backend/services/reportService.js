@@ -128,27 +128,64 @@ export const processAttendanceForReport = (logs, inspectors, totalDays) => {
     rate: totalDays > 0 ? Math.round(((s.present + s.late + s.halfDay) / totalDays) * 100) : 0
   }));
 
-   // Format detailed logs
-   const detailedLogs = logs.map(log => {
-     // Convert stored UTC date to local date (IST = UTC+5:30)
-     // Adjust by subtracting timezone offset to get local midnight date
-     const localDate = new Date(log.date.getTime() - (log.date.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+// Format detailed logs
+    const detailedLogs = logs.map(log => {
+      // Convert stored UTC date to local date (IST = UTC+5:30)
+      // IST is UTC+5:30, so add 5.5 hours to get correct local date
+      const istOffsetMs = 5.5 * 60 * 60 * 1000;
+      const localDate = new Date(log.date.getTime() + istOffsetMs).toISOString().split('T')[0];
      
-     // Get tenant info if available
-     const tenantName = log.tenantId?.companyName || log.tenantId?.name || null;
-     
-     return {
-       date: localDate,
-       inspector: log.inspector ? `${log.inspector.firstName} ${log.inspector.lastName}` : 'Unknown',
-       inspectorId: log.inspector?._id || null,
-       tenant: tenantName,
-       shift: log.shift?.displayName || log.shift?.name || 'N/A',
-       checkIn: log.checkInTime ? new Date(log.checkInTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : null,
-       checkOut: log.checkOutTime ? new Date(log.checkOutTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : null,
-       hours: log.workingHours,
-       status: log.status,
-       location: log.checkInPlace || log.checkOutPlace
-     };
+      // Get tenant info if available
+      const tenantName = log.tenantId?.companyName || log.tenantId?.name || null;
+      
+      // Format punches list
+      let punchesList = [];
+      if (log.punches && log.punches.length > 0) {
+        punchesList = log.punches.map(p => ({
+          type: p.type,
+          time: p.time ? new Date(p.time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : null,
+          lat: p.lat,
+          lng: p.lng,
+          place: p.place,
+          accuracy: p.accuracy
+        }));
+      } else {
+        // Fallback for older data without punches array
+        if (log.checkInTime) {
+          punchesList.push({
+            type: 'in',
+            time: new Date(log.checkInTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }),
+            lat: log.checkInLat,
+            lng: log.checkInLng,
+            place: log.checkInPlace,
+            accuracy: log.checkInAccuracy
+          });
+        }
+        if (log.checkOutTime) {
+          punchesList.push({
+            type: 'out',
+            time: new Date(log.checkOutTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }),
+            lat: log.checkOutLat,
+            lng: log.checkOutLng,
+            place: log.checkOutPlace,
+            accuracy: log.checkOutAccuracy
+          });
+        }
+      }
+
+      return {
+        date: localDate,
+        inspector: log.inspector ? `${log.inspector.firstName} ${log.inspector.lastName}` : 'Unknown',
+        inspectorId: log.inspector?._id || null,
+        tenant: tenantName,
+        shift: log.shiftName || log.shift?.displayName || log.shift?.name || 'N/A',
+        checkIn: log.checkInTime ? new Date(log.checkInTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : null,
+        checkOut: log.checkOutTime ? new Date(log.checkOutTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : null,
+        hours: log.workingHours,
+        status: log.status,
+        location: log.checkInPlace || log.checkOutPlace,
+        punches: punchesList
+      };
    });
 
   // Overall summary

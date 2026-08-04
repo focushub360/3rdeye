@@ -63,11 +63,11 @@ const ResponseSchema = new mongoose.Schema({
     phone: String
   },
   inviteId: {
-  type: String,
-  ref: 'FormInvite',
-  index: true,
-  default: null
-}, // Location and metadata tracking
+    type: String,
+    ref: 'FormInvite',
+    index: true,
+    default: null
+  }, // Location and metadata tracking
   submissionMetadata: {
     ipAddress: String,
     formSessionId: String,
@@ -110,31 +110,31 @@ const ResponseSchema = new mongoose.Schema({
       type: String,
       default: 'external'
     },
-        },
-    // ========== ADD THESE NEW TIMING FIELDS ==========
-    // Total time spent on the form (in seconds)
-    timeSpent: {
-      type: Number,
-      default: 0,
-      min: 0
-    },
-    // Session ID from FormSession
-    sessionId: {
-      type: String,
-      default: null
-    },
-    // When the user started the form
-    startedAt: {
-      type: Date,
-      default: null
-    },
-    // When the user completed/submitted
-    completedAt: {
-      type: Date,
-      default: null
+  },
+  // ========== ADD THESE NEW TIMING FIELDS ==========
+  // Total time spent on the form (in seconds)
+  timeSpent: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  // Session ID from FormSession
+  sessionId: {
+    type: String,
+    default: null
+  },
+  // When the user started the form
+  startedAt: {
+    type: Date,
+    default: null
+  },
+  // When the user completed/submitted
+  completedAt: {
+    type: Date,
+    default: null
 
   },
-  
+
   // ========== ADD NEW TOP-LEVEL TIMING FIELDS (for easier querying) ==========
   // These make it easier to query and aggregate time data
   timeSpent: {
@@ -155,7 +155,7 @@ const ResponseSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
-  
+
   // Question-level timings (if you want per-question data)
   questionTimings: [{
     questionId: String,
@@ -166,7 +166,7 @@ const ResponseSchema = new mongoose.Schema({
     startedAt: Date,
     completedAt: Date
   }],
-  
+
   tenantId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Tenant',
@@ -178,9 +178,42 @@ const ResponseSchema = new mongoose.Schema({
   },
   dispatchedAt: {
     type: Date
+  },
+  dispatchedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  dispatchedByName: { type: String, default: null },
+  // BIW Review — a second, independent accept/reject/rework check that any
+  // reviewer other than the response's own submitter can apply, separate
+  // from the main verifiedBy/status review flow.
+  biwReview: {
+    status: {
+      type: String,
+      enum: ['Accepted', 'Rejected', 'Reworked']
+    },
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    reviewedByName: String,
+    reviewedAt: Date
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  toObject: {
+    transform: function (doc, ret) {
+      if (ret.submittedAt) {
+        ret.createdAt = ret.submittedAt;
+      }
+      return ret;
+    }
+  },
+  toJSON: {
+    transform: function (doc, ret) {
+      if (ret.submittedAt) {
+        ret.createdAt = ret.submittedAt;
+      }
+      return ret;
+    }
+  }
 });
 
 // ========== ADD NEW INDEXES FOR TIME QUERIES ==========
@@ -192,6 +225,56 @@ ResponseSchema.index({ tenantId: 1 });
 ResponseSchema.index({ startedAt: -1 }); // NEW - for time range queries
 ResponseSchema.index({ timeSpent: 1 }); // NEW - for time-based queries
 ResponseSchema.index({ sessionId: 1 });  // NEW - for session lookups
+ResponseSchema.index({ 'biwReview.status': 1 }); // NEW - for BIW review table queries
+
+// ========== PRE-SAVE HOOK FOR ROBUST CREATOR ASSIGNMENT ==========
+ResponseSchema.pre('save', async function (next) {
+  if (!this.createdBy && this.tenantId) {
+    try {
+      const User = mongoose.model('User');
+
+      // 1. Try to find a user matching submittedBy identifier if valid
+      if (this.submittedBy && this.submittedBy !== 'Excel Import') {
+        const submittedClean = String(this.submittedBy).trim();
+        let matchedUser = await User.findOne({
+          tenantId: this.tenantId,
+          $or: [
+            { email: { $regex: new RegExp(`^${submittedClean}$`, 'i') } },
+            { username: { $regex: new RegExp(`^${submittedClean}$`, 'i') } }
+          ]
+        });
+
+        if (!matchedUser) {
+          const users = await User.find({ tenantId: this.tenantId });
+          matchedUser = users.find(u => {
+            const fullName = `${u.firstName || ''} ${u.lastName || ''}`.trim();
+            return fullName.toLowerCase() === submittedClean.toLowerCase();
+          });
+        }
+
+        if (matchedUser) {
+          this.createdBy = matchedUser._id;
+          return next();
+        }
+      }
+
+      // 2. Fallback to tenant admin
+      let fallbackUser = await User.findOne({ tenantId: this.tenantId, role: 'admin' });
+
+      // 3. Fallback to any tenant user
+      if (!fallbackUser) {
+        fallbackUser = await User.findOne({ tenantId: this.tenantId });
+      }
+
+      if (fallbackUser) {
+        this.createdBy = fallbackUser._id;
+      }
+    } catch (error) {
+      console.error('Error in Response pre-save hook:', error);
+    }
+  }
+  next();
+});
 
 const Response = mongoose.model('Response', ResponseSchema);
 

@@ -13,6 +13,51 @@ import FormSession from '../models/FormSession.js';
 import Review from '../models/Review.js';
 import ChatMessage from '../models/ChatMessage.js';
 
+// ─── Shared/Linked-Tenant Response Access Helper ─────────────────────────────
+// Response documents are always stamped with the FORM OWNER's tenantId (see
+// createResponse: `tenantId: form.tenantId`), never the submitting user's own
+// tenantId. Several endpoints used to bake `req.tenantFilter` (the acting
+// user's own tenant) directly into their `Response.findOne`/`deleteMany`/etc.
+// queries, which meant a user from a tenant a form was merely *shared* with
+// could never find, update, dispatch, review, reassign, or delete responses
+// on that shared form — every such call silently 404'd or matched nothing.
+// This mirrors the correct pattern already used in getResponsesByForm:
+// resolve the response/form first, then only enforce the tenant boundary
+// when the acting user is neither the owner tenant, a shared tenant, nor
+// granted chassis-level access.
+const canAccessResponseTenant = async (req, response) => {
+  if (!response) return false;
+  if (req.user?.role === 'superadmin') return true;
+
+  const or_conditions = [{ id: response.questionId }];
+  if (mongoose.Types.ObjectId.isValid(response.questionId)) {
+    or_conditions.push({ _id: response.questionId });
+  }
+
+  const form = await Form.findOne({
+    $or: or_conditions,
+  }).select('tenantId sharedWithTenants chassisTenantAssignments').lean();
+
+  const userTenantIdStr = req.user?.tenantId ? req.user.tenantId.toString() : null;
+  const isOwnerTenant = form?.tenantId && form.tenantId.toString() === userTenantIdStr;
+  const isSharedTenant =
+    form?.sharedWithTenants &&
+    form.sharedWithTenants.some((t) => t.toString() === userTenantIdStr);
+  const hasChassisShare =
+    Array.isArray(form?.chassisTenantAssignments) &&
+    form.chassisTenantAssignments.some(
+      (a) => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr),
+    );
+
+  // Response.tenantId itself always equals the form owner's tenant, so as a
+  // last resort also accept a direct match against it (covers responses
+  // whose form record may have since been deleted/moved).
+  const responseTenantIdStr = response.tenantId ? response.tenantId.toString() : null;
+  const matchesResponseTenant = responseTenantIdStr && responseTenantIdStr === userTenantIdStr;
+
+  return Boolean(isOwnerTenant || isSharedTenant || hasChassisShare || matchesResponseTenant);
+};
+
 export const createResponse = async (req, res) => {
   try {
     console.log('[CREATE RESPONSE] === START ===');
@@ -169,23 +214,51 @@ export const createResponse = async (req, res) => {
         });
       }
 
-      form = await Form.findOne({ id: questionId, tenantId: tenant._id, isVisible: true });
+      // 🔧 FIX: Search by BOTH id (string) AND _id (ObjectId)
+      const searchConditions = [];
+
+      // Search by the string 'id' field
+      searchConditions.push({ id: questionId });
+
+      // Search by MongoDB _id if it's a valid ObjectId
+      if (mongoose.Types.ObjectId.isValid(questionId)) {
+        searchConditions.push({ _id: questionId });
+      }
+
+      form = await Form.findOne({
+        $or: searchConditions,
+        tenantId: tenant._id,
+        isVisible: true
+      });
+
       console.log(`[CREATE RESPONSE DEBUG] Step 3: Form lookup done, found: ${!!form}`);
+      console.log(`[CREATE RESPONSE DEBUG] Search conditions:`, JSON.stringify(searchConditions));
 
       if (!form) {
         return res.status(404).json({
           success: false,
-          message: 'Form not found'
+          message: `Form not found with ID: ${questionId}`
         });
       }
     } else {
-      form = await Form.findOne({ id: questionId, ...req.tenantFilter });
+      // For the else branch (no tenantSlug)
+      const searchConditions = [];
+      searchConditions.push({ id: questionId });
+      if (mongoose.Types.ObjectId.isValid(questionId)) {
+        searchConditions.push({ _id: questionId });
+      }
+
+      form = await Form.findOne({
+        $or: searchConditions,
+        ...req.tenantFilter
+      });
+
       console.log(`[CREATE RESPONSE DEBUG] Step 2: Form lookup done (no tenant), found: ${!!form}`);
 
       if (!form) {
         return res.status(404).json({
           success: false,
-          message: 'Form not found'
+          message: `Form not found with ID: ${questionId}`
         });
       }
 
@@ -700,6 +773,7 @@ export const batchImportResponses = async (req, res) => {
 
     console.log('Batch ID:', batchId);
     console.log('Searching for form ID:', actualQuestionId);
+    console.log('[BATCH IMPORT DEBUG] First response received:', JSON.stringify(responses[0]));
 
     if (!actualQuestionId || !Array.isArray(responses) || responses.length === 0) {
       return res.status(400).json({
@@ -710,6 +784,67 @@ export const batchImportResponses = async (req, res) => {
 
     // Find form (without isVisible check for now)
     const form = await Form.findOne({ id: actualQuestionId });
+    if (!form) {
+      return res.status(404).json({
+        success: false,
+        message: `Form with ID "${actualQuestionId}" not found`
+      });
+    }
+
+    // STEP 0: Prefetch metadata and form questions once
+    const submissionMetadata = await collectSubmissionMetadata(req, {
+      includeLocation: form.locationEnabled !== false,
+    });
+
+    const collectAllQuestions = (questions, result = []) => {
+      if (!Array.isArray(questions)) return result;
+      questions.forEach(q => {
+        result.push(q);
+        if (Array.isArray(q.followUpQuestions)) {
+          collectAllQuestions(q.followUpQuestions, result);
+        }
+      });
+      return result;
+    };
+
+    const allQuestions = [];
+    if (form.sections) {
+      form.sections.forEach(section => {
+        if (section.questions) {
+          collectAllQuestions(section.questions, allQuestions);
+        }
+      });
+    }
+    if (form.followUpQuestions) {
+      collectAllQuestions(form.followUpQuestions, allQuestions);
+    }
+
+    const rankTrackedQuestions = allQuestions.filter(q => q.trackResponseRank);
+    const rankMaps = {};
+    for (const question of rankTrackedQuestions) {
+      const counts = await Response.aggregate([
+        {
+          $match: {
+            questionId: actualQuestionId,
+            isSectionSubmit: { $ne: true },
+            [`answers.${question.id}`]: { $exists: true, $ne: null }
+          }
+        },
+        {
+          $group: {
+            _id: `$answers.${question.id}`,
+            count: { $sum: 1 }
+          }
+        }
+      ]);
+      const map = new Map();
+      counts.forEach(c => {
+        if (c._id !== undefined && c._id !== null) {
+          map.set(String(c._id).trim().toLowerCase(), c.count);
+        }
+      });
+      rankMaps[question.id] = map;
+    }
 
     // STEP 1: Collect ALL Google Drive URLs from ALL responses FIRST
     console.log(`[BATCH ${batchId}] Collecting all Google Drive URLs from ${responses.length} responses`);
@@ -821,9 +956,10 @@ export const batchImportResponses = async (req, res) => {
         console.log(`[BATCH ${batchId}] Successfully processed ${processedUrlMap.size}/${allGoogleDriveUrls.length} URLs`);
 
         // STEP 3: Process each response with already converted URLs
+        const responsesToSave = [];
         for (let index = 0; index < responses.length; index++) {
           try {
-            const { answers, submittedBy, submitterContact, parentResponseId } = responses[index];
+            const { answers, submittedBy, submitterContact, parentResponseId, submittedAt } = responses[index];
 
             // Replace Google Drive URLs with Cloudinary URLs in this response
             const processedAnswers = {};
@@ -848,35 +984,6 @@ export const batchImportResponses = async (req, res) => {
               }
             });
 
-            const submissionMetadata = await collectSubmissionMetadata(req, {
-              includeLocation: form.locationEnabled !== false,
-            });
-            // Helper function to recursively collect all questions
-            const collectAllQuestions = (questions, result = []) => {
-              if (!Array.isArray(questions)) return result;
-
-              questions.forEach(q => {
-                result.push(q);
-                if (Array.isArray(q.followUpQuestions)) {
-                  collectAllQuestions(q.followUpQuestions, result);
-                }
-              });
-
-              return result;
-            };
-
-            const allQuestions = [];
-            if (form.sections) {
-              form.sections.forEach(section => {
-                if (section.questions) {
-                  collectAllQuestions(section.questions, allQuestions);
-                }
-              });
-            }
-            if (form.followUpQuestions) {
-              collectAllQuestions(form.followUpQuestions, allQuestions);
-            }
-
             let correct = 0;
             let total = 0;
 
@@ -891,26 +998,15 @@ export const batchImportResponses = async (req, res) => {
             });
             // Calculate ranks for specific questions
             const responseRanks = {};
-            console.log(`[BATCH-RANK] Calculating ranks for ${allQuestions.length} questions`);
-            for (const question of allQuestions) {
-              // Check for trackResponseRank at any level
-              if (question.trackResponseRank) {
-                const answer = processedAnswers[question.id];
-                console.log(`[BATCH-RANK] Question "${question.text}" (ID: ${question.id}) has trackResponseRank=true. Answer:`, answer);
-
-                if (answer !== undefined && answer !== null && answer !== '') {
-                  // Count existing responses with the same answer for this form
-                  const query = {
-                    questionId: actualQuestionId,
-                    [`answers.${question.id}`]: answer,
-                    isSectionSubmit: false
-                  };
-
-                  console.log(`[BATCH-RANK] Querying existing responses with:`, JSON.stringify(query));
-                  const count = await Response.countDocuments(query);
-                  console.log(`[BATCH-RANK] Found ${count} existing responses. New rank: ${count + 1}`);
-                  responseRanks[question.id] = count + 1;
-                }
+            for (const question of rankTrackedQuestions) {
+              const answer = processedAnswers[question.id];
+              if (answer !== undefined && answer !== null && answer !== '') {
+                const answerKey = String(answer).trim().toLowerCase();
+                const map = rankMaps[question.id];
+                const count = map.get(answerKey) || 0;
+                const newRank = count + 1;
+                responseRanks[question.id] = newRank;
+                map.set(answerKey, newRank);
               }
             }
 
@@ -925,44 +1021,69 @@ export const batchImportResponses = async (req, res) => {
               submissionMetadata,
               status: 'pending',
               tenantId: form.tenantId,
-              score: { correct, total }
+              score: { correct, total },
+              createdBy:
+                submittedBy && submittedBy !== 'Excel Import'
+                  ? null
+                  : req.user?._id && mongoose.Types.ObjectId.isValid(req.user._id)
+                    ? req.user._id
+                    : null,
+              submittedAt: submittedAt ? new Date(submittedAt) : undefined,
+              createdAt: submittedAt ? new Date(submittedAt) : undefined
             };
 
             const response = new Response(responseData);
-            await response.save();
-
-            const answersObj = response.answers instanceof Map ?
-              Object.fromEntries(response.answers) : response.answers;
-            const ranksObj = response.responseRanks instanceof Map ?
-              Object.fromEntries(response.responseRanks) : response.responseRanks;
-
-
-            emitResponseCreated(actualQuestionId, {
-              id: response.id,
-              questionId: response.questionId,
-              status: response.status,
-              submittedBy: response.submittedBy,
-              createdAt: response.createdAt,
-              answers: answersObj,
-              responseRanks: ranksObj
-            });
-
-            createdResponses.push({
-              id: response.id,
-              submittedBy: response.submittedBy,
-              status: 'success'
-            });
-
-            console.log(`[BATCH ${batchId}] Response ${index + 1}/${responses.length} saved successfully`);
-
+            responsesToSave.push(response);
           } catch (error) {
-            console.error(`[BATCH ${batchId}] Response ${index + 1} error:`, error.message);
+            console.error(`[BATCH ${batchId}] Response prep error (index ${index}):`, error.message);
             errors.push({
               index,
-              submittedBy: responses[index].submittedBy,
+              submittedBy: responses[index]?.submittedBy || 'Unknown',
               error: error.message
             });
           }
+        }
+
+        // Save responses in parallel chunks of 50
+        const batchSize = 50;
+        for (let i = 0; i < responsesToSave.length; i += batchSize) {
+          const chunk = responsesToSave.slice(i, i + batchSize);
+          await Promise.all(chunk.map(async (response) => {
+            try {
+              if (response.submittedAt) {
+                await response.save({ timestamps: false });
+              } else {
+                await response.save();
+              }
+
+              const answersObj = response.answers instanceof Map ?
+                Object.fromEntries(response.answers) : response.answers;
+              const ranksObj = response.responseRanks instanceof Map ?
+                Object.fromEntries(response.responseRanks) : response.responseRanks;
+
+              emitResponseCreated(actualQuestionId, {
+                id: response.id,
+                questionId: response.questionId,
+                status: response.status,
+                submittedBy: response.submittedBy,
+                createdAt: response.createdAt,
+                answers: answersObj,
+                responseRanks: ranksObj
+              });
+
+              createdResponses.push({
+                id: response.id,
+                submittedBy: response.submittedBy,
+                status: 'success'
+              });
+            } catch (error) {
+              console.error(`[BATCH ${batchId}] Response chunk save error:`, error.message);
+              errors.push({
+                submittedBy: response.submittedBy,
+                error: error.message
+              });
+            }
+          }));
         }
 
         // Emit completion progress
@@ -1006,13 +1127,13 @@ export const batchImportResponses = async (req, res) => {
       // No images to process, just save responses directly
       console.log(`[BATCH ${batchId}] No images to process, saving ${responses.length} responses directly`);
 
-      // Initialize arrays here too (in case they weren't initialized above)
       const createdResponses = [];
       const errors = [];
+      const responsesToSave = [];
 
       for (let index = 0; index < responses.length; index++) {
         try {
-          const { answers, submittedBy, submitterContact, parentResponseId } = responses[index];
+          const { answers, submittedBy, submitterContact, parentResponseId, submittedAt } = responses[index];
 
           // Process answers (convert to proper format)
           const processedAnswers = {};
@@ -1020,38 +1141,6 @@ export const batchImportResponses = async (req, res) => {
             Object.entries(answers).forEach(([questionId, answer]) => {
               processedAnswers[questionId] = answer;
             });
-          }
-
-          const submissionMetadata = await collectSubmissionMetadata(req, {
-            includeLocation: form.locationEnabled !== false,
-          });
-          // Helper function to recursively collect all questions
-          const collectAllQuestions = (questions, result = []) => {
-            if (!Array.isArray(questions)) return result;
-
-            questions.forEach(q => {
-              result.push(q);
-              if (Array.isArray(q.followUpQuestions)) {
-                collectAllQuestions(q.followUpQuestions, result);
-              }
-            });
-
-            return result;
-          };
-
-
-          // Get all questions from form for scoring
-          const allQuestions = [];
-          if (form.sections) {
-            form.sections.forEach(section => {
-              if (section.questions) {
-                collectAllQuestions(section.questions, allQuestions);
-
-              }
-            });
-          }
-          if (form.followUpQuestions) {
-            collectAllQuestions(form.followUpQuestions, allQuestions);
           }
 
           // Calculate score for yesNoNA questions
@@ -1069,26 +1158,15 @@ export const batchImportResponses = async (req, res) => {
 
           // Calculate ranks for specific questions
           const responseRanks = {};
-          console.log(`[BATCH-RANK] Calculating ranks for ${allQuestions.length} questions`);
-          for (const question of allQuestions) {
-            // Check for trackResponseRank at any level
-            if (question.trackResponseRank) {
-              const answer = processedAnswers[question.id];
-              console.log(`[BATCH-RANK] Question "${question.text}" (ID: ${question.id}) has trackResponseRank=true. Answer:`, answer);
-
-              if (answer !== undefined && answer !== null && answer !== '') {
-                // Count existing responses with the same answer for this form
-                const query = {
-                  questionId: actualQuestionId,
-                  [`answers.${question.id}`]: answer,
-                  isSectionSubmit: false
-                };
-
-                console.log(`[BATCH-RANK] Querying existing responses with:`, JSON.stringify(query));
-                const count = await Response.countDocuments(query);
-                console.log(`[BATCH-RANK] Found ${count} existing responses. New rank: ${count + 1}`);
-                responseRanks[question.id] = count + 1;
-              }
+          for (const question of rankTrackedQuestions) {
+            const answer = processedAnswers[question.id];
+            if (answer !== undefined && answer !== null && answer !== '') {
+              const answerKey = String(answer).trim().toLowerCase();
+              const map = rankMaps[question.id];
+              const count = map.get(answerKey) || 0;
+              const newRank = count + 1;
+              responseRanks[question.id] = newRank;
+              map.set(answerKey, newRank);
             }
           }
 
@@ -1098,56 +1176,79 @@ export const batchImportResponses = async (req, res) => {
             questionId: actualQuestionId,
             answers: new Map(Object.entries(processedAnswers)),
             responseRanks: new Map(Object.entries(responseRanks)),
-
             parentResponseId,
             submittedBy: submittedBy || 'Excel Import',
             submitterContact,
             submissionMetadata,
             status: 'pending',
             tenantId: form.tenantId,
-            score: { correct, total }
+            score: { correct, total },
+            createdBy:
+              req.user?._id && mongoose.Types.ObjectId.isValid(req.user._id)
+                ? req.user._id
+                : null,
+            submittedAt: submittedAt ? new Date(submittedAt) : undefined,
+            createdAt: submittedAt ? new Date(submittedAt) : undefined
           };
 
-          // Save to database
+          // Prepare Mongoose document
           const response = new Response(responseData);
-          await response.save();
-
-          // Convert Map to Object for emitting
-          const answersObj = response.answers instanceof Map ?
-            Object.fromEntries(response.answers) : response.answers;
-          const ranksObj = response.responseRanks instanceof Map ?
-            Object.fromEntries(response.responseRanks) : response.responseRanks;
-
-          // Emit event if function exists
-          if (typeof emitResponseCreated === 'function') {
-            emitResponseCreated(actualQuestionId, {
-              id: response.id,
-              questionId: response.questionId,
-              status: response.status,
-              submittedBy: response.submittedBy,
-              createdAt: response.createdAt,
-              answers: answersObj,
-              responseRanks: ranksObj
-            });
-          }
-
-          // Track created response
-          createdResponses.push({
-            id: response.id,
-            submittedBy: response.submittedBy,
-            status: 'success'
-          });
-
-          console.log(`[BATCH ${batchId}] Response ${index + 1}/${responses.length} saved successfully`);
-
+          responsesToSave.push(response);
         } catch (error) {
-          console.error(`[BATCH ${batchId}] Response ${index + 1} error:`, error.message);
+          console.error(`[BATCH ${batchId}] Response prep error (no images, index ${index}):`, error.message);
           errors.push({
             index,
             submittedBy: responses[index]?.submittedBy || 'Unknown',
             error: error.message
           });
         }
+      }
+
+      // Save in batches of 50
+      const batchSize = 50;
+      for (let i = 0; i < responsesToSave.length; i += batchSize) {
+        const chunk = responsesToSave.slice(i, i + batchSize);
+        await Promise.all(chunk.map(async (response) => {
+          try {
+            if (response.submittedAt) {
+              await response.save({ timestamps: false });
+            } else {
+              await response.save();
+            }
+
+            // Convert Map to Object for emitting
+            const answersObj = response.answers instanceof Map ?
+              Object.fromEntries(response.answers) : response.answers;
+            const ranksObj = response.responseRanks instanceof Map ?
+              Object.fromEntries(response.responseRanks) : response.responseRanks;
+
+            // Emit event if function exists
+            if (typeof emitResponseCreated === 'function') {
+              emitResponseCreated(actualQuestionId, {
+                id: response.id,
+                questionId: response.questionId,
+                status: response.status,
+                submittedBy: response.submittedBy,
+                createdAt: response.createdAt,
+                answers: answersObj,
+                responseRanks: ranksObj
+              });
+            }
+
+            // Track created response
+            createdResponses.push({
+              id: response.id,
+              submittedBy: response.submittedBy,
+              status: 'success'
+            });
+          } catch (error) {
+            console.error(`[BATCH ${batchId}] Response save error (no images):`, error.message);
+            errors.push({
+              submittedBy: response.submittedBy,
+              error: error.message
+            });
+          }
+        }));
       }
 
       // Send success response
@@ -1169,7 +1270,8 @@ export const batchImportResponses = async (req, res) => {
     console.error('Batch import error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Internal server error during batch import'
+      message: `Internal server error during batch import: ${error?.message || 'unknown error'}`,
+      error: error?.message,
     });
   }
 };
@@ -1242,7 +1344,7 @@ export const getRank = async (req, res) => {
 
     // Count existing final responses with the SAME answer for this form
     const query = {
-      questionId: formId,
+      questionId: { $in: [form.id, form._id.toString()] },
       isSectionSubmit: { $ne: true },
     };
 
@@ -1323,7 +1425,7 @@ export const getSuggestedAnswers = async (req, res) => {
     // Find a previous response with a match in the answers map
     // For Mongoose Maps, we use dot notation: answers.questionId
     const query = {
-      questionId: formId
+      questionId: { $in: [form.id, form._id.toString()] }
     };
 
     const trackingQuestionId = `${questionId}_tracking`;
@@ -1477,7 +1579,7 @@ export const getQuestionPreviousAnswers = async (req, res) => {
     // Check both normal ID and tracking suffixed ID
     const trackingQuestionId = `${questionId}_tracking`;
     const query = {
-      questionId: formId,
+      questionId: { $in: [form.id, form._id.toString()] },
       $or: [
         { [`answers.${questionId}`]: { $exists: true, $ne: null, $ne: "" } },
         { [`answers.${trackingQuestionId}`]: { $exists: true, $ne: null, $ne: "" } },
@@ -1738,6 +1840,77 @@ export const processBulkImages = async (req, res) => {
     });
   }
 };
+export const getBiwSummary = async (req, res) => {
+  try {
+    // Get all forms the user has access to
+    let formQuery = {};
+    if (req.user.role !== 'superadmin') {
+      formQuery.tenantId = req.user.tenantId;
+    }
+
+    const forms = await Form.find(formQuery).select('id _id').lean();
+    const formIds = forms.flatMap(f => [f.id, f._id.toString()]);
+
+    // Get ALL responses for these forms (no pagination limit)
+    const responses = await Response.find({
+      questionId: { $in: formIds }
+    }).select('submittedBy createdBy isDispatched biwReview');
+
+    console.log(`[BIW] Total responses found: ${responses.length}`);
+
+    // Group by user
+    const byUser = new Map();
+
+    responses.forEach(response => {
+      const name = response.submittedBy || response.createdBy || 'Anonymous';
+
+      if (name === 'Excel Import' || name === 'System' || name === 'Admin Import') {
+        return;
+      }
+
+      if (!byUser.has(name)) {
+        byUser.set(name, {
+          name,
+          totalSubmitted: 0,
+          dispatched: 0,
+          accepted: 0,
+          rejected: 0,
+          rework: 0
+        });
+      }
+
+      const stats = byUser.get(name);
+      stats.totalSubmitted += 1;
+      if (response.isDispatched) stats.dispatched += 1;
+
+      const status = response.biwReview?.status;
+      if (status === 'Accepted') stats.accepted += 1;
+      else if (status === 'Rejected') stats.rejected += 1;
+      else if (status === 'Reworked') stats.rework += 1;
+    });
+
+    const result = Array.from(byUser.values()).map(stats => {
+      const totalReviewed = stats.accepted + stats.rejected + stats.rework;
+      const performanceScore = totalReviewed > 0
+        ? Math.round((stats.accepted / totalReviewed) * 100)
+        : 0;
+      return { ...stats, totalReviewed, performanceScore };
+    });
+
+    res.json({
+      success: true,
+      data: result,
+      totalResponses: responses.length
+    });
+
+  } catch (error) {
+    console.error('BIW summary error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
 
 export const getAllResponses = async (req, res) => {
   try {
@@ -1915,11 +2088,15 @@ export const getResponseById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const response = await Response.findOne({ id, ...req.tenantFilter })
+    const query = mongoose.Types.ObjectId.isValid(id)
+      ? { $or: [{ _id: id }, { id }] }
+      : { id };
+
+    const response = await Response.findOne(query)
       .populate('assignedTo', 'username firstName lastName email')
       .populate('verifiedBy', 'username firstName lastName email');
 
-    if (!response) {
+    if (!response || !(await canAccessResponseTenant(req, response))) {
       return res.status(404).json({
         success: false,
         message: 'Response not found'
@@ -1956,7 +2133,25 @@ export const updateResponse = async (req, res) => {
 
     console.log('Updating response:', { id, answers: !!answers, notes, status, tenantFilter: req.tenantFilter });
 
-    const response = await Response.findOne({ id, ...req.tenantFilter });
+    const query = mongoose.Types.ObjectId.isValid(id)
+      ? { $or: [{ _id: id }, { id }] }
+      : { id };
+
+    let response = await Response.findOne(query);
+
+    if (!response) {
+      return res.status(404).json({
+        success: false,
+        message: 'Response not found'
+      });
+    }
+
+    if (!(await canAccessResponseTenant(req, response))) {
+      return res.status(404).json({
+        success: false,
+        message: 'Response not found'
+      });
+    }
 
     console.log('Found response:', !!response, response?._id);
 
@@ -1968,9 +2163,23 @@ export const updateResponse = async (req, res) => {
     }
 
     // ✅ PRESERVE the createdBy field - don't let it be overwritten
-    const originalCreatedBy = response.createdBy;
-    const originalSubmittedBy = response.submittedBy;
-    const originalSubmitterContact = response.submitterContact;
+    let originalCreatedBy = response.createdBy;
+    let originalSubmittedBy = response.submittedBy;
+    let originalSubmitterContact = response.submitterContact;
+
+    if (req.body.submittedByUserId) {
+      const User = mongoose.model('User');
+      const matchedUser = await User.findById(req.body.submittedByUserId);
+      if (matchedUser) {
+        originalCreatedBy = matchedUser._id;
+        originalSubmittedBy = `${matchedUser.firstName || ''} ${matchedUser.lastName || ''}`.trim() || matchedUser.username || matchedUser.email;
+        originalSubmitterContact = {
+          email: matchedUser.email || '',
+          firstName: matchedUser.firstName || '',
+          lastName: matchedUser.lastName || ''
+        };
+      }
+    }
 
     // Update fields
     if (answers) {
@@ -1998,9 +2207,69 @@ export const updateResponse = async (req, res) => {
       if (req.body.isDispatched === true && !response.isDispatched) {
         response.isDispatched = true;
         response.dispatchedAt = new Date();
+        response.dispatchedBy = req.user._id;
+        response.dispatchedByName =
+          `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() ||
+          req.user.username ||
+          req.user.email ||
+          'Unknown user';
       } else if (req.body.isDispatched === false) {
         response.isDispatched = false;
         response.dispatchedAt = null;
+        response.dispatchedBy = null;
+        response.dispatchedByName = null;
+      }
+    }
+
+    // ✅ BIW Review — any reviewer other than the response's own submitter
+    // can Accept / Reject / Rework. Send `{ biwReview: { status } }` to set
+    // it, or `{ biwReview: null }` to clear it. reviewedBy/reviewedAt are
+    // always set server-side from the authenticated user, never trusted
+    // from the client.
+    if (req.body.hasOwnProperty('biwReview')) {
+      const biwReview = req.body.biwReview;
+
+      if (biwReview === null || biwReview === undefined) {
+        response.biwReview = undefined;
+      } else {
+        const allowedStatuses = ['Accepted', 'Rejected', 'Reworked'];
+        if (!allowedStatuses.includes(biwReview.status)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid biwReview status. Must be one of: ${allowedStatuses.join(', ')}`
+          });
+        }
+
+        const userEmail = req.user.email || '';
+        const userUsername = req.user.username || '';
+        const userIdStr = req.user._id ? req.user._id.toString() : '';
+        const creatorIdStr = originalCreatedBy ? originalCreatedBy.toString() : '';
+        const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+        const isExcelImport = originalSubmittedBy === 'Excel Import';
+
+        const isSubmitter =
+          !isAdmin &&
+          !isExcelImport &&
+          (
+            originalSubmittedBy === userEmail ||
+            originalSubmittedBy === userUsername ||
+            (originalSubmitterContact && originalSubmitterContact.email === userEmail) ||
+            (creatorIdStr && creatorIdStr === userIdStr)
+          );
+
+        if (isSubmitter) {
+          return res.status(403).json({
+            success: false,
+            message: 'You cannot BIW review your own submission'
+          });
+        }
+
+        response.biwReview = {
+          status: biwReview.status,
+          reviewedBy: req.user._id,
+          reviewedByName: userUsername || userEmail || 'Reviewer',
+          reviewedAt: new Date()
+        };
       }
     }
 
@@ -2047,14 +2316,126 @@ export const updateResponse = async (req, res) => {
   }
 };
 
+// Auto-fill any response for this form whose chassis_number answer is
+// missing/blank with the first chassis number configured on the form
+// (same "master list" the dashboard dropdown uses), in a single bulk
+// database operation instead of one request per response.
+export const autoFillChassisNumbers = async (req, res) => {
+  try {
+    const { formId } = req.params;
+
+    if (!formId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Form ID is required'
+      });
+    }
+
+    // Find the form the same way getResponsesByForm does, so tenant sharing
+    // rules (owner / shared / chassis-assignment) are respected here too.
+    let formSearchQuery = { id: formId };
+
+    if (req.user.role !== 'superadmin' && !req.user.isGuest && req.user.tenantId) {
+      const tenantId = req.user.tenantId instanceof mongoose.Types.ObjectId
+        ? req.user.tenantId
+        : new mongoose.Types.ObjectId(req.user.tenantId);
+      const tenantIdStr = tenantId.toString();
+
+      formSearchQuery.$or = [
+        { tenantId: tenantId },
+        { sharedWithTenants: tenantId },
+        { "chassisTenantAssignments.assignedTenants": tenantIdStr }
+      ];
+    }
+
+    let form = await Form.findOne(formSearchQuery);
+
+    if (!form && mongoose.Types.ObjectId.isValid(formId)) {
+      const alternateQuery = { _id: formId };
+      if (formSearchQuery.$or) alternateQuery.$or = formSearchQuery.$or;
+      form = await Form.findOne(alternateQuery);
+    }
+
+    if (!form) {
+      return res.status(404).json({
+        success: false,
+        message: 'Form not found'
+      });
+    }
+
+    // Build the same master chassis option list the frontend dropdown
+    // shows, sorted the same way (alphabetically by label), and take the
+    // first one as the default value to apply.
+    const seen = new Set();
+    const options = [];
+
+    (form.chassisNumbers || []).forEach(entry => {
+      const num = entry?.chassisNumber;
+      if (num && !seen.has(String(num))) {
+        seen.add(String(num));
+        options.push({
+          value: String(num),
+          label: entry.partDescription ? `${num} — ${entry.partDescription}` : String(num)
+        });
+      }
+    });
+
+    if (options.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'This form has no chassis numbers configured, so there is no default value to apply.'
+      });
+    }
+
+    options.sort((a, b) => a.label.localeCompare(b.label));
+    const defaultValue = options[0].value;
+
+    // Match every response for this form (respecting tenant filter) whose
+    // chassis_number answer is missing, null, or an empty string.
+    const query = {
+      questionId: { $in: [form.id, form._id.toString()] },
+      ...req.tenantFilter,
+      $or: [
+        { 'answers.chassis_number': { $exists: false } },
+        { 'answers.chassis_number': null },
+        { 'answers.chassis_number': '' }
+      ]
+    };
+
+    const result = await Response.updateMany(
+      query,
+      { $set: { 'answers.chassis_number': defaultValue } }
+    );
+
+    console.log(`[AUTO-FILL CHASSIS] Form ${formId}: matched ${result.matchedCount}, modified ${result.modifiedCount}, default "${defaultValue}"`);
+
+    res.json({
+      success: true,
+      message: `${result.modifiedCount} response(s) auto-filled with default chassis number`,
+      data: {
+        defaultValue,
+        matchedCount: result.matchedCount,
+        modifiedCount: result.modifiedCount
+      }
+    });
+  } catch (error) {
+    console.error('Auto-fill chassis numbers error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
 export const assignResponse = async (req, res) => {
   try {
     const { id } = req.params;
     const { assignedTo } = req.body;
 
-    const response = await Response.findOne({ id, ...req.tenantFilter });
+    const query = mongoose.Types.ObjectId.isValid(id)
+      ? { $or: [{ _id: id }, { id }] }
+      : { id };
 
-    if (!response) {
+    const response = await Response.findOne(query);
+
+    if (!response || !(await canAccessResponseTenant(req, response))) {
       return res.status(404).json({
         success: false,
         message: 'Response not found'
@@ -2092,9 +2473,13 @@ export const deleteResponse = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const response = await Response.findOne({ id, ...req.tenantFilter });
+    const query = mongoose.Types.ObjectId.isValid(id)
+      ? { $or: [{ _id: id }, { id }] }
+      : { id };
 
-    if (!response) {
+    const response = await Response.findOne(query);
+
+    if (!response || !(await canAccessResponseTenant(req, response))) {
       return res.status(404).json({
         success: false,
         message: 'Response not found'
@@ -2102,10 +2487,10 @@ export const deleteResponse = async (req, res) => {
     }
 
     const questionId = response.questionId;
-    await Response.findOneAndDelete({ id, ...req.tenantFilter });
+    await Response.findOneAndDelete({ _id: response._id });
 
-    // Emit real-time event for deleted response
-    emitResponseDeleted(questionId, id);
+    // Emit real-time event for deleted response (using response.id which is the UUID expected by frontend socket listener)
+    emitResponseDeleted(questionId, response.id);
 
     res.json({
       success: true,
@@ -2132,7 +2517,32 @@ export const deleteMultipleResponses = async (req, res) => {
       });
     }
 
-    const result = await Response.deleteMany({ id: { $in: ids }, ...req.tenantFilter });
+    const objectIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
+    const findQuery = {
+      $or: [
+        { id: { $in: ids } },
+        { _id: { $in: objectIds } }
+      ]
+    };
+
+    const candidateResponses = await Response.find(findQuery).select('id _id questionId tenantId');
+    const accessChecks = await Promise.all(
+      candidateResponses.map(async (r) => ({
+        doc: r,
+        allowed: await canAccessResponseTenant(req, r),
+      })),
+    );
+    const allowedDocs = accessChecks.filter((c) => c.allowed).map((c) => c.doc);
+    const allowedDbIds = allowedDocs.map((doc) => doc._id);
+
+    if (allowedDbIds.length === 0) {
+      return res.json({
+        success: true,
+        message: '0 responses deleted successfully'
+      });
+    }
+
+    const result = await Response.deleteMany({ _id: { $in: allowedDbIds } });
 
     res.json({
       success: true,
@@ -2203,7 +2613,7 @@ export const getResponsesByForm = async (req, res) => {
     );
 
     // Build response query
-    const query = { questionId: formId };
+    const query = { questionId: { $in: [form.id, form._id.toString()] } };
 
     // Add status filter if provided
     if (status && status !== 'all') {
@@ -2245,10 +2655,21 @@ export const getResponsesByForm = async (req, res) => {
       sort: { createdAt: -1 }
     };
 
-    let responses = await Response.find(query)
-      .populate('assignedTo', 'username firstName lastName email')
-      .populate('verifiedBy', 'username firstName lastName email')
-      .populate('createdBy', 'username firstName lastName email')
+    const isAnalytics = req.query.analytics === 'true';
+
+    let responsesQuery = Response.find(query);
+    if (isAnalytics) {
+      responsesQuery = responsesQuery.select(
+        '_id id questionId formId answers status submissionMetadata responseRanks createdAt timestamp submittedBy createdBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId'
+      );
+    } else {
+      responsesQuery = responsesQuery
+        .populate('assignedTo', 'username firstName lastName email')
+        .populate('verifiedBy', 'username firstName lastName email')
+        .populate('createdBy', 'username firstName lastName email');
+    }
+
+    let responses = await responsesQuery
       .sort(options.sort)
       .limit(options.limit * 1)
       .skip((options.page - 1) * options.limit);
@@ -2284,31 +2705,36 @@ export const getResponsesByForm = async (req, res) => {
 
     const total = await Response.countDocuments(query);
 
-    // Fetch reviews and chat messages for these responses to show in the "Review" column
-    const responseIds = responses.map(r => r.id);
-    const reviews = await Review.find({ responseId: { $in: responseIds } })
-      .populate('reviewerId', 'firstName lastName email username')
-      .sort({ createdAt: -1 });
+    let reviewsByResponse = {};
+    let messagesByResponse = {};
 
-    const chatMessages = await ChatMessage.find({
-      responseId: { $in: responseIds },
-      questionContexts: { $exists: true, $not: { $size: 0 } }
-    }).sort({ createdAt: -1 });
+    if (!isAnalytics) {
+      // Fetch reviews and chat messages for these responses to show in the "Review" column
+      const responseIds = responses.map(r => r.id);
+      const reviews = await Review.find({ responseId: { $in: responseIds } })
+        .populate('reviewerId', 'firstName lastName email username')
+        .sort({ createdAt: -1 });
 
-    // Group reviews and messages by responseId
-    const reviewsByResponse = reviews.reduce((acc, r) => {
-      if (!acc[r.responseId]) {
-        acc[r.responseId] = r; // Keep latest review
-      }
-      return acc;
-    }, {});
+      const chatMessages = await ChatMessage.find({
+        responseId: { $in: responseIds },
+        questionContexts: { $exists: true, $not: { $size: 0 } }
+      }).sort({ createdAt: -1 });
 
-    const messagesByResponse = chatMessages.reduce((acc, m) => {
-      if (!acc[m.responseId]) {
-        acc[m.responseId] = m; // Keep latest message with contexts
-      }
-      return acc;
-    }, {});
+      // Group reviews and messages by responseId
+      reviewsByResponse = reviews.reduce((acc, r) => {
+        if (!acc[r.responseId]) {
+          acc[r.responseId] = r; // Keep latest review
+        }
+        return acc;
+      }, {});
+
+      messagesByResponse = chatMessages.reduce((acc, m) => {
+        if (!acc[m.responseId]) {
+          acc[m.responseId] = m; // Keep latest message with contexts
+        }
+        return acc;
+      }, {});
+    }
 
     // Convert Map to Object for JSON serialization
     const formattedResponses = responses.map(response => {
@@ -2423,7 +2849,7 @@ export const exportResponses = async (req, res) => {
       a => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr)
     );
 
-    const query = { questionId: formId };
+    const query = { questionId: { $in: [form.id, form._id.toString()] } };
 
     // Apply tenant filtering
     if (req.user.role === 'inspector') {
@@ -2686,5 +3112,114 @@ export const autoAssignResponse = async (req, res) => {
   } catch (error) {
     console.error('Auto-assign response error:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+export const bulkUpdateBiwReview = async (req, res) => {
+  try {
+    const { ids, status } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an array of response IDs'
+      });
+    }
+
+    const allowedStatuses = ['Accepted', 'Rejected', 'Reworked', null];
+    if (status !== undefined && !allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid biwReview status. Must be one of: Accepted, Rejected, Reworked, or null`
+      });
+    }
+
+    // Find all target responses matching the IDs, then keep only the ones
+    // the acting user actually has tenant access to (owner tenant, shared
+    // tenant, chassis share, or superadmin) — a raw req.tenantFilter match
+    // would silently exclude every response on a form merely shared with
+    // this user's tenant, since Response.tenantId always reflects the form
+    // OWNER's tenant, not the acting user's.
+    const objectIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
+    const findQuery = {
+      $or: [
+        { id: { $in: ids } },
+        { _id: { $in: objectIds } }
+      ]
+    };
+    const candidateResponses = await Response.find(findQuery);
+    const accessFlags = await Promise.all(
+      candidateResponses.map((r) => canAccessResponseTenant(req, r)),
+    );
+    const responses = candidateResponses.filter((_, idx) => accessFlags[idx]);
+
+    if (responses.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No matching responses found'
+      });
+    }
+
+    const userEmail = req.user.email || '';
+    const userUsername = req.user.username || '';
+    const userIdStr = req.user._id ? req.user._id.toString() : '';
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+
+    let updatedCount = 0;
+    let skippedCount = 0;
+
+    for (const response of responses) {
+      // Check if user is trying to review their own submission (mirror single review logic)
+      const originalCreatedBy = response.createdBy;
+      const originalSubmittedBy = response.submittedBy;
+      const originalSubmitterContact = response.submitterContact;
+      const creatorIdStr = originalCreatedBy ? originalCreatedBy.toString() : '';
+      const isExcelImport = originalSubmittedBy === 'Excel Import';
+
+      const isSubmitter =
+        !isAdmin &&
+        !isExcelImport &&
+        (
+          originalSubmittedBy === userEmail ||
+          originalSubmittedBy === userUsername ||
+          (originalSubmitterContact && originalSubmitterContact.email === userEmail) ||
+          (creatorIdStr && creatorIdStr === userIdStr)
+        );
+
+      if (isSubmitter && status !== null) {
+        skippedCount++;
+        continue;
+      }
+
+      if (status === null) {
+        response.biwReview = undefined;
+      } else {
+        response.biwReview = {
+          status,
+          reviewedBy: req.user._id,
+          reviewedByName: userUsername || userEmail || 'Reviewer',
+          reviewedAt: new Date()
+        };
+      }
+
+      await response.save();
+      updatedCount++;
+    }
+
+    res.json({
+      success: true,
+      message: `Bulk BIW review update completed: ${updatedCount} updated, ${skippedCount} skipped.`,
+      data: {
+        updatedCount,
+        skippedCount
+      }
+    });
+
+  } catch (error) {
+    console.error('Bulk update BIW review error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
   }
 };
