@@ -164,7 +164,7 @@ export default function QuestionsList({
       height = Math.max(120, Math.floor(height * 0.85));
       drawImage(width, height);
       quality = 0.9;
-      let nextBlob = await createBlob(quality);
+      const nextBlob = await createBlob(quality);
       if (!nextBlob) {
         break;
       }

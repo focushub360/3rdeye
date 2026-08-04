@@ -26,7 +26,8 @@ import { useNotification } from "../../context/NotificationContext";
 import { apiClient } from "../../api/client";
 import CreateTenantModal from "./CreateTenantModal";
 import TenantDetailsModal from "./TenantDetailsModal";
-import { X, UserPlus } from "lucide-react";
+import EditTenantModal from "./EditTenantModal";
+import { X, UserPlus, Edit } from "lucide-react";
 import SuperAdminUserResponseDashboard from "./SuperAdminUserResponseDashboard";
 
 interface Tenant {
@@ -43,6 +44,11 @@ interface Tenant {
     isActive: boolean;
     lastLogin?: string;
     role: string;
+    granularPermissions?: {
+      canEditAttendanceTime: boolean;
+      canEditInvoices: boolean;
+      canEditPricing: boolean;
+    };
   }>;
   settings: {
     logo?: string;
@@ -72,6 +78,7 @@ export default function TenantManagement() {
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [tenantToDelete, setTenantToDelete] = useState<{
     id: string;
@@ -114,6 +121,7 @@ export default function TenantManagement() {
     email: "",
     newPassword: "",
     confirmNewPassword: "",
+    mobile: "",
   });
   const [deletingAdmin, setDeletingAdmin] = useState<string | null>(null);
   const [updatingAdmin, setUpdatingAdmin] = useState<string | null>(null);
@@ -123,6 +131,8 @@ export default function TenantManagement() {
   const [trackingEnabled, setTrackingEnabled] = useState(false);
   const [selectedAllowedTenants, setSelectedAllowedTenants] = useState<string[]>([]);
   const [savingTracking, setSavingTracking] = useState(false);
+  const [updatingPermissions, setUpdatingPermissions] = useState<{ [adminId: string]: boolean }>({});
+  const [localCheckboxState, setLocalCheckboxState] = useState<{ [key: string]: boolean }>({});
 
   const stats = {
     total: tenants.length,
@@ -148,7 +158,7 @@ export default function TenantManagement() {
     setShowInternalTrackingModal(true);
   };
 
-const handleSaveInternalTracking = async () => {
+  const handleSaveInternalTracking = async () => {
     if (!trackingTenant) return;
     setSavingTracking(true);
     try {
@@ -275,29 +285,18 @@ const handleSaveInternalTracking = async () => {
       showError("Password must be at least 6 characters long");
       return;
     }
-    if (!otpVerified) {
-      showError("Please verify the mobile number first");
-      return;
-    }
     setAddingAdmin(tenantId);
     try {
-      await apiClient.addAdminToTenant(tenantId, {
+      const payload: any = {
         firstName: newAdminData.firstName,
         lastName: newAdminData.lastName,
         email: newAdminData.email,
         password: newAdminData.password,
-        mobile: newAdminData.mobile,
-      });
-      showSuccess("Admin added successfully");
-      setShowAddAdminForm(null);
-      setNewAdminData({
-        firstName: "",
-        lastName: "",
-        email: "",
-        password: "",
-        confirmPassword: "",
-        mobile: "",
-      });
+      };
+      if (otpVerified && newAdminData.mobile) {
+        payload.mobile = newAdminData.mobile;
+      }
+      await apiClient.addAdminToTenant(tenantId, payload);
       fetchTenants();
     } catch (error: any) {
       showError(error.response?.message || "Failed to add admin");
@@ -443,6 +442,7 @@ const handleSaveInternalTracking = async () => {
       email: admin.email,
       newPassword: "",
       confirmNewPassword: "",
+      mobile: "",
     });
   };
 
@@ -454,6 +454,7 @@ const handleSaveInternalTracking = async () => {
       email: "",
       newPassword: "",
       confirmNewPassword: "",
+      mobile: "",
     });
   };
 
@@ -503,6 +504,7 @@ const handleSaveInternalTracking = async () => {
         email: "",
         newPassword: "",
         confirmNewPassword: "",
+        mobile: "",
       });
       fetchTenants();
     } catch (error: any) {
@@ -547,6 +549,52 @@ const handleSaveInternalTracking = async () => {
       showError(error.response?.message || "Failed to remove admin");
     } finally {
       setDeletingAdmin(null);
+    }
+  };
+
+  const handlePermissionToggle = async (adminId: string, permissionKey: string, currentValue: boolean) => {
+    // Optimistically update local state for immediate visual feedback
+    const checkboxKey = `${adminId}-${permissionKey}`;
+    const newValue = !currentValue;
+    setLocalCheckboxState((prev) => ({ ...prev, [checkboxKey]: newValue }));
+
+    setUpdatingPermissions((prev) => ({ ...prev, [adminId]: true }));
+    try {
+      const permissionKeyMap: Record<string, string> = {
+        canEditAttendanceTime: 'canEditAttendanceTime',
+        canEditInvoices: 'canEditInvoices',
+        canEditPricing: 'canEditPricing',
+      };
+
+      const updatePayload: any = { [permissionKeyMap[permissionKey]]: newValue };
+      await apiClient.updateGranularPermissions(adminId, updatePayload);
+      showSuccess(`${permissionKey === 'canEditAttendanceTime' ? 'Attendance' : permissionKey === 'canEditInvoices' ? 'Invoice' : 'Pricing'} edit permission ${newValue ? 'granted' : 'revoked'} successfully`);
+
+      // Update local tenant state instead of refetching to preserve checkbox state
+      setTenants((prev) =>
+        prev.map((tenant) => ({
+          ...tenant,
+          adminId: tenant.adminId?.map((admin) =>
+            admin._id === adminId
+              ? {
+                ...admin,
+                granularPermissions: {
+                  canEditAttendanceTime: admin.granularPermissions?.canEditAttendanceTime ?? false,
+                  canEditInvoices: admin.granularPermissions?.canEditInvoices ?? false,
+                  canEditPricing: admin.granularPermissions?.canEditPricing ?? false,
+                  [permissionKeyMap[permissionKey]]: newValue,
+                },
+              }
+              : admin
+          ),
+        }))
+      );
+    } catch (error: any) {
+      // Revert local state on error
+      setLocalCheckboxState((prev) => ({ ...prev, [checkboxKey]: currentValue }));
+      showError(error.response?.message || "Failed to update permission");
+    } finally {
+      setUpdatingPermissions((prev) => ({ ...prev, [adminId]: false }));
     }
   };
 
@@ -634,11 +682,10 @@ const handleSaveInternalTracking = async () => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
-                activeTab === tab.id
-                  ? "bg-primary-600 text-white shadow-md"
-                  : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-              }`}
+              className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${activeTab === tab.id
+                ? "bg-primary-600 text-white shadow-md"
+                : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                }`}
             >
               <tab.icon className="w-4 h-4" />
               {tab.label}
@@ -808,11 +855,10 @@ const handleSaveInternalTracking = async () => {
                           <div className="flex flex-col items-end gap-2 flex-shrink-0">
                             <div className="flex items-center gap-2">
                               <span
-                                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
-                                  tenant.isActive
-                                    ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
-                                    : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
-                                }`}
+                                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${tenant.isActive
+                                  ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+                                  : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                                  }`}
                               >
                                 <span
                                   className={`w-1.5 h-1.5 rounded-full ${tenant.isActive ? "bg-emerald-500 animate-pulse" : "bg-gray-400"}`}
@@ -895,52 +941,76 @@ const handleSaveInternalTracking = async () => {
                             </div>
                           </button>
 
-{adminsExpanded && (
-                             <div className="p-3 space-y-2 bg-white dark:bg-gray-900">
-                               {/* Existing Administrators List */}
-                               {Array.isArray(tenant.adminId) && tenant.adminId.length > 0 ? (
-                                 <div className="space-y-2 mb-3">
-                                   {tenant.adminId.map((admin: any) => (
-                                     <div key={admin._id || admin} className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
-                                       <div className="flex items-center gap-2">
-                                         <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center">
-                                           <span className="text-xs font-bold text-primary-600 dark:text-primary-400">
-                                             {admin.firstName?.[0]}{admin.lastName?.[0]}
-                                           </span>
-                                         </div>
-                                         <div>
-                                           <p className="text-sm font-medium text-gray-900 dark:text-white">
-                                             {admin.firstName} {admin.lastName}
-                                           </p>
-                                           <p className="text-xs text-gray-500">{admin.email}</p>
-                                         </div>
-                                       </div>
-                                       <div className="flex items-center gap-1">
-                                         <button
-                                           onClick={() => handleEditAdminClick(tenant._id, admin)}
-                                           disabled={updatingAdmin === (admin._id || admin)}
-                                           className="p-1 text-gray-400 hover:text-primary-600 rounded"
-                                           title="Edit admin"
-                                         >
-                                           Edit
-                                         </button>
-                                         <button
-                                           onClick={() => handleDeleteAdmin(tenant._id, admin._id || admin, `${admin.firstName} ${admin.lastName}`)}
-                                           disabled={deletingAdmin === (admin._id || admin)}
-                                           className="p-1 text-gray-400 hover:text-red-600 rounded"
-                                           title="Remove admin"
-                                         >
-                                           Remove
-                                         </button>
-                                       </div>
-                                     </div>
-                                   ))}
-                                 </div>
-                               ) : showAddAdminForm !== tenant._id && (
-                                 <p className="text-xs text-gray-400 mb-3">No administrators found</p>
-                               )}
-                               {/* Add Admin Form */}
-                               {showAddAdminForm === tenant._id && (
+                          {adminsExpanded && (
+                            <div className="p-3 space-y-2 bg-white dark:bg-gray-900">
+                              {/* Existing Administrators List */}
+                              {Array.isArray(tenant.adminId) && tenant.adminId.length > 0 ? (
+                                <div className="space-y-2 mb-3">
+                                  {tenant.adminId.map((admin: any) => (
+                                    <div key={admin._id || admin} className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center">
+                                          <span className="text-xs font-bold text-primary-600 dark:text-primary-400">
+                                            {admin.firstName?.[0]}{admin.lastName?.[0]}
+                                          </span>
+                                        </div>
+                                        <div>
+                                          <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                            {admin.firstName} {admin.lastName}
+                                          </p>
+                                          <p className="text-xs text-gray-500">{admin.email}</p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <div className="flex flex-col items-end gap-1">
+                                          <div className="flex items-center gap-1.5">
+                                            <input
+                                              type="checkbox"
+                                              checked={(localCheckboxState[`${admin._id}-canEditAttendanceTime`] ?? admin.granularPermissions?.canEditAttendanceTime) || false}
+                                              onChange={() => {
+                                                const currentLocalValue = localCheckboxState[`${admin._id}-canEditAttendanceTime`];
+                                                const currentServerValue = admin.granularPermissions?.canEditAttendanceTime || false;
+                                                const currentValue = currentLocalValue !== undefined ? currentLocalValue : currentServerValue;
+                                                handlePermissionToggle(admin._id, 'canEditAttendanceTime', currentValue);
+                                              }}
+                                              disabled={updatingPermissions[admin._id] || false}
+                                              className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50 cursor-pointer"
+                                            />
+                                            <span className="text-xs font-medium text-gray-600 dark:text-gray-400 select-none">
+                                              Can Edit Attendance, Swap, Bulk Import Response, Select All options.
+                                            </span>
+                                          </div>
+                                        </div>
+                                        {updatingPermissions[admin._id] && (
+                                          <div className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+                                        )}
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            onClick={() => handleEditAdminClick(tenant._id, admin)}
+                                            disabled={updatingAdmin === (admin._id || admin)}
+                                            className="p-1 text-gray-400 hover:text-primary-600 rounded"
+                                            title="Edit admin"
+                                          >
+                                            Edit
+                                          </button>
+                                          <button
+                                            onClick={() => handleDeleteAdmin(tenant._id, admin._id || admin, `${admin.firstName} ${admin.lastName}`)}
+                                            disabled={deletingAdmin === (admin._id || admin)}
+                                            className="p-1 text-gray-400 hover:text-red-600 rounded"
+                                            title="Remove admin"
+                                          >
+                                            Remove
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : showAddAdminForm !== tenant._id && (
+                                <p className="text-xs text-gray-400 mb-3">No administrators found</p>
+                              )}
+                              {/* Add Admin Form */}
+                              {showAddAdminForm === tenant._id && (
                                 <div className="bg-primary-50 dark:bg-primary-950/20 rounded-xl p-4 border border-primary-200 dark:border-primary-900 mb-3">
                                   <div className="flex items-center justify-between mb-4">
                                     <h5 className="text-sm font-bold text-gray-900 dark:text-white">
@@ -1008,7 +1078,7 @@ const handleSaveInternalTracking = async () => {
                                   </div>
                                   <div className="mb-2.5">
                                     <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
-                                      Mobile *
+                                      Mobile
                                     </label>
                                     <div className="flex gap-2">
                                       <div className="relative flex-1">
@@ -1017,23 +1087,18 @@ const handleSaveInternalTracking = async () => {
                                           type="tel"
                                           value={newAdminData.mobile}
                                           onChange={(e) =>
-                                            handleNewAdminChange(
-                                              "mobile",
-                                              e.target.value,
-                                            )
+                                            handleNewAdminChange("mobile", e.target.value)
                                           }
                                           disabled={otpSent && !otpVerified}
                                           className="w-full pl-9 pr-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 transition-all disabled:opacity-60"
                                           placeholder="Mobile number"
                                         />
                                       </div>
-                                      {!otpVerified && (
+                                      {!otpVerified && newAdminData.mobile && (
                                         <button
                                           type="button"
                                           onClick={handleSendOtp}
-                                          disabled={
-                                            sendingOtp || !newAdminData.mobile
-                                          }
+                                          disabled={sendingOtp || !newAdminData.mobile}
                                           className="px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold rounded-lg transition-all disabled:opacity-50 flex items-center gap-1 whitespace-nowrap"
                                         >
                                           {sendingOtp ? (
@@ -1046,9 +1111,7 @@ const handleSaveInternalTracking = async () => {
                                       {otpVerified && (
                                         <div className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 border border-emerald-200 dark:border-emerald-900 rounded-lg">
                                           <CheckCircle className="w-3.5 h-3.5" />
-                                          <span className="text-xs font-bold">
-                                            Verified
-                                          </span>
+                                          <span className="text-xs font-bold">Verified</span>
                                         </div>
                                       )}
                                     </div>
@@ -1063,20 +1126,14 @@ const handleSaveInternalTracking = async () => {
                                           type="text"
                                           maxLength={6}
                                           value={otp}
-                                          onChange={(e) =>
-                                            setOtp(
-                                              e.target.value.replace(/\D/g, ""),
-                                            )
-                                          }
+                                          onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
                                           className="flex-1 px-3 py-2 border-2 border-primary-200 dark:border-primary-800 rounded-lg text-center text-lg font-bold tracking-[0.4em] bg-white dark:bg-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
                                           placeholder="000000"
                                         />
                                         <button
                                           type="button"
                                           onClick={handleVerifyOtp}
-                                          disabled={
-                                            verifyingOtp || otp.length !== 6
-                                          }
+                                          disabled={verifyingOtp || otp.length !== 6}
                                           className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold rounded-lg transition-all disabled:opacity-50 flex items-center gap-1"
                                         >
                                           {verifyingOtp ? (
@@ -1136,137 +1193,141 @@ const handleSaveInternalTracking = async () => {
                                       onClick={() =>
                                         handleAddAdminSubmit(tenant._id)
                                       }
-                                      disabled={
-                                        addingAdmin === tenant._id ||
-                                        !otpVerified
-                                      }
+                                      disabled={addingAdmin === tenant._id}
                                       className="flex-1 bg-primary-600 hover:bg-primary-700 text-white text-sm font-bold py-2.5 rounded-xl transition-all disabled:opacity-60 flex items-center justify-center gap-2"
                                     >
                                       {addingAdmin === tenant._id ? (
                                         <>
-                                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{" "}
-                                          Adding...
+                                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Adding...
                                         </>
                                       ) : (
                                         <>
-                                          <UserPlus className="w-4 h-4" /> Add
-                                          Admin
+                                          <UserPlus className="w-4 h-4" /> Add Admin
                                         </>
                                       )}
                                     </button>
                                     <button
-                                       onClick={handleCancelAddAdmin}
-                                       className="px-4 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 text-sm font-semibold rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
-                                     >
-                                       Cancel
-                                     </button>
-                                   </div>
-                                 </div>
-                               )}
-                             </div>
-                           )}
-                         </div>
-
-                       {/* Customer Portal Toggle */}
-                       <div className="mb-5 flex items-center justify-between p-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900">
-                        <div className="flex items-center gap-3">
-                          <Globe className="w-4 h-4 text-indigo-500" />
-                          <div>
-                            <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                              Customer Portal
-                            </p>
-                            {tenant.settings?.showCustomerPortal ? (
-                              <p className="text-[10px] text-indigo-500 font-mono mt-0.5 truncate max-w-[200px]">
-                                /{tenant.slug}
-                              </p>
-                            ) : (
-                              <p className="text-xs text-gray-400">
-                                Disabled
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleToggleCustomerPortal(
-                              tenant._id,
-                              tenant.settings?.showCustomerPortal ?? false,
-                            )
-                          }
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${tenant.settings?.showCustomerPortal ? "bg-indigo-600" : "bg-gray-200 dark:bg-gray-700"}`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${tenant.settings?.showCustomerPortal ? "translate-x-6" : "translate-x-1"}`}
-                          />
-                        </button>
-                      </div>
-
-                      {/* Internal Tracking Toggle */}
-                      <div className="mb-5 flex items-center justify-between p-4 rounded-xl bg-violet-50 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900">
-                        <div className="flex items-center gap-3">
-                          <EyeIcon className="w-4 h-4 text-violet-500" />
-                          <div>
-                            <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                              Internal Tracking
-                            </p>
-                            <p className="text-xs text-gray-400">
-                              {tenant.internalTrackingEnabled
-                                ? `Access granted to ${(tenant.allowedTenantIds?.length || 0)} tenant${(tenant.allowedTenantIds?.length || 0) !== 1 ? 's' : ''}`
-                                : "Disabled"}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {tenant.internalTrackingEnabled && (
-                            <button
-                              type="button"
-                              onClick={() => handleInternalTrackingClick(tenant)}
-                              className="px-2.5 py-1 bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 text-[10px] font-bold rounded-lg hover:bg-violet-200 dark:hover:bg-violet-900/60 transition-all"
-                            >
-                              Configure
-                            </button>
+                                      onClick={handleCancelAddAdmin}
+                                      className="px-4 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 text-sm font-semibold rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           )}
+                        </div>
+
+                        {/* Customer Portal Toggle */}
+                        <div className="mb-5 flex items-center justify-between p-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900">
+                          <div className="flex items-center gap-3">
+                            <Globe className="w-4 h-4 text-indigo-500" />
+                            <div>
+                              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                                Customer Portal
+                              </p>
+                              {tenant.settings?.showCustomerPortal ? (
+                                <p className="text-[10px] text-indigo-500 font-mono mt-0.5 truncate max-w-[200px]">
+                                  /{tenant.slug}
+                                </p>
+                              ) : (
+                                <p className="text-xs text-gray-400">
+                                  Disabled
+                                </p>
+                              )}
+                            </div>
+                          </div>
                           <button
                             type="button"
-                            onClick={() => {
-                              handleInternalTrackingClick(tenant);
-                            }}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 ${tenant.internalTrackingEnabled ? "bg-violet-600" : "bg-gray-200 dark:bg-gray-700"}`}
+                            onClick={() =>
+                              handleToggleCustomerPortal(
+                                tenant._id,
+                                tenant.settings?.showCustomerPortal ?? false,
+                              )
+                            }
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${tenant.settings?.showCustomerPortal ? "bg-indigo-600" : "bg-gray-200 dark:bg-gray-700"}`}
                           >
                             <span
-                              className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${tenant.internalTrackingEnabled ? "translate-x-6" : "translate-x-1"}`}
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${tenant.settings?.showCustomerPortal ? "translate-x-6" : "translate-x-1"}`}
                             />
                           </button>
                         </div>
-                      </div>
 
-                      {/* Action Buttons */}
+                        {/* Internal Tracking Toggle */}
+                        <div className="mb-5 flex items-center justify-between p-4 rounded-xl bg-violet-50 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900">
+                          <div className="flex items-center gap-3">
+                            <EyeIcon className="w-4 h-4 text-violet-500" />
+                            <div>
+                              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                                Internal Tracking
+                              </p>
+                              <p className="text-xs text-gray-400">
+                                {tenant.internalTrackingEnabled
+                                  ? `Access granted to ${(tenant.allowedTenantIds?.length || 0)} tenant${(tenant.allowedTenantIds?.length || 0) !== 1 ? 's' : ''}`
+                                  : "Disabled"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {tenant.internalTrackingEnabled && (
+                              <button
+                                type="button"
+                                onClick={() => handleInternalTrackingClick(tenant)}
+                                className="px-2.5 py-1 bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 text-[10px] font-bold rounded-lg hover:bg-violet-200 dark:hover:bg-violet-900/60 transition-all"
+                              >
+                                Configure
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleInternalTrackingClick(tenant);
+                              }}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 ${tenant.internalTrackingEnabled ? "bg-violet-600" : "bg-gray-200 dark:bg-gray-700"}`}
+                            >
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${tenant.internalTrackingEnabled ? "translate-x-6" : "translate-x-1"}`}
+                              />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
                         <div className="flex gap-3 pt-1">
-                         <button
-                           onClick={() => handleViewDetails(tenant)}
-                           className="flex-1 flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white font-semibold py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 text-sm"
-                         >
-                           <EyeIcon className="w-4 h-4" />
-                           View Details
-                         </button>
-                         <button
-                           onClick={() => handleToggleStatus(tenant._id)}
-                           className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all border ${
-                             tenant.isActive
-                               ? "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900 hover:bg-red-100 dark:hover:bg-red-950/50"
-                               : "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900 hover:bg-emerald-100 dark:hover:bg-emerald-950/50"
-                           }`}
-                           title={tenant.isActive ? "Deactivate" : "Activate"}
-                         >
-                           <Power className="w-4 h-4" />
-                           {tenant.isActive ? "Deactivate" : "Activate"}
-                         </button>
-                       </div>
-                     </div>
-                   </div>
-                 );
-               })}
+                          <button
+                            onClick={() => handleViewDetails(tenant)}
+                            className="flex-1 flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white font-semibold py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 text-sm"
+                          >
+                            <EyeIcon className="w-4 h-4" />
+                            View Details
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingTenant(tenant);
+                              setShowEditModal(true);
+                            }}
+                            className="flex-1 flex items-center justify-center gap-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700 font-semibold py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-sm"
+                          >
+                            <Edit className="w-4 h-4" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleToggleStatus(tenant._id)}
+                            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all border ${tenant.isActive
+                              ? "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900 hover:bg-red-100 dark:hover:bg-red-950/50"
+                              : "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900 hover:bg-emerald-100 dark:hover:bg-emerald-950/50"
+                              }`}
+                            title={tenant.isActive ? "Deactivate" : "Activate"}
+                          >
+                            <Power className="w-4 h-4" />
+                            {tenant.isActive ? "Deactivate" : "Activate"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1287,6 +1348,26 @@ const handleSaveInternalTracking = async () => {
               setSelectedTenant(null);
             }}
             onUpdate={fetchTenants}
+            onEditClick={() => {
+              setShowDetailsModal(false);
+              setEditingTenant(selectedTenant);
+              setShowEditModal(true);
+              setSelectedTenant(null);
+            }}
+          />
+        )}
+        {showEditModal && editingTenant && (
+          <EditTenantModal
+            tenant={editingTenant}
+            onClose={() => {
+              setShowEditModal(false);
+              setEditingTenant(null);
+            }}
+            onSuccess={() => {
+              setShowEditModal(false);
+              setEditingTenant(null);
+              fetchTenants();
+            }}
           />
         )}
 

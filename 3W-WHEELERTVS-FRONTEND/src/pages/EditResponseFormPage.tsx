@@ -68,7 +68,7 @@ export default function EditResponseFormPage() {
       };
 
       await apiClient.updateResponse(responseId, updatedResponse);
-      navigate("/responses/all");
+      navigate(`/responses/${responseId}`);
     } catch (err) {
       console.error("Failed to save response:", err);
       alert("Failed to save response. Please try again.");
@@ -108,8 +108,8 @@ export default function EditResponseFormPage() {
       if (followUps.length > 0) {
         nodes.push(
           <div key={q.id ?? q._id} className="mb-6">
-            <div className="flex items-start space-x-4 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-              <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 font-semibold text-sm">
+            <div className="flex items-start space-x-4 p-5 border border-gray-200 dark:border-gray-700 rounded-2xl">
+              <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900 text-primary-600 dark:text-primary-400 font-semibold text-sm">
                 {qCounter + 1}
               </div>
               <div className="flex-1 min-w-0">
@@ -126,7 +126,7 @@ export default function EditResponseFormPage() {
               </div>
             </div>
 
-            <div className="mt-4 ml-8 space-y-4 border-l-4 border-blue-200 dark:border-blue-800 pl-6">
+            <div className="mt-4 ml-8 space-y-4 border-l-4 border-primary-200 dark:border-primary-800 pl-6">
               {followUps.map((fq: any) => {
                 const nestedFollowUps = (fq.followUpQuestions || []).filter((nfq: any) =>
                   isFollowUpVisible(nfq, answers),
@@ -137,8 +137,8 @@ export default function EditResponseFormPage() {
 
                 return (
                   <div key={fqId}>
-                    <div className="flex items-start space-x-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                      <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-blue-50 dark:bg-blue-900/50 text-blue-500 dark:text-blue-400 text-xs font-bold">
+                    <div className="flex items-start space-x-3 p-4 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50/30 dark:bg-gray-800/10">
+                      <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-primary-50 dark:bg-primary-900/50 text-primary-500 dark:text-primary-400 text-xs font-bold">
                         {qCounter}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -163,7 +163,7 @@ export default function EditResponseFormPage() {
 
                           return (
                             <div key={nfqId}>
-                              <div className="flex items-start space-x-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                              <div className="flex items-start space-x-3 p-4 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50/20 dark:bg-gray-800/5">
                                 <div className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 text-xs font-bold">
                                   {qCounter}
                                 </div>
@@ -194,8 +194,8 @@ export default function EditResponseFormPage() {
       } else {
         nodes.push(
           <div key={q.id ?? q._id} className="mb-6">
-            <div className="flex items-start space-x-4 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-              <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 font-semibold text-sm">
+            <div className="flex items-start space-x-4 p-5 border border-gray-200 dark:border-gray-700 rounded-2xl">
+              <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900 text-primary-600 dark:text-primary-400 font-semibold text-sm">
                 {qCounter + 1}
               </div>
               <div className="flex-1 min-w-0">
@@ -222,12 +222,12 @@ export default function EditResponseFormPage() {
         nodes.push(
           <div key={sub.id} className="ml-4">
             {sub.title && (
-              <div className="mb-4 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border-l-4 border-blue-400 dark:border-blue-600">
-                <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-300 uppercase tracking-wide">
+              <div className="mb-4 px-4 py-3 bg-primary-50 dark:bg-primary-900/20 rounded-lg border-l-4 border-primary-400 dark:border-primary-600">
+                <h4 className="text-sm font-semibold text-primary-800 dark:text-primary-300 uppercase tracking-wide">
                   {sub.title}
                 </h4>
                 {sub.description && (
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                  <p className="text-xs text-primary-600 dark:text-primary-400 mt-1">
                     {sub.description}
                   </p>
                 )}
@@ -247,27 +247,25 @@ export default function EditResponseFormPage() {
 
     return (
       <div key={section.id} className="space-y-6">
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 p-1">
-          <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-t-xl">
-            <div className="flex items-center space-x-3">
-              <div className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full bg-blue-600 text-white font-bold text-sm">
-                {index + 1}
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-gray-800 dark:text-white">
-                  {section.title || `Section ${index + 1}`}
-                </h3>
-                {section.description && (
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">
-                    {section.description}
-                  </p>
-                )}
-              </div>
+        <div className="pb-5 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center space-x-3">
+            <div className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full bg-primary-600 text-white font-bold text-sm">
+              {index + 1}
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                {section.title || `Section ${index + 1}`}
+              </h3>
+              {section.description && (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  {section.description}
+                </p>
+              )}
             </div>
           </div>
-          <div className="p-6">
-            {content}
-          </div>
+        </div>
+        <div className="py-2">
+          {content}
         </div>
       </div>
     );
@@ -277,7 +275,7 @@ export default function EditResponseFormPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600" />
       </div>
     );
   }
@@ -292,7 +290,7 @@ export default function EditResponseFormPage() {
           </div>
           <div className="mt-6 text-center">
             <button
-              onClick={() => navigate("/responses/all")}
+              onClick={() => navigate(responseId ? `/responses/${responseId}` : "/responses/all")}
               className="px-5 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700 transition-colors"
             >
               Back to Responses
@@ -328,23 +326,25 @@ export default function EditResponseFormPage() {
     }
     if (sections.length === 0 && standaloneFollowUps.length > 0) {
       return (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
+        <div className="space-y-6">
+          <div className="pb-5 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center space-x-3">
-              <div className="flex-shrink-0">
-                <FileText className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              <div className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full bg-primary-600 text-white font-bold text-sm">
+                <FileText className="w-5 h-5 text-white" />
               </div>
-              <h3 className="text-lg font-bold text-gray-800 dark:text-white">
-                Additional Questions
-              </h3>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                  Additional Questions
+                </h3>
+              </div>
             </div>
           </div>
-          <div className="p-6 space-y-4">
+          <div className="space-y-4">
             {standaloneFollowUps.map((q: any, idx: number) => {
               const qId = q.id ?? q._id;
               return (
                 <div key={qId} className="flex items-start space-x-4">
-                  <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 font-semibold text-sm">
+                  <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900 text-primary-600 dark:text-primary-400 font-semibold text-sm">
                     {idx + 1}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -367,7 +367,7 @@ export default function EditResponseFormPage() {
       );
     }
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden">
         <div className="p-12 text-center">
           <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
           <p className="text-gray-500 dark:text-gray-400 text-lg">
@@ -379,58 +379,55 @@ export default function EditResponseFormPage() {
   })();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-gray-100 dark:from-gray-900 dark:via-blue-900/10 dark:to-gray-800">
-      {/* Navigation Bar */}
-      <div className="sticky top-0 z-50 bg-white/95 dark:bg-gray-800/95 backdrop-blur border-b border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                type="button"
-                onClick={() => navigate("/responses/all")}
-                className="inline-flex items-center justify-center p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-700 transition-colors"
-                aria-label="Go back"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  Edit Response
-                </h1>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                  Review and update your answers
-                </p>
-              </div>
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-6">
+      <div className="pb-6 border-b border-gray-200 dark:border-gray-700 mb-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <button
+              type="button"
+              onClick={() => navigate(`/responses/${responseId}`)}
+              className="inline-flex items-center justify-center p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-700 transition-colors"
+              aria-label="Go back"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
+                Edit Response
+              </h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                Review and update your answers
+              </p>
             </div>
-            <div className="hidden sm:flex items-center space-x-3">
-              <button
-                type="button"
-                onClick={() => navigate("/responses/all")}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                form="response-edit-form"
-                disabled={saving}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <Save className="w-4 h-4" />
-                {saving ? "Saving…" : "Save Changes"}
-              </button>
-            </div>
+          </div>
+          <div className="hidden sm:flex items-center space-x-3">
+            <button
+              type="button"
+              onClick={() => navigate(`/responses/${responseId}`)}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="response-edit-form"
+              disabled={saving}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <Save className="w-4 h-4" />
+              {saving ? "Saving…" : "Save Changes"}
+            </button>
           </div>
         </div>
       </div>
 
       {/* Main Content - Full Width */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="w-full">
         <div className="flex gap-6">
           {/* Section Sidebar */}
           {totalSections > 1 && (
             <div className="hidden lg:block w-64 flex-shrink-0">
-              <div className="sticky top-24 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 p-4">
+              <div className="sticky top-24 border border-gray-200 dark:border-gray-700 rounded-2xl p-4">
                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">
                   Form Sections
                 </h3>
@@ -441,14 +438,14 @@ export default function EditResponseFormPage() {
                       onClick={() => goToSection(idx)}
                       className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-all ${
                         currentSectionIndex === idx
-                          ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-l-4 border-blue-600 dark:border-blue-400"
+                          ? "bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 border-l-4 border-primary-600 dark:border-primary-400"
                           : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
                       }`}
                     >
                       <div className="flex items-center space-x-2">
                         <div className={`flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
                           currentSectionIndex === idx
-                            ? "bg-blue-600 text-white"
+                            ? "bg-primary-600 text-white"
                             : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400"
                         }`}>
                           {idx + 1}
@@ -462,7 +459,7 @@ export default function EditResponseFormPage() {
                       onClick={() => goToSection(0)}
                       className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-all ${
                         currentSectionIndex === 0
-                          ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-l-4 border-blue-600 dark:border-blue-400"
+                          ? "bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 border-l-4 border-primary-600 dark:border-primary-400"
                           : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
                       }`}
                     >
@@ -507,7 +504,7 @@ export default function EditResponseFormPage() {
                         onClick={() => goToSection(idx)}
                         className={`w-2.5 h-2.5 rounded-full transition-colors ${
                           currentSectionIndex === idx
-                            ? "bg-blue-600 dark:bg-blue-400"
+                            ? "bg-primary-600 dark:bg-primary-400"
                             : "bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500"
                         }`}
                         aria-label={`Go to section ${idx + 1}`}
@@ -519,7 +516,7 @@ export default function EditResponseFormPage() {
                     <button
                       type="button"
                       onClick={handleNext}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors"
                     >
                       Next Section
                       <ChevronRight className="w-4 h-4" />
@@ -541,7 +538,7 @@ export default function EditResponseFormPage() {
               <div className="sm:hidden mt-6 flex gap-3">
                 <button
                   type="button"
-                  onClick={() => navigate("/responses/all")}
+                  onClick={() => navigate(`/responses/${responseId}`)}
                   className="flex-1 px-4 py-3 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700 transition-colors"
                 >
                   Cancel
@@ -549,7 +546,7 @@ export default function EditResponseFormPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <Save className="w-4 h-4" />
                   {saving ? "Saving…" : "Save"}

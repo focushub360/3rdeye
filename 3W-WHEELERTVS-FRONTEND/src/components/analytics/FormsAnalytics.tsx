@@ -40,7 +40,7 @@ import { useNotification } from "../../context/NotificationContext";
 import {
   downloadFormImportTemplate,
   downloadNestedFormImportTemplate,
-  parseFormWorkbook
+  parseFormWorkbook,
 } from "../../utils/exportUtils";
 import AnswerTemplateImport from "../AnswerTemplateImport";
 import type { Question as FormQuestion } from "../../types";
@@ -55,7 +55,7 @@ import { useAuth } from "../../context/AuthContext";
 
 // Add this interface for the dropdown options
 interface TemplateOption {
-  id: "flat" | "nested" | "linking";
+  id: "flat" | "nested" | "linking" | "bulk-response";
   label: string;
   description: string;
 }
@@ -91,8 +91,86 @@ interface ResponseData {
 export default function FormsAnalytics() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  
+  // --- Permission Helpers ---
+  const userPermissions = user?.permissions || [];
+  const userRole = user?.role;
+  
+  // Check if user has a specific permission (only for inspector/subadmin)
+  const hasPermission = (permissionId: string): boolean => {
+    // Admins and superadmins have full access
+    if (userRole === 'admin' || userRole === 'superadmin') {
+      return true;
+    }
+    // For inspector and subadmin, check permissions
+    return userPermissions.includes(permissionId);
+  };
+
+  // Check if user has any of the given permissions
+  const hasAnyPermission = (permissionIds: string[]): boolean => {
+    // Admins and superadmins have full access
+    if (userRole === 'admin' || userRole === 'superadmin') {
+      return true;
+    }
+    // For inspector and subadmin, check permissions
+    return permissionIds.some(id => userPermissions.includes(id));
+  };
+
+  // Check if user has analytics form permission for a specific form
+  const hasFormAnalyticsPermission = (formId: string, subType: string = 'response'): boolean => {
+    // Admins and superadmins have full access
+    if (userRole === 'admin' || userRole === 'superadmin') {
+      return true;
+    }
+    // For inspector and subadmin, check specific permission
+    return userPermissions.includes(`analytics:form:${formId}:${subType}`);
+  };
+
+  // Check if user can view a specific form
+  const canViewForm = (formId: string): boolean => {
+    // If no formId, can't view
+    if (!formId) return false;
+    
+    // Admins and superadmins can view all forms
+    if (userRole === 'admin' || userRole === 'superadmin') {
+      return true;
+    }
+    
+    // For inspector/subadmin, check if they have ANY analytics permission for this form
+    // Check each sub-type
+    const subTypes = ['response', 'dashboard', 'overall', 'questions', 'sections'];
+    for (const subType of subTypes) {
+      if (userPermissions.includes(`analytics:form:${formId}:${subType}`)) {
+        return true;
+      }
+    }
+    
+    return false;
+  };
+
+  // Check if user has specific analytics global permissions
+  const canDownloadTemplate = hasPermission('analytics:downloadTemplate');
+  const canImportExcel = hasPermission('analytics:importExcel');
+  const canCreateServiceForm = hasPermission('analytics:createService');
+  const canViewDashboard = hasPermission('dashboard:view');
+  const canViewOverall = hasPermission('Overall:view');
+
+  // Role-based checks
   const isInspector = user?.role === "inspector";
-  const canManage = (user?.role === "admin" || user?.role === "superadmin" || user?.role === "subadmin") && !isInspector;
+  const canManage = 
+    (user?.role === "admin" || 
+     user?.role === "superadmin" || 
+     user?.role === "subadmin") && 
+    !isInspector;
+  
+  const canBulkSelectResponses = 
+    user?.role === "superadmin" ||
+    (user?.role === "admin" && user?.granularPermissions?.canBulkSelectResponses === true);
+  
+  // Check if user can edit/delete forms (admin or superadmin)
+  const canEdit = user?.role === "admin" || user?.role === "superadmin";
+  const canDelete = user?.role === "admin" || user?.role === "superadmin";
+
   const { showSuccess, showError, showConfirm } = useNotification();
   const [searchTerm, setSearchTerm] = useState("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -100,28 +178,38 @@ export default function FormsAnalytics() {
   const [isImporting, setIsImporting] = useState(false);
   const [isAnswerTemplateOpen, setIsAnswerTemplateOpen] = useState(false);
   const [previewFormData, setPreviewFormData] = useState<FormQuestion | null>(
-    null
+    null,
   );
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isSavingForm, setIsSavingForm] = useState(false);
-   // Add these states for template dropdown
+  // Add these states for template dropdown
   const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<TemplateOption | null>(null);
+  const [selectedTemplate, setSelectedTemplate] =
+    useState<TemplateOption | null>(null);
 
-   const templateOptions: TemplateOption[] = [
+    const [actualResponseCounts, setActualResponseCounts] = useState<Record<string, number>>({});
+
+  const templateOptions: TemplateOption[] = [
     {
       id: "flat",
       label: "Follow-up Only",
-      description: "Flat structure with unlimited main follow-ups (FU1-FU99)"
+      description: "Flat structure with unlimited main follow-ups (FU1-FU99)",
     },
     {
       id: "nested",
       label: "Nested Follow-up",
-      description: "Hierarchical structure with nested follow-ups (FU1.1, FU1.1.1)"
-    }
+      description:
+        "Hierarchical structure with nested follow-ups (FU1.1, FU1.1.1)",
+    },
+    {
+      id: "bulk-response",
+      label: "Bulk Response Import",
+      description:
+        "Import responses for an existing form using an Excel template",
+    },
   ];
 
-    useEffect(() => {
+  useEffect(() => {
     if (templateOptions.length > 0 && !selectedTemplate) {
       setSelectedTemplate(templateOptions[0]);
     }
@@ -130,27 +218,28 @@ export default function FormsAnalytics() {
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (templateDropdownRef.current && 
-          !templateDropdownRef.current.contains(event.target as Node) &&
-          menuRef.current && 
-          !menuRef.current.contains(event.target as Node)) {
+      if (
+        templateDropdownRef.current &&
+        !templateDropdownRef.current.contains(event.target as Node) &&
+        menuRef.current &&
+        !menuRef.current.contains(event.target as Node)
+      ) {
         setIsTemplateDropdownOpen(false);
       }
     };
 
     if (isTemplateDropdownOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener("mousedown", handleClickOutside);
     }
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isTemplateDropdownOpen]);
 
-
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const templateDropdownRef = useRef<HTMLDivElement>(null); 
+  const templateDropdownRef = useRef<HTMLDivElement>(null);
 
   const {
     data: formsData,
@@ -161,8 +250,7 @@ export default function FormsAnalytics() {
 
   const {
     data: responsesData,
-    loading: responsesLoading,
-    execute: refetchResponses,
+    refetch: refetchResponses,
   } = useResponses();
 
   const deleteMutation = useMutation((id: string) => apiClient.deleteForm(id), {
@@ -177,7 +265,7 @@ export default function FormsAnalytics() {
       onSuccess: () => {
         refetchForms();
       },
-    }
+    },
   );
 
   const visibilityMutation = useMutation(
@@ -187,7 +275,7 @@ export default function FormsAnalytics() {
       onSuccess: () => {
         refetchForms();
       },
-    }
+    },
   );
 
   const locationMutation = useMutation(
@@ -200,15 +288,21 @@ export default function FormsAnalytics() {
       onError: (error: any) => {
         showError(
           error.message || "Failed to update location setting",
-          "Error"
+          "Error",
         );
       },
-    }
+    },
   );
+ 
 
   const viewTypeMutation = useMutation(
-    ({ id, viewType }: { id: string; viewType: "section-wise" | "question-wise" }) =>
-      apiClient.updateFormViewType(id, viewType),
+    ({
+      id,
+      viewType,
+    }: {
+      id: string;
+      viewType: "section-wise" | "question-wise";
+    }) => apiClient.updateFormViewType(id, viewType),
     {
       onSuccess: () => {
         refetchForms();
@@ -217,171 +311,90 @@ export default function FormsAnalytics() {
       onError: (error: any) => {
         console.error("View Type Update Error:", error);
         showError(
-          typeof error === "string" ? error : error.message || "Failed to update view type setting",
-          "Error"
+          typeof error === "string"
+            ? error
+            : error.message || "Failed to update view type setting",
+          "Error",
         );
       },
-    }
+    },
   );
 
   const forms = formsData?.forms || [];
   const parentForms = forms.filter((form: FormItem) => !form.parentFormId);
-  const totalForms = parentForms.length;
-
-  const [emailInviteModal, setEmailInviteModal] = useState<{
-    open: boolean;
-    formId: string | null;
-    formTitle: string;
-  }>({ open: false, formId: null, formTitle: "" });
-
-  const [whatsappInviteModal, setWhatsappInviteModal] = useState<{
-    open: boolean;
-    formId: string | null;
-    formTitle: string;
-  }>({ open: false, formId: null, formTitle: "" });
-
-  const [smsInviteModal, setSmsInviteModal] = useState<{
-    open: boolean;
-    formId: string | null;
-    formTitle: string;
-  }>({ open: false, formId: null, formTitle: "" });
-
-  const [shareAnalyticsModal, setShareAnalyticsModal] = useState<{
-    open: boolean;
-    formId: string | null;
-    formTitle: string;
-  }>({ open: false, formId: null, formTitle: "" });
-
-  const [autoSendModal, setAutoSendModal] = useState<{
-    open: boolean;
-    formId: string | null;
-    formTitle: string;
-  }>({ open: false, formId: null, formTitle: "" });
-
-  const [inviteCounts, setInviteCounts] = useState<Record<string, number>>({});
-
-  // Add these functions with your other handlers
-  const openEmailInviteModal = (formId: string) => {
-    const form = forms.find((f) => f.id === formId || f._id === formId);
-    if (form) {
-      setEmailInviteModal({
-        open: true,
-        formId,
-        formTitle: form.title,
-      });
-    }
-  };
-
-  const openWhatsAppInviteModal = (formId: string) => {
-    const form = forms.find((f) => f.id === formId || f._id === formId);
-    if (form) {
-      setWhatsappInviteModal({
-        open: true,
-        formId,
-        formTitle: form.title,
-      });
-    }
-  };
-
-  const openSMSInviteModal = (formId: string) => {
-    const form = forms.find((f) => f.id === formId || f._id === formId);
-    if (form) {
-      setSmsInviteModal({
-        open: true,
-        formId,
-        formTitle: form.title,
-      });
-    }
-  };
-
-  const openShareAnalyticsModal = (formId: string) => {
-    const form = forms.find((f) => f.id === formId || f._id === formId);
-    if (form) {
-      setShareAnalyticsModal({
-        open: true,
-        formId,
-        formTitle: form.title,
-      });
-    }
-  };
-
-  const openAutoSendModal = (formId: string) => {
-    const form = forms.find((f) => f.id === formId || f._id === formId);
-    if (form) {
-      setAutoSendModal({
-        open: true,
-        formId,
-        formTitle: form.title,
-      });
-    }
-  };
-
-  useEffect(() => {
-    const fetchInviteCounts = async () => {
-      try {
-        const counts: Record<string, number> = {};
-
-        // Loop through forms and get invite stats only for owned forms
-        for (const form of forms) {
-          const formId = form.id || form._id;
-          if (formId) {
-            // Check if user can access this form's invite stats
-            const ownerTenantId = typeof form.tenantId === 'object' ? form.tenantId?._id : form.tenantId;
-            const isOwner = user?.role === "superadmin" || !form.tenantId || ownerTenantId === user?.tenantId;
-
-            if (isOwner) {
-              try {
-                const response = await apiClient.getInviteStats(formId);
-                if (response.success) {
-                  counts[formId] = response.data.invites?.total || 0;
-                }
-              } catch (error) {
-                // If access denied or other error, skip this form
-                console.warn(`Failed to fetch invite stats for form ${formId}:`, error);
-                counts[formId] = 0;
-              }
-            } else {
-              // User doesn't own this form, set count to 0
-              counts[formId] = 0;
-            }
-          }
-        }
-
-        setInviteCounts(counts);
-      } catch (error) {
-        console.error("Failed to fetch invite counts:", error);
+  
+  // Debug logging
+  console.log("User role:", userRole);
+  console.log("User permissions:", userPermissions);
+  console.log("All forms from API:", forms.map(f => ({ id: f._id, title: f.title })));
+  
+  // Filter forms based on permissions
+  const visibleForms = useMemo(() => {
+    const filtered = forms.filter((form: FormItem) => {
+      const formId = form._id || form.id;
+      if (!formId) {
+        console.log("Form missing ID:", form);
+        return false;
       }
-    };
-
-    if (forms.length > 0) {
-      fetchInviteCounts();
+      
+      // Admins and superadmins see all forms
+      if (userRole === 'admin' || userRole === 'superadmin') {
+        console.log(`Admin/Superadmin - showing form: ${formId}`);
+        return true;
+      }
+      
+      // For inspector/subadmin, check if they have permission for this form
+      const hasPermission = canViewForm(formId);
+      console.log(`Form ${formId} (${form.title}) - has permission: ${hasPermission}`);
+      return hasPermission;
+    });
+    
+    console.log("Visible forms count:", filtered.length);
+    console.log("Visible forms:", filtered.map(f => ({ id: f._id, title: f.title })));
+    return filtered;
+  }, [forms, userRole, userPermissions]);
+  useEffect(() => {
+  const fetchAccurateCounts = async () => {
+    if (!visibleForms.length) return;
+    
+    const counts: Record<string, number> = {};
+    
+    for (const form of visibleForms) {
+      const formId = form._id || form.id;
+      if (!formId) continue;
+      
+      try {
+        // Get ALL responses including partial
+        const result = await apiClient.getFormResponses(formId, {
+          page: 1,
+          limit: 1,
+          includePartial: true,  // ✅ This is the key
+          analytics: true
+        });
+        counts[formId] = result.pagination?.totalResponses || 0;
+      } catch {
+        // Fallback to the existing count if API fails
+        counts[formId] = form.responseCount || 0;
+      }
     }
-  }, [forms, user]);
+    
+    setActualResponseCounts(counts);
+  };
+  
+  fetchAccurateCounts();
+}, [visibleForms]);
 
-  console.log("DEBUG: Total forms from API:", forms.length);
-  console.log("DEBUG: Parent forms (no parentFormId):", parentForms.length);
-  console.log(
-    "DEBUG: Child forms (with parentFormId):",
-    forms.filter((f: FormItem) => f.parentFormId).length
-  );
-  console.log(
-    "DEBUG: All forms data:",
-    forms.map((f: FormItem) => ({
-      id: f._id || f.id,
-      title: f.title,
-      parentFormId: f.parentFormId,
-    }))
-  );
-  const activeFormsCount = parentForms.filter(
-    (form: FormItem) => form.isActive === true
+  const totalForms = visibleForms.filter((form: FormItem) => !form.parentFormId).length;
+  const activeFormsCount = visibleForms.filter(
+    (form: FormItem) => form.isActive === true && !form.parentFormId,
   ).length;
-  const inactiveFormsCount = parentForms.filter(
-    (form: FormItem) => form.isActive === false
+  const inactiveFormsCount = visibleForms.filter(
+    (form: FormItem) => form.isActive === false && !form.parentFormId,
   ).length;
 
   const formsMap = useMemo(() => {
     const map = new Map<string, FormItem>();
-    forms.forEach((form) => {
+    visibleForms.forEach((form) => {
       if (form._id) {
         map.set(form._id, form);
       }
@@ -390,9 +403,9 @@ export default function FormsAnalytics() {
       }
     });
     return map;
-  }, [forms]);
+  }, [visibleForms]);
 
-  const filteredForms = forms.filter((form: FormItem) => {
+  const filteredForms = visibleForms.filter((form: FormItem) => {
     const titleMatch = form.title
       ?.toLowerCase()
       .includes(searchTerm.toLowerCase());
@@ -402,81 +415,36 @@ export default function FormsAnalytics() {
     return titleMatch || descriptionMatch;
   });
 
-  const responseCounts = useMemo(() => {
-    let allResponses =
-      (responsesData as ResponseData | undefined)?.responses || [];
-    
-    // Apply Inspector Visibility Rules
-    if (user?.role === "inspector") {
-      const currentUserEmail = user?.email || "";
-      const currentUserUsername = user?.username || "";
-      const currentUserId = user?._id || user?.id;
-      const currentUserTenantId = user?.tenantId;
-      
-      allResponses = allResponses.filter((response: any) => {
-        const submittedBy = response.submittedBy || "";
-        const createdBy = response.createdBy || "";
-        const submitterEmail = response.submitterContact?.email || "";
-        const responseTenantId = response.tenantId;
-
-        // Check if current user is the submitter (can see own responses)
-        const isOwnSubmission = 
-          submittedBy === currentUserEmail ||
-          submittedBy === currentUserUsername ||
-          createdBy === currentUserEmail ||
-          createdBy === currentUserUsername ||
-          submitterEmail === currentUserEmail ||
-          (currentUserId && (response.createdBy === currentUserId || (response.createdBy && response.createdBy._id === currentUserId)));
-        
-        // Check if response is from different tenant
-        const isDifferentTenant = !responseTenantId || 
-          (currentUserTenantId && responseTenantId.toString() !== currentUserTenantId.toString());
-        
-        // Check if response is from same tenant but different user
-        const isSameTenantOtherUser = !isOwnSubmission && 
-          responseTenantId && 
-          currentUserTenantId && 
-          responseTenantId.toString() === currentUserTenantId.toString();
-        
-        return isOwnSubmission || (isDifferentTenant && !isSameTenantOtherUser);
-      });
-    }
-
-    return allResponses.reduce<Record<string, number>>((acc, response: any) => {
-      if (response.questionId) {
-        acc[response.questionId] = (acc[response.questionId] || 0) + 1;
-      }
-      return acc;
-    }, {});
-  }, [responsesData, user]);
-
   const groupedForms = useMemo(() => {
-    const result = filteredForms.reduce((acc, form) => {
-      const key = form.parentFormId || form.id || form._id;
-      if (!key) {
+    const result = filteredForms.reduce(
+      (acc, form) => {
+        const key = form.parentFormId || form.id || form._id;
+        if (!key) {
+          return acc;
+        }
+
+        if (!acc[key]) {
+          acc[key] = {
+            parent: form.parentFormId ? null : form,
+            children: [],
+          };
+        }
+
+        if (form.parentFormId) {
+          const parentKey = form.parentFormId;
+          acc[parentKey] = acc[parentKey] || {
+            parent: null,
+            children: [],
+          };
+          acc[parentKey].children.push(form);
+        } else {
+          acc[key].parent = form;
+        }
+
         return acc;
-      }
-
-      if (!acc[key]) {
-        acc[key] = {
-          parent: form.parentFormId ? null : form,
-          children: [],
-        };
-      }
-
-      if (form.parentFormId) {
-        const parentKey = form.parentFormId;
-        acc[parentKey] = acc[parentKey] || {
-          parent: null,
-          children: [],
-        };
-        acc[parentKey].children.push(form);
-      } else {
-        acc[key].parent = form;
-      }
-
-      return acc;
-    }, {} as Record<string, { parent: FormItem | null; children: FormItem[] }>);
+      },
+      {} as Record<string, { parent: FormItem | null; children: FormItem[] }>,
+    );
 
     Object.values(result).forEach((group) => {
       const parent = group.parent;
@@ -485,7 +453,7 @@ export default function FormsAnalytics() {
       }
 
       const childRefs = [...(parent.childForms || [])].sort(
-        (a, b) => (a.order ?? 0) - (b.order ?? 0)
+        (a, b) => (a.order ?? 0) - (b.order ?? 0),
       );
 
       if (childRefs.length === 0) {
@@ -540,9 +508,7 @@ export default function FormsAnalytics() {
 
   const allForms = filteredForms.length;
   const totalResponses = filteredForms.reduce((sum, form) => {
-    const formId = form.id || form._id;
-    const count = responseCounts[formId] || 0;
-    return sum + count;
+    return sum + (form.responseCount || 0);
   }, 0);
 
   const handleDelete = async (id: string, title: string) => {
@@ -554,7 +520,7 @@ export default function FormsAnalytics() {
       },
       "Delete Form",
       "Delete",
-      "Cancel"
+      "Cancel",
     );
   };
 
@@ -564,7 +530,7 @@ export default function FormsAnalytics() {
 
   const handleToggleVisibility = async (
     id: string,
-    currentVisibility: boolean | undefined
+    currentVisibility: boolean | undefined,
   ) => {
     await visibilityMutation.mutate({
       id,
@@ -574,7 +540,7 @@ export default function FormsAnalytics() {
 
   const handleToggleLocation = async (
     id: string,
-    currentLocationEnabled: boolean | undefined
+    currentLocationEnabled: boolean | undefined,
   ) => {
     const isCurrentlyEnabled = currentLocationEnabled !== false;
     await locationMutation.mutate({
@@ -585,50 +551,51 @@ export default function FormsAnalytics() {
 
   const handleToggleViewType = (
     id: string,
-    currentViewType: "section-wise" | "question-wise" | undefined
+    currentViewType: "section-wise" | "question-wise" | undefined,
   ) => {
     console.log("Toggling view type for ID:", id, "current:", currentViewType);
     const nextViewType =
       currentViewType === "question-wise" ? "section-wise" : "question-wise";
-    
+
     viewTypeMutation.mutate({
       id,
       viewType: nextViewType,
     });
   };
 
-  const handleExportTemplate = (templateId?: "flat" | "nested") => {
-    const templateToUse = templateId || (selectedTemplate?.id as "flat" | "nested");
-    
+  const handleExportTemplate = (
+    templateId?: "flat" | "nested" | "linking" | "bulk-response",
+  ) => {
+    const templateToUse =
+      templateId || (selectedTemplate?.id as "flat" | "nested");
+
     if (templateToUse === "nested") {
-      // Call the nested template download function
-      // You'll need to create downloadNestedFormImportTemplate() in your exportUtils
-      downloadNestedFormImportTemplate(); // For now, using the existing one
+      downloadNestedFormImportTemplate();
       showSuccess("Nested Follow-up template downloaded", "Success");
     } else {
-      // Default to flat template
       downloadFormImportTemplate();
       showSuccess("Follow-up Only template downloaded", "Success");
     }
-    
+
     setIsTemplateDropdownOpen(false);
   };
-  
-   // Handle template selection
+
   const handleTemplateSelect = (template: TemplateOption) => {
     setSelectedTemplate(template);
-    handleExportTemplate(template.id);
+    if (template.id === "bulk-response") {
+      setIsAnswerTemplateOpen(true);
+      setIsTemplateDropdownOpen(false);
+    } else {
+      handleExportTemplate(template.id);
+    }
   };
 
-  // Toggle template dropdown
   const toggleTemplateDropdown = () => {
     setIsTemplateDropdownOpen(!isTemplateDropdownOpen);
   };
 
-
-
   const handleFileInputChange = async (
-    event: ChangeEvent<HTMLInputElement>
+    event: ChangeEvent<HTMLInputElement>,
   ) => {
     const file = event.target.files?.[0];
     if (!file) {
@@ -636,7 +603,7 @@ export default function FormsAnalytics() {
     }
     const isValidType =
       file.type ===
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
       file.name.toLowerCase().endsWith(".xlsx");
     if (!isValidType) {
       showError("Please select a valid .xlsx file", "Invalid File");
@@ -700,13 +667,11 @@ export default function FormsAnalytics() {
   };
 
   const handleManageChildForms = (formId: string) => {
-    // Navigate to edit page where ChildFormsManager is available
     navigate(`/forms/${formId}/edit`);
     setOpenMenuId(null);
-    // Optionally scroll to child forms section after a short delay
     setTimeout(() => {
       const childFormsSection = document.querySelector(
-        '[data-section="child-forms"]'
+        '[data-section="child-forms"]',
       );
       if (childFormsSection) {
         childFormsSection.scrollIntoView({
@@ -718,12 +683,11 @@ export default function FormsAnalytics() {
   };
 
   const handleLinkToParent = (formId: string) => {
-    // Navigate to edit page where user can manage parent-child relationships
     navigate(`/forms/${formId}/edit`);
     setOpenMenuId(null);
     setTimeout(() => {
       const childFormsSection = document.querySelector(
-        '[data-section="child-forms"]'
+        '[data-section="child-forms"]',
       );
       if (childFormsSection) {
         childFormsSection.scrollIntoView({
@@ -764,23 +728,168 @@ export default function FormsAnalytics() {
     };
   }, [openMenuId]);
 
-  if (loading) {
-    return (
-      <div className="p-6">
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-primary-600">Loading forms...</p>
-        </div>
-      </div>
-    );
-  }
+  const [emailInviteModal, setEmailInviteModal] = useState<{
+    open: boolean;
+    formId: string | null;
+    formTitle: string;
+  }>({ open: false, formId: null, formTitle: "" });
 
-  if (error) {
+  const [whatsappInviteModal, setWhatsappInviteModal] = useState<{
+    open: boolean;
+    formId: string | null;
+    formTitle: string;
+  }>({ open: false, formId: null, formTitle: "" });
+
+  const [smsInviteModal, setSmsInviteModal] = useState<{
+    open: boolean;
+    formId: string | null;
+    formTitle: string;
+  }>({ open: false, formId: null, formTitle: "" });
+
+  const [shareAnalyticsModal, setShareAnalyticsModal] = useState<{
+    open: boolean;
+    formId: string | null;
+    formTitle: string;
+  }>({ open: false, formId: null, formTitle: "" });
+
+  const [autoSendModal, setAutoSendModal] = useState<{
+    open: boolean;
+    formId: string | null;
+    formTitle: string;
+  }>({ open: false, formId: null, formTitle: "" });
+
+  const [inviteCounts, setInviteCounts] = useState<Record<string, number>>({});
+
+  const openEmailInviteModal = (formId: string) => {
+    const form = forms.find((f) => f.id === formId || f._id === formId);
+    if (form) {
+      setEmailInviteModal({
+        open: true,
+        formId,
+        formTitle: form.title,
+      });
+    }
+  };
+
+  const openWhatsAppInviteModal = (formId: string) => {
+    const form = forms.find((f) => f.id === formId || f._id === formId);
+    if (form) {
+      setWhatsappInviteModal({
+        open: true,
+        formId,
+        formTitle: form.title,
+      });
+    }
+  };
+
+  const openSMSInviteModal = (formId: string) => {
+    const form = forms.find((f) => f.id === formId || f._id === formId);
+    if (form) {
+      setSmsInviteModal({
+        open: true,
+        formId,
+        formTitle: form.title,
+      });
+    }
+  };
+
+  const openShareAnalyticsModal = (formId: string) => {
+    const form = forms.find((f) => f.id === formId || f._id === formId);
+    if (form) {
+      setShareAnalyticsModal({
+        open: true,
+        formId,
+        formTitle: form.title,
+      });
+    }
+  };
+
+  useEffect(() => {
+  if (formsData?.forms) {
+    console.log("📊 Forms data with response counts:", formsData.forms.map(f => ({
+      title: f.title,
+      _id: f._id,
+      responseCount: f.responseCount,
+      hasResponseCount: 'responseCount' in f
+    })));
+  }
+}, [formsData]);
+  const openAutoSendModal = (formId: string) => {
+    const form = forms.find((f) => f.id === formId || f._id === formId);
+    if (form) {
+      setAutoSendModal({
+        open: true,
+        formId,
+        formTitle: form.title,
+      });
+    }
+  };
+
+  useEffect(() => {
+    const fetchInviteCounts = async () => {
+      try {
+        const invitePromises = visibleForms.map(async (form) => {
+          const formId = form.id || form._id;
+          if (!formId) return { id: null, count: 0 };
+
+          const ownerTenantId =
+            typeof form.tenantId === "object"
+              ? form.tenantId?._id
+              : form.tenantId;
+          const isOwner =
+            user?.role === "superadmin" ||
+            !form.tenantId ||
+            ownerTenantId === user?.tenantId;
+
+          if (isOwner) {
+            try {
+              const response = await apiClient.getInviteStats(formId);
+              if (response.success) {
+                return { id: formId, count: response.data.invites?.total || 0 };
+              }
+            } catch (error) {
+              console.warn(
+                `Failed to fetch invite stats for form ${formId}:`,
+                error,
+              );
+            }
+          }
+          return { id: formId, count: 0 };
+        });
+
+        const results = await Promise.all(invitePromises);
+        const counts: Record<string, number> = {};
+        results.forEach((r) => {
+          if (r.id) {
+            counts[r.id] = r.count;
+          }
+        });
+
+        setInviteCounts(counts);
+      } catch (error) {
+        console.error("Failed to fetch invite counts:", error);
+      }
+    };
+
+    if (visibleForms.length > 0) {
+      fetchInviteCounts();
+    }
+  }, [visibleForms, user]);
+
+  const isDataLoading = loading || !formsData;
+  const combinedError = error;
+
+  if (combinedError) {
     return (
       <div className="p-6">
         <div className="text-center py-12">
-          <p className="text-red-600">Error loading forms: {error}</p>
-          <button onClick={() => refetchForms()} className="mt-4 btn-primary">
+          <p className="text-red-600">Error loading analytics data: {combinedError}</p>
+          <button
+            onClick={() => {
+              refetchForms();
+            }}
+            className="mt-4 btn-primary"
+          >
             Try Again
           </button>
         </div>
@@ -788,7 +897,18 @@ export default function FormsAnalytics() {
     );
   }
 
- return (
+  if (isDataLoading) {
+    return (
+      <div className="p-6">
+        <div className="text-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+          <p className="mt-4 text-primary-600">Loading analytics...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
     <div className="p-6 space-y-6">
       <input
         ref={fileInputRef}
@@ -807,151 +927,168 @@ export default function FormsAnalytics() {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
-          {canManage && !isInspector && (
+          {/* Only show action buttons for users who have permissions or are admin/superadmin */}
+          {(userRole === 'admin' || userRole === 'superadmin' || canManage) && (
             <>
-              {/* Updated Template Download Button with Dropdown */}
-              <div 
-                className="relative w-full sm:w-auto"
-                ref={templateDropdownRef}
-              >
-                <button
-                  onClick={toggleTemplateDropdown}
-                  className="btn-secondary flex items-center justify-center w-full sm:min-w-[240px]"
+              {/* Download Template - admins always see this, others need permission */}
+              {(userRole === 'admin' || userRole === 'superadmin' || canDownloadTemplate) && (
+                <div
+                  className="relative w-full sm:w-auto"
+                  ref={templateDropdownRef}
                 >
-                  <Download className="w-4 h-4 mr-2" />
-                  <span className="truncate">
-                    {selectedTemplate ? `Download ${selectedTemplate.label} Template` : "Download Import Template"}
-                  </span>
-                  <ChevronDown className={`w-4 h-4 ml-2 flex-shrink-0 transition-transform ${isTemplateDropdownOpen ? 'rotate-180' : ''}`} />
-                </button>
-                
-                {/* Dropdown Menu */}
-                {isTemplateDropdownOpen && (
-                  <div className="absolute top-full left-0 mt-1 w-full sm:w-72 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-primary-200 py-2 z-50 animate-fadeIn">
-                    <div className="px-4 py-2 border-b border-primary-100">
-                      <p className="text-xs font-medium text-primary-700">Select Template Type:</p>
-                    </div>
-                    
-                    {templateOptions.map((template) => (
-                      <button
-                        key={template.id}
-                        onClick={() => handleTemplateSelect(template)}
-                        className={`w-full flex flex-col items-start px-4 py-3 text-left hover:bg-primary-50 transition-colors ${selectedTemplate?.id === template.id ? 'bg-primary-50 border-l-4 border-primary-600' : ''}`}
-                      >
-                        <div className="flex items-center w-full">
-                          <div className={`p-1.5 rounded-lg mr-3 ${selectedTemplate?.id === template.id ? 'bg-primary-100' : 'bg-primary-50'}`}>
-                            {template.id === "flat" ? (
-                              <Layers className="w-4 h-4 text-primary-600" />
-                            ) : (
-                              <Layers className="w-4 h-4 text-purple-600" />
+                  <button
+                    onClick={toggleTemplateDropdown}
+                    className="btn-secondary flex items-center justify-center w-full sm:min-w-[240px]"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    <span className="truncate">
+                      {selectedTemplate
+                        ? `Download ${selectedTemplate.label} Template`
+                        : "Download Import Template"}
+                    </span>
+                    <ChevronDown
+                      className={`w-4 h-4 ml-2 flex-shrink-0 transition-transform ${isTemplateDropdownOpen ? "rotate-180" : ""}`}
+                    />
+                  </button>
+
+                  {/* Dropdown Menu */}
+                  {isTemplateDropdownOpen && (
+                    <div className="absolute top-full left-0 mt-1 w-full sm:w-72 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-primary-200 py-2 z-50 animate-fadeIn">
+                      <div className="px-4 py-2 border-b border-primary-100">
+                        <p className="text-xs font-medium text-primary-700">
+                          Select Template Type:
+                        </p>
+                      </div>
+
+                      {templateOptions.map((template) => (
+                        <button
+                          key={template.id}
+                          onClick={() => handleTemplateSelect(template)}
+                          className={`w-full flex flex-col items-start px-4 py-3 text-left hover:bg-primary-50 transition-colors ${selectedTemplate?.id === template.id ? "bg-primary-50 border-l-4 border-primary-600" : ""}`}
+                        >
+                          <div className="flex items-center w-full">
+                            <div
+                              className={`p-1.5 rounded-lg mr-3 ${selectedTemplate?.id === template.id ? "bg-primary-100" : "bg-primary-50"}`}
+                            >
+                              {template.id === "flat" ? (
+                                <Layers className="w-4 h-4 text-primary-600" />
+                              ) : template.id === "bulk-response" ? (
+                                <Upload className="w-4 h-4 text-green-600" />
+                              ) : (
+                                <Layers className="w-4 h-4 text-purple-600" />
+                              )}
+                            </div>
+                            <div className="flex-1">
+                              <div className="font-medium text-primary-800 text-sm">
+                                {template.label}
+                              </div>
+                              <div className="text-[10px] text-primary-600 mt-0.5">
+                                {template.description}
+                              </div>
+                            </div>
+                            {selectedTemplate?.id === template.id && (
+                              <Check className="w-4 h-4 text-primary-600 ml-2" />
                             )}
                           </div>
-                          <div className="flex-1">
-                            <div className="font-medium text-primary-800 text-sm">
-                              {template.label}
-                            </div>
-                            <div className="text-[10px] text-primary-600 mt-0.5">
-                              {template.description}
-                            </div>
-                          </div>
-                          {selectedTemplate?.id === template.id && (
-                            <Check className="w-4 h-4 text-primary-600 ml-2" />
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                    
-                    <div className="px-4 py-2 border-t border-primary-100 mt-1">
-                      <p className="text-[10px] text-primary-500">
-                        {selectedTemplate?.id === "flat" 
-                          ? "Each question can have unlimited main-level follow-ups" 
-                          : "Supports hierarchical follow-up questions with nesting"}
-                      </p>
+                        </button>
+                      ))}
+
+                      <div className="px-4 py-2 border-t border-primary-100 mt-1">
+                        <p className="text-[10px] text-primary-500">
+                          {selectedTemplate?.id === "flat"
+                            ? "Each question can have unlimited main-level follow-ups"
+                            : "Supports hierarchical follow-up questions with nesting"}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-              
-              {/* Rest of your buttons remain the same */}
-              <button
-                onClick={handleImportClick}
-                className="btn-secondary flex items-center justify-center w-full sm:w-auto"
-                disabled={isImporting}
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                {isImporting ? "Importing..." : "Import Form (Excel)"}
-              </button>
-              <button
-                onClick={() => setIsAnswerTemplateOpen(true)}
-                className="btn-secondary flex items-center justify-center w-full sm:w-auto"
-                title="Import answer templates for testing"
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Import Answers
-              </button>
-              <button
-                onClick={() =>
-                  navigate("/forms/create", { state: { mode: "create" } })
-                }
-                className="btn-primary flex items-center justify-center w-full sm:w-auto"
-              >
-                <PlusCircle className="w-4 h-4 mr-2" />
-                Create New Service Form
-              </button>
+                  )}
+                </div>
+              )}
+
+              {/* Import Form (Excel) - admins always see this, others need permission */}
+              {(userRole === 'admin' || userRole === 'superadmin' || canImportExcel) && (
+                <button
+                  onClick={handleImportClick}
+                  className="btn-secondary flex items-center justify-center w-full sm:w-auto"
+                  disabled={isImporting}
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  {isImporting ? "Importing..." : "Import Form (Excel)"}
+                </button>
+              )}
+
+              {canBulkSelectResponses && (
+                <button
+                  onClick={() => setIsAnswerTemplateOpen(true)}
+                  className="btn-secondary flex items-center justify-center w-full sm:w-auto"
+                  title="Bulk import responses for a form"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  Bulk Import Responses
+                </button>
+              )}
+
+              {/* Create New Service Form - admins always see this, others need permission */}
+              {(userRole === 'admin' || userRole === 'superadmin' || canCreateServiceForm) && (
+                <button
+                  onClick={() =>
+                    navigate("/forms/create", { state: { mode: "create" } })
+                  }
+                  className="btn-primary flex items-center justify-center w-full sm:w-auto"
+                >
+                  <PlusCircle className="w-4 h-4 mr-2" />
+                  Create New Service Form
+                </button>
+              )}
             </>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="p-3 bg-primary-50 rounded-lg mr-4">
-              <FileText className="w-6 h-6 text-primary-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-medium text-primary-600">
-                {totalForms}
+      {/* Stats cards - always show for admins, others need permission */}
+      {(userRole === 'admin' || userRole === 'superadmin' || canViewDashboard || canViewOverall) && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div className="card p-6">
+            <div className="flex items-center">
+              <div className="p-3 bg-primary-50 rounded-lg mr-4">
+                <FileText className="w-6 h-6 text-primary-600" />
               </div>
-              <div className="text-sm text-primary-500">Total Forms</div>
-              {/* <div className="mt-2 text-xs text-primary-500 space-x-2">
-                <span className="inline-flex items-center px-2 py-1 bg-green-50 text-green-700 rounded-full">
-                  Active: {activeFormsCount}
-                </span>
-                <span className="inline-flex items-center px-2 py-1 bg-red-50 text-red-700 rounded-full">
-                  Inactive: {inactiveFormsCount}
-                </span>
-              </div> */}
+              <div>
+                <div className="text-2xl font-medium text-primary-600">
+                  {totalForms}
+                </div>
+                <div className="text-sm text-primary-500">Total Forms</div>
+              </div>
+            </div>
+          </div>
+          <div className="card p-6">
+            <div className="flex items-center">
+              <div className="p-3 bg-primary-50 rounded-lg mr-4">
+                <Users className="w-6 h-6 text-primary-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-medium text-primary-600">
+                  {totalResponses}
+                </div>
+                <div className="text-sm text-primary-500">Total Responses</div>
+              </div>
+            </div>
+          </div>
+          <div className="card p-6">
+            <div className="flex items-center">
+              <div className="p-3 bg-primary-50 rounded-lg mr-4">
+                <Layers className="w-6 h-6 text-primary-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-medium text-primary-600">
+                  {Object.keys(groupedForms).length}
+                </div>
+                <div className="text-sm text-primary-500">Form Groups</div>
+              </div>
             </div>
           </div>
         </div>
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="p-3 bg-primary-50 rounded-lg mr-4">
-              <Users className="w-6 h-6 text-primary-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-medium text-primary-600">
-                {totalResponses}
-              </div>
-              <div className="text-sm text-primary-500">Total Responses</div>
-            </div>
-          </div>
-        </div>
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="p-3 bg-primary-50 rounded-lg mr-4">
-              <Layers className="w-6 h-6 text-primary-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-medium text-primary-600">
-                {Object.keys(groupedForms).length}
-              </div>
-              <div className="text-sm text-primary-500">Form Groups</div>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-primary-400 w-4 h-4" />
@@ -970,21 +1107,18 @@ export default function FormsAnalytics() {
           <h3 className="text-lg font-medium text-primary-600 mb-2">
             {searchTerm
               ? "No service forms found"
-              : "No service forms created yet"}
+              : "No service forms available"}
           </h3>
           <p className="text-primary-500 mb-6">
-            {searchTerm
-              ? "Try adjusting your search criteria"
-              : ""}
+            {searchTerm ? "Try adjusting your search criteria" : "You don't have permission to view any forms or no forms have been created yet."}
           </p>
-          {!searchTerm && canManage && !isInspector && (
+          {!searchTerm && (userRole === 'admin' || userRole === 'superadmin' || canCreateServiceForm) && (
             <button
               onClick={() => navigate("/forms/create")}
               className="btn-primary"
             >
               <PlusCircle className="w-4 h-4 mr-2" />
-              Create Your First Form
-            </button>
+              Create Your First Form            </button>
           )}
         </div>
       ) : (
@@ -992,20 +1126,38 @@ export default function FormsAnalytics() {
           {Object.values(groupedForms).map(({ parent, children }) => {
             if (!parent) return null;
 
-            const formId = parent.id || parent._id;
-            const responseCount = responseCounts[formId] || 0;
+            const formId = parent._id || parent.id;
+           const responseCount = actualResponseCounts[formId] || parent.responseCount || 0;
+
             const isLocationEnabled = parent.locationEnabled !== false;
 
-            const ownerTenantId = typeof parent.tenantId === 'object' ? parent.tenantId?._id : parent.tenantId;
-const isOwner = user?.role === "superadmin" || !parent.tenantId || ownerTenantId === user?.tenantId;
+            // Check if user can view this specific form
+            const canViewThisForm = canViewForm(formId);
+            
+            // If user can't view this form, skip rendering it
+            if (!canViewThisForm) return null;
 
-// Add this - check if user can edit (only admin and superadmin)
-const canEdit = user?.role === "admin" || user?.role === "superadmin";
+            // Check if user has specific analytics permissions for this form
+            const hasResponsePermission = hasFormAnalyticsPermission(formId, 'response');
+            const hasDashboardPermission = hasFormAnalyticsPermission(formId, 'dashboard');
+            const hasOverallPermission = hasFormAnalyticsPermission(formId, 'overall');
+            const hasQuestionsPermission = hasFormAnalyticsPermission(formId, 'questions');
+            const hasSectionsPermission = hasFormAnalyticsPermission(formId, 'sections');
 
-// Add this - check if user can delete (only admin and superadmin)
-const canDelete = user?.role === "admin" || user?.role === "superadmin";
+            const ownerTenantId =
+              typeof parent.tenantId === "object"
+                ? parent.tenantId?._id
+                : parent.tenantId;
+            const isOwner =
+              userRole === "superadmin" ||
+              !parent.tenantId ||
+              ownerTenantId === user?.tenantId;
 
-const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.companyName || parent.tenantId?.name) : null;
+            const tenantName =
+              typeof parent.tenantId === "object"
+                ? parent.tenantId?.companyName || parent.tenantId?.name
+                : null;
+
             return (
               <div
                 key={formId}
@@ -1014,7 +1166,7 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
-                       <h3 className="font-medium text-primary-800 line-clamp-2 mb-0">
+                      <h3 className="font-medium text-primary-800 line-clamp-2 mb-0">
                         {parent.title}
                       </h3>
                       {tenantName && ownerTenantId !== user?.tenantId && (
@@ -1033,7 +1185,9 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
                   <div className="flex flex-wrap items-center gap-4">
                     <div className="flex items-center bg-primary-50 dark:bg-gray-800 px-2 py-1 rounded-md">
                       <Users className="w-3.5 h-3.5 mr-1.5 text-primary-600" />
-                      <span className="font-medium text-primary-700">{responseCount}</span>
+                      <span className="font-medium text-primary-700">
+                        {responseCount}
+                      </span>
                       <span className="ml-1 text-primary-500">responses</span>
                     </div>
                     {isOwner && (
@@ -1077,25 +1231,26 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
                     )}
                   </div>
                   <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto border-t sm:border-t-0 border-primary-50 pt-3 sm:pt-0">
-                  <div className="relative">
-  <button
-    onClick={() => setOpenMenuId(openMenuId === formId ? null : formId)}
-    className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-primary-600 border border-primary-200 rounded-lg hover:bg-primary-50 transition-colors"
-  >
-    <MoreVertical className="w-4 h-4" />
-    <span>Options</span>
-  </button>
+                    <div className="relative">
+                      <button
+                        onClick={() =>
+                          setOpenMenuId(openMenuId === formId ? null : formId)
+                        }
+                        className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-primary-600 border border-primary-200 rounded-lg hover:bg-primary-50 transition-colors"
+                      >
+                        <MoreVertical className="w-4 h-4" />
+                        <span>Options</span>
+                      </button>
 
-  {openMenuId === formId && (
-    <>
-      {/* Backdrop */}
-      <div 
-        className="fixed inset-0 z-40" 
-        onClick={() => setOpenMenuId(null)} 
-      />
-      
-      {/* Dropdown — fixed on mobile, absolute on desktop */}
-      <div className="
+                      {openMenuId === formId && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-40"
+                            onClick={() => setOpenMenuId(null)}
+                          />
+
+                          <div
+                            className="
         fixed z-50
         left-4 right-4
         sm:absolute sm:left-auto sm:right-0 sm:w-64
@@ -1108,107 +1263,140 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
         animate-fadeIn 
         overflow-hidden
         max-h-[80vh] overflow-y-auto
-      ">
-        <div className="px-4 py-2 border-b border-primary-50 mb-1 flex items-center justify-between">
-  <span className="text-[10px] font-bold text-primary-400 uppercase tracking-wider">Form Actions</span>
-  <button
-    onClick={() => setOpenMenuId(null)}
-    className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 transition-colors"
-    title="Close"
-  >
-    <X className="w-4 h-4" />
-  </button>
-</div>
-        <button
-          onClick={() => handleManageChildForms(formId)}
-          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-primary-700 hover:bg-primary-50 transition-colors"
-        >
-          <div className="p-1.5 bg-primary-50 rounded-lg">
-            <Layers className="w-4 h-4 text-primary-600" />
-          </div>
-          <div className="text-left flex-1">
-            <div className="font-medium">Manage Child Forms</div>
-            <div className="text-[10px] text-primary-500">Link & organize forms</div>
-          </div>
-          {children.length > 0 && (
-            <span className="px-2 py-0.5 bg-primary-600 text-white text-[10px] font-bold rounded-full">
-              {children.length}
-            </span>
-          )}
-        </button>
+      "
+                          >
+                            <div className="px-4 py-2 border-b border-primary-50 mb-1 flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-primary-400 uppercase tracking-wider">
+                                Form Actions
+                              </span>
+                              <button
+                                onClick={() => setOpenMenuId(null)}
+                                className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 transition-colors"
+                                title="Close"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                            {isOwner && (
+                              <>
+                                <button
+                                  onClick={() => handleManageChildForms(formId)}
+                                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-primary-700 hover:bg-primary-50 transition-colors"
+                                >
+                                  <div className="p-1.5 bg-primary-50 rounded-lg">
+                                    <Layers className="w-4 h-4 text-primary-600" />
+                                  </div>
+                                  <div className="text-left flex-1">
+                                    <div className="font-medium">
+                                      Manage Child Forms
+                                    </div>
+                                    <div className="text-[10px] text-primary-500">
+                                      Link & organize forms
+                                    </div>
+                                  </div>
+                                  {children.length > 0 && (
+                                    <span className="px-2 py-0.5 bg-primary-600 text-white text-[10px] font-bold rounded-full">
+                                      {children.length}
+                                    </span>
+                                  )}
+                                </button>
 
-        <button
-          onClick={() => handleLinkToParent(formId)}
-          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-primary-700 hover:bg-primary-50 transition-colors"
-        >
-          <div className="p-1.5 bg-blue-50 rounded-lg">
-            <Link2 className="w-4 h-4 text-blue-600" />
-          </div>
-          <div className="text-left">
-            <div className="font-medium">Link to Parent</div>
-            <div className="text-[10px] text-primary-500">Connect to existing form</div>
-          </div>
-        </button>
+                                <button
+                                  onClick={() => handleLinkToParent(formId)}
+                                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-primary-700 hover:bg-primary-50 transition-colors"
+                                >
+                                  <div className="p-1.5 bg-blue-50 rounded-lg">
+                                    <Link2 className="w-4 h-4 text-blue-600" />
+                                  </div>
+                                  <div className="text-left">
+                                    <div className="font-medium">
+                                      Link to Parent
+                                    </div>
+                                    <div className="text-[10px] text-primary-500">
+                                      Connect to existing form
+                                    </div>
+                                  </div>
+                                </button>
 
-        <button
-          onClick={() => handleToggleViewType(formId, parent.viewType)}
-          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-primary-700 hover:bg-primary-50 transition-colors"
-        >
-          <div className="p-1.5 bg-orange-50 rounded-lg">
-            {parent.viewType === "question-wise" ? (
-              <Layout className="w-4 h-4 text-orange-600" />
-            ) : (
-              <Split className="w-4 h-4 text-orange-600" />
-            )}
-          </div>
-          <div className="text-left">
-            <div className="font-medium">
-              {parent.viewType === "question-wise" ? "Section-wise View" : "Question-wise View"}
-            </div>
-            <div className="text-[10px] text-primary-500">Change display layout</div>
-          </div>
-        </button>
+                                <button
+                                  onClick={() =>
+                                    handleToggleViewType(formId, parent.viewType)
+                                  }
+                                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-primary-700 hover:bg-primary-50 transition-colors"
+                                >
+                                  <div className="p-1.5 bg-orange-50 rounded-lg">
+                                    {parent.viewType === "question-wise" ? (
+                                      <Layout className="w-4 h-4 text-orange-600" />
+                                    ) : (
+                                      <Split className="w-4 h-4 text-orange-600" />
+                                    )}
+                                  </div>
+                                  <div className="text-left">
+                                    <div className="font-medium">
+                                      {parent.viewType === "question-wise"
+                                        ? "Section-wise View"
+                                        : "Question-wise View"}
+                                    </div>
+                                    <div className="text-[10px] text-primary-500">
+                                      Change display layout
+                                    </div>
+                                  </div>
+                                </button>
 
-        <div className="border-t border-primary-50 my-1"></div>
-        <div className="px-4 py-2">
-          <span className="text-[10px] font-bold text-primary-400 uppercase tracking-wider">Sharing</span>
-        </div>
+                                <div className="border-t border-primary-50 my-1"></div>
+                                <div className="px-4 py-2">
+                                  <span className="text-[10px] font-bold text-primary-400 uppercase tracking-wider">
+                                    Sharing
+                                  </span>
+                                </div>
+                              </>
+                            )}
 
-        <button
-          onClick={() => handleCopyShareLink(formId)}
-          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-primary-700 hover:bg-primary-50 transition-colors"
-        >
-          <div className="p-1.5 bg-green-50 rounded-lg">
-            {copiedId === formId ? (
-              <Check className="w-4 h-4 text-green-600" />
-            ) : (
-              <Link2 className="w-4 h-4 text-green-600" />
-            )}
-          </div>
-          <div className="text-left">
-            <div className="font-medium">
-              {copiedId === formId ? "Link Copied!" : "Copy Form Link"}
-            </div>
-            <div className="text-[10px] text-primary-500">Share with responders</div>
-          </div>
-        </button>
+                            <button
+                              onClick={() => handleCopyShareLink(formId)}
+                              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-primary-700 hover:bg-primary-50 transition-colors"
+                            >
+                              <div className="p-1.5 bg-green-50 rounded-lg">
+                                {copiedId === formId ? (
+                                  <Check className="w-4 h-4 text-green-600" />
+                                ) : (
+                                  <Link2 className="w-4 h-4 text-green-600" />
+                                )}
+                              </div>
+                              <div className="text-left">
+                                <div className="font-medium">
+                                  {copiedId === formId
+                                    ? "Link Copied!"
+                                    : "Copy Form Link"}
+                                </div>
+                                <div className="text-[10px] text-primary-500">
+                                  Share with responders
+                                </div>
+                              </div>
+                            </button>
 
-        <button
-          onClick={() => openShareAnalyticsModal(formId)}
-          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-primary-700 hover:bg-primary-50 transition-colors"
-        >
-          <div className="p-1.5 bg-indigo-50 rounded-lg">
-            <Share2 className="w-4 h-4 text-indigo-600" />
-          </div>
-          <div className="text-left">
-            <div className="font-medium">Share Analytics</div>
-            <div className="text-[10px] text-primary-500">Invite external viewers</div>
-          </div>
-        </button>
-      </div>
-    </>
-  )}
-</div>
+                            {isOwner && (
+                              <button
+                                onClick={() => openShareAnalyticsModal(formId)}
+                                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-primary-700 hover:bg-primary-50 transition-colors"
+                              >
+                                <div className="p-1.5 bg-indigo-50 rounded-lg">
+                                  <Share2 className="w-4 h-4 text-indigo-600" />
+                                </div>
+                                <div className="text-left">
+                                  <div className="font-medium">
+                                    Share Analytics
+                                  </div>
+                                  <div className="text-[10px] text-primary-500">
+                                    Invite external viewers
+                                  </div>
+                                </div>
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
 
                     <div className="flex items-center text-primary-400 font-medium">
                       <Calendar className="w-3.5 h-3.5 mr-1.5" />
@@ -1230,136 +1418,146 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
                     >
                       {parent.isVisible ? "Public" : "Private"}
                     </span>
-                    <span
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${
-                        isLocationEnabled
-                          ? "bg-blue-100 text-blue-800"
-                          : "bg-neutral-200 text-neutral-700"
-                      }`}
-                    >
-                      <MapPin className="w-3 h-3" />
-                      {isLocationEnabled
-                        ? "Location Enabled"
-                        : "Location Disabled"}
-                    </span>
-                    <span
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2.5 sm:py-0.5 rounded-full text-[9px] sm:text-[10px] font-medium border ${
-                        parent.viewType === "question-wise"
-                          ? "bg-orange-100 text-orange-800 border-orange-200"
-                          : "bg-blue-100 text-blue-800 border-blue-200"
-                      }`}
-                    >
-                      {parent.viewType === "question-wise" ? (
-                        <>
-                          <Split className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                          Question-wise
-                        </>
-                      ) : (
-                        <>
-                          <Layout className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                          Section-wise
-                        </>
-                      )}
-                    </span>
+                    {isOwner && (
+                      <>
+                        <span
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${
+                            isLocationEnabled
+                              ? "bg-blue-100 text-blue-800"
+                              : "bg-neutral-200 text-neutral-700"
+                          }`}
+                        >
+                          <MapPin className="w-3 h-3" />
+                          {isLocationEnabled
+                            ? "Location Enabled"
+                            : "Location Disabled"}
+                        </span>
+                        <span
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2.5 sm:py-0.5 rounded-full text-[9px] sm:text-[10px] font-medium border ${
+                            parent.viewType === "question-wise"
+                              ? "bg-orange-100 text-orange-800 border-orange-200"
+                              : "bg-blue-100 text-blue-800 border-blue-200"
+                          }`}
+                        >
+                          {parent.viewType === "question-wise" ? (
+                            <>
+                              <Split className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                              Question-wise
+                            </>
+                          ) : (
+                            <>
+                              <Layout className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                              Section-wise
+                            </>
+                          )}
+                        </span>
+                      </>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <button
-                      onClick={() =>
-                        handleToggleVisibility(formId, parent.isVisible)
-                      }
-                      disabled={visibilityMutation.loading}
-                      className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                        parent.isVisible
-                          ? "bg-green-500 focus:ring-green-500"
-                          : "bg-red-500 focus:ring-red-500"
-                      } ${
-                        visibilityMutation.loading
-                          ? "opacity-50 cursor-not-allowed"
-                          : "cursor-pointer"
-                      }`}
-                      title={
-                        parent.isVisible
-                          ? "Active - Click to deactivate"
-                          : "Inactive - Click to activate"
-                      }
-                    >
-                      <span
-                        className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${
-                          parent.isVisible ? "translate-x-5 sm:translate-x-6" : "translate-x-1"
+                  {isOwner && (
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <button
+                        onClick={() =>
+                          handleToggleVisibility(formId, parent.isVisible)
+                        }
+                        disabled={visibilityMutation.loading}
+                        className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                          parent.isVisible
+                            ? "bg-green-500 focus:ring-green-500"
+                            : "bg-red-500 focus:ring-red-500"
+                        } ${
+                          visibilityMutation.loading
+                            ? "opacity-50 cursor-not-allowed"
+                            : "cursor-pointer"
                         }`}
-                      />
-                    </button>
-                    <button
-                      onClick={() =>
-                        handleToggleLocation(formId, parent.locationEnabled)
-                      }
-                      disabled={locationMutation.loading}
-                      className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                        isLocationEnabled
-                          ? "bg-primary-600 focus:ring-primary-600"
-                          : "bg-neutral-400 focus:ring-neutral-400"
-                      } ${
-                        locationMutation.loading
-                          ? "opacity-50 cursor-not-allowed"
-                          : "cursor-pointer"
-                      }`}
-                      title={
-                        isLocationEnabled
-                          ? "Location enabled - Click to disable"
-                          : "Location disabled - Click to enable"
-                      }
-                    >
-                      <span
-                        className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${
-                          isLocationEnabled ? "translate-x-5 sm:translate-x-6" : "translate-x-1"
+                        title={
+                          parent.isVisible
+                            ? "Active - Click to deactivate"
+                            : "Inactive - Click to activate"
+                        }
+                      >
+                        <span
+                          className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${
+                            parent.isVisible
+                              ? "translate-x-5 sm:translate-x-6"
+                              : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                      <button
+                        onClick={() =>
+                          handleToggleLocation(formId, parent.locationEnabled)
+                        }
+                        disabled={locationMutation.loading}
+                        className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                          isLocationEnabled
+                            ? "bg-primary-600 focus:ring-primary-600"
+                            : "bg-neutral-400 focus:ring-neutral-400"
+                        } ${
+                          locationMutation.loading
+                            ? "opacity-50 cursor-not-allowed"
+                            : "cursor-pointer"
                         }`}
-                      />
-                    </button>
-                    <button
-                      onClick={() =>
-                        handleToggleViewType(parent._id, parent.viewType)
-                      }
-                      disabled={viewTypeMutation.loading}
-                      className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                        parent.viewType === "question-wise"
-                          ? "bg-orange-500 focus:ring-orange-500"
-                          : "bg-blue-500 focus:ring-blue-500"
-                      } ${
-                        viewTypeMutation.loading
-                          ? "opacity-50 cursor-not-allowed"
-                          : "cursor-pointer"
-                      }`}
-                      title={
-                        parent.viewType === "question-wise"
-                          ? "Question-wise view - Click for Section-wise"
-                          : "Section-wise view - Click for Question-wise"
-                      }
-                    >
-                      <span
-                        className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${
+                        title={
+                          isLocationEnabled
+                            ? "Location enabled - Click to disable"
+                            : "Location disabled - Click to enable"
+                        }
+                      >
+                        <span
+                          className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${
+                            isLocationEnabled
+                              ? "translate-x-5 sm:translate-x-6"
+                              : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                      <button
+                        onClick={() =>
+                          handleToggleViewType(parent._id, parent.viewType)
+                        }
+                        disabled={viewTypeMutation.loading}
+                        className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                           parent.viewType === "question-wise"
-                            ? "translate-x-5 sm:translate-x-6"
-                            : "translate-x-1"
+                            ? "bg-orange-500 focus:ring-orange-500"
+                            : "bg-blue-500 focus:ring-blue-500"
+                        } ${
+                          viewTypeMutation.loading
+                            ? "opacity-50 cursor-not-allowed"
+                            : "cursor-pointer"
                         }`}
-                      />
-                    </button>
-                  </div>
+                        title={
+                          parent.viewType === "question-wise"
+                            ? "Question-wise view - Click for Section-wise"
+                            : "Section-wise view - Click for Question-wise"
+                        }
+                      >
+                        <span
+                          className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${
+                            parent.viewType === "question-wise"
+                              ? "translate-x-5 sm:translate-x-6"
+                              : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-4">
                   <div className="flex flex-wrap items-center gap-2">
                     {isOwner && (
-                      <button
-                        onClick={() => navigate(`/forms/${formId}/preview`)}
-                        className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-primary-600 rounded-lg transition-colors hover:bg-primary-700 flex items-center justify-center gap-1.5"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>View</span>
-                      </button>
-                    )}
-                    {isOwner ? (
                       <>
-                        {canEdit && (
+                        {hasResponsePermission && (
+                          <button
+                            onClick={() => navigate(`/forms/${formId}/preview`)}
+                            className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-primary-600 rounded-lg transition-colors hover:bg-primary-700 flex items-center justify-center gap-1.5"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>View</span>
+                          </button>
+                        )}
+                        {canEdit && hasResponsePermission && (
                           <button
                             onClick={() => navigate(`/forms/${formId}/edit`)}
                             className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-primary-600 rounded-lg transition-colors hover:bg-primary-700 flex items-center justify-center gap-1.5"
@@ -1369,14 +1567,16 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
                             <span>Edit</span>
                           </button>
                         )}
-                        <button
-                          onClick={() => navigate(`/forms/${formId}/analytics`)}
-                          className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-primary-600 rounded-lg transition-colors hover:bg-primary-700 flex items-center justify-center gap-1.5"
-                          title="View analytics"
-                        >
-                          <BarChart3 className="w-3.5 h-3.5" />
-                          <span>Analytics</span>
-                        </button>
+                        {(hasResponsePermission || hasDashboardPermission || hasOverallPermission || hasQuestionsPermission || hasSectionsPermission) && (
+                          <button
+                            onClick={() => navigate(`/forms/${formId}/analytics`)}
+                            className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-primary-600 rounded-lg transition-colors hover:bg-primary-700 flex items-center justify-center gap-1.5"
+                            title="View analytics"
+                          >
+                            <BarChart3 className="w-3.5 h-3.5" />
+                            <span>Analytics</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => navigate(`/forms/${formId}/uploads`)}
                           className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-primary-600 rounded-lg transition-colors hover:bg-primary-700 flex items-center justify-center gap-1.5"
@@ -1386,16 +1586,20 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
                           <span>Uploads</span>
                         </button>
                       </>
-                    ) : (
+                    )}
+
+                    {!isOwner && (
                       <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                        <button
-                          onClick={() => navigate(`/forms/${formId}/analytics`)}
-                          className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-indigo-600 rounded-lg transition-colors hover:bg-indigo-700 flex items-center justify-center gap-1.5"
-                          title="View Shared Responses"
-                        >
-                          <List className="w-3.5 h-3.5" />
-                          <span>Analytics</span>
-                        </button>
+                        {(hasResponsePermission || hasDashboardPermission || hasOverallPermission || hasQuestionsPermission || hasSectionsPermission) && (
+                          <button
+                            onClick={() => navigate(`/forms/${formId}/analytics`)}
+                            className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-indigo-600 rounded-lg transition-colors hover:bg-indigo-700 flex items-center justify-center gap-1.5"
+                            title="View Shared Responses"
+                          >
+                            <List className="w-3.5 h-3.5" />
+                            <span>Analytics</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => navigate(`/forms/${formId}/uploads`)}
                           className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-indigo-600 rounded-lg transition-colors hover:bg-indigo-700 flex items-center justify-center gap-1.5"
@@ -1455,10 +1659,18 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {children.map((child, index) => {
-                        const childId = child.id || child._id;
-                        const childResponseCount = childId
-                          ? (responseCounts[childId] || 0)
-                          : 0;
+                        const childId = child._id || child.id;
+                        const childResponseCount = child.responseCount || 0;
+                        
+                        // Check if user can view this child form
+                        const canViewChild = canViewForm(childId);
+                        if (!canViewChild) return null;
+
+                        const childHasResponsePermission = hasFormAnalyticsPermission(childId, 'response');
+                        const childHasDashboardPermission = hasFormAnalyticsPermission(childId, 'dashboard');
+                        const childHasOverallPermission = hasFormAnalyticsPermission(childId, 'overall');
+                        const childHasQuestionsPermission = hasFormAnalyticsPermission(childId, 'questions');
+                        const childHasSectionsPermission = hasFormAnalyticsPermission(childId, 'sections');
 
                         return (
                           <div
@@ -1469,7 +1681,6 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
                               animation: "fadeInUp 0.5s ease-out forwards",
                             }}
                           >
-                            {/* Corner decoration */}
                             <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-primary-100 to-purple-100 rounded-bl-full opacity-50"></div>
 
                             <div className="relative">
@@ -1509,7 +1720,7 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
                                     <Calendar className="w-3.5 h-3.5" />
                                     <span>
                                       {new Date(
-                                        child.createdAt
+                                        child.createdAt,
                                       ).toLocaleDateString("en-US", {
                                         month: "short",
                                         day: "numeric",
@@ -1519,51 +1730,62 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
                                 )}
                               </div>
 
-                              {/* Quick action buttons */}
                               <div className="flex flex-wrap items-center justify-between gap-2 mt-auto pt-3 border-t border-primary-100">
                                 {isOwner && (
                                   <>
-                                    <button
-                                      onClick={() =>
-                                        navigate(`/forms/${childId}/preview`)
-                                      }
-                                      className="flex-1 min-w-[60px] px-2 py-1.5 text-[10px] sm:text-xs font-medium rounded-lg bg-gradient-to-r from-primary-500 to-primary-600 text-white hover:from-primary-600 hover:to-primary-700 transition-all duration-200 shadow-sm hover:shadow-md flex items-center justify-center gap-1"
-                                      title="View form"
-                                    >
-                                      <Eye className="w-3 h-3" />
-                                      View
-                                    </button>
-                                    <button
-                                      onClick={() =>
-                                        navigate(`/forms/${childId}/edit`)
-                                      }
-                                      className="p-1.5 rounded-lg border border-primary-200 text-primary-600 hover:bg-primary-50 transition-colors flex items-center justify-center"
-                                      title="Edit form"
-                                    >
-                                      <Edit2 className="w-3.5 h-3.5" />
-                                    </button>
+                                    {childHasResponsePermission && (
+                                      <button
+                                        onClick={() =>
+                                          navigate(`/forms/${childId}/preview`)
+                                        }
+                                        className="flex-1 min-w-[60px] px-2 py-1.5 text-[10px] sm:text-xs font-medium rounded-lg bg-gradient-to-r from-primary-500 to-primary-600 text-white hover:from-primary-600 hover:to-primary-700 transition-all duration-200 shadow-sm hover:shadow-md flex items-center justify-center gap-1"
+                                        title="View form"
+                                      >
+                                        <Eye className="w-3 h-3" />
+                                        View
+                                      </button>
+                                    )}
+                                    {canEdit && childHasResponsePermission && (
+                                      <button
+                                        onClick={() =>
+                                          navigate(`/forms/${childId}/edit`)
+                                        }
+                                        className="p-1.5 rounded-lg border border-primary-200 text-primary-600 hover:bg-primary-50 transition-colors flex items-center justify-center"
+                                        title="Edit form"
+                                      >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
                                   </>
                                 )}
-                                <button
-                                  onClick={() =>
-                                    navigate(`/forms/${childId}/analytics`)
-                                  }
-                                  className={`${isOwner ? 'p-1.5 border border-primary-200 text-primary-600' : 'flex-1 px-2 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm flex items-center justify-center gap-1'} transition-all flex items-center justify-center rounded-lg`}
-                                  title="Analytics"
-                                >
-                                  <BarChart3 className="w-3.5 h-3.5" />
-                                  {!isOwner && <span className="ml-1">Analytics</span>}
-                                </button>
+                                {(childHasResponsePermission || childHasDashboardPermission || childHasOverallPermission || childHasQuestionsPermission || childHasSectionsPermission) && (
+                                  <button
+                                    onClick={() =>
+                                      navigate(`/forms/${childId}/analytics`)
+                                    }
+                                    className={`${
+                                      isOwner ? "p-1.5 border border-primary-200 text-primary-600" : "flex-1 px-2 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm flex items-center justify-center gap-1"
+                                    } transition-all flex items-center justify-center rounded-lg`}
+                                    title="Analytics"
+                                  >
+                                    <BarChart3 className="w-3.5 h-3.5" />
+                                    {!isOwner && (
+                                      <span className="ml-1">Analytics</span>
+                                    )}
+                                  </button>
+                                )}
                                 <button
                                   onClick={() =>
                                     navigate(`/forms/${childId}/responses`)
                                   }
-                                  className={`${isOwner ? 'p-1.5 border border-primary-200 text-primary-600' : 'p-1.5 border border-indigo-200 text-indigo-600 hover:bg-indigo-50'} transition-all rounded-lg flex items-center justify-center`}
+                                  className={`${
+                                    isOwner ? "p-1.5 border border-primary-200 text-primary-600" : "p-1.5 border border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                                  } transition-all rounded-lg flex items-center justify-center`}
                                   title="Responses"
                                 >
                                   <List className="w-3.5 h-3.5" />
                                 </button>
-                                {(isOwner) && (
+                                {isOwner && (
                                   <button
                                     onClick={() =>
                                       handleDelete(childId, child.title || "")
@@ -1671,7 +1893,7 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
                     <p className="text-gray-800 dark:text-gray-200 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg font-medium">
                       {previewFormData.sections?.reduce(
                         (sum, s) => sum + (s.questions?.length || 0),
-                        0
+                        0,
                       ) || 0}{" "}
                       question(s)
                     </p>
@@ -1718,7 +1940,7 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
                                 Questions ({section.questions?.length || 0}):
                               </p>
                               {section.questions &&
-                              section.questions.length > 0 ? (
+                                section.questions.length > 0 ? (
                                 <ul className="space-y-1 ml-2">
                                   {section.questions.map((q, qIdx) => (
                                     <li
@@ -1793,9 +2015,7 @@ const tenantName = typeof parent.tenantId === 'object' ? (parent.tenantId?.compa
       />
       <SMSInviteModal
         isOpen={smsInviteModal.open}
-        onClose={() =>
-          setSmsInviteModal((prev) => ({ ...prev, open: false }))
-        }
+        onClose={() => setSmsInviteModal((prev) => ({ ...prev, open: false }))}
         formId={smsInviteModal.formId || ""}
         formTitle={smsInviteModal.formTitle}
       />

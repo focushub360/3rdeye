@@ -11,9 +11,7 @@ import {
   ArrowLeft,
   Shield,
   Lock,
-  AlertTriangle,
   ChevronLeft,
-  UserCheck,
   Eye,
   ChevronDown,
   BarChart2,
@@ -45,8 +43,39 @@ export default function InternalTrackingPage() {
   const navigate = useNavigate();
   const { user, tenant: currentTenant } = useAuth();
   const { showError } = useNotification();
-  const [loading, setLoading] = useState(true);
-  const [allowedTenants, setAllowedTenants] = useState<TenantScore[]>([]);
+  const getInitialAllowedTenants = () => {
+    const cached = apiClient.getCachedData<any>("/internal-tracking/performance?");
+    const payload = cached?.data ?? cached;
+    if (payload && Array.isArray(payload.tenants)) {
+      const tenantList = payload.tenants as any[];
+      const users: any[] = payload.users || [];
+      return tenantList.map((t: any) => {
+        const tenantUsers = users.filter((u: any) => u.tenantId === t._id);
+        const avgPerformance =
+          tenantUsers.length > 0
+            ? Math.round(
+                tenantUsers.reduce(
+                  (sum: number, u: any) => sum + (u.performanceScore || 0),
+                  0,
+                ) / tenantUsers.length,
+              )
+            : 0;
+
+        return {
+          id: t._id,
+          name: t.name,
+          companyName: t.companyName || t.name,
+          slug: t.slug,
+          userCount: tenantUsers.length,
+          averagePerformance: avgPerformance,
+        };
+      });
+    }
+    return [];
+  };
+
+  const [allowedTenants, setAllowedTenants] = useState<TenantScore[]>(() => getInitialAllowedTenants());
+  const [loading, setLoading] = useState(() => !apiClient.getCachedData("/internal-tracking/performance?"));
   const [noAccess, setNoAccess] = useState(false);
 
   const [expandedTenantId, setExpandedTenantId] = useState<string | null>(null);
@@ -55,6 +84,7 @@ export default function InternalTrackingPage() {
   const [tenantData, setTenantData] = useState<{
     tenant: any;
     users: PerformanceUser[];
+    inspectorSummary: any[];
   } | null>(null);
 
   useEffect(() => {
@@ -62,10 +92,19 @@ export default function InternalTrackingPage() {
   }, []);
 
   const fetchAllowedTenantsPerformance = async () => {
-    setLoading(true);
+    const cacheKey = "/internal-tracking/performance?";
+    if (apiClient.isCacheFresh(cacheKey, 30)) {
+      setLoading(false);
+      return;
+    }
+
+    const hasCache = apiClient.getCachedData(cacheKey) !== null;
+    if (!hasCache) {
+      setLoading(true);
+    }
     setNoAccess(false);
     try {
-      const response = await apiClient.getInternalTrackingPerformance();
+      const response = await apiClient.getInternalTrackingPerformance({ forceNetwork: true });
       const payload = response?.data ?? response;
 
       if (payload && Array.isArray(payload.tenants)) {
@@ -139,13 +178,50 @@ export default function InternalTrackingPage() {
     }, 300);
 
     try {
-      const response = await apiClient.getTenantPerformanceDetails(tenantId);
-      const payload = response?.data ?? response;
+      const [performanceResponse, perfTableResponse, summaryResponse] = await Promise.all([
+        apiClient.getTenantPerformanceDetails(tenantId),
+        apiClient.get<any>("/internal-tracking/performance"),
+        apiClient.get<any>("/analytics/inspector-summary"),
+      ]);
 
-      if (payload) {
+      const performancePayload = performanceResponse?.data ?? performanceResponse;
+      const perfTablePayload = perfTableResponse?.data ?? perfTableResponse;
+      const summaryPayload = summaryResponse?.data ?? summaryResponse;
+
+      if (performancePayload) {
+        const tenantUsers = (performancePayload.users || []) as any[];
+        const perfTableUsers = (perfTablePayload?.users || []) as any[];
+        
+        const tenantUserNames = new Set(
+          tenantUsers.map((u: any) => (u.name || `${u.firstName || ""} ${u.lastName || ""}`.trim()).toLowerCase()),
+        );
+        
+        const matchingPerfRows = perfTableUsers.filter((row: any) => {
+          const rowName = (row.name || "").toLowerCase();
+          return tenantUserNames.has(rowName);
+        });
+
+        const nameToPerf = new Map(
+          matchingPerfRows.map((row: any) => [(row.name || "").toLowerCase(), row]),
+        );
+
+        const mergedUsers = tenantUsers.map((u: any) => {
+          const key = (u.name || `${u.firstName || ""} ${u.lastName || ""}`.trim()).toLowerCase();
+          const perf = nameToPerf.get(key);
+          return {
+            ...u,
+            totalSubmitted: perf?.totalSubmitted ?? u.totalSubmitted ?? 0,
+            totalReviewed: perf?.totalReviewed ?? u.totalReviewed ?? 0,
+            accepted: perf?.accepted ?? u.accepted ?? 0,
+            rejected: perf?.rejected ?? u.rejected ?? 0,
+            rework: perf?.rework ?? u.rework ?? 0,
+          };
+        });
+
         setTenantData({
-          tenant: payload.tenant || {},
-          users: payload.users || [],
+          tenant: performancePayload.tenant || {},
+          users: mergedUsers,
+          inspectorSummary: summaryPayload?.summary || [],
         });
       }
     } catch (error: any) {
@@ -305,7 +381,7 @@ export default function InternalTrackingPage() {
         </div>
       ) : (
         /* Tenant Cards Grid */
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6">
           {allowedTenants.map((tenant) => (
             <div
               key={tenant._id}
@@ -443,21 +519,38 @@ export default function InternalTrackingPage() {
                         </p>
                       </div>
                     ) : tenantData && tenantData.users.length > 0 ? (
-                      /* Performance Table */
+                      /* Performance Table matching PerformanceTable.tsx */
                       <div className="bg-gray-50 dark:bg-gray-900/50 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-                        {/* Table Header */}
                         <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700 max-h-[400px]">
                           <table className="w-full text-sm text-left border-collapse">
                             <thead className="bg-gray-100/80 dark:bg-gray-700/80 backdrop-blur-md sticky top-0 z-10 text-gray-700 dark:text-gray-300 uppercase text-[10px] font-black tracking-widest">
                               <tr>
                                 <th className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 whitespace-nowrap">
-                                  User
+                                  User Name
                                 </th>
-                                <th className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 whitespace-nowrap">
-                                  Role
+                                <th className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 whitespace-nowrap text-center text-violet-600">
+                                  Dispatch Pending
                                 </th>
                                 <th className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 whitespace-nowrap text-center">
-                                  Performance
+                                  Total Submitted
+                                </th>
+                                <th className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 whitespace-nowrap text-center">
+                                  Total Reviewed
+                                </th>
+                                <th className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 whitespace-nowrap text-center text-amber-600">
+                                  Review Pending
+                                </th>
+                                <th className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 whitespace-nowrap text-center text-green-600">
+                                  Accepted
+                                </th>
+                                <th className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 whitespace-nowrap text-center text-red-600">
+                                  Rejected
+                                </th>
+                                <th className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 whitespace-nowrap text-center text-orange-600">
+                                  Reworked
+                                </th>
+                                <th className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 whitespace-nowrap text-center">
+                                  Performance Score
                                 </th>
                                 <th className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 whitespace-nowrap text-center">
                                   Performance Category
@@ -465,109 +558,144 @@ export default function InternalTrackingPage() {
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                              {tenantData.users.map((user) => (
-                                <tr
-                                  key={user._id}
-                                  className="hover:bg-white dark:hover:bg-gray-800 transition-colors"
-                                >
-                                  <td className="px-4 py-3">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center flex-shrink-0">
-                                        <span className="text-[10px] font-black text-primary-700 dark:text-primary-300 uppercase">
-                                          {(() => {
-                                            const fullName = user.name || `${user.firstName || ""} ${user.lastName || ""}`.trim() || "?";
-                                            return fullName
-                                              .split(" ")
-                                              .map((n: string) => n[0])
-                                              .join("")
-                                              .slice(0, 2);
-                                          })()}
+                              {(() => {
+                                const inspectorStatusMap: Record<string, Record<string, number>> = {};
+                                (tenantData.inspectorSummary || []).forEach((item: any) => {
+                                  const name = item.qcInspector;
+                                  if (!name) return;
+                                  if (!inspectorStatusMap[name]) inspectorStatusMap[name] = {};
+                                  Object.entries(item.statusCounts || {}).forEach(([status, count]) => {
+                                    inspectorStatusMap[name][status] = (inspectorStatusMap[name][status] || 0) + (count as number);
+                                  });
+                                });
+
+                                return tenantData.users.map((user: any) => {
+                                  const directOk = inspectorStatusMap[user.name]?.["Direct Ok"] || 0;
+                                  const reworkQCCompleted = inspectorStatusMap[user.name]?.["Rework QC Completed"] || 0;
+                                  const dispatched = inspectorStatusMap[user.name]?.["Dispatched"] || 0;
+                                  const dispatchPending = Math.max(0, directOk + reworkQCCompleted - dispatched);
+                                  const reviewPending = Math.max(0, dispatched - (user.totalReviewed || 0));
+
+                                  return (
+                                    <tr key={user._id} className="hover:bg-white dark:hover:bg-gray-800 transition-colors">
+                                      <td className="px-4 py-3">
+                                        <div className="flex items-center gap-3">
+                                          <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center flex-shrink-0">
+                                            <span className="text-[10px] font-black text-primary-700 dark:text-primary-300 uppercase">
+                                              {(() => {
+                                                const fullName = user.name || `${user.firstName || ""} ${user.lastName || ""}`.trim() || "?";
+                                                return fullName.split(" ").map((n: string) => n[0]).join("").slice(0, 2);
+                                              })()}
+                                            </span>
+                                          </div>
+                                          <div className="min-w-0">
+                                            <p className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                                              {user.name || `${user.firstName || ""} ${user.lastName || ""}`.trim()}
+                                            </p>
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td className={`px-4 py-3 text-center font-bold text-xs tabular-nums ${dispatchPending === 0 ? "opacity-20 text-gray-400" : "text-violet-600 dark:text-violet-400"}`}>
+                                        {dispatchPending}
+                                      </td>
+                                      <td className="px-4 py-3 text-center font-bold text-xs tabular-nums">
+                                        {user.totalSubmitted || 0}
+                                      </td>
+                                      <td className="px-4 py-3 text-center font-bold text-xs tabular-nums">
+                                        {user.totalReviewed || 0}
+                                      </td>
+                                      <td className={`px-4 py-3 text-center font-bold text-xs tabular-nums ${reviewPending === 0 ? "opacity-20 text-gray-400" : "text-amber-600 dark:text-amber-400"}`}>
+                                        {reviewPending}
+                                      </td>
+                                      <td className="px-4 py-3 text-center font-bold text-xs text-green-600 tabular-nums">
+                                        {user.accepted || 0}
+                                      </td>
+                                      <td className="px-4 py-3 text-center font-bold text-xs text-red-600 tabular-nums">
+                                        {user.rejected || 0}
+                                      </td>
+                                      <td className="px-4 py-3 text-center font-bold text-xs text-orange-600 tabular-nums">
+                                        {user.rework || 0}
+                                      </td>
+                                      <td className="px-4 py-3 text-center">
+                                        <span className={`px-2 py-1 rounded-full text-[10px] font-black tabular-nums ${getScoreColor(user.performanceScore)}`}>
+                                          {user.performanceScore}%
                                         </span>
-                                      </div>
-                                      <div className="min-w-0">
-                                        <p className="text-xs font-bold text-gray-900 dark:text-white truncate">
-                                          {user.name
-                                            ? user.name
-                                            : `${user.firstName || ""} ${user.lastName || ""}`.trim()}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <span
-                                      className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getRoleBadgeColor(
-                                        user.role,
-                                      )}`}
-                                    >
-                                      {user.role}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3 text-center">
-                                    <div className="flex flex-col items-center">
-                                      <span
-                                        className={`px-2.5 py-1 rounded-full text-xs font-black tabular-nums ${getScoreColor(
-                                          user.performanceScore,
-                                        )}`}
-                                      >
-                                        {user.performanceScore}%
-                                      </span>
-                                      <div className="w-full h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden mt-1.5">
-                                        <div
-                                          className={`h-full rounded-full transition-all duration-700 ${
-                                            user.performanceScore >= 80
-                                              ? "bg-emerald-500"
-                                              : user.performanceScore >= 50
-                                                ? "bg-amber-500"
-                                                : "bg-red-500"
-                                          }`}
-                                          style={{
-                                            width: `${user.performanceScore}%`,
-                                          }}
-                                        />
-                                      </div>
-                                    </div>
-                                  </td>
-                                  <td className="px-4 py-3 text-center">
-                                    <span
-                                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getCategoryBadgeColor(
-                                        user.performanceScore,
-                                      )}`}
-                                    >
-                                      {getPerformanceCategory(user.performanceScore)}
-                                    </span>
-                                  </td>
-                                </tr>
-                              ))}
+                                      </td>
+                                      <td className="px-4 py-3 text-center">
+                                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getCategoryBadgeColor(user.performanceScore)}`}>
+                                          {getPerformanceCategory(user.performanceScore)}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                });
+                              })()}
                             </tbody>
                             {/* Summary Row */}
-                            <tfoot>
-                              <tr className="bg-gray-100/80 dark:bg-gray-700/50">
-                                <td
-                                  colSpan={2}
-                                  className="px-4 py-3 text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest"
-                                >
-                                  Average
-                                </td>
-                                <td className="px-4 py-3 text-center">
-                                  <span
-                                    className={`px-2.5 py-1 rounded-full text-xs font-black tabular-nums ${getScoreColor(
-                                      tenant.performanceScore,
-                                    )}`}
-                                  >
-                                    {tenant.performanceScore}%
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 text-center">
-                                  <span
-                                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getCategoryBadgeColor(
-                                      tenant.performanceScore,
-                                    )}`}
-                                  >
-                                    {getPerformanceCategory(tenant.performanceScore)}
-                                  </span>
-                                </td>
-                              </tr>
-                            </tfoot>
+                            {(() => {
+                              const inspectorStatusMap: Record<string, Record<string, number>> = {};
+                              (tenantData.inspectorSummary || []).forEach((item: any) => {
+                                const name = item.qcInspector;
+                                if (!name) return;
+                                if (!inspectorStatusMap[name]) inspectorStatusMap[name] = {};
+                                Object.entries(item.statusCounts || {}).forEach(([status, count]) => {
+                                  inspectorStatusMap[name][status] = (inspectorStatusMap[name][status] || 0) + (count as number);
+                                });
+                              });
+
+                              const totalDispatched = tenantData.users.reduce((sum: number, row: any) => sum + (inspectorStatusMap[row.name]?.["Dispatched"] || 0), 0);
+                              const totalDirectOk = tenantData.users.reduce((sum: number, row: any) => sum + (inspectorStatusMap[row.name]?.["Direct Ok"] || 0), 0);
+                              const totalReworkQCCompleted = tenantData.users.reduce((sum: number, row: any) => sum + (inspectorStatusMap[row.name]?.["Rework QC Completed"] || 0), 0);
+                              const totalDispatchPending = Math.max(0, totalDirectOk + totalReworkQCCompleted - totalDispatched);
+                              const totalTotalSubmitted = tenantData.users.reduce((sum: number, row: any) => sum + (row.totalSubmitted || 0), 0);
+                              const totalTotalReviewed = tenantData.users.reduce((sum: number, row: any) => sum + (row.totalReviewed || 0), 0);
+                              const totalReviewPending = Math.max(0, totalDispatched - totalTotalReviewed);
+                              const totalAccepted = tenantData.users.reduce((sum: number, row: any) => sum + (row.accepted || 0), 0);
+                              const totalRejected = tenantData.users.reduce((sum: number, row: any) => sum + (row.rejected || 0), 0);
+                              const totalRework = tenantData.users.reduce((sum: number, row: any) => sum + (row.rework || 0), 0);
+                              const avgPerformance = tenantData.users.length > 0 ? Math.round(tenantData.users.reduce((sum: number, row: any) => sum + (row.performanceScore || 0), 0) / tenantData.users.length) : 0;
+
+                              return (
+                                <tfoot>
+                                  <tr className="bg-gray-100/80 dark:bg-gray-700/50">
+                                    <td className="px-4 py-3 text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest">
+                                      Total
+                                    </td>
+                                    <td className="px-4 py-3 text-center text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest">
+                                      {totalDispatchPending}
+                                    </td>
+                                    <td className="px-4 py-3 text-center text-xs font-black tabular-nums">
+                                      {totalTotalSubmitted}
+                                    </td>
+                                    <td className="px-4 py-3 text-center text-xs font-black tabular-nums">
+                                      {totalTotalReviewed}
+                                    </td>
+                                    <td className="px-4 py-3 text-center text-xs font-black tabular-nums text-amber-600">
+                                      {totalReviewPending}
+                                    </td>
+                                    <td className="px-4 py-3 text-center text-xs font-black tabular-nums text-green-600">
+                                      {totalAccepted}
+                                    </td>
+                                    <td className="px-4 py-3 text-center text-xs font-black tabular-nums text-red-600">
+                                      {totalRejected}
+                                    </td>
+                                    <td className="px-4 py-3 text-center text-xs font-black tabular-nums text-orange-600">
+                                      {totalRework}
+                                    </td>
+                                    <td className="px-4 py-3 text-center">
+                                      <span className={`px-2 py-1 rounded-full text-[10px] font-black tabular-nums ${getScoreColor(avgPerformance)}`}>
+                                        {avgPerformance}%
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-center">
+                                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getCategoryBadgeColor(avgPerformance)}`}>
+                                        {getPerformanceCategory(avgPerformance)}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              );
+                            })()}
                           </table>
                         </div>
                       </div>
@@ -588,14 +716,6 @@ export default function InternalTrackingPage() {
                     )}
                   </div>
                 )}
-
-                {/* Read-only notice */}
-                <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl mt-4">
-                  <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                  <p className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
-                    Read-only access — Super Admin controlled
-                  </p>
-                </div>
               </div>
             </div>
           ))}

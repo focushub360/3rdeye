@@ -190,161 +190,169 @@ export default function PreviewFormWrapper() {
   // ── Form submission ────────────────────────────────────────────────────────
   // In PreviewFormWrapper.tsx, find the handleSubmit function and update it:
 
-  const handleSubmit = async (response: Response) => {
-    console.log("=== PREVIEW FORM SUBMISSION ===");
+ const handleSubmit = async (response: Response) => {
+  console.log("=== PREVIEW FORM SUBMISSION ===");
 
-    const completedAt = new Date();
-    const startedAt = sessionStartedAtRef.current ?? completedAt;
-    const sessionId = formSessionIdRef.current;
-    const timeSpent = Math.max(
-      0,
-      Math.floor((completedAt.getTime() - startedAt.getTime()) / 1000),
-    );
+  const completedAt = new Date();
+  const startedAt = sessionStartedAtRef.current ?? completedAt;
+  const sessionId = formSessionIdRef.current;
+  const timeSpent = Math.max(
+    0,
+    Math.floor((completedAt.getTime() - startedAt.getTime()) / 1000),
+  );
 
-    console.log("Session ID:", sessionId);
-    console.log("Started At:", startedAt.toISOString());
-    console.log("Time Spent:", timeSpent, "seconds");
+  console.log("Session ID:", sessionId);
+  console.log("Started At:", startedAt.toISOString());
+  console.log("Time Spent:", timeSpent, "seconds");
 
-    try {
-      // Track final question timing
-      const prevId = currentQuestionIdRef.current;
-      const prevStart = currentQuestionStartRef.current;
-      if (prevId && prevStart && sessionId && id) {
-        const secs = Math.floor((Date.now() - prevStart.getTime()) / 1000);
-        if (secs >= 2) {
-          try {
-            await apiClient.trackQuestionTime(id, {
-              sessionId,
-              questionId: prevId,
-              questionText: currentQuestionTextRef.current,
-              questionType: currentQuestionTypeRef.current,
-              sectionId: currentSectionIdRef.current ?? undefined,
-              sectionTitle: currentSectionTitleRef.current,
-              timeSpent: secs,
-              answer: response.answers[prevId],
-            });
-          } catch {
-            /* non-critical */
-          }
-        }
-      }
-
-      // Signal backend that session is complete
-      if (sessionId && id) {
+  try {
+    // Track final question timing
+    const prevId = currentQuestionIdRef.current;
+    const prevStart = currentQuestionStartRef.current;
+    if (prevId && prevStart && sessionId && id) {
+      const secs = Math.floor((Date.now() - prevStart.getTime()) / 1000);
+      if (secs >= 2) {
         try {
-          await apiClient.trackFormComplete(id, {
+          await apiClient.trackQuestionTime(id, {
             sessionId,
-            answers: response.answers,
+            questionId: prevId,
+            questionText: currentQuestionTextRef.current,
+            questionType: currentQuestionTypeRef.current,
+            sectionId: currentSectionIdRef.current ?? undefined,
+            sectionTitle: currentSectionTitleRef.current,
+            timeSpent: secs,
+            answer: response.answers[prevId],
           });
         } catch {
           /* non-critical */
         }
       }
+    }
 
-      // Build submission payload
-      const submitData: any = {
-        questionId: id!,
-        tenantSlug: tenant?.slug,
-        answers: response.answers,
-        timestamp: response.timestamp,
-        sessionId: sessionId,
+    // Signal backend that session is complete
+    if (sessionId && id) {
+      try {
+        await apiClient.trackFormComplete(id, {
+          sessionId,
+          answers: response.answers,
+        });
+      } catch {
+        /* non-critical */
+      }
+    }
+
+    // Build submission payload
+    const submitData: any = {
+      // REMOVED: questionId: id!,
+      // REMOVED: tenantSlug: tenant?.slug,
+      answers: response.answers,
+      timestamp: response.timestamp,
+      sessionId: sessionId,
+      startedAt: startedAt.toISOString(),
+      completedAt: completedAt.toISOString(),
+      submissionMetadata: {
+        source: "internal",
+        formSessionId: sessionId,
+        timeSpent,
         startedAt: startedAt.toISOString(),
         completedAt: completedAt.toISOString(),
-        submissionMetadata: {
-          source: "internal",
-          formSessionId: sessionId,
-          timeSpent,
-          startedAt: startedAt.toISOString(),
-          completedAt: completedAt.toISOString(),
-        },
+      },
+    };
+
+    // Add user info if logged in
+    if (user) {
+      submitData.submittedBy =
+        user.firstName && user.lastName
+          ? `${user.firstName} ${user.lastName}`
+          : user.username || user.email || undefined;
+      submitData.submitterContact = {
+        email: user.email || "",
+        phone: user.mobile || user.phone || "",
       };
+      console.log(
+        "[PreviewFormWrapper] Added user info to submission:",
+        submitData.submittedBy,
+      );
+    }
 
-      // Add user info if logged in
-      if (user) {
-        submitData.submittedBy =
-          user.firstName && user.lastName
-            ? `${user.firstName} ${user.lastName}`
-            : user.username || user.email || undefined;
-        submitData.submitterContact = {
-          email: user.email || "",
-          phone: user.mobile || user.phone || "",
-        };
-        console.log(
-          "[PreviewFormWrapper] Added user info to submission:",
-          submitData.submittedBy,
+    // Attach geolocation if available
+    if (navigator.geolocation) {
+      try {
+        const position = await new Promise<GeolocationPosition>(
+          (resolve, reject) =>
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: false,
+              timeout: 5000,
+              maximumAge: 0,
+            }),
         );
+        submitData.location = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          source: "browser",
+        };
+      } catch {
+        /* geolocation not available */
       }
+    }
 
-      // Attach geolocation if available
-      if (navigator.geolocation) {
-        try {
-          const position = await new Promise<GeolocationPosition>(
-            (resolve, reject) =>
-              navigator.geolocation.getCurrentPosition(resolve, reject, {
-                enableHighAccuracy: false,
-                timeout: 5000,
-                maximumAge: 0,
-              }),
-          );
-          submitData.location = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-            source: "browser",
-          };
-        } catch {
-          /* geolocation not available */
-        }
-      }
+    console.log("📤 About to call createResponse with:", submitData);
+    console.log("🚀 Calling apiClient.createResponse...");
 
-      console.log("📤 About to call createResponse with:", submitData);
-      console.log("🚀 Calling apiClient.createResponse...");
+    // ✅ FIX: Pass tenantSlug and formId as separate parameters
+    const tenantSlug = tenant?.slug || 'default';
+    const formId = id!;
+    
+    const submissionResult = await apiClient.createResponse(
+      tenantSlug,  // First param: tenant slug
+      formId,      // Second param: form ID
+      submitData   // Third param: submission data
+    );
 
-      const submissionResult = await apiClient.createResponse(submitData);
+    console.log("✅ createResponse SUCCESS! Result:", submissionResult);
 
-      console.log("✅ createResponse SUCCESS! Result:", submissionResult);
+    const responseId =
+      submissionResult?.response?.id ||
+      submissionResult?.response?._id ||
+      submissionResult?.id ||
+      submissionResult?._id;
 
-      const responseId =
-        submissionResult?.response?.id ||
-        submissionResult?.response?._id ||
-        submissionResult?.id ||
-        submissionResult?._id;
+    console.log("📝 Response ID:", responseId);
 
-      console.log("📝 Response ID:", responseId);
-
-      // Auto-assign
-      if (responseId && tenant?._id) {
-        try {
-          await apiClient.autoAssignResponse(responseId, {
-            tenantId: tenant._id,
-          });
-          console.log("✅ Auto-assign successful");
-          showSuccess("Response submitted and assigned successfully!");
-        } catch (assignErr) {
-          console.warn("Auto-assign failed:", assignErr);
-          showSuccess("Response submitted successfully!");
-        }
-      } else {
+    // Auto-assign
+    if (responseId && tenant?._id) {
+      try {
+        await apiClient.autoAssignResponse(responseId, {
+          tenantId: tenant._id,
+        });
+        console.log("✅ Auto-assign successful");
+        showSuccess("Response submitted and assigned successfully!");
+      } catch (assignErr) {
+        console.warn("Auto-assign failed:", assignErr);
         showSuccess("Response submitted successfully!");
       }
-
-      // Stop heartbeat
-      if (heartbeatIntervalRef.current)
-        clearInterval(heartbeatIntervalRef.current);
-
-      console.log("🏃 Navigating to /responses/all");
-      console.log("Current path:", window.location.pathname);
-
-      setTimeout(() => {
-        console.log("🏃 Navigating NOW...");
-        navigate("/responses/all");
-      }, 100);
-    } catch (err) {
-      console.error("❌ Submission failed:", err);
-      console.error("❌ Error details:", err?.message, err?.stack);
-      showError("Failed to submit response. Please try again.");
+    } else {
+      showSuccess("Response submitted successfully!");
     }
-  };
+
+    // Stop heartbeat
+    if (heartbeatIntervalRef.current)
+      clearInterval(heartbeatIntervalRef.current);
+
+    console.log("🏃 Navigating to /responses/all");
+    console.log("Current path:", window.location.pathname);
+
+    setTimeout(() => {
+      console.log("🏃 Navigating NOW...");
+      navigate("/responses/all");
+    }, 100);
+  } catch (err) {
+    console.error("❌ Submission failed:", err);
+    console.error("❌ Error details:", err?.message, err?.stack);
+    showError("Failed to submit response. Please try again.");
+  }
+};
 
   // ── Render states ──────────────────────────────────────────────────────────
   if (loading) {

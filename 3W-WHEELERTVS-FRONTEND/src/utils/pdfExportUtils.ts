@@ -80,7 +80,7 @@ function getComplianceLabels(form: any) {
     correct: "Correct",
     wrong: "Wrong",
   };
-  let labels = { ...defaultLabels };
+  const labels = { ...defaultLabels };
 
   if (!form) return labels;
 

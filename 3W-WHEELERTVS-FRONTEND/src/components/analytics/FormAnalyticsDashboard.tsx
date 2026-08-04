@@ -13,6 +13,7 @@ import {
 } from "../../utils/formanalyticsexport";
 import {
   Users as UsersIcon,
+  Search,
   CheckCircle,
   Clock,
   XCircle,
@@ -44,6 +45,7 @@ import {
   Camera,
   Loader2,
   Maximize,
+  RotateCcw,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Pie, Doughnut, Radar } from "react-chartjs-2";
@@ -125,11 +127,19 @@ interface Response {
   createdBy?: string;
   isDispatched?: boolean;
   dispatchedAt?: string;
+  dispatchedBy?: string;
+  dispatchedByName?: string;
   tenantId?: string;
   submittedBy?: string;
   timeSpent?: number;
   submitterContact?: {
     email?: string;
+  };
+  biwReview?: {
+    status: "Accepted" | "Rejected" | "Reworked";
+    reviewedBy?: string;
+    reviewedByName?: string;
+    reviewedAt?: string;
   };
 }
 
@@ -158,6 +168,11 @@ interface FollowUpQuestion {
   trackResponseRank?: boolean;
   trackResponseQuestion?: boolean;
 }
+interface ChassisNumberEntry {
+  _id?: string;
+  chassisNumber: string;
+  partDescription?: string;
+}
 
 interface Form {
   _id: string;
@@ -172,6 +187,8 @@ interface Form {
   followUpQuestions?: FollowUpQuestion[];
   parentFormId?: string;
   parentFormTitle?: string;
+  chassisNumbers?: ChassisNumberEntry[];
+  tenantId?: string | { _id?: string; toString?: () => string };
 }
 
 type SectionPerformanceStat = {
@@ -284,7 +301,6 @@ const getSectionQualityBreakdown = (
     total: number;
   }> = [];
 
-  // Group questions by parameter/subParam1
   const parameterGroups = new Map<
     string,
     {
@@ -293,10 +309,11 @@ const getSectionQualityBreakdown = (
       no: number;
       na: number;
       total: number;
-      questions: FollowUpQuestion[];
       isRealParameter: boolean;
     }
   >();
+
+  const questionIdToGroup = new Map<string, any>();
 
   // Process all main questions in the section
   section.questions.forEach((q: any) => {
@@ -324,69 +341,73 @@ const getSectionQualityBreakdown = (
           no: 0,
           na: 0,
           total: 0,
-          questions: [],
           isRealParameter: hasRealParameter,
         });
       }
 
       const group = parameterGroups.get(paramName)!;
-      group.questions.push(q);
+      questionIdToGroup.set(q.id, group);
+    }
+  });
 
-      // Count responses for this question
-      responses.forEach((response) => {
-        const answer = response.answers?.[q.id];
-        if (answer !== null && answer !== undefined && answer !== "") {
-          group.total++;
+  // Count responses for these questions in one single pass over responses
+  responses.forEach((response) => {
+    if (!response.answers) return;
+    for (const [qId, answer] of Object.entries(response.answers)) {
+      if (answer === null || answer === undefined || answer === "") {
+        continue;
+      }
+      const group = questionIdToGroup.get(qId);
+      if (!group) continue;
 
-          // Check if it's an inspection status object (like from ChassisWithZone)
-          if (typeof answer === "object" && answer.status) {
-            const status = String(answer.status).toLowerCase().trim();
-            if (
-              status === "accepted" ||
-              status === "rework completed" ||
-              status === "verified"
-            ) {
-              group.yes++;
-            } else if (status === "rejected") {
-              group.no++;
-            } else if (
-              status === "rework" ||
-              status === "reworked" ||
-              status.includes("re-rework")
-            ) {
-              group.na++;
-            }
-            return;
-          }
+      group.total++;
 
-          const answerStr = String(answer).toLowerCase().trim();
-          if (
-            answerStr === "accepted" ||
-            answerStr === "rework completed" ||
-            answerStr === "verified"
-          ) {
-            group.yes++;
-          } else if (answerStr === "rejected") {
-            group.no++;
-          } else if (
-            answerStr === "rework" ||
-            answerStr === "reworked" ||
-            answerStr.includes("re-rework")
-          ) {
-            group.na++;
-          } else if (answerStr.includes("yes") || answerStr === "y") {
-            group.yes++;
-          } else if (answerStr.includes("no") || answerStr === "n") {
-            group.no++;
-          } else if (
-            answerStr.includes("na") ||
-            answerStr.includes("n/a") ||
-            answerStr.includes("not applicable")
-          ) {
-            group.na++;
-          }
+      // Check if it's an inspection status object (like from ChassisWithZone)
+      if (typeof answer === "object" && answer.status) {
+        const status = String(answer.status).toLowerCase().trim();
+        if (
+          status === "accepted" ||
+          status === "rework completed" ||
+          status === "verified"
+        ) {
+          group.yes++;
+        } else if (status === "rejected") {
+          group.no++;
+        } else if (
+          status === "rework" ||
+          status === "reworked" ||
+          status.includes("re-rework")
+        ) {
+          group.na++;
         }
-      });
+      } else {
+        const answerStr = String(answer).toLowerCase().trim();
+        if (
+          answerStr === "accepted" ||
+          answerStr === "rework completed" ||
+          answerStr === "verified"
+        ) {
+          group.yes++;
+        } else if (answerStr === "rejected") {
+          group.no++;
+        } else if (
+          answerStr === "rework" ||
+          answerStr === "reworked" ||
+          answerStr.includes("re-rework")
+        ) {
+          group.na++;
+        } else if (answerStr.includes("yes") || answerStr === "y") {
+          group.yes++;
+        } else if (answerStr.includes("no") || answerStr === "n") {
+          group.no++;
+        } else if (
+          answerStr.includes("na") ||
+          answerStr.includes("n/a") ||
+          answerStr.includes("not applicable")
+        ) {
+          group.na++;
+        }
+      }
     }
   });
 
@@ -580,14 +601,15 @@ const getZoneAnalytics = (responses: Response[]): ZoneAnalyticsData => {
 };
 
 // Add getSectionStats function
-const getSectionStats = (section: Section, responses: Response[]) => {
+const getSectionStats = (
+  section: Section,
+  responses: Response[],
+  questionResponseCounts?: Map<string, number>,
+) => {
   // Filter for main questions only (not follow-ups)
   const mainQuestionsOnly = section.questions.filter(
     (q: any) => !q.parentId && !q.showWhen?.questionId,
   );
-
-  console.log("Main questions found:", mainQuestionsOnly.length);
-  console.log("All questions in section:", section.questions.length);
 
   const mainQuestionCount = mainQuestionsOnly.length;
   let totalFollowUpCount = 0;
@@ -602,11 +624,24 @@ const getSectionStats = (section: Section, responses: Response[]) => {
   );
   totalFollowUpCount = followUpQuestionsInSection.length;
 
+  const countsMap = questionResponseCounts || (() => {
+    const map = new Map<string, number>();
+    responses.forEach((response) => {
+      if (response.answers) {
+        Object.keys(response.answers).forEach((qId) => {
+          const answer = response.answers[qId];
+          if (answer !== null && answer !== undefined && answer !== "") {
+            map.set(qId, (map.get(qId) || 0) + 1);
+          }
+        });
+      }
+    });
+    return map;
+  })();
+
   // Process follow-up questions
   followUpQuestionsInSection.forEach((followUp: any) => {
-    const followUpResponders = responses.filter(
-      (r) => r.answers && r.answers[followUp.id],
-    ).length;
+    const followUpResponders = countsMap.get(followUp.id) || 0;
     if (followUpResponders > 0) {
       answeredFollowUpQuestions++;
       followUpResponses += followUpResponders;
@@ -615,9 +650,7 @@ const getSectionStats = (section: Section, responses: Response[]) => {
 
   // Process main questions
   const questionsDetail = mainQuestionsOnly.map((q: any) => {
-    const mainQuestionResponders = responses.filter(
-      (r) => r.answers && r.answers[q.id],
-    ).length;
+    const mainQuestionResponders = countsMap.get(q.id) || 0;
 
     if (mainQuestionResponders > 0) {
       answeredMainQuestions++;
@@ -636,8 +669,7 @@ const getSectionStats = (section: Section, responses: Response[]) => {
       followUpDetails: relatedFollowUps.map((fq: any) => ({
         id: fq.id,
         text: fq.text || "Unnamed Follow-up",
-        responses: responses.filter((r) => r.answers && r.answers[fq.id])
-          .length,
+        responses: countsMap.get(fq.id) || 0,
       })),
     };
   });
@@ -654,8 +686,6 @@ const getSectionStats = (section: Section, responses: Response[]) => {
   const avgResponsesPerQuestion =
     totalQuestions > 0 ? (totalResponses / totalQuestions).toFixed(1) : "0.0";
 
-  console.log("Processed questionsDetail:", questionsDetail);
-
   return {
     mainQuestionCount,
     totalFollowUpCount,
@@ -665,7 +695,7 @@ const getSectionStats = (section: Section, responses: Response[]) => {
     totalResponses,
     completionRate,
     avgResponsesPerQuestion,
-    questionsDetail, // Make sure this is returned
+    questionsDetail,
   };
 };
 
@@ -785,6 +815,39 @@ const getRankStyle = (answer: any, darkMode: boolean = false) => {
   const color = colors[Math.abs(hash) % colors.length];
   return darkMode ? color.d : color.l;
 };
+const getBiwPerformanceLabel = (score: number) => {
+  if (score < 60) {
+    return {
+      label: "Not Met Performer",
+      className:
+        "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400",
+    };
+  } else if (score < 70) {
+    return {
+      label: "Partially Met Performer",
+      className:
+        "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400",
+    };
+  } else if (score < 80) {
+    return {
+      label: "Met Expectation",
+      className:
+        "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400",
+    };
+  } else if (score < 90) {
+    return {
+      label: "Exceeded Performance",
+      className:
+        "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400",
+    };
+  } else {
+    return {
+      label: "Exemplary Performer",
+      className:
+        "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400",
+    };
+  }
+};
 
 const computeSectionPerformanceStats = (
   form: Form | null,
@@ -794,146 +857,171 @@ const computeSectionPerformanceStats = (
     return [];
   }
 
-  const stats =
-    form.sections?.map((section) => {
-      const counts = {
-        yes: 0,
-        no: 0,
-        na: 0,
-        accepted: 0,
-        rejected: 0,
-        rework: 0,
-        total: 0,
-      };
+  // Pre-build section list and a mapping of questionId -> section's counts and question configuration
+  const sectionList: Array<{
+    section: Section;
+    counts: {
+      yes: number;
+      no: number;
+      na: number;
+      accepted: number;
+      rejected: number;
+      rework: number;
+      total: number;
+    };
+  }> = [];
 
-      const processQuestion = (question: any) => {
-        if (!question) {
-          return;
+  const questionMap = new Map<string, {
+    question: any;
+    counts: typeof sectionList[0]["counts"];
+  }>();
+
+  form.sections.forEach((section) => {
+    const counts = {
+      yes: 0,
+      no: 0,
+      na: 0,
+      accepted: 0,
+      rejected: 0,
+      rework: 0,
+      total: 0,
+    };
+    sectionList.push({ section, counts });
+
+    const registerQuestions = (q: any) => {
+      if (!q) return;
+      questionMap.set(q.id, { question: q, counts });
+      q.followUpQuestions?.forEach(registerQuestions);
+    };
+
+    section.questions?.forEach(registerQuestions);
+  });
+
+  // Now process responses in a single loop
+  responses.forEach((response) => {
+    if (!response.answers) return;
+    for (const [qId, answer] of Object.entries(response.answers)) {
+      if (answer === null || answer === undefined || answer === "") {
+        continue;
+      }
+      const match = questionMap.get(qId);
+      if (!match) continue;
+
+      const { question, counts } = match;
+
+      // Check if it's an inspection status object (like from ChassisWithZone)
+      if (typeof answer === "object" && answer.status) {
+        const status = String(answer.status).toLowerCase().trim();
+        if (
+          status === "accepted" ||
+          status === "rework completed" ||
+          status === "verified"
+        ) {
+          counts.accepted += 1;
+          counts.total += 1;
+        } else if (status === "rejected") {
+          counts.rejected += 1;
+          counts.total += 1;
+        } else if (
+          status === "rework" ||
+          status === "reworked" ||
+          status.includes("re-rework")
+        ) {
+          counts.rework += 1;
+          counts.total += 1;
         }
+      } else {
+        const answerStr = String(answer).toLowerCase().trim();
+        const normalizedValues = extractYesNoValues(answer);
 
-        // Process based on response answers
-        responses.forEach((response) => {
-          const answer = response.answers?.[question.id];
-          if (answer === null || answer === undefined || answer === "") {
-            return;
-          }
+        if (
+          answerStr === "accepted" ||
+          answerStr === "rework completed" ||
+          answerStr === "verified"
+        ) {
+          counts.accepted += 1;
+          counts.total += 1;
+        } else if (answerStr === "rejected") {
+          counts.rejected += 1;
+          counts.total += 1;
+        } else if (
+          answerStr === "rework" ||
+          answerStr === "reworked" ||
+          answerStr.includes("re-rework")
+        ) {
+          counts.rework += 1;
+          counts.total += 1;
+        } else if (
+          question.type === "yesNoNA" ||
+          question.type === "chassisWithZone" ||
+          question.type === "chassisWithoutZone" ||
+          question.type === "chassis" ||
+          question.type === "zone-in" ||
+          question.type === "zone-out" ||
+          question.text?.toLowerCase().includes("chassis")
+        ) {
+          const options = question.options || [];
 
-          // Check if it's an inspection status object (like from ChassisWithZone)
-          if (typeof answer === "object" && answer.status) {
-            const status = String(answer.status).toLowerCase().trim();
-            if (
-              status === "accepted" ||
-              status === "rework completed" ||
-              status === "verified"
-            ) {
-              counts.accepted += 1;
-              counts.total += 1;
-            } else if (status === "rejected") {
-              counts.rejected += 1;
-              counts.total += 1;
-            } else if (
-              status === "rework" ||
-              status === "reworked" ||
-              status.includes("re-rework")
-            ) {
-              counts.rework += 1;
-              counts.total += 1;
-            }
+          if (options.length >= 3) {
+            const yesOption = String(options[0]).toLowerCase().trim();
+            const noOption = String(options[1]).toLowerCase().trim();
+            const naOption = String(options[2]).toLowerCase().trim();
+
+            normalizedValues.forEach((val) => {
+              if (val === yesOption) {
+                counts.yes += 1;
+                counts.total += 1;
+              } else if (val === noOption) {
+                counts.no += 1;
+                counts.total += 1;
+              } else if (val === naOption) {
+                counts.na += 1;
+                counts.total += 1;
+              }
+            });
           } else {
-            // Handle string answers that might be inspection statuses even for non-yesNoNA types
-            const answerStr = String(answer).toLowerCase().trim();
-            const normalizedValues = extractYesNoValues(answer);
-
-            if (
-              answerStr === "accepted" ||
-              answerStr === "rework completed" ||
-              answerStr === "verified"
-            ) {
-              counts.accepted += 1;
+            // Fallback to recognized values
+            const hasRecognizedValue = normalizedValues.some((value) =>
+              recognizedYesNoValues.includes(value),
+            );
+            if (hasRecognizedValue) {
               counts.total += 1;
-            } else if (answerStr === "rejected") {
-              counts.rejected += 1;
-              counts.total += 1;
-            } else if (
-              answerStr === "rework" ||
-              answerStr === "reworked" ||
-              answerStr.includes("re-rework")
-            ) {
-              counts.rework += 1;
-              counts.total += 1;
-            } else if (
-              question.type === "yesNoNA" ||
-              question.type === "chassisWithZone" ||
-              question.type === "chassisWithoutZone" ||
-              question.type === "chassis" ||
-              question.type === "zone-in" ||
-              question.type === "zone-out" ||
-              question.text?.toLowerCase().includes("chassis")
-            ) {
-              const options = question.options || [];
-
-              if (options.length >= 3) {
-                const yesOption = String(options[0]).toLowerCase().trim();
-                const noOption = String(options[1]).toLowerCase().trim();
-                const naOption = String(options[2]).toLowerCase().trim();
-
-                normalizedValues.forEach((val) => {
-                  if (val === yesOption) {
-                    counts.yes += 1;
-                    counts.total += 1;
-                  } else if (val === noOption) {
-                    counts.no += 1;
-                    counts.total += 1;
-                  } else if (val === naOption) {
-                    counts.na += 1;
-                    counts.total += 1;
-                  }
-                });
-              } else {
-                // Fallback to recognized values
-                const hasRecognizedValue = normalizedValues.some((value) =>
-                  recognizedYesNoValues.includes(value),
-                );
-                if (hasRecognizedValue) {
-                  counts.total += 1;
-                  if (
-                    normalizedValues.includes("yes") ||
-                    normalizedValues.includes("accepted") ||
-                    normalizedValues.includes("verified")
-                  ) {
-                    counts.yes += 1;
-                  }
-                  if (
-                    normalizedValues.includes("no") ||
-                    normalizedValues.includes("rejected")
-                  ) {
-                    counts.no += 1;
-                  }
-                  if (
-                    normalizedValues.includes("n/a") ||
-                    normalizedValues.includes("na") ||
-                    normalizedValues.includes("not applicable") ||
-                    normalizedValues.includes("rework") ||
-                    normalizedValues.includes("reworked") ||
-                    normalizedValues.some((v) => v.includes("re-rework"))
-                  ) {
-                    counts.na += 1;
-                  }
-                }
+              if (
+                normalizedValues.includes("yes") ||
+                normalizedValues.includes("accepted") ||
+                normalizedValues.includes("verified")
+              ) {
+                counts.yes += 1;
+              }
+              if (
+                normalizedValues.includes("no") ||
+                normalizedValues.includes("rejected")
+              ) {
+                counts.no += 1;
+              }
+              if (
+                normalizedValues.includes("n/a") ||
+                normalizedValues.includes("na") ||
+                normalizedValues.includes("not applicable") ||
+                normalizedValues.includes("rework") ||
+                normalizedValues.includes("reworked") ||
+                normalizedValues.some((v) => v.includes("re-rework"))
+              ) {
+                counts.na += 1;
               }
             }
           }
-        });
+        }
+      }
+    }
+  });
 
-        question.followUpQuestions?.forEach(processQuestion);
-      };
-
-      section.questions?.forEach(processQuestion);
-
+  // Map result back to SectionPerformanceStat format
+  return sectionList
+    .map(({ section, counts }) => {
       if (!counts.total) {
         return null;
       }
-
       return {
         id: section.id,
         title: section.title || "Untitled Section",
@@ -944,10 +1032,10 @@ const computeSectionPerformanceStats = (
         rejected: counts.rejected,
         rework: counts.rework,
         total: counts.total,
-      };
-    }) ?? [];
-
-  return stats.filter((stat): stat is SectionPerformanceStat => Boolean(stat));
+        weightage: typeof section.weightage === "number" ? section.weightage : 0,
+      } as SectionPerformanceStat;
+    })
+    .filter((s): s is SectionPerformanceStat => s !== null);
 };
 
 const computeQuestionPerformanceStats = (
@@ -958,141 +1046,169 @@ const computeQuestionPerformanceStats = (
     return [];
   }
 
-  const allQuestionStats: QuestionPerformanceStat[] = [];
+  // Pre-build list of question info and mapping from questionId -> question info
+  const questionList: Array<{
+    id: string;
+    text: string;
+    sectionTitle: string;
+    counts: {
+      accepted: number;
+      rejected: number;
+      rework: number;
+      total: number;
+    };
+    question: any;
+  }> = [];
+
+  const questionMap = new Map<string, typeof questionList[0]>();
 
   form.sections.forEach((section) => {
     section.questions.forEach((question: any) => {
-      const counts = {
-        accepted: 0,
-        rejected: 0,
-        rework: 0,
-        total: 0,
+      const entry = {
+        id: question.id,
+        text: question.text,
+        sectionTitle: section.title,
+        counts: {
+          accepted: 0,
+          rejected: 0,
+          rework: 0,
+          total: 0,
+        },
+        question,
       };
+      questionList.push(entry);
+      questionMap.set(question.id, entry);
+    });
+  });
 
-      responses.forEach((response) => {
-        const answer = response.answers?.[question.id];
-        if (answer === null || answer === undefined || answer === "") {
-          return;
+  // Now process responses in a single loop
+  responses.forEach((response) => {
+    if (!response.answers) return;
+    for (const [qId, answer] of Object.entries(response.answers)) {
+      if (answer === null || answer === undefined || answer === "") {
+        continue;
+      }
+      const match = questionMap.get(qId);
+      if (!match) continue;
+
+      const { question, counts } = match;
+
+      if (typeof answer === "object" && answer.status) {
+        const status = String(answer.status).toLowerCase().trim();
+        if (
+          status === "accepted" ||
+          status === "rework completed" ||
+          status === "verified"
+        ) {
+          counts.accepted += 1;
+          counts.total += 1;
+        } else if (status === "rejected") {
+          counts.rejected += 1;
+          counts.total += 1;
+        } else if (
+          status === "rework" ||
+          status === "reworked" ||
+          status.includes("re-rework")
+        ) {
+          counts.rework += 1;
+          counts.total += 1;
         }
+      } else {
+        const answerStr = String(answer).toLowerCase().trim();
+        const normalizedValues = extractYesNoValues(answer);
 
-        if (typeof answer === "object" && answer.status) {
-          const status = String(answer.status).toLowerCase().trim();
-          if (
-            status === "accepted" ||
-            status === "rework completed" ||
-            status === "verified"
-          ) {
-            counts.accepted += 1;
-            counts.total += 1;
-          } else if (status === "rejected") {
-            counts.rejected += 1;
-            counts.total += 1;
-          } else if (
-            status === "rework" ||
-            status === "reworked" ||
-            status.includes("re-rework")
-          ) {
-            counts.rework += 1;
-            counts.total += 1;
-          }
-        } else {
-          const answerStr = String(answer).toLowerCase().trim();
-          const normalizedValues = extractYesNoValues(answer);
+        if (
+          answerStr === "accepted" ||
+          answerStr === "rework completed" ||
+          answerStr === "verified"
+        ) {
+          counts.accepted += 1;
+          counts.total += 1;
+        } else if (answerStr === "rejected") {
+          counts.rejected += 1;
+          counts.total += 1;
+        } else if (
+          answerStr === "rework" ||
+          answerStr === "reworked" ||
+          answerStr.includes("re-rework")
+        ) {
+          counts.rework += 1;
+          counts.total += 1;
+        } else if (
+          question.type === "yesNoNA" ||
+          question.type === "chassisWithZone" ||
+          question.type === "chassisWithoutZone" ||
+          question.type === "chassis" ||
+          question.type === "zone-in" ||
+          question.type === "zone-out" ||
+          question.text?.toLowerCase().includes("chassis")
+        ) {
+          const options = question.options || [];
+          if (options.length >= 3) {
+            const yesOption = String(options[0]).toLowerCase().trim();
+            const noOption = String(options[1]).toLowerCase().trim();
+            const naOption = String(options[2]).toLowerCase().trim();
 
-          if (
-            answerStr === "accepted" ||
-            answerStr === "rework completed" ||
-            answerStr === "verified"
-          ) {
-            counts.accepted += 1;
-            counts.total += 1;
-          } else if (answerStr === "rejected") {
-            counts.rejected += 1;
-            counts.total += 1;
-          } else if (
-            answerStr === "rework" ||
-            answerStr === "reworked" ||
-            answerStr.includes("re-rework")
-          ) {
-            counts.rework += 1;
-            counts.total += 1;
-          } else if (
-            question.type === "yesNoNA" ||
-            question.type === "chassisWithZone" ||
-            question.type === "chassisWithoutZone" ||
-            question.type === "chassis" ||
-            question.type === "zone-in" ||
-            question.type === "zone-out" ||
-            question.text?.toLowerCase().includes("chassis")
-          ) {
-            const options = question.options || [];
-            if (options.length >= 3) {
-              const yesOption = String(options[0]).toLowerCase().trim();
-              const noOption = String(options[1]).toLowerCase().trim();
-              const naOption = String(options[2]).toLowerCase().trim();
-
-              normalizedValues.forEach((val) => {
-                if (val === yesOption) {
-                  counts.accepted += 1;
-                  counts.total += 1;
-                } else if (val === noOption) {
-                  counts.rejected += 1;
-                  counts.total += 1;
-                } else if (val === naOption) {
-                  counts.rework += 1;
-                  counts.total += 1;
-                }
-              });
-            } else {
-              const hasRecognizedValue = normalizedValues.some((value) =>
-                recognizedYesNoValues.includes(value),
-              );
-              if (hasRecognizedValue) {
+            normalizedValues.forEach((val) => {
+              if (val === yesOption) {
+                counts.accepted += 1;
                 counts.total += 1;
-                if (
-                  normalizedValues.includes("yes") ||
-                  normalizedValues.includes("accepted") ||
-                  normalizedValues.includes("verified")
-                ) {
-                  counts.accepted += 1;
-                }
-                if (
-                  normalizedValues.includes("no") ||
-                  normalizedValues.includes("rejected")
-                ) {
-                  counts.rejected += 1;
-                }
-                if (
-                  normalizedValues.includes("n/a") ||
-                  normalizedValues.includes("na") ||
-                  normalizedValues.includes("not applicable") ||
-                  normalizedValues.includes("rework") ||
-                  normalizedValues.includes("reworked") ||
-                  normalizedValues.some((v) => v.includes("re-rework"))
-                ) {
-                  counts.rework += 1;
-                }
+              } else if (val === noOption) {
+                counts.rejected += 1;
+                counts.total += 1;
+              } else if (val === naOption) {
+                counts.rework += 1;
+                counts.total += 1;
+              }
+            });
+          } else {
+            const hasRecognizedValue = normalizedValues.some((value) =>
+              recognizedYesNoValues.includes(value),
+            );
+            if (hasRecognizedValue) {
+              counts.total += 1;
+              if (
+                normalizedValues.includes("yes") ||
+                normalizedValues.includes("accepted") ||
+                normalizedValues.includes("verified")
+              ) {
+                counts.accepted += 1;
+              }
+              if (
+                normalizedValues.includes("no") ||
+                normalizedValues.includes("rejected")
+              ) {
+                counts.rejected += 1;
+              }
+              if (
+                normalizedValues.includes("n/a") ||
+                normalizedValues.includes("na") ||
+                normalizedValues.includes("not applicable") ||
+                normalizedValues.includes("rework") ||
+                normalizedValues.includes("reworked") ||
+                normalizedValues.some((v) => v.includes("re-rework"))
+              ) {
+                counts.rework += 1;
               }
             }
           }
         }
-      });
-
-      if (counts.total > 0) {
-        allQuestionStats.push({
-          id: question.id,
-          text: question.text,
-          sectionTitle: section.title,
-          accepted: counts.accepted,
-          rejected: counts.rejected,
-          rework: counts.rework,
-          total: counts.total,
-        });
       }
-    });
+    }
   });
 
-  return allQuestionStats;
+  // Map result back to QuestionPerformanceStat format
+  return questionList
+    .filter((q) => q.counts.total > 0)
+    .map((q) => ({
+      id: q.id,
+      text: q.text,
+      sectionTitle: q.sectionTitle,
+      accepted: q.counts.accepted,
+      rejected: q.counts.rejected,
+      rework: q.counts.rework,
+      total: q.counts.total,
+    }));
 };
 
 type DailyPerformanceStat = {
@@ -2091,6 +2207,14 @@ export default function FormAnalyticsDashboard() {
   const { darkMode } = useTheme();
   const { user } = useAuth();
   const isInspector = user?.role === "inspector";
+  const canBulkSelectResponses =
+    user?.role === "admin" &&
+    user?.granularPermissions?.canEditAttendanceTime === true;
+  console.log("DEBUG canBulkSelectResponses:", {
+    role: user?.role,
+    granularPermissions: user?.granularPermissions,
+    canBulkSelectResponses,
+  });
 
   const renderSuggestion = (suggestion: any) => {
     if (!suggestion || Object.keys(suggestion).length === 0) return null;
@@ -2253,6 +2377,57 @@ export default function FormAnalyticsDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Permission check for analytics tabs
+  const hasTabPermission = (tabName: string): boolean => {
+    // Admin bypass - see all tabs
+    if (user?.role === "admin" || user?.role === "superadmin") {
+      return true;
+    }
+
+    // Non-admin / non-superadmin users need explicit permissions
+    if (!id || !form) return false;
+
+    // Map the component's tab name to the permission tree suffix.
+    // The permission tree (permissionTree.ts) uses: dashboard, response,
+    // overall, questions, sections
+    const suffixMap: Record<string, string> = {
+      dashboard: "dashboard",
+      question: "questions",
+      section: "sections",
+      overall: "overall",
+      responses: "response",
+    };
+    const suffix = suffixMap[tabName];
+    if (!suffix) return false;
+
+    const perms = user?.permissions;
+    if (!perms || !Array.isArray(perms) || perms.length === 0) return false;
+
+    // Try both URL param id and form's actual _id to handle MongoDB _id mismatch
+    const formIdsToCheck = [id];
+    if (form._id && form._id !== id) {
+      formIdsToCheck.push(form._id);
+    }
+    if (form.id && form.id !== id && form.id !== form._id) {
+      formIdsToCheck.push(form.id);
+    }
+
+    // Check if user has permission for ANY of the possible form IDs
+    return formIdsToCheck.some((formId) => {
+      const leafPermission = `analytics:form:${formId}:${suffix}`;
+      const parentPermission = `analytics:form:${formId}`;
+      const wildcardPermission = "analytics:*";
+
+      return (
+        perms.includes(leafPermission) ||
+        perms.includes(parentPermission) ||
+        perms.includes(wildcardPermission)
+      );
+    });
+  };
+
+
+
   // Guest mode detection
   const isGuest = useMemo(() => {
     const searchParams = new URLSearchParams(location.search);
@@ -2296,19 +2471,442 @@ export default function FormAnalyticsDashboard() {
   const [form, setForm] = useState<Form | null>(null);
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
+  const [isBulkDispatching, setIsBulkDispatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoOpenSectionId, setAutoOpenSectionId] = useState<string | null>(
     null,
   );
+
+  const [editingChassisResponseId, setEditingChassisResponseId] = useState<string | null>(null);
+  const [chassisEditValue, setChassisEditValue] = useState<string>("");
+  const [isSavingChassis, setIsSavingChassis] = useState(false);
+  const [updatingUserResponseId, setUpdatingUserResponseId] = useState<string | null>(null);
+  const chassisMasterOptions = useMemo(() => {
+    const opts: { value: string; label: string }[] = [];
+    const seen = new Set<string>();
+
+    if (Array.isArray(form?.chassisNumbers)) {
+      form!.chassisNumbers!.forEach((entry: any) => {
+        const num = entry?.chassisNumber;
+        if (num && !seen.has(String(num))) {
+          seen.add(String(num));
+          opts.push({
+            value: String(num),
+            label: entry.partDescription
+              ? `${num} — ${entry.partDescription}`
+              : String(num),
+          });
+        }
+      });
+    }
+
+    responses.forEach((r) => {
+      const val = r.answers?.chassis_number;
+      if (val) {
+        const num = typeof val === "object" ? val.chassisNumber : String(val);
+        if (num && !seen.has(String(num))) {
+          seen.add(String(num));
+          opts.push({ value: String(num), label: String(num) });
+        }
+      }
+    });
+
+    return opts.sort((a, b) => a.label.localeCompare(b.label));
+  }, [form, responses]);
+
+  const handleStartChassisEdit = (response: Response) => {
+    setEditingChassisResponseId(response.id);
+    const val = response.answers?.chassis_number;
+    const num = val && typeof val === "object" ? val.chassisNumber : String(val || "");
+    setChassisEditValue(num);
+  };
+
+  const handleCancelChassisEdit = () => {
+    setEditingChassisResponseId(null);
+    setChassisEditValue("");
+  };
+
+  const handleSaveChassisEdit = async (response: Response) => {
+    try {
+      setIsSavingChassis(true);
+      const updatedAnswers = {
+        ...response.answers,
+        chassis_number: chassisEditValue,
+      };
+      await apiClient.updateResponse(response.id, { answers: updatedAnswers });
+
+      setResponses((prev) =>
+        prev.map((r) =>
+          r.id === response.id ? { ...r, answers: updatedAnswers } : r,
+        ),
+      );
+
+      setEditingChassisResponseId(null);
+      setChassisEditValue("");
+      showToast("Chassis updated successfully!", "success");
+    } catch (err) {
+      console.error("Error updating chassis:", err);
+      showToast("Failed to update chassis. Please try again.", "error");
+    } finally {
+      setIsSavingChassis(false);
+    }
+  };
+
+  const handleUpdateResponseUser = async (responseId: string, userId: string) => {
+    try {
+      setUpdatingUserResponseId(responseId);
+      const payload = {
+        submittedByUserId: userId || null
+      };
+      const result = await apiClient.updateResponse(responseId, payload);
+      if (result && result.data && result.data.response) {
+        const updated = result.data.response;
+        setResponses((prev) =>
+          prev.map((r) =>
+            r.id === responseId
+              ? {
+                ...r,
+                createdBy: updated.createdBy,
+                submittedBy: updated.submittedBy,
+                submitterContact: updated.submitterContact
+              }
+              : r
+          )
+        );
+
+        showToast("Inspector assigned successfully", "success");
+      }
+    } catch (error: any) {
+      console.error("Error updating response user:", error);
+      showToast(error?.message || "Failed to assign inspector", "error");
+    } finally {
+      setUpdatingUserResponseId(null);
+    }
+  };
+
+  // Whether the currently logged-in user is the one who submitted this
+  // response (used to block a submitter from BIW-reviewing their own work —
+  // mirrors the same submitter check already used for the Dispatch column).
+  // Exceptions: admins/superadmins can review anything (including their own
+  // submissions), and "Excel Import" responses have no real submitter, so
+  // anyone can review those too.
+  const isSubmitterOfResponse = (response: Response) => {
+    if (user?.role === "admin" || user?.role === "superadmin") return false;
+    if (response.submittedBy === "Excel Import") return false;
+
+    const userEmail = user?.email || "";
+    const userUsername = user?.username || "";
+    const userIdStr = user?._id
+      ? String(user._id)
+      : user?.id
+        ? String(user.id)
+        : "";
+    const creatorId =
+      typeof response.createdBy === "object"
+        ? (response.createdBy as any)?._id || (response.createdBy as any)?.id
+        : response.createdBy;
+    const creatorIdStr = creatorId ? String(creatorId) : "";
+
+    return (
+      response.submittedBy === userEmail ||
+      response.submittedBy === userUsername ||
+      response.createdBy === userEmail ||
+      response.createdBy === userUsername ||
+      response.submitterContact?.email === userEmail ||
+      (creatorIdStr && creatorIdStr === userIdStr)
+    );
+  };
+  const isOwnTenantResponse = (response: Response) => {
+    // Only superadmin has global (cross-tenant) access.
+    // Regular admins must still match the response's tenant.
+    if (user?.role === "superadmin") {
+      return true;
+    }
+
+    const userTenantId = user?.tenantId;
+    if (!userTenantId) {
+      return false;
+    }
+
+    const responseTenantId = response.tenantId;
+    if (!responseTenantId) {
+      return true; // legacy data with no tenant — allow
+    }
+
+    const userTenantStr = typeof userTenantId === 'object'
+      ? String((userTenantId as any)?._id || (userTenantId as any)?.id || userTenantId)
+      : String(userTenantId);
+
+    const responseTenantStr = typeof responseTenantId === 'object'
+      ? String((responseTenantId as any)?._id || (responseTenantId as any)?.id || responseTenantId)
+      : String(responseTenantId);
+
+    return userTenantStr === responseTenantStr;
+  };
+
+  // BIW Review: any reviewer other than the submitter can mark a response as
+  // Accepted / Rejected / Reworked from the Responses table. Selecting one
+  // option saves it to the response (biwReview) and unsets the others —
+  // acts like a single-select despite being rendered as three checkboxes.
+  // The server is authoritative on reviewedBy/reviewedAt and re-checks the
+  // "not your own submission" rule, so we only send the status here.
+  const handleBiwReviewChange = async (
+    response: Response,
+    status: "Accepted" | "Rejected" | "Reworked",
+  ) => {
+    if (isSubmitterOfResponse(response)) {
+      showToast("You cannot BIW review your own submission", "error");
+      return;
+    }
+
+    // Clicking the already-selected option clears the review; otherwise set it.
+    const isUnselecting = response.biwReview?.status === status;
+    const payload = isUnselecting ? null : { status };
+
+    try {
+      setBiwSavingResponseId(response.id);
+      const result = await apiClient.updateResponse(response.id, {
+        biwReview: payload,
+      });
+
+      const savedBiwReview = (result as any)?.response?.biwReview ?? undefined;
+
+      setResponses((prev) =>
+        prev.map((r) =>
+          r.id === response.id ? { ...r, biwReview: savedBiwReview } : r,
+        ),
+      );
+
+
+      showToast(
+        isUnselecting
+          ? "BIW review cleared"
+          : `Marked as ${status} (BIW Review)`,
+        "success",
+      );
+    } catch (err: any) {
+      console.error("Error saving BIW review:", err);
+      const message =
+        err?.message || "Failed to save BIW review. Please try again.";
+      showToast(message, "error");
+    } finally {
+      setBiwSavingResponseId(null);
+    }
+  };
+
+  const executeBulkBiwReviewUpdate = async () => {
+    if (biwBulkUpdateTargetIds.length === 0) return;
+
+    try {
+      setIsBulkBiwUpdating(true);
+      const result = await apiClient.bulkUpdateBiwReview(biwBulkUpdateTargetIds, biwBulkUpdateStatus);
+
+      // Update local state
+      setResponses((prev) =>
+        prev.map((r) => {
+          if (biwBulkUpdateTargetIds.includes(r.id)) {
+            return {
+              ...r,
+              biwReview: biwBulkUpdateStatus === null ? undefined : {
+                status: biwBulkUpdateStatus,
+                reviewedBy: user?._id || user?.id,
+                reviewedByName: user?.username || user?.email || 'Reviewer',
+                reviewedAt: new Date().toISOString()
+              }
+            };
+          }
+          return r;
+        })
+      );
+
+
+      setSelectedResponseIds([]);
+      showToast(
+        biwBulkUpdateStatus === null
+          ? `Cleared BIW review for ${result?.updatedCount ?? biwBulkUpdateTargetIds.length} response(s)`
+          : `Marked ${result?.updatedCount ?? biwBulkUpdateTargetIds.length} response(s) as ${biwBulkUpdateStatus} (BIW Review)` +
+          ((result?.skippedCount ?? biwBulkUpdateSkippedCount) > 0 ? ` (${result?.skippedCount ?? biwBulkUpdateSkippedCount} skipped)` : ""),
+        "success"
+      );
+    } catch (err: any) {
+      console.error("Error bulk updating BIW reviews:", err);
+      showToast(err?.message || "Failed to bulk update BIW reviews", "error");
+    } finally {
+      setIsBulkBiwUpdating(false);
+      setShowBiwBulkUpdateModal(false);
+    }
+  };
+
+  const handleBulkBiwReviewUpdate = (status: "Accepted" | "Rejected" | "Reworked" | null) => {
+    if (selectedResponseIds.length === 0) return;
+
+    const validResponseIds: string[] = [];
+    let selfSubmissionsCount = 0;
+
+    selectedResponseIds.forEach((id) => {
+      const resp = responses.find((r) => r.id === id);
+      if (resp) {
+        if (status !== null && isSubmitterOfResponse(resp)) {
+          selfSubmissionsCount++;
+        } else {
+          validResponseIds.push(id);
+        }
+      }
+    });
+
+    if (validResponseIds.length === 0) {
+      showToast(
+        "You cannot BIW review your own submissions. All selected items were skipped.",
+        "error"
+      );
+      return;
+    }
+
+    setBiwBulkUpdateStatus(status);
+    setBiwBulkUpdateTargetIds(validResponseIds);
+    setBiwBulkUpdateSkippedCount(selfSubmissionsCount);
+    setShowBiwBulkUpdateModal(true);
+  };
+
+  const handleBulkBiwReviewUpdateAll = (status: "Accepted" | "Rejected" | "Reworked" | null) => {
+    if (tableResponses.length === 0) return;
+
+    const allIds = tableResponses.map((r) => r.id);
+
+    const validResponseIds: string[] = [];
+    let selfSubmissionsCount = 0;
+
+    allIds.forEach((id) => {
+      const resp = responses.find((r) => r.id === id);
+      if (resp) {
+        if (status !== null && isSubmitterOfResponse(resp)) {
+          selfSubmissionsCount++;
+        } else {
+          validResponseIds.push(id);
+        }
+      }
+    });
+
+    if (validResponseIds.length === 0) {
+      showToast(
+        "You cannot BIW review your own submissions. All items were skipped.",
+        "error"
+      );
+      return;
+    }
+
+    setBiwBulkUpdateStatus(status);
+    setBiwBulkUpdateTargetIds(validResponseIds);
+    setBiwBulkUpdateSkippedCount(selfSubmissionsCount);
+    setShowBiwBulkUpdateModal(true);
+  };
+
+  // Bulk auto-fill: instead of looping through every response client-side,
+  // this calls the backend's single bulk-update endpoint (see
+  // apiClient.autoFillChassisNumbers / responseController.autoFillChassisNumbers),
+  // which fills every response with no chassis_number using the first
+  // configured chassis option, in one database call. Triggered manually via
+  // the button in the "Selected Chassis" column header.
+  const [isAutoFillingChassis, setIsAutoFillingChassis] = useState(false);
+
+  const handleAutoFillAllChassis = async () => {
+    if (!chassisMasterOptions.length) {
+      showToast("No chassis numbers are configured for this form.", "error");
+      return;
+    }
+    if (!id) return;
+
+    const confirmed = window.confirm(
+      `This will set every response that currently has no chassis number to "${chassisMasterOptions[0].label}". Continue?`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setIsAutoFillingChassis(true);
+      const result = await apiClient.autoFillChassisNumbers(id);
+      const defaultValue = result.defaultValue ?? chassisMasterOptions[0].value;
+      const modifiedCount = result.modifiedCount ?? 0;
+
+      // Reflect the change locally right away instead of waiting on a refetch
+      setResponses((prev) =>
+        prev.map((r) => {
+          const current = r.answers?.chassis_number;
+          const isEmpty = !current || String(current).trim() === "";
+          return isEmpty
+            ? { ...r, answers: { ...r.answers, chassis_number: defaultValue } }
+            : r;
+        }),
+      );
+
+      showToast(
+        modifiedCount > 0
+          ? `Auto-filled ${modifiedCount} response(s) with "${defaultValue}".`
+          : "All responses already have a chassis number.",
+        "success",
+      );
+    } catch (err) {
+      console.error("Error auto-filling chassis numbers:", err);
+      showToast("Failed to auto-fill chassis numbers. Please try again.", "error");
+    } finally {
+      setIsAutoFillingChassis(false);
+    }
+  };
+
   const [analyticsView, setAnalyticsView] = useState<
     "question" | "section" | "table" | "responses" | "dashboard" | "comparison" | "overall"
-  >(
-    isGuest
-      ? "dashboard"
-      : user?.role === "inspector"
-        ? "responses"
-        : "dashboard",
-  );
+  >(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const tabParam = searchParams.get("tab");
+    if (tabParam && ["question", "section", "table", "responses", "dashboard", "comparison", "overall"].includes(tabParam)) {
+      return tabParam as any;
+    }
+    return "dashboard";
+  });
+
+  // Sync tab with URL parameter
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const tabParam = searchParams.get("tab");
+    if (tabParam && ["question", "section", "table", "responses", "dashboard", "comparison", "overall"].includes(tabParam)) {
+      if (hasTabPermission(tabParam)) {
+        setAnalyticsView(tabParam as any);
+      }
+    }
+  }, [location.search, form]);
+
+  // Sync URL parameter with tab changes
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    if (searchParams.get("tab") !== analyticsView) {
+      searchParams.set("tab", analyticsView);
+      const searchStr = searchParams.toString();
+      navigate({
+        pathname: location.pathname,
+        search: searchStr ? `?${searchStr}` : ""
+      }, { replace: true });
+    }
+  }, [analyticsView, navigate, location.pathname, location.search]);
+
+  // Set initial tab based on permissions after form loads
+  useEffect(() => {
+    if (!form) return;
+
+    // If URL has a specific valid tab param, let the sync effect handle it
+    const searchParams = new URLSearchParams(location.search);
+    const tabParam = searchParams.get("tab");
+    if (tabParam && ["question", "section", "table", "responses", "dashboard", "comparison", "overall"].includes(tabParam)) {
+      return;
+    }
+
+    // Otherwise, default to first allowed tab
+    const tabOrder = ["dashboard", "question", "section", "overall", "responses"];
+    for (const tab of tabOrder) {
+      if (hasTabPermission(tab)) {
+        setAnalyticsView(tab as any);
+        break;
+      }
+    }
+  }, [form]);
   const [tableViewType, setTableViewType] = useState<"question" | "section">(
     "question",
   );
@@ -2374,6 +2972,57 @@ export default function FormAnalyticsDashboard() {
   const [selectedInspectorForTrend, setSelectedInspectorForTrend] =
     useState<string>("Overall");
   const [localFilterName, setLocalFilterName] = useState<string>("All");
+
+  // BIW Review Table data — computed client-side from the full `responses`
+  // dataset (not the server-paginated `tableResponses`), grouped by
+  // submitter, the same way the User Name rows are read in the Performance
+  // Table. Accepted/Rejected/Reworked/Total Reviewed here only count BIW
+  // review clicks, not the regular review flow.
+  const biwReviewTableData = useMemo(() => {
+    const byUser = new Map<
+      string,
+      {
+        name: string;
+        totalSubmitted: number;
+        dispatched: number;
+        accepted: number;
+        rejected: number;
+        rework: number;
+      }
+    >();
+
+    responses.forEach((response) => {
+      const name =
+        response.submittedBy || response.createdBy || "Anonymous";
+      if (!byUser.has(name)) {
+        byUser.set(name, {
+          name,
+          totalSubmitted: 0,
+          dispatched: 0,
+          accepted: 0,
+          rejected: 0,
+          rework: 0,
+        });
+      }
+      const stats = byUser.get(name)!;
+      stats.totalSubmitted += 1;
+      if (response.isDispatched) stats.dispatched += 1;
+
+      const biwStatus = response.biwReview?.status;
+      if (biwStatus === "Accepted") stats.accepted += 1;
+      else if (biwStatus === "Rejected") stats.rejected += 1;
+      else if (biwStatus === "Reworked") stats.rework += 1;
+    });
+
+    return Array.from(byUser.values()).map((stats) => {
+      const totalReviewed = stats.accepted + stats.rejected + stats.rework;
+      const performanceScore =
+        totalReviewed > 0
+          ? Math.round((stats.accepted / totalReviewed) * 100)
+          : 0;
+      return { ...stats, totalReviewed, performanceScore };
+    });
+  }, [responses]);
   const [localFilterShift, setLocalFilterShift] = useState<string>("All");
   const [localFilterDate, setLocalFilterDate] = useState<string>("");
   const [dateFilter, setDateFilter] = useState<{
@@ -2381,6 +3030,32 @@ export default function FormAnalyticsDashboard() {
     startDate: string;
     endDate: string;
   }>({ type: "all", startDate: "", endDate: "" });
+
+  const [hasUserAppliedDateFilter, setHasUserAppliedDateFilter] =
+    useState(false);
+
+  useEffect(() => {
+    if (hasUserAppliedDateFilter) return; // user is in control now, don't override
+
+    if (analyticsView === "dashboard") {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - 29); // last 30 days, inclusive of today
+      setDateFilter({
+        type: "range",
+        startDate: start.toISOString().split("T")[0],
+        endDate: end.toISOString().split("T")[0],
+      });
+    } else {
+      setDateFilter({ type: "all", startDate: "", endDate: "" });
+    }
+  }, [analyticsView, hasUserAppliedDateFilter]);
+
+
+
+
+
+
   const [locationFilter, setLocationFilter] = useState<string[]>([]);
   const [columnFilters, setColumnFilters] = useState<
     Record<string, string[] | null>
@@ -2401,7 +3076,10 @@ export default function FormAnalyticsDashboard() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedResponseIds, setSelectedResponseIds] = useState<string[]>([]);
+  const [selectedDispatchIds, setSelectedDispatchIds] = useState<string[]>([]);
+  const [selectedBiwIds, setSelectedBiwIds] = useState<string[]>([]);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [showBulkDispatchConfirm, setShowBulkDispatchConfirm] = useState(false);
   const [showActionMenuModal, setShowActionMenuModal] = useState(false);
   const [actionResponse, setActionResponse] = useState<Response | null>(null);
 
@@ -2414,6 +3092,56 @@ export default function FormAnalyticsDashboard() {
   const [performanceTableLoading, setPerformanceTableLoading] = useState(false);
   const [performancePage, setPerformancePage] = useState(1);
   const [performancePageSize, setPerformancePageSize] = useState(10);
+  const [responsesPage, setResponsesPage] = useState(1);
+  const [responsesPageSize, setResponsesPageSize] = useState(20);
+  const [responsesSearchTerm, setResponsesSearchTerm] = useState("");
+
+  const getChassisDisplayValue = (value: any): string => {
+    if (!value) return "-";
+    if (typeof value === "object") {
+      if (value.chassisNumber) {
+        return value.partDescription
+          ? `${value.chassisNumber} — ${value.partDescription}`
+          : value.chassisNumber;
+      }
+      return JSON.stringify(value);
+    }
+    return String(value);
+  };
+
+  // BIW Review — a second, independent accept/reject/rework check that any
+  // reviewer (other than the response's own submitter) can apply from the
+  // Responses table. Saved to the response via biwReview and rolled up into
+  // its own "BIW Review Table" (mirrors the main Performance Table).
+  const [biwSavingResponseId, setBiwSavingResponseId] = useState<string | null>(
+    null,
+  );
+  const [biwReviewPage, setBiwReviewPage] = useState(1);
+  const [biwReviewPageSize, setBiwReviewPageSize] = useState(10);
+  const [isBulkBiwUpdating, setIsBulkBiwUpdating] = useState(false);
+  const [showBiwBulkUpdateModal, setShowBiwBulkUpdateModal] = useState(false);
+  const [biwBulkUpdateStatus, setBiwBulkUpdateStatus] = useState<"Accepted" | "Rejected" | "Reworked" | null>(null);
+  const [biwBulkUpdateTargetIds, setBiwBulkUpdateTargetIds] = useState<string[]>([]);
+  const [biwBulkUpdateSkippedCount, setBiwBulkUpdateSkippedCount] = useState(0);
+
+  // Server-side pagination for the "Responses" table tab. Instead of relying
+  // on the full `responses` array already loaded for analytics, this tab
+  // fetches only the current page directly from the backend
+  // (getResponsesByForm already supports page/limit + returns a `pagination`
+  // object), so opening this tab with a form that has thousands of
+  // responses doesn't require the whole dataset up front.
+  //
+  // NOTE: the existing date/inspector/location/column/cascading filters
+  // below are computed against the full in-memory `responses` array for the
+  // charts and other analytics tabs. They are NOT (yet) sent to the backend,
+  // so they won't filter this server-paginated table — only pagination
+  // (page + page size) is server-side for now.
+
+
+  // REPLACE with:
+  const isLoadingTableResponses = false; // data's already in memory, no extra fetch needed
+
+
 
   // Fetch performance table data
   useEffect(() => {
@@ -2563,6 +3291,29 @@ export default function FormAnalyticsDashboard() {
     }
     return null;
   }, [form, user]);
+
+  // Check if the current user belongs to the same tenant as the form.
+  // Dispatch enable (bulk select) should only be available for own-tenant users,
+  // not for cross-tenant users viewing shared/cross-tenant forms.
+  const isOwnTenantForm = useMemo(() => {
+    if (user?.role === "superadmin") return true;
+    const formTenantId = form?.tenantId
+      ? typeof form.tenantId === "object"
+        ? (form.tenantId as { _id?: string })._id
+        : form.tenantId
+      : null;
+    const userTenantIdRaw = user?.tenantId as any;
+    const userTenantId = userTenantIdRaw
+      ? typeof userTenantIdRaw === "object"
+        ? userTenantIdRaw._id
+        : userTenantIdRaw
+      : null;
+    // If the form has no tenant, treat as own tenant (legacy behavior).
+    return !formTenantId || (userTenantId && formTenantId.toString() === userTenantId.toString());
+  }, [form, user]);
+
+  // Dispatch bulk-select is only allowed for same-tenant admins.
+  const canBulkDispatchResponses = canBulkSelectResponses && isOwnTenantForm;
   const handleReviewSubmit = async (
     responseId: string,
     reviewOption: string,
@@ -2738,7 +3489,7 @@ export default function FormAnalyticsDashboard() {
 
   const complianceLabels = useMemo(() => {
     const defaultLabels = { yes: "Yes", no: "No", na: "N/A" };
-    let labels = { ...defaultLabels };
+    const labels = { ...defaultLabels };
 
     // Check if the form has any inspection status based questions
     let hasInspectionQuestions = false;
@@ -3013,12 +3764,22 @@ export default function FormAnalyticsDashboard() {
 
       try {
         setLoading(true);
-        setError(null);
+        const formCacheKey = `/forms/${id}`;
+        const responsesCacheKey = `/responses/form/${id}?page=1&limit=5000&analytics=true`;
+
+        const isFormFresh = apiClient.isCacheFresh(formCacheKey, 30);
+        const isResponsesFresh = apiClient.isCacheFresh(responsesCacheKey, 30);
+
+        if (isFormFresh && isResponsesFresh) {
+          console.log("[ANALYTICS DEBUG] Cache is fresh (<30s). Skipping background API calls.");
+          setLoading(false);
+          return;
+        }
 
         console.log("[ANALYTICS DEBUG] Fetching form:", id);
 
         // Fetch form details
-        const formData = await apiClient.getForm(id);
+        const formData = await apiClient.request<{ form: any }>(formCacheKey, { forceNetwork: true });
         setForm(formData.form);
 
         console.log("[ANALYTICS DEBUG] Form fetched:", formData.form?.title);
@@ -3030,9 +3791,14 @@ export default function FormAnalyticsDashboard() {
           );
         }
 
-        // Fetch responses for this form
-        console.log("[ANALYTICS DEBUG] Fetching responses for form:", id);
-        const responsesData = await apiClient.getFormResponses(id);
+        // Fetch ALL responses for this form — the analytics below (section
+        // stats, question performance, charts, etc.) need the complete
+        // dataset to be accurate, not a single page. getAllFormResponses
+        // pages through the backend internally and returns everything.
+        const responsesData = await apiClient.getAllFormResponses(id, {
+          analytics: true,
+          forceNetwork: true
+        });
         console.log(
           "[ANALYTICS DEBUG] Responses fetched:",
           responsesData.responses?.length || 0,
@@ -3133,6 +3899,44 @@ export default function FormAnalyticsDashboard() {
 
     return { correct, wrong };
   };
+  const extractAnswerValues = (answer: any): string[] => {
+    if (answer === null || answer === undefined) return [""];
+
+    // Handle objects with status property (inspection answer objects)
+    if (typeof answer === "object" && !Array.isArray(answer)) {
+      const values: string[] = [];
+      if (answer.status && typeof answer.status === "string" && answer.status.trim()) {
+        values.push(answer.status.trim());
+      }
+      if (answer.chassisNumber && typeof answer.chassisNumber === "string" && answer.chassisNumber.trim()) {
+        values.push(answer.chassisNumber.trim());
+      }
+      if (answer.zone && typeof answer.zone === "string" && answer.zone.trim()) {
+        values.push(answer.zone.trim());
+      }
+      // Fallback: if no specific fields found, use JSON string
+      if (values.length === 0) {
+        const str = JSON.stringify(answer);
+        if (str && str !== "{}") values.push(str);
+      }
+      return values.length > 0 ? values : [""];
+    }
+
+    // Handle arrays
+    if (Array.isArray(answer)) {
+      if (answer.length === 0) return [""];
+      return answer.map(item => {
+        if (typeof item === "object") {
+          return item.name || item.status || JSON.stringify(item);
+        }
+        return String(item).trim();
+      }).filter(v => v.length > 0);
+    }
+
+    // Handle primitives
+    const strValue = String(answer).trim();
+    return strValue ? [strValue] : [""];
+  };
 
   const baseFilteredResponses = useMemo(() => {
     let result = responses;
@@ -3157,19 +3961,18 @@ export default function FormAnalyticsDashboard() {
       ([_, answers]) => answers.length > 0,
     );
 
+
+
+
     if (cascadingFiltersArray.length > 0) {
       result = result.filter((response) => {
         return cascadingFiltersArray.every(([questionId, selectedAnswers]) => {
           const answer = response.answers?.[questionId];
           if (answer === null || answer === undefined) return false;
 
-          if (Array.isArray(answer)) {
-            return answer.some((a) => selectedAnswers.includes(String(a)));
-          }
-          if (typeof answer === "object" && answer.status) {
-            return selectedAnswers.includes(String(answer.status));
-          }
-          return selectedAnswers.includes(String(answer));
+          // Use extractAnswerValues to handle all answer types consistently
+          const answerValues = extractAnswerValues(answer);
+          return answerValues.some(v => selectedAnswers.includes(v));
         });
       });
     }
@@ -3184,307 +3987,18 @@ export default function FormAnalyticsDashboard() {
         return activeColumnFilters.every(([columnId, allowedValues]) => {
           if (!allowedValues) return true;
           const answer = response.answers?.[columnId];
-          const val =
-            answer === null || answer === undefined
-              ? "No Response"
-              : String(answer);
-          return allowedValues.includes(val);
+          if (answer === null || answer === undefined) {
+            return allowedValues.includes("No Response");
+          }
+          // Use extractAnswerValues to get meaningful values from any answer type
+          const answerValues = extractAnswerValues(answer);
+          return answerValues.some(v => allowedValues.includes(v));
         });
       });
     }
 
     return result;
   }, [responses, user, locationFilter, cascadingFilters, columnFilters]);
-
-  const fetchChatHistory = async (responseId: string) => {
-    try {
-      console.log(
-        "[ChatModal] Fetching chat history for response:",
-        responseId,
-      );
-
-      // Fetch messages
-      const response = await apiClient.get<any[]>(
-        `/messages/response/${responseId}`,
-      );
-      const messages = Array.isArray(response.data) ? response.data : [];
-      setChatMessages(messages);
-
-      // Fetch reviews from API
-      try {
-        const reviewsResponse =
-          await apiClient.getReviewsForResponse(responseId);
-        console.log("[ChatModal] Reviews API response:", reviewsResponse);
-
-        if (
-          reviewsResponse &&
-          reviewsResponse.reviews &&
-          reviewsResponse.reviews.length > 0
-        ) {
-          const latestReview = reviewsResponse.reviews[0];
-          console.log("[ChatModal] Latest review from API:", latestReview);
-
-          // Update state from API
-          setSelectedReviewOptions((prev) => ({
-            ...prev,
-            [responseId]: latestReview.option,
-          }));
-
-          setReviewedBy((prev) => ({
-            ...prev,
-            [responseId]: latestReview.reviewer
-              ? {
-                  id: latestReview.reviewer.id,
-                  name: latestReview.reviewer.name || "Reviewer",
-                  email: latestReview.reviewer.email || "",
-                }
-              : null,
-          }));
-
-          // Also update chatResponse
-          setChatResponse((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  review: latestReview,
-                }
-              : null,
-          );
-
-          console.log("[ChatModal] Review state updated from API");
-        } else {
-          console.log("[ChatModal] No reviews found");
-        }
-      } catch (reviewError) {
-        console.error("[ChatModal] Error fetching reviews:", reviewError);
-      }
-    } catch (err) {
-      console.error("[ChatModal] Error fetching chat history:", err);
-    }
-  };
-  useEffect(() => {
-    if (showChatModal && chatResponse) {
-      fetchChatHistory(chatResponse.id);
-    }
-  }, [showChatModal, chatResponse]);
-
-  // Auto-open chat modal if responseId is in URL
-  useEffect(() => {
-    const responseId = searchParams.get("responseId");
-    if (responseId && responses.length > 0) {
-      const response = responses.find(
-        (r) => r.id === responseId || r._id === responseId,
-      );
-      if (response && !showChatModal) {
-        setChatResponse(response);
-        setShowChatModal(true);
-      }
-    }
-  }, [searchParams, responses, showChatModal]);
-
-  const handleSendMessage = async (messageOverride?: string) => {
-    const messageToSend = messageOverride ?? newMessage;
-    if (!messageToSend.trim() || !chatResponse) return;
-
-    setIsSendingMessage(true);
-    try {
-      const questionContexts: any[] = [];
-      const selectedQuestionTitles: string[] = [];
-      chatFilters.questions.forEach((qid) => {
-        form?.sections?.forEach((section) => {
-          const q = section.questions?.find((q) => q.id === qid);
-          if (q) {
-            const rawAnswer = chatResponse.answers?.[qid];
-            let filteredAnswer = rawAnswer;
-
-            // Apply category filtering if selections exist
-            if (
-              rawAnswer &&
-              typeof rawAnswer === "object" &&
-              rawAnswer.categories &&
-              chatFilters.selectedCategories[qid]
-            ) {
-              const selectedNames = chatFilters.selectedCategories[qid];
-              if (selectedNames.length > 0) {
-                filteredAnswer = {
-                  ...rawAnswer,
-                  categories: rawAnswer.categories.filter((cat: any) =>
-                    selectedNames.includes(cat.name),
-                  ),
-                };
-              }
-            }
-
-            // Parse flat array into structured object for chassis-with-zone questions
-            let structuredAnswer = filteredAnswer;
-            if (
-              q.type === "chassis-with-zone" ||
-              q.type === "chassis-without-zone"
-            ) {
-              // Always use chatFilters.suggestedAnswers for current values (they have the latest changes including uploads)
-              const currentValue = chatFilters.suggestedAnswers?.[qid];
-              if (currentValue) {
-                // Use the suggestedAnswers which has the latest data
-                structuredAnswer = {
-                  status: currentValue.status || "",
-                  chassisNumber: currentValue.chassisNumber || "",
-                  zones: Array.isArray(currentValue.zone)
-                    ? currentValue.zone.join(", ")
-                    : currentValue.zone || "",
-                  zonesData: currentValue.zonesData,
-                  evidenceUrl: currentValue.evidenceUrl || "",
-                };
-                // Add categories from zonesData
-                if (currentValue.zonesData) {
-                  const cats: any[] = [];
-                  Object.entries(currentValue.zonesData).forEach(
-                    ([zoneName, zoneData]: [string, any]) => {
-                      if (zoneData?.categories) {
-                        zoneData.categories.forEach((cat: any) => {
-                          const defectsArr = (cat.defects || []).map(
-                            (d: any) => ({
-                              name: d.name,
-                              details: d.details || { remark: "", fileUrl: "" },
-                            }),
-                          );
-                          cats.push({ name: cat.name, defects: defectsArr });
-                        });
-                      }
-                    },
-                  );
-                  if (cats.length > 0) structuredAnswer.categories = cats;
-                }
-              } else if (
-                Array.isArray(filteredAnswer) &&
-                filteredAnswer.length >= 7
-              ) {
-                // Fallback to array parsing
-                structuredAnswer = {
-                  status: filteredAnswer[1] || "",
-                  chassisNumber: filteredAnswer[0] || "",
-                  zones: filteredAnswer[2] || "",
-                  categories: filteredAnswer[3]
-                    ? [
-                        {
-                          name: filteredAnswer[3],
-                          defects: filteredAnswer[4]
-                            ? [
-                                {
-                                  name: filteredAnswer[4],
-                                  details: {
-                                    remark: filteredAnswer[5] || "",
-                                    fileUrl: filteredAnswer[6] || "",
-                                  },
-                                },
-                              ]
-                            : [],
-                        },
-                      ]
-                    : [],
-                };
-              } else if (filteredAnswer?.zonesData) {
-                structuredAnswer = filteredAnswer;
-              }
-            }
-
-            questionContexts.push({
-              questionId: qid,
-              title: q.text || "Question",
-              answer: structuredAnswer,
-              suggestion: chatFilters.suggestedAnswers[qid],
-            });
-            selectedQuestionTitles.push(q.text || "Question");
-          }
-        });
-      });
-
-      // Extract email from createdBy object or string
-      const createdByObj = chatResponse.createdBy;
-      const createdByEmail =
-        createdByObj && typeof createdByObj === "object"
-          ? (createdByObj as any).email || (createdByObj as any)._id?.toString()
-          : typeof createdByObj === "string"
-            ? createdByObj
-            : "inspector@focus.com";
-
-      console.log("[handleSendMessage] createdBy:", createdByObj);
-      console.log("[handleSendMessage] toEmail:", createdByEmail);
-
-      console.log("Sending message with data:", {
-        toEmail: createdByEmail,
-        message: messageToSend,
-        responseId: chatResponse.id,
-        formId: id,
-        questionIds: chatFilters.questions,
-        questionTitles: selectedQuestionTitles,
-        questionContexts: questionContexts,
-        tenantId:
-          form?.tenantId || (user?.tenantId as any)?._id || user?.tenantId,
-      });
-
-      await apiClient.post("/messages/send", {
-        toEmail: createdByEmail,
-        message: messageToSend,
-        responseId: chatResponse.id,
-        formId: id,
-        questionIds: chatFilters.questions,
-        questionTitles: selectedQuestionTitles,
-        questionContexts: questionContexts,
-        tenantId:
-          form?.tenantId || (user?.tenantId as any)?._id || user?.tenantId,
-      });
-
-      setNewMessage("");
-      // Clear selected questions after sending
-      setChatFilters((prev) => ({
-        ...prev,
-        questions: [],
-        selectedCategories: {},
-        suggestedAnswers: {},
-      }));
-      fetchChatHistory(chatResponse.id);
-    } catch (err) {
-      console.error("Error sending message:", err);
-    } finally {
-      setIsSendingMessage(false);
-    }
-  };
-
-  const filteredResponses = useMemo(() => {
-    let result = baseFilteredResponses;
-
-    // 1. Global Date Filter
-    if (dateFilter.type !== "all") {
-      result = result.filter((response) => {
-        const timestamp = getResponseTimestamp(response);
-        if (!timestamp) return false;
-        const responseDate = new Date(timestamp).toISOString().split("T")[0];
-
-        if (dateFilter.type === "single" && dateFilter.startDate) {
-          return responseDate === dateFilter.startDate;
-        } else if (
-          dateFilter.type === "range" &&
-          dateFilter.startDate &&
-          dateFilter.endDate
-        ) {
-          return (
-            responseDate >= dateFilter.startDate &&
-            responseDate <= dateFilter.endDate
-          );
-        }
-        return true;
-      });
-    }
-
-    // 2. Global Inspector Filter
-    if (selectedInspectorForTrend !== "Overall") {
-      result = result.filter(
-        (response) => response.submittedBy === selectedInspectorForTrend,
-      );
-    }
-
-    return result;
-  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend]);
 
   // Find the primary chassis question to identify unique items/vehicles
   const chassisQuestionId = useMemo(() => {
@@ -3650,6 +4164,377 @@ export default function FormAnalyticsDashboard() {
     return statuses;
   }, [baseFilteredResponses, chassisQuestionId]);
 
+  const fetchChatHistory = async (responseId: string) => {
+    try {
+      console.log(
+        "[ChatModal] Fetching chat history for response:",
+        responseId,
+      );
+
+      // Fetch messages
+      const response = await apiClient.get<any[]>(
+        `/messages/response/${responseId}`,
+      );
+      const messages = Array.isArray(response.data) ? response.data : [];
+      setChatMessages(messages);
+
+      // Fetch reviews from API
+      try {
+        const reviewsResponse =
+          await apiClient.getReviewsForResponse(responseId);
+        console.log("[ChatModal] Reviews API response:", reviewsResponse);
+
+        if (
+          reviewsResponse &&
+          reviewsResponse.reviews &&
+          reviewsResponse.reviews.length > 0
+        ) {
+          const latestReview = reviewsResponse.reviews[0];
+          console.log("[ChatModal] Latest review from API:", latestReview);
+
+          // Update state from API
+          setSelectedReviewOptions((prev) => ({
+            ...prev,
+            [responseId]: latestReview.option,
+          }));
+
+          setReviewedBy((prev) => ({
+            ...prev,
+            [responseId]: latestReview.reviewer
+              ? {
+                id: latestReview.reviewer.id,
+                name: latestReview.reviewer.name || "Reviewer",
+                email: latestReview.reviewer.email || "",
+              }
+              : null,
+          }));
+
+          // Also update chatResponse
+          setChatResponse((prev) =>
+            prev
+              ? {
+                ...prev,
+                review: latestReview,
+              }
+              : null,
+          );
+
+          console.log("[ChatModal] Review state updated from API");
+        } else {
+          console.log("[ChatModal] No reviews found");
+        }
+      } catch (reviewError) {
+        console.error("[ChatModal] Error fetching reviews:", reviewError);
+      }
+    } catch (err) {
+      console.error("[ChatModal] Error fetching chat history:", err);
+    }
+  };
+  useEffect(() => {
+    if (showChatModal && chatResponse) {
+      fetchChatHistory(chatResponse.id);
+    }
+  }, [showChatModal, chatResponse]);
+
+  // Auto-open chat modal if responseId is in URL
+  useEffect(() => {
+    const responseId = searchParams.get("responseId");
+    if (responseId && responses.length > 0) {
+      const response = responses.find(
+        (r) => r.id === responseId || r._id === responseId,
+      );
+      if (response && !showChatModal) {
+        setChatResponse(response);
+        setShowChatModal(true);
+      }
+    }
+  }, [searchParams, responses, showChatModal]);
+
+  const handleSendMessage = async (messageOverride?: string) => {
+    const messageToSend = messageOverride ?? newMessage;
+    if (!messageToSend.trim() || !chatResponse) return;
+
+    setIsSendingMessage(true);
+    try {
+      const questionContexts: any[] = [];
+      const selectedQuestionTitles: string[] = [];
+      chatFilters.questions.forEach((qid) => {
+        form?.sections?.forEach((section) => {
+          const q = section.questions?.find((q) => q.id === qid);
+          if (q) {
+            const rawAnswer = chatResponse.answers?.[qid];
+            let filteredAnswer = rawAnswer;
+
+            // Apply category filtering if selections exist
+            if (
+              rawAnswer &&
+              typeof rawAnswer === "object" &&
+              rawAnswer.categories &&
+              chatFilters.selectedCategories[qid]
+            ) {
+              const selectedNames = chatFilters.selectedCategories[qid];
+              if (selectedNames.length > 0) {
+                filteredAnswer = {
+                  ...rawAnswer,
+                  categories: rawAnswer.categories.filter((cat: any) =>
+                    selectedNames.includes(cat.name),
+                  ),
+                };
+              }
+            }
+
+            // Parse flat array into structured object for chassis-with-zone questions
+            let structuredAnswer = filteredAnswer;
+            if (
+              q.type === "chassis-with-zone" ||
+              q.type === "chassis-without-zone"
+            ) {
+              // Always use chatFilters.suggestedAnswers for current values (they have the latest changes including uploads)
+              const currentValue = chatFilters.suggestedAnswers?.[qid];
+              if (currentValue) {
+                // Use the suggestedAnswers which has the latest data
+                structuredAnswer = {
+                  status: currentValue.status || "",
+                  chassisNumber: currentValue.chassisNumber || "",
+                  zones: Array.isArray(currentValue.zone)
+                    ? currentValue.zone.join(", ")
+                    : currentValue.zone || "",
+                  zonesData: currentValue.zonesData,
+                  evidenceUrl: currentValue.evidenceUrl || "",
+                };
+                // Add categories from zonesData
+                if (currentValue.zonesData) {
+                  const cats: any[] = [];
+                  Object.entries(currentValue.zonesData).forEach(
+                    ([zoneName, zoneData]: [string, any]) => {
+                      if (zoneData?.categories) {
+                        zoneData.categories.forEach((cat: any) => {
+                          const defectsArr = (cat.defects || []).map(
+                            (d: any) => ({
+                              name: d.name,
+                              details: d.details || { remark: "", fileUrl: "" },
+                            }),
+                          );
+                          cats.push({ name: cat.name, defects: defectsArr });
+                        });
+                      }
+                    },
+                  );
+                  if (cats.length > 0) structuredAnswer.categories = cats;
+                }
+              } else if (
+                Array.isArray(filteredAnswer) &&
+                filteredAnswer.length >= 7
+              ) {
+                // Fallback to array parsing
+                structuredAnswer = {
+                  status: filteredAnswer[1] || "",
+                  chassisNumber: filteredAnswer[0] || "",
+                  zones: filteredAnswer[2] || "",
+                  categories: filteredAnswer[3]
+                    ? [
+                      {
+                        name: filteredAnswer[3],
+                        defects: filteredAnswer[4]
+                          ? [
+                            {
+                              name: filteredAnswer[4],
+                              details: {
+                                remark: filteredAnswer[5] || "",
+                                fileUrl: filteredAnswer[6] || "",
+                              },
+                            },
+                          ]
+                          : [],
+                      },
+                    ]
+                    : [],
+                };
+              } else if (filteredAnswer?.zonesData) {
+                structuredAnswer = filteredAnswer;
+              }
+            }
+
+            questionContexts.push({
+              questionId: qid,
+              title: q.text || "Question",
+              answer: structuredAnswer,
+              suggestion: chatFilters.suggestedAnswers[qid],
+            });
+            selectedQuestionTitles.push(q.text || "Question");
+          }
+        });
+      });
+
+      // Extract email from createdBy object or string
+      const createdByObj = chatResponse.createdBy;
+      const createdByEmail =
+        createdByObj && typeof createdByObj === "object"
+          ? (createdByObj as any).email || (createdByObj as any)._id?.toString()
+          : typeof createdByObj === "string"
+            ? createdByObj
+            : "inspector@focus.com";
+
+      console.log("[handleSendMessage] createdBy:", createdByObj);
+      console.log("[handleSendMessage] toEmail:", createdByEmail);
+
+      console.log("Sending message with data:", {
+        toEmail: createdByEmail,
+        message: messageToSend,
+        responseId: chatResponse.id,
+        formId: id,
+        questionIds: chatFilters.questions,
+        questionTitles: selectedQuestionTitles,
+        questionContexts: questionContexts,
+        tenantId:
+          form?.tenantId || (user?.tenantId as any)?._id || user?.tenantId,
+      });
+
+      await apiClient.post("/messages/send", {
+        toEmail: createdByEmail,
+        message: messageToSend,
+        responseId: chatResponse.id,
+        formId: id,
+        questionIds: chatFilters.questions,
+        questionTitles: selectedQuestionTitles,
+        questionContexts: questionContexts,
+        tenantId:
+          form?.tenantId || (user?.tenantId as any)?._id || user?.tenantId,
+      });
+
+      setNewMessage("");
+      // Clear selected questions after sending
+      setChatFilters((prev) => ({
+        ...prev,
+        questions: [],
+        selectedCategories: {},
+        suggestedAnswers: {},
+      }));
+      fetchChatHistory(chatResponse.id);
+    } catch (err) {
+      console.error("Error sending message:", err);
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
+
+  const filteredResponses = useMemo(() => {
+    let result = baseFilteredResponses;
+
+    // 1. Global Date Filter
+    if (dateFilter.type !== "all") {
+      result = result.filter((response) => {
+        const timestamp = getResponseTimestamp(response);
+        if (!timestamp) return false;
+        const responseDate = new Date(timestamp).toISOString().split("T")[0];
+
+        if (dateFilter.type === "single" && dateFilter.startDate) {
+          return responseDate === dateFilter.startDate;
+        } else if (
+          dateFilter.type === "range" &&
+          dateFilter.startDate &&
+          dateFilter.endDate
+        ) {
+          return (
+            responseDate >= dateFilter.startDate &&
+            responseDate <= dateFilter.endDate
+          );
+        }
+        return true;
+      });
+    }
+
+    // 2. Global Inspector Filter
+    if (selectedInspectorForTrend !== "Overall") {
+      result = result.filter(
+        (response) => response.submittedBy === selectedInspectorForTrend,
+      );
+    }
+
+    // 3. Overall search term filter
+    if (responsesSearchTerm.trim() !== "") {
+      const term = responsesSearchTerm.toLowerCase().trim();
+      result = result.filter((response) => {
+        // Match submitter
+        const submitter = (response.submittedBy || response.createdBy || "").toLowerCase();
+        if (submitter.includes(term)) return true;
+
+        // Match status
+        const status = (responseStatuses[response.id] || "").toLowerCase();
+        if (status.includes(term)) return true;
+
+        // Match chassis number
+        const chVal = response.answers?.chassis_number;
+        if (chVal) {
+          if (typeof chVal === "object") {
+            if (chVal.chassisNumber && String(chVal.chassisNumber).toLowerCase().includes(term)) return true;
+            if (chVal.partDescription && String(chVal.partDescription).toLowerCase().includes(term)) return true;
+          } else if (String(chVal).toLowerCase().includes(term)) {
+            return true;
+          }
+        }
+
+        // Match any answers in the response
+        if (response.answers) {
+          for (const [key, val] of Object.entries(response.answers)) {
+            if (val === null || val === undefined) continue;
+
+            if (typeof val === "object") {
+              const valStr = JSON.stringify(val).toLowerCase();
+              if (valStr.includes(term)) return true;
+            } else {
+              if (String(val).toLowerCase().includes(term)) return true;
+            }
+          }
+        }
+
+        return false;
+      });
+    }
+
+    return result;
+  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, responsesSearchTerm, responseStatuses]);
+
+
+  useEffect(() => {
+    setResponsesPage(1);
+  }, [dateFilter, selectedInspectorForTrend, id, responsesSearchTerm]);
+
+
+
+  const totalResponsesCount = filteredResponses.length;
+  const totalResponsesPages = Math.max(1, Math.ceil(totalResponsesCount / responsesPageSize));
+  const currentResponsesPage = Math.min(responsesPage, totalResponsesPages);
+  const responsesStartIndex = totalResponsesCount > 0 ? (currentResponsesPage - 1) * responsesPageSize : 0;
+  const tableResponses = useMemo(
+    () => filteredResponses.slice(responsesStartIndex, responsesStartIndex + responsesPageSize),
+    [filteredResponses, responsesStartIndex, responsesPageSize],
+  );
+  const responsesEndIndex = responsesStartIndex + tableResponses.length;
+
+  const pageSizesList = useMemo(() => {
+    const base = [20, 50, 100];
+    if (totalResponsesCount <= 100) {
+      return base;
+    }
+
+
+
+    const sizes = [...base];
+    if (totalResponsesCount <= 300) {
+      for (let s = 150; s <= Math.min(300, totalResponsesCount + 50); s += 50) {
+        sizes.push(s);
+      }
+    } else {
+      const steps = [200, 300, 500, 1000, 2000, 5000];
+      for (const step of steps) {
+        sizes.push(step);
+        if (step >= totalResponsesCount) break;
+      }
+    }
+    return Array.from(new Set(sizes)).sort((a, b) => a - b);
+  }, [totalResponsesCount]);
+
   const analytics = useMemo(() => {
     const total = filteredResponses.length;
     const pending = filteredResponses.filter(
@@ -3717,7 +4602,13 @@ export default function FormAnalyticsDashboard() {
     };
   }, [filteredResponses]);
 
-  const qualityChartResponses = useMemo(() => {
+  // qualityChartResponses and sectionChartResponses used to be computed
+  // separately, but they apply the exact same date-filter logic to the same
+  // source array, making them identical. They were then each fed into a
+  // separate (expensive, O(sections * questions * responses)) call to
+  // computeSectionPerformanceStats, tripling that work for no reason. Now
+  // computed once and shared.
+  const dateFilteredResponses = useMemo(() => {
     let result = [...filteredResponses];
     if (dateFilter.startDate || dateFilter.endDate) {
       result = result.filter((response) => {
@@ -3740,43 +4631,32 @@ export default function FormAnalyticsDashboard() {
     return result;
   }, [filteredResponses, dateFilter.startDate, dateFilter.endDate]);
 
-  const sectionChartResponses = useMemo(() => {
-    let result = [...filteredResponses];
-    if (dateFilter.startDate || dateFilter.endDate) {
-      result = result.filter((response) => {
-        const timestamp = getResponseTimestamp(response);
-        if (!timestamp) return false;
-        const responseDate = new Date(timestamp).toISOString().split("T")[0];
-        if (dateFilter.startDate && dateFilter.endDate) {
-          return (
-            responseDate >= dateFilter.startDate &&
-            responseDate <= dateFilter.endDate
-          );
-        } else if (dateFilter.startDate) {
-          return responseDate >= dateFilter.startDate;
-        } else if (dateFilter.endDate) {
-          return responseDate <= dateFilter.endDate;
-        }
-        return true;
-      });
+  const qualityChartResponses = dateFilteredResponses;
+  const sectionChartResponses = dateFilteredResponses;
+
+  const sharedDateFilteredSectionPerformanceStats = useMemo(() => {
+    if (analyticsView !== "dashboard" && analyticsView !== "overall") {
+      return [];
     }
-    return result;
-  }, [filteredResponses, dateFilter.startDate, dateFilter.endDate]);
+    return computeSectionPerformanceStats(form, dateFilteredResponses);
+  }, [form, dateFilteredResponses, analyticsView]);
 
-  const qualitySectionPerformanceStats = useMemo(
-    () => computeSectionPerformanceStats(form, qualityChartResponses),
-    [form, qualityChartResponses],
-  );
+  const qualitySectionPerformanceStats =
+    sharedDateFilteredSectionPerformanceStats;
 
-  const dashboardSectionPerformanceStats = useMemo(
-    () => computeSectionPerformanceStats(form, sectionChartResponses),
-    [form, sectionChartResponses],
-  );
+  const dashboardSectionPerformanceStats =
+    sharedDateFilteredSectionPerformanceStats;
 
-  const sectionPerformanceStats = useMemo(
-    () => computeSectionPerformanceStats(form, filteredResponses),
-    [form, filteredResponses],
-  );
+  const sectionPerformanceStats = useMemo(() => {
+    if (
+      analyticsView !== "dashboard" &&
+      analyticsView !== "overall" &&
+      analyticsView !== "section"
+    ) {
+      return [];
+    }
+    return computeSectionPerformanceStats(form, filteredResponses);
+  }, [form, filteredResponses, analyticsView]);
 
   const filteredSectionStats = useMemo(
     () =>
@@ -3814,10 +4694,19 @@ export default function FormAnalyticsDashboard() {
     [filteredSectionStats, selectedSectionIds],
   );
 
-  const zoneAnalytics = useMemo(
-    () => getZoneAnalytics(filteredResponses),
-    [filteredResponses],
-  );
+  const zoneAnalytics = useMemo(() => {
+    if (
+      analyticsView !== "dashboard" &&
+      analyticsView !== "overall" &&
+      analyticsView !== "comparison"
+    ) {
+      return {
+        inspectionStatus: { accepted: 0, rework: 0, rejected: 0, total: 0 },
+        zoneBreakdown: [],
+      };
+    }
+    return getZoneAnalytics(filteredResponses);
+  }, [filteredResponses, analyticsView]);
 
   const top20Issues = useMemo(() => {
     const allDefects: Array<{
@@ -3846,6 +4735,48 @@ export default function FormAnalyticsDashboard() {
 
     return allDefects.sort((a, b) => b.total - a.total).slice(0, 20);
   }, [zoneAnalytics]);
+
+  // Helper to safely extract display values from any answer type
+
+
+  const uniqueColumnValues = useMemo(() => {
+    const map = new Map<string, string[]>();
+    const sets = new Map<string, Set<string>>();
+
+    responses.forEach((response) => {
+      if (!response.answers) return;
+      Object.entries(response.answers).forEach(([qId, answer]) => {
+        if (!sets.has(qId)) {
+          sets.set(qId, new Set<string>());
+        }
+        const s = sets.get(qId)!;
+        const values = extractAnswerValues(answer);
+        values.forEach(v => { if (v) s.add(v); });
+      });
+    });
+
+    form?.sections?.forEach((section) => {
+      section.questions?.forEach((q: any) => {
+        if (!sets.has(q.id)) {
+          const s = new Set<string>([""]);
+          sets.set(q.id, s);
+        } else {
+          sets.get(q.id)!.add("");
+        }
+      });
+    });
+
+    sets.forEach((set, qId) => {
+      const sorted = Array.from(set).sort((a, b) => {
+        if (a === "") return 1;
+        if (b === "") return -1;
+        return a.localeCompare(b);
+      });
+      map.set(qId, sorted);
+    });
+
+    return map;
+  }, [form, responses]);
 
   const getUniqueColumnValues = (
     questionId: string,
@@ -4775,12 +5706,17 @@ export default function FormAnalyticsDashboard() {
     };
   }, [inspectionStats]);
 
-  const questionPerformanceStats = useMemo(
-    () => computeQuestionPerformanceStats(form, filteredResponses),
-    [form, filteredResponses],
-  );
+  const questionPerformanceStats = useMemo(() => {
+    if (analyticsView !== "question" && analyticsView !== "overall") {
+      return [];
+    }
+    return computeQuestionPerformanceStats(form, filteredResponses);
+  }, [form, filteredResponses, analyticsView]);
 
   const defectChartResponses = useMemo(() => {
+    if (analyticsView !== "dashboard" && analyticsView !== "overall") {
+      return [];
+    }
     let result = [...filteredResponses];
 
     if (dateFilter.startDate || dateFilter.endDate) {
@@ -4849,28 +5785,61 @@ export default function FormAnalyticsDashboard() {
   }, [filteredResponses, dateFilter.startDate, dateFilter.endDate]);
 
   const chartQuestionPerformanceStats = useMemo(() => {
+    if (analyticsView !== "dashboard" && analyticsView !== "overall") {
+      return [];
+    }
     return computeQuestionPerformanceStats(form, defectChartResponses);
-  }, [form, defectChartResponses]);
+  }, [form, defectChartResponses, analyticsView]);
 
   const sectionChartHeight = Math.max(320, visibleSectionStats.length * 56);
 
   const sectionsStats = useMemo(() => {
+    if (analyticsView !== "section" && analyticsView !== "overall") {
+      return [];
+    }
     if (!form?.sections) return [];
+
+    const map = new Map<string, number>();
+    responses.forEach((response) => {
+      if (response.answers) {
+        Object.keys(response.answers).forEach((qId) => {
+          const answer = response.answers[qId];
+          if (answer !== null && answer !== undefined && answer !== "") {
+            map.set(qId, (map.get(qId) || 0) + 1);
+          }
+        });
+      }
+    });
 
     return form.sections.map((section) => ({
       section,
-      stats: getSectionStats(section, responses),
+      stats: getSectionStats(section, responses, map),
     }));
-  }, [form, responses]);
+  }, [form, responses, analyticsView]);
 
   const filteredSectionsStats = useMemo(() => {
+    if (analyticsView !== "section" && analyticsView !== "overall") {
+      return [];
+    }
     if (!form?.sections) return [];
+
+    const map = new Map<string, number>();
+    filteredResponses.forEach((response) => {
+      if (response.answers) {
+        Object.keys(response.answers).forEach((qId) => {
+          const answer = response.answers[qId];
+          if (answer !== null && answer !== undefined && answer !== "") {
+            map.set(qId, (map.get(qId) || 0) + 1);
+          }
+        });
+      }
+    });
 
     return form.sections.map((section) => ({
       section,
-      stats: getSectionStats(section, filteredResponses),
+      stats: getSectionStats(section, filteredResponses, map),
     }));
-  }, [form, filteredResponses]);
+  }, [form, filteredResponses, analyticsView]);
 
   const OverallQualityPieChart = () => {
     const data = {
@@ -5202,9 +6171,9 @@ export default function FormAnalyticsDashboard() {
     const containerStyle =
       chartOrientation === "h"
         ? {
-            height: `${Math.max(450, processedQuestions.length * 40)}px`,
-            position: "relative" as const,
-          }
+          height: `${Math.max(450, processedQuestions.length * 40)}px`,
+          position: "relative" as const,
+        }
         : { height: "450px", position: "relative" as const };
 
     return (
@@ -5236,21 +6205,19 @@ export default function FormAnalyticsDashboard() {
             <div className="flex items-center bg-slate-100 dark:bg-gray-700 p-1 rounded-lg">
               <button
                 onClick={() => setChartSortOrder("default")}
-                className={`px-2 py-1 text-[9px] sm:text-[10px] font-bold rounded transition-all ${
-                  chartSortOrder === "default"
-                    ? "bg-white dark:bg-gray-600 text-blue-600 shadow-sm"
-                    : "text-slate-500"
-                }`}
+                className={`px-2 py-1 text-[9px] sm:text-[10px] font-bold rounded transition-all ${chartSortOrder === "default"
+                  ? "bg-white dark:bg-gray-600 text-blue-600 shadow-sm"
+                  : "text-slate-500"
+                  }`}
               >
                 DEFAULT
               </button>
               <button
                 onClick={() => setChartSortOrder("percentage")}
-                className={`px-2 py-1 text-[9px] sm:text-[10px] font-bold rounded transition-all ${
-                  chartSortOrder === "percentage"
-                    ? "bg-white dark:bg-gray-600 text-blue-600 shadow-sm"
-                    : "text-slate-500"
-                }`}
+                className={`px-2 py-1 text-[9px] sm:text-[10px] font-bold rounded transition-all ${chartSortOrder === "percentage"
+                  ? "bg-white dark:bg-gray-600 text-blue-600 shadow-sm"
+                  : "text-slate-500"
+                  }`}
               >
                 ISSUE %
               </button>
@@ -5261,11 +6228,10 @@ export default function FormAnalyticsDashboard() {
               <button
                 onClick={() => setChartOrientation("v")}
                 title="Vertical View"
-                className={`p-1 rounded transition-all ${
-                  chartOrientation === "v"
-                    ? "bg-white dark:bg-gray-600 text-blue-600 shadow-sm"
-                    : "text-slate-500"
-                }`}
+                className={`p-1 rounded transition-all ${chartOrientation === "v"
+                  ? "bg-white dark:bg-gray-600 text-blue-600 shadow-sm"
+                  : "text-slate-500"
+                  }`}
               >
                 <svg
                   className="w-4 h-4"
@@ -5284,11 +6250,10 @@ export default function FormAnalyticsDashboard() {
               <button
                 onClick={() => setChartOrientation("h")}
                 title="Horizontal View"
-                className={`p-1 rounded transition-all ${
-                  chartOrientation === "h"
-                    ? "bg-white dark:bg-gray-600 text-blue-600 shadow-sm"
-                    : "text-slate-500"
-                }`}
+                className={`p-1 rounded transition-all ${chartOrientation === "h"
+                  ? "bg-white dark:bg-gray-600 text-blue-600 shadow-sm"
+                  : "text-slate-500"
+                  }`}
               >
                 <svg
                   className="w-4 h-4 rotate-90"
@@ -5489,21 +6454,19 @@ export default function FormAnalyticsDashboard() {
             <div className="flex items-center bg-slate-100 dark:bg-gray-700 p-1 rounded-lg">
               <button
                 onClick={() => setTimeSeriesView("daily")}
-                className={`px-3 py-1 text-[10px] font-bold rounded transition-all ${
-                  timeSeriesView === "daily"
-                    ? "bg-white dark:bg-gray-600 text-blue-600 shadow-sm"
-                    : "text-slate-500"
-                }`}
+                className={`px-3 py-1 text-[10px] font-bold rounded transition-all ${timeSeriesView === "daily"
+                  ? "bg-white dark:bg-gray-600 text-blue-600 shadow-sm"
+                  : "text-slate-500"
+                  }`}
               >
                 DAILY
               </button>
               <button
                 onClick={() => setTimeSeriesView("monthly")}
-                className={`px-3 py-1 text-[10px] font-bold rounded transition-all ${
-                  timeSeriesView === "monthly"
-                    ? "bg-white dark:bg-gray-600 text-blue-600 shadow-sm"
-                    : "text-slate-500"
-                }`}
+                className={`px-3 py-1 text-[10px] font-bold rounded transition-all ${timeSeriesView === "monthly"
+                  ? "bg-white dark:bg-gray-600 text-blue-600 shadow-sm"
+                  : "text-slate-500"
+                  }`}
               >
                 MONTHLY
               </button>
@@ -5561,15 +6524,14 @@ export default function FormAnalyticsDashboard() {
                 fill="transparent"
                 strokeDasharray={strokeDasharray}
                 strokeDashoffset={strokeDashoffset}
-                className={`transition-all duration-1000 ease-out ${
-                  currentUserScore >= 80
-                    ? "text-green-500"
-                    : currentUserScore >= 60
-                      ? "text-yellow-500"
-                      : currentUserScore >= 40
-                        ? "text-orange-500"
-                        : "text-red-500"
-                }`}
+                className={`transition-all duration-1000 ease-out ${currentUserScore >= 80
+                  ? "text-green-500"
+                  : currentUserScore >= 60
+                    ? "text-yellow-500"
+                    : currentUserScore >= 40
+                      ? "text-orange-500"
+                      : "text-red-500"
+                  }`}
                 strokeLinecap="round"
               />
             </svg>
@@ -5604,13 +6566,13 @@ export default function FormAnalyticsDashboard() {
   const DirectAcceptedPerformanceGraph = () => {
     const timeData = useMemo(() => {
       return computeDirectAcceptedDailyStats(
-        baseFilteredResponses,
+        dateFilteredResponses,
         responseStatuses,
         dateFilter.startDate,
         dateFilter.endDate,
       );
     }, [
-      baseFilteredResponses,
+      dateFilteredResponses,
       responseStatuses,
       dateFilter.startDate,
       dateFilter.endDate,
@@ -5754,11 +6716,11 @@ export default function FormAnalyticsDashboard() {
     const timeData = useMemo(() => {
       return computeDailyReworkVolumeStats(
         form,
-        baseFilteredResponses,
+        dateFilteredResponses,
         dateFilter.startDate,
         dateFilter.endDate,
       );
-    }, [form, baseFilteredResponses, dateFilter.startDate, dateFilter.endDate]);
+    }, [form, dateFilteredResponses, dateFilter.startDate, dateFilter.endDate]);
 
     if (timeData.length === 0) return null;
 
@@ -5857,24 +6819,23 @@ export default function FormAnalyticsDashboard() {
       return [];
     }
 
+    const map = new Map<string, number>();
+    responses.forEach((response) => {
+      if (response.answers) {
+        Object.keys(response.answers).forEach((qId) => {
+          const answer = response.answers[qId];
+          if (answer !== null && answer !== undefined && answer !== "") {
+            map.set(qId, (map.get(qId) || 0) + 1);
+          }
+        });
+      }
+    });
+
     return form.sections
       .map((section) => {
-        const stats = getSectionStats(section, responses);
+        const stats = getSectionStats(section, responses, map);
         const qualityBreakdown = getSectionQualityBreakdown(section, responses);
         const overallQuality = calculateOverallQuality(qualityBreakdown);
-
-        // Debug log to see what we're getting
-        console.log("Section Data for PDF:", {
-          sectionId: section.id,
-          sectionTitle: section.title,
-          questionsCount: section.questions?.length || 0,
-          questions: section.questions?.map((q) => ({
-            id: q.id,
-            text: q.text,
-            type: q.type,
-          })),
-          statsQuestionsDetail: stats.questionsDetail?.length || 0,
-        });
 
         return {
           sectionId: section.id,
@@ -5889,16 +6850,19 @@ export default function FormAnalyticsDashboard() {
             totalResponses: stats.totalResponses,
             completionRate: stats.completionRate,
             avgResponsesPerQuestion: stats.avgResponsesPerQuestion,
-            questionsDetail: stats.questionsDetail || [], // Make sure this is not empty
+            questionsDetail: stats.questionsDetail || [],
           },
           qualityBreakdown,
           overallQuality,
         };
       })
-      .filter((section) => section.stats.questionsDetail.length > 0); // Only include sections with questions
+      .filter((section) => section.stats.questionsDetail.length > 0);
   };
 
   const fullAnalyticsData = useMemo(() => {
+    if (analyticsView === "responses") {
+      return null as any;
+    }
     return {
       total: analytics.total,
       pending: analytics.pending,
@@ -5954,7 +6918,7 @@ export default function FormAnalyticsDashboard() {
 
   const handleExportToExcel = () => {
     try {
-      const headerRow: any[] = ["Timestamp", "Status", "Chassis Number"];
+      const headerRow: any[] = ["Timestamp", "Submitted By", "Status", "Chassis Number"];
       const columnInfo: Array<{
         questionId: string;
         isFollowUp: boolean;
@@ -5980,10 +6944,11 @@ export default function FormAnalyticsDashboard() {
       responses.forEach((response: Response) => {
         const rowData: any[] = [
           getResponseTimestamp(response)
-            ? new Date(getResponseTimestamp(response)!).toLocaleString()
+            ? new Date(getResponseTimestamp(response)!).toLocaleDateString("en-US")
             : "-",
+          response.submittedBy || response.createdBy || "Anonymous",
           responseStatuses[response.id] || "-",
-          response.answers?.chassis_number || "-",
+          getChassisDisplayValue(response.answers?.chassis_number),
         ];
 
         columnInfo.forEach(({ questionId }) => {
@@ -6093,8 +7058,22 @@ export default function FormAnalyticsDashboard() {
           },
         };
 
+        // Style Submitted By column
+        const submittedByCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 1 });
+        ws[submittedByCellRef].s = {
+          fill: { fgColor: { rgb: "FFF9FAFB" } },
+          font: { bold: false },
+          alignment: { horizontal: "left", vertical: "center" },
+          border: {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
+          },
+        };
+
         // Style Status column
-        const statusCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 1 });
+        const statusCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 2 });
         const currentStatus = responseStatuses[response.id] || "-";
         let statusBgColor = "FFF9FAFB"; // Default
 
@@ -6123,7 +7102,7 @@ export default function FormAnalyticsDashboard() {
         };
 
         // Style Chassis Number column
-        const chassisCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 2 });
+        const chassisCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 3 });
         ws[chassisCellRef].s = {
           fill: { fgColor: { rgb: "FFF9FAFB" } },
           font: { bold: false },
@@ -6138,11 +7117,11 @@ export default function FormAnalyticsDashboard() {
 
         // Style Question columns
         for (let colIdx = 0; colIdx < columnInfo.length; colIdx++) {
-          const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx + 3 });
+          const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx + 4 });
           const info = columnInfo[colIdx];
           const answer = response.answers?.[info.questionId];
 
-          let bgColor = info.isFollowUp ? "FFE9D5FF" : "FFFFFFFF";
+          const bgColor = info.isFollowUp ? "FFE9D5FF" : "FFFFFFFF";
 
           ws[cellRef].s = {
             fill: { fgColor: { rgb: bgColor } },
@@ -6191,6 +7170,7 @@ export default function FormAnalyticsDashboard() {
 
       ws["!cols"] = [
         { wch: 22 }, // Timestamp
+        { wch: 25 }, // Submitted By
         { wch: 15 }, // Status
         { wch: 18 }, // Chassis Number
         ...columnInfo.map(() => ({ wch: 35 })),
@@ -6258,11 +7238,11 @@ export default function FormAnalyticsDashboard() {
         responses.map((r) =>
           r.id === editingResponseId
             ? {
-                ...r,
-                answers: editFormData,
-                status: editFormStatus,
-                notes: editFormNotes,
-              }
+              ...r,
+              answers: editFormData,
+              status: editFormStatus,
+              notes: editFormNotes,
+            }
             : r,
         ),
       );
@@ -6400,7 +7380,7 @@ export default function FormAnalyticsDashboard() {
             !localFilterDate ||
             (row.date &&
               new Date(row.date).toISOString().slice(0, 10) ===
-                localFilterDate);
+              localFilterDate);
           return nameMatch && shiftMatch && dateMatch;
         });
         if (filteredSubItems.length === 0) return null;
@@ -6480,17 +7460,17 @@ export default function FormAnalyticsDashboard() {
             {(localFilterName !== "All" ||
               localFilterShift !== "All" ||
               localFilterDate) && (
-              <button
-                onClick={() => {
-                  setLocalFilterName("All");
-                  setLocalFilterShift("All");
-                  setLocalFilterDate("");
-                }}
-                className="text-[10px] font-bold text-red-500 hover:text-red-700 px-2 py-1.5 rounded-lg border border-red-200 hover:border-red-400 bg-red-50 hover:bg-red-100 transition-colors"
-              >
-                Clear
-              </button>
-            )}
+                <button
+                  onClick={() => {
+                    setLocalFilterName("All");
+                    setLocalFilterShift("All");
+                    setLocalFilterDate("");
+                  }}
+                  className="text-[10px] font-bold text-red-500 hover:text-red-700 px-2 py-1.5 rounded-lg border border-red-200 hover:border-red-400 bg-red-50 hover:bg-red-100 transition-colors"
+                >
+                  Clear
+                </button>
+              )}
           </div>
         </div>
 
@@ -6615,18 +7595,17 @@ export default function FormAnalyticsDashboard() {
                               return (
                                 <td
                                   key={status}
-                                  className={`px-4 sm:px-6 py-5 text-center font-black tabular-nums transition-opacity ${
-                                    isZero
-                                      ? "opacity-20 text-gray-400"
-                                      : status === "Direct Ok" ||
-                                          status === "Rework Accepted"
-                                        ? "text-emerald-600 dark:text-emerald-400"
-                                        : status.startsWith("Rework")
-                                          ? "text-amber-600 dark:text-amber-400"
-                                          : status === "Rejected"
-                                            ? "text-rose-600 dark:text-rose-400"
-                                            : "text-blue-600 dark:text-blue-400"
-                                  }`}
+                                  className={`px-4 sm:px-6 py-5 text-center font-black tabular-nums transition-opacity ${isZero
+                                    ? "opacity-20 text-gray-400"
+                                    : status === "Direct Ok" ||
+                                      status === "Rework Accepted"
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : status.startsWith("Rework")
+                                        ? "text-amber-600 dark:text-amber-400"
+                                        : status === "Rejected"
+                                          ? "text-rose-600 dark:text-rose-400"
+                                          : "text-blue-600 dark:text-blue-400"
+                                    }`}
                                 >
                                   {count}
                                 </td>
@@ -6716,13 +7695,13 @@ export default function FormAnalyticsDashboard() {
 
     if (performanceTableData.length === 0) return null;
 
-    // Apply local name filter (shift/date not applicable for performance table — name only)
+    // Apply local name filter
     const localFilteredPerformance =
       localFilterName === "All"
         ? performanceTableData
         : performanceTableData.filter(
-            (row: any) => row.name === localFilterName,
-          );
+          (row: any) => row.name === localFilterName,
+        );
 
     // Pagination logic
     const totalPerformanceItems = localFilteredPerformance.length;
@@ -6755,25 +7734,43 @@ export default function FormAnalyticsDashboard() {
             <table className="w-full text-sm text-left border-collapse">
               <thead className="bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-md sticky top-0 z-10 text-gray-500 dark:text-gray-400 uppercase text-[10px] font-black tracking-[0.15em]">
                 <tr>
-                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap">
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap sticky left-0 z-20 bg-gray-50/80 dark:bg-gray-700/80">
                     User Name
                   </th>
-                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">
-                    Total Submitted
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-green-600">
+                    Direct Ok
                   </th>
                   <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-blue-600">
-                    Dispatched
+                    Rework QC Completed
                   </th>
-                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">
-                    Total Reviewed
-                  </th>
-                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-green-600">
-                    Accepted
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-yellow-600">
+                    Rework QC Pending
                   </th>
                   <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-red-600">
                     Rejected
                   </th>
                   <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-orange-600">
+                    Dispatch Pending
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-purple-600">
+                    Dispatched
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">
+                    Total Submitted
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">
+                    Total Reviewed
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">
+                    Review Pending
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-emerald-600">
+                    Accepted
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-rose-600">
+                    Rejected
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-amber-600">
                     Reworked
                   </th>
                   <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">
@@ -6787,39 +7784,64 @@ export default function FormAnalyticsDashboard() {
                     key={idx}
                     className="hover:bg-purple-50/30 dark:hover:bg-purple-900/10 transition-colors"
                   >
-                    <td className="px-4 sm:px-6 py-5 font-bold text-gray-900 dark:text-white whitespace-nowrap">
+                    <td className="px-4 sm:px-6 py-5 font-bold text-gray-900 dark:text-white whitespace-nowrap sticky left-0 z-10 bg-white dark:bg-gray-800">
                       {row.name}
                     </td>
-                    <td className="px-4 sm:px-6 py-5 font-black text-center tabular-nums">
-                      {row.totalSubmitted}
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-green-600 tabular-nums">
+                      {row.directOk || 0}
                     </td>
-                    <td className="px-4 sm:px-6 py-5 font-black text-center text-blue-600 dark:text-blue-400 tabular-nums">
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-blue-600 tabular-nums">
+                      {row.reworkQcCompleted || 0}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-yellow-600 tabular-nums">
+                      {row.reworkQcPending || 0}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-red-600 tabular-nums">
+                      {row.rejected || 0}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-orange-600 tabular-nums">
+                      {row.dispatchPending || 0}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-purple-600 tabular-nums">
                       {row.dispatched || 0}
                     </td>
                     <td className="px-4 sm:px-6 py-5 font-black text-center tabular-nums">
-                      {row.totalReviewed}
+                      {row.totalSubmitted || 0}
                     </td>
-                    <td className="px-4 sm:px-6 py-5 font-black text-center text-green-600 tabular-nums">
-                      {row.accepted}
+                    <td className="px-4 sm:px-6 py-5 font-black text-center tabular-nums">
+                      {row.totalReviewed || 0}
                     </td>
-                    <td className="px-4 sm:px-6 py-5 font-black text-center text-red-600 tabular-nums">
-                      {row.rejected}
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-gray-500 tabular-nums">
+                      {row.reviewPending || 0}
                     </td>
-                    <td className="px-4 sm:px-6 py-5 font-black text-center text-orange-600 tabular-nums">
-                      {row.rework}
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-emerald-600 tabular-nums">
+                      {row.accepted || 0}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-rose-600 tabular-nums">
+                      {row.rejectedReview || 0}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-amber-600 tabular-nums">
+                      {row.reworked || 0}
                     </td>
                     <td className="px-4 sm:px-6 py-5 text-center">
-                      <span
-                        className={`px-3 py-1 rounded-full text-[10px] font-black tabular-nums shadow-sm ${
-                          row.performanceScore >= 80
+                      <div className="flex flex-col items-center gap-1.5">
+                        <span
+                          className={`px-3 py-1 rounded-full text-[10px] font-black tabular-nums shadow-sm ${row.performanceScore >= 80
                             ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
                             : row.performanceScore >= 50
                               ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400"
                               : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
-                        }`}
-                      >
-                        {row.performanceScore}%
-                      </span>
+                            }`}
+                        >
+                          {row.performanceScore || 0}%
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wide whitespace-nowrap ${getBiwPerformanceLabel(row.performanceScore).className
+                            }`}
+                        >
+                          {getBiwPerformanceLabel(row.performanceScore).label}
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -6827,6 +7849,7 @@ export default function FormAnalyticsDashboard() {
             </table>
           </div>
 
+          {/* Pagination controls - same as before */}
           {totalPerformancePages > 1 && (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-6 bg-gray-50/50 dark:bg-gray-900/50 border-t border-gray-50 dark:border-gray-700">
               <div className="flex items-center gap-3">
@@ -6883,11 +7906,10 @@ export default function FormAnalyticsDashboard() {
                         )}
                         <button
                           onClick={() => setPerformancePage(pageNum)}
-                          className={`min-w-[32px] h-8 text-[10px] font-black rounded-xl transition-all ${
-                            performancePage === pageNum
-                              ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30"
-                              : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-50"
-                          }`}
+                          className={`min-w-[32px] h-8 text-[10px] font-black rounded-xl transition-all ${performancePage === pageNum
+                            ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30"
+                            : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-50"
+                            }`}
                         >
                           {pageNum}
                         </button>
@@ -6902,6 +7924,208 @@ export default function FormAnalyticsDashboard() {
                     )
                   }
                   disabled={performancePage === totalPerformancePages}
+                  className="p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl disabled:opacity-30 transition-all hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderBiwReviewTable = () => {
+    if (user?.role !== "admin" && user?.role !== "superadmin") return null;
+
+    if (biwReviewTableData.length === 0) return null;
+
+    const localFilteredBiw =
+      localFilterName === "All"
+        ? biwReviewTableData
+        : biwReviewTableData.filter(
+          (row: any) => row.name === localFilterName,
+        );
+
+    const totalBiwItems = localFilteredBiw.length;
+    const totalBiwPages = Math.ceil(totalBiwItems / biwReviewPageSize);
+    const biwStartIndex = (biwReviewPage - 1) * biwReviewPageSize;
+    const biwEndIndex = biwStartIndex + biwReviewPageSize;
+    const paginatedBiw = localFilteredBiw.slice(biwStartIndex, biwEndIndex);
+
+    return (
+      <div className="mt-12 border-t border-gray-100 dark:border-gray-700 pt-8">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-2 h-8 bg-purple-600 rounded-full shadow-sm shadow-purple-500/20"></div>
+          <div>
+            <h3 className="text-xl font-black text-gray-900 dark:text-white leading-none mb-1">
+              BIW Review Table
+            </h3>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+              Performance based on BIW review checkmarks
+            </p>
+          </div>
+        </div>
+
+        <div className="relative bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 shadow-xl shadow-gray-200/50 dark:shadow-none overflow-hidden">
+          <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
+            <table className="w-full text-sm text-left border-collapse">
+              <thead className="bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-md sticky top-0 z-10 text-gray-500 dark:text-gray-400 uppercase text-[10px] font-black tracking-[0.15em]">
+                <tr>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap">
+                    User Name
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">
+                    Total Submitted
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-blue-600">
+                    Dispatched
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">
+                    Total Reviewed
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-green-600">
+                    Accepted
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-red-600">
+                    Rejected
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-orange-600">
+                    Reworked
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">
+                    Performance Score
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
+                {paginatedBiw.map((row, idx) => (
+                  <tr
+                    key={idx}
+                    className="hover:bg-purple-50/30 dark:hover:bg-purple-900/10 transition-colors"
+                  >
+                    <td className="px-4 sm:px-6 py-5 font-bold text-gray-900 dark:text-white whitespace-nowrap">
+                      {row.name}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center tabular-nums">
+                      {row.totalSubmitted}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-blue-600 dark:text-blue-400 tabular-nums">
+                      {row.dispatched || 0}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center tabular-nums">
+                      {row.totalReviewed}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-green-600 tabular-nums">
+                      {row.accepted}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-red-600 tabular-nums">
+                      {row.rejected}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-orange-600 tabular-nums">
+                      {row.rework}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 text-center">
+                      <div className="flex flex-col items-center gap-1.5">
+                        <span
+                          className={`px-3 py-1 rounded-full text-[10px] font-black tabular-nums shadow-sm ${row.performanceScore >= 80
+                            ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
+                            : row.performanceScore >= 50
+                              ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400"
+                              : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
+                            }`}
+                        >
+                          {row.performanceScore}%
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wide whitespace-nowrap ${getBiwPerformanceLabel(row.performanceScore).className
+                            }`}
+                        >
+                          {getBiwPerformanceLabel(row.performanceScore).label}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {totalBiwPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-6 bg-gray-50/50 dark:bg-gray-900/50 border-t border-gray-50 dark:border-gray-700">
+              <div className="flex items-center gap-3">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                  Show
+                </label>
+                <select
+                  value={biwReviewPageSize}
+                  onChange={(e) => {
+                    setBiwReviewPageSize(Number(e.target.value));
+                    setBiwReviewPage(1);
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all shadow-sm"
+                >
+                  {[5, 10, 20, 50].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                  {biwStartIndex + 1}-{Math.min(biwEndIndex, totalBiwItems)} of{" "}
+                  {totalBiwItems}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    setBiwReviewPage((prev) => Math.max(1, prev - 1))
+                  }
+                  disabled={biwReviewPage === 1}
+                  className="p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl disabled:opacity-30 transition-all hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                <div className="flex items-center gap-1">
+                  {Array.from(
+                    { length: totalBiwPages },
+                    (_, i) => i + 1,
+                  )
+                    .filter(
+                      (num) =>
+                        totalBiwPages <= 5 ||
+                        Math.abs(num - biwReviewPage) <= 1 ||
+                        num === 1 ||
+                        num === totalBiwPages,
+                    )
+                    .map((pageNum, idx, arr) => (
+                      <React.Fragment key={pageNum}>
+                        {idx > 0 && arr[idx - 1] !== pageNum - 1 && (
+                          <span className="text-gray-300 mx-1">...</span>
+                        )}
+                        <button
+                          onClick={() => setBiwReviewPage(pageNum)}
+                          className={`min-w-[32px] h-8 text-[10px] font-black rounded-xl transition-all ${biwReviewPage === pageNum
+                            ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30"
+                            : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-50"
+                            }`}
+                        >
+                          {pageNum}
+                        </button>
+                      </React.Fragment>
+                    ))}
+                </div>
+
+                <button
+                  onClick={() =>
+                    setBiwReviewPage((prev) =>
+                      Math.min(totalBiwPages, prev + 1),
+                    )
+                  }
+                  disabled={biwReviewPage === totalBiwPages}
                   className="p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl disabled:opacity-30 transition-all hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm"
                 >
                   <ChevronRight className="w-4 h-4" />
@@ -6948,6 +8172,67 @@ export default function FormAnalyticsDashboard() {
     );
   }
 
+  const dispatchableResponses = filteredResponses.filter(response => {
+    if (!isOwnTenantResponse(response)) return false; // exclude cross-tenant
+
+    const status = responseStatuses[response.id] || "";
+    return status === "Direct Ok" ||
+      status === "Rework Accepted" ||
+      status === "Rework Completed" ||
+      status === "Accepted";
+  });
+  const pendingDispatchResponses = dispatchableResponses.filter(response => !response.isDispatched);
+
+  const isAllDispatchableSelected = dispatchableResponses.length > 0 && selectedDispatchIds.length === pendingDispatchResponses.length && pendingDispatchResponses.length > 0;
+
+  const handleHeaderDispatchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      const selectableIds = pendingDispatchResponses
+        .filter(r => isOwnTenantResponse(r))
+        .map(r => r.id);
+      setSelectedDispatchIds(selectableIds);
+    } else {
+      setSelectedDispatchIds([]);
+    }
+  };
+
+  const handleExecuteBulkDispatch = async () => {
+    setIsBulkDispatching(true);
+    try {
+      const dispatchedAt = new Date().toISOString();
+      const dispatchUpdatePayload = {
+        isDispatched: true,
+        dispatchedAt,
+        dispatchedBy: user?._id || user?.id,
+        dispatchedByName: user?.name || user?.username,
+      };
+
+      await Promise.all(
+        selectedDispatchIds.map(id =>
+          apiClient.updateResponse(id, dispatchUpdatePayload)
+        )
+      );
+
+      // filteredResponses is derived via useMemo from `responses` — updating
+      // `responses` here is enough, filteredResponses recomputes automatically.
+      setResponses(currentResponses => currentResponses.map(r =>
+        selectedDispatchIds.includes(r.id) ? { ...r, ...dispatchUpdatePayload } : r
+      ));
+
+      setSelectedDispatchIds([]);
+      setShowBulkDispatchConfirm(false);
+      showToast(
+        `Dispatch enabled for ${selectedDispatchIds.length} response${selectedDispatchIds.length === 1 ? "" : "s"}.`,
+        "success",
+      );
+    } catch (error) {
+      console.error("Failed to batch enable dispatch:", error);
+      showToast("Failed to batch enable dispatch. Some responses may not have been updated.", "error");
+    } finally {
+      setIsBulkDispatching(false);
+    }
+  };
+
   return (
     <div
       className="p-2 sm:p-6 space-y-4 sm:space-y-6 bg-gray-50 dark:bg-gray-950 min-h-screen"
@@ -6974,50 +8259,54 @@ export default function FormAnalyticsDashboard() {
           {/* Tabs - Center */}
           <div className="flex items-center gap-1 overflow-x-auto pb-1 lg:pb-0 max-w-full no-scrollbar">
             <>
-              <button
-                onClick={() => setAnalyticsView("dashboard")}
-                className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${
-                  analyticsView === "dashboard"
+              {hasTabPermission("dashboard") && (
+                <button
+                  onClick={() => setAnalyticsView("dashboard")}
+                  className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "dashboard"
                     ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
                     : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
-                }`}
-              >
-                <BarChart3 className="w-4 h-4" />
-                Dashboard
-              </button>
-              <button
-                onClick={() => setAnalyticsView("question")}
-                className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${
-                  analyticsView === "question"
+                    }`}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  Dashboard
+                </button>
+              )}
+              {hasTabPermission("question") && (
+                <button
+                  onClick={() => setAnalyticsView("question")}
+                  className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "question"
                     ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
                     : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
-                }`}
-              >
-                <BarChart3 className="w-4 h-4" />
-                Questions
-              </button>
-              <button
-                onClick={() => setAnalyticsView("section")}
-                className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${
-                  analyticsView === "section"
+                    }`}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  Questions
+                </button>
+              )}
+              {hasTabPermission("section") && (
+                <button
+                  onClick={() => setAnalyticsView("section")}
+                  className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "section"
                     ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
                     : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
-                }`}
-              >
-                <FileText className="w-4 h-4" />
-                Sections
-              </button>
-              <button
-                onClick={() => setAnalyticsView("overall")}
-                className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${
-                  analyticsView === "overall"
+                    }`}
+                >
+                  <FileText className="w-4 h-4" />
+                  Sections
+                </button>
+              )}
+              {hasTabPermission("overall") && (
+                <button
+                  onClick={() => setAnalyticsView("overall")}
+                  className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "overall"
                     ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
                     : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
-                }`}
-              >
-                <BarChart3 className="w-4 h-4" />
-                Overall
-              </button>
+                    }`}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  Overall
+                </button>
+              )}
               {/* <button
                   onClick={() => setAnalyticsView("table")}
                   className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${
@@ -7031,17 +8320,18 @@ export default function FormAnalyticsDashboard() {
                 </button> */}
             </>
 
-            <button
-              onClick={() => setAnalyticsView("responses")}
-              className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${
-                analyticsView === "responses"
+            {hasTabPermission("responses") && (
+              <button
+                onClick={() => setAnalyticsView("responses")}
+                className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "responses"
                   ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
                   : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
-              }`}
-            >
-              <UsersIcon className="w-4 h-4" />
-              Responses
-            </button>
+                  }`}
+              >
+                <UsersIcon className="w-4 h-4" />
+                Responses
+              </button>
+            )}
             {/* {!isInspector && !isGuest && (
               <button
                 onClick={() => setAnalyticsView("comparison")}
@@ -7087,11 +8377,10 @@ export default function FormAnalyticsDashboard() {
               )}
               <button
                 onClick={() => setShowFilterModal(true)}
-                className={`p-1.5 sm:p-2 rounded transition-colors relative ${
-                  appliedFilters.length > 0
-                    ? "text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 bg-indigo-50 dark:bg-indigo-900/20"
-                    : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-                }`}
+                className={`p-1.5 sm:p-2 rounded transition-colors relative ${appliedFilters.length > 0
+                  ? "text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 bg-indigo-50 dark:bg-indigo-900/20"
+                  : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  }`}
                 title="Advanced Filters"
               >
                 <Filter className="w-4 h-4" />
@@ -7179,7 +8468,7 @@ export default function FormAnalyticsDashboard() {
                         Response Trend
                       </h3>
                       <p className="text-xs text-primary-500 dark:text-primary-400">
-                        Last 7 days
+                        Last 30 days
                       </p>
                     </div>
                   </div>
@@ -7311,18 +8600,19 @@ export default function FormAnalyticsDashboard() {
           {/* Question Distribution Chart */}
           {(questionPerformanceStats.length > 0 ||
             trendChartResponses.length > 0) && (
-            <div className="w-full" id="question-distribution-card">
-              <div className="w-full space-y-6">
-                <InspectionStatusLineChart />
-                <QuestionStatusDistributionChart />
-                <TimeBasedPerformanceGraph />
-                <DirectAcceptedPerformanceGraph />
-                {renderSummaryTable()}
-                {renderPerformanceTable()}
-                <InspectorPerformanceChart />
+              <div className="w-full" id="question-distribution-card">
+                <div className="w-full space-y-6">
+                  <InspectionStatusLineChart />
+                  <QuestionStatusDistributionChart />
+                  <TimeBasedPerformanceGraph />
+                  <DirectAcceptedPerformanceGraph />
+                  {renderSummaryTable()}
+                  {renderPerformanceTable()}
+                  {renderBiwReviewTable()}
+                  <InspectorPerformanceChart />
+                </div>
               </div>
-            </div>
-          )}
+            )}
         </div>
       )}
 
@@ -7385,7 +8675,7 @@ export default function FormAnalyticsDashboard() {
                                     type="checkbox"
                                     checked={
                                       selectedSectionIds.length ===
-                                        filteredSectionStats.length &&
+                                      filteredSectionStats.length &&
                                       filteredSectionStats.length > 0
                                     }
                                     onChange={handleSelectAllSections}
@@ -7618,10 +8908,10 @@ export default function FormAnalyticsDashboard() {
                                         {summaryTotals?.yesCount || 0} (
                                         {summaryTotals?.total > 0
                                           ? (
-                                              (summaryTotals.yesCount /
-                                                summaryTotals.total) *
-                                              100
-                                            ).toFixed(0)
+                                            (summaryTotals.yesCount /
+                                              summaryTotals.total) *
+                                            100
+                                          ).toFixed(0)
                                           : 0}
                                         %)
                                       </td>
@@ -7629,10 +8919,10 @@ export default function FormAnalyticsDashboard() {
                                         {summaryTotals?.noCount || 0} (
                                         {summaryTotals?.total > 0
                                           ? (
-                                              (summaryTotals.noCount /
-                                                summaryTotals.total) *
-                                              100
-                                            ).toFixed(0)
+                                            (summaryTotals.noCount /
+                                              summaryTotals.total) *
+                                            100
+                                          ).toFixed(0)
                                           : 0}
                                         %)
                                       </td>
@@ -7640,10 +8930,10 @@ export default function FormAnalyticsDashboard() {
                                         {summaryTotals?.naCount || 0} (
                                         {summaryTotals?.total > 0
                                           ? (
-                                              (summaryTotals.naCount /
-                                                summaryTotals.total) *
-                                              100
-                                            ).toFixed(0)
+                                            (summaryTotals.naCount /
+                                              summaryTotals.total) *
+                                            100
+                                          ).toFixed(0)
                                           : 0}
                                         %)
                                       </td>
@@ -7652,18 +8942,18 @@ export default function FormAnalyticsDashboard() {
                                           {generateTableBarChart(
                                             summaryTotals.total > 0
                                               ? (summaryTotals.yesCount /
-                                                  summaryTotals.total) *
-                                                  100
+                                                summaryTotals.total) *
+                                              100
                                               : 0,
                                             summaryTotals.total > 0
                                               ? (summaryTotals.noCount /
-                                                  summaryTotals.total) *
-                                                  100
+                                                summaryTotals.total) *
+                                              100
                                               : 0,
                                             summaryTotals.total > 0
                                               ? (summaryTotals.naCount /
-                                                  summaryTotals.total) *
-                                                  100
+                                                summaryTotals.total) *
+                                              100
                                               : 0,
                                           )}
                                         </div>
@@ -7729,8 +9019,8 @@ export default function FormAnalyticsDashboard() {
                                     data: visibleSectionStats.map((stat) =>
                                       stat.total > 0
                                         ? ((stat.yes + (stat.accepted || 0)) /
-                                            stat.total) *
-                                          100
+                                          stat.total) *
+                                        100
                                         : 0,
                                     ),
                                     backgroundColor: "rgba(34, 197, 94, 0.2)",
@@ -7748,8 +9038,8 @@ export default function FormAnalyticsDashboard() {
                                     data: visibleSectionStats.map((stat) =>
                                       stat.total > 0
                                         ? ((stat.no + (stat.rejected || 0)) /
-                                            stat.total) *
-                                          100
+                                          stat.total) *
+                                        100
                                         : 0,
                                     ),
                                     backgroundColor: "rgba(239, 68, 68, 0.2)",
@@ -7767,8 +9057,8 @@ export default function FormAnalyticsDashboard() {
                                     data: visibleSectionStats.map((stat) =>
                                       stat.total > 0
                                         ? ((stat.na + (stat.rework || 0)) /
-                                            stat.total) *
-                                          100
+                                          stat.total) *
+                                        100
                                         : 0,
                                     ),
                                     backgroundColor: "rgba(156, 163, 175, 0.2)",
@@ -7991,12 +9281,12 @@ export default function FormAnalyticsDashboard() {
                                           const reworkWidth =
                                             total > 0
                                               ? (defect.reworkCount / total) *
-                                                100
+                                              100
                                               : 0;
                                           const rejectedWidth =
                                             total > 0
                                               ? (defect.rejectedCount / total) *
-                                                100
+                                              100
                                               : 0;
                                           const volumeWidth =
                                             (total / maxDefectCount) * 100;
@@ -8058,35 +9348,35 @@ export default function FormAnalyticsDashboard() {
                                                       >
                                                         {reworkLabelPct >
                                                           15 && (
-                                                          <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-amber-900">
-                                                            {reworkLabelPct.toFixed(
-                                                              0,
-                                                            )}
-                                                            %
-                                                          </span>
-                                                        )}
+                                                            <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-amber-900">
+                                                              {reworkLabelPct.toFixed(
+                                                                0,
+                                                              )}
+                                                              %
+                                                            </span>
+                                                          )}
                                                       </div>
                                                     )}
                                                     {defect.rejectedCount >
                                                       0 && (
-                                                      <div
-                                                        style={{
-                                                          width: `${rejectedWidth}%`,
-                                                        }}
-                                                        className="h-full bg-gradient-to-r from-red-400 to-red-500 relative group/bar"
-                                                        title={`Rejected: ${defect.rejectedCount} (${rejectedLabelPct.toFixed(1)}%)`}
-                                                      >
-                                                        {rejectedLabelPct >
-                                                          15 && (
-                                                          <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-white">
-                                                            {rejectedLabelPct.toFixed(
-                                                              0,
+                                                        <div
+                                                          style={{
+                                                            width: `${rejectedWidth}%`,
+                                                          }}
+                                                          className="h-full bg-gradient-to-r from-red-400 to-red-500 relative group/bar"
+                                                          title={`Rejected: ${defect.rejectedCount} (${rejectedLabelPct.toFixed(1)}%)`}
+                                                        >
+                                                          {rejectedLabelPct >
+                                                            15 && (
+                                                              <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-white">
+                                                                {rejectedLabelPct.toFixed(
+                                                                  0,
+                                                                )}
+                                                                %
+                                                              </span>
                                                             )}
-                                                            %
-                                                          </span>
-                                                        )}
-                                                      </div>
-                                                    )}
+                                                        </div>
+                                                      )}
                                                   </div>
                                                 </div>
                                               </div>
@@ -8162,21 +9452,19 @@ export default function FormAnalyticsDashboard() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setTableViewType("question")}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                      tableViewType === "question"
-                        ? "bg-indigo-600 text-white shadow-md"
-                        : "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-300 hover:bg-gray-300"
-                    }`}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all ${tableViewType === "question"
+                      ? "bg-indigo-600 text-white shadow-md"
+                      : "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-300 hover:bg-gray-300"
+                      }`}
                   >
                     Question Based
                   </button>
                   <button
                     onClick={() => setTableViewType("section")}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                      tableViewType === "section"
-                        ? "bg-indigo-600 text-white shadow-md"
-                        : "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-300 hover:bg-gray-300"
-                    }`}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all ${tableViewType === "section"
+                      ? "bg-indigo-600 text-white shadow-md"
+                      : "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-300 hover:bg-gray-300"
+                      }`}
                   >
                     Section Based
                   </button>
@@ -8322,8 +9610,8 @@ export default function FormAnalyticsDashboard() {
                                       const yesPercentage =
                                         total > 0
                                           ? ((yesCount / total) * 100).toFixed(
-                                              1,
-                                            )
+                                            1,
+                                          )
                                           : "0.0";
 
                                       const isFollowUp =
@@ -8333,16 +9621,14 @@ export default function FormAnalyticsDashboard() {
                                       return (
                                         <tr
                                           key={question.id}
-                                          className={`hover:bg-indigo-50 dark:hover:bg-gray-700 transition-colors ${
-                                            isFollowUp
-                                              ? "bg-purple-50 dark:bg-purple-900/20"
-                                              : "bg-white dark:bg-gray-800"
-                                          }`}
+                                          className={`hover:bg-indigo-50 dark:hover:bg-gray-700 transition-colors ${isFollowUp
+                                            ? "bg-purple-50 dark:bg-purple-900/20"
+                                            : "bg-white dark:bg-gray-800"
+                                            }`}
                                         >
                                           <td
-                                            className={`px-6 py-4 text-sm text-gray-900 dark:text-gray-300 border-r border-gray-200 dark:border-gray-700 font-medium max-w-sm ${
-                                              isFollowUp ? "pl-12" : ""
-                                            }`}
+                                            className={`px-6 py-4 text-sm text-gray-900 dark:text-gray-300 border-r border-gray-200 dark:border-gray-700 font-medium max-w-sm ${isFollowUp ? "pl-12" : ""
+                                              }`}
                                           >
                                             <div
                                               className="truncate"
@@ -8494,10 +9780,86 @@ export default function FormAnalyticsDashboard() {
                       All Responses
                     </h3>
                     <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
-                      Viewing {filteredResponses.length} responses
+                      {isLoadingTableResponses
+                        ? "Loading…"
+                        : `Showing ${totalResponsesCount > 0 ? responsesStartIndex + 1 : 0}-${Math.min(responsesEndIndex, totalResponsesCount)} of ${totalResponsesCount} responses`}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 items-center relative">
+                    {/* Overall Search Bar */}
+                    <div className="relative flex items-center bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 rounded-lg shadow-sm w-full sm:w-60">
+                      <Search className="w-4 h-4 text-gray-400 mr-2 shrink-0" />
+                      <input
+                        type="text"
+                        placeholder="Search responses..."
+                        value={responsesSearchTerm}
+                        onChange={(e) => setResponsesSearchTerm(e.target.value)}
+                        className="bg-transparent text-xs text-gray-700 dark:text-gray-200 focus:outline-none w-full font-medium"
+                      />
+                      {responsesSearchTerm && (
+                        <button
+                          onClick={() => setResponsesSearchTerm("")}
+                          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-205 shrink-0 ml-1.5"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-2 py-1.5 rounded-lg shadow-sm">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Show</span>
+                      <select
+                        value={responsesPageSize}
+                        onChange={(e) => {
+                          setResponsesPageSize(Number(e.target.value));
+                          setResponsesPage(1);
+                        }}
+                        className="bg-transparent text-xs font-bold text-gray-700 dark:text-gray-200 focus:outline-none cursor-pointer"
+                      >
+                        {pageSizesList.map((size) => (
+                          <option key={size} value={size}>
+                            {size}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {totalResponsesPages > 1 && (
+                      <div className="flex items-center gap-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-1 py-1 rounded-lg shadow-sm">
+                        <button
+                          onClick={() => setResponsesPage((prev) => Math.max(1, prev - 1))}
+                          disabled={currentResponsesPage === 1}
+                          className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 disabled:opacity-30 rounded transition-colors"
+                          title="Previous Page"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <div className="flex items-center text-xs font-bold text-gray-700 dark:text-gray-200 px-1">
+                          <input
+                            type="number"
+                            min={1}
+                            max={totalResponsesPages}
+                            value={responsesPage}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              if (val >= 1 && val <= totalResponsesPages) {
+                                setResponsesPage(val);
+                              }
+                            }}
+                            className="w-11 text-center bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 mr-1 py-0.5 text-xs font-bold"
+                          />
+                          <span className="text-gray-400 dark:text-gray-500 font-normal">/ {totalResponsesPages}</span>
+                        </div>
+                        <button
+                          onClick={() => setResponsesPage((prev) => Math.min(totalResponsesPages, prev + 1))}
+                          disabled={currentResponsesPage === totalResponsesPages}
+                          className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 disabled:opacity-30 rounded transition-colors"
+                          title="Next Page"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                     <button
                       onClick={() =>
                         setShowResponsesFilter(!showResponsesFilter)
@@ -8529,15 +9891,75 @@ export default function FormAnalyticsDashboard() {
                       <span className="hidden xs:inline">Export</span>
                     </button>
                     {selectedResponseIds.length > 0 && !isGuest && (
-                      <button
-                        onClick={() => setShowBulkDeleteConfirm(true)}
-                        className="px-3 sm:px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        <span className="hidden xs:inline">
-                          Delete ({selectedResponseIds.length})
-                        </span>
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handleBulkBiwReviewUpdate("Accepted")}
+                          disabled={isBulkBiwUpdating}
+                          className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2 animate-in fade-in zoom-in-95 duration-150"
+                          title="Bulk Accept (BIW Review)"
+                        >
+                          {isBulkBiwUpdating ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle className="w-4 h-4" />
+                          )}
+                          <span className="hidden md:inline">BIW Accept</span>
+                          <span className="md:hidden">Accept</span>
+                        </button>
+                        <button
+                          onClick={() => handleBulkBiwReviewUpdate("Rejected")}
+                          disabled={isBulkBiwUpdating}
+                          className="px-3 sm:px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2 animate-in fade-in zoom-in-95 duration-150"
+                          title="Bulk Reject (BIW Review)"
+                        >
+                          {isBulkBiwUpdating ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <XCircle className="w-4 h-4" />
+                          )}
+                          <span className="hidden md:inline">BIW Reject</span>
+                          <span className="md:hidden">Reject</span>
+                        </button>
+                        <button
+                          onClick={() => handleBulkBiwReviewUpdate("Reworked")}
+                          disabled={isBulkBiwUpdating}
+                          className="px-3 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2 animate-in fade-in zoom-in-95 duration-150"
+                          title="Bulk Rework (BIW Review)"
+                        >
+                          {isBulkBiwUpdating ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <RotateCcw className="w-4 h-4" />
+                          )}
+                          <span className="hidden md:inline">BIW Rework</span>
+                          <span className="md:hidden">Rework</span>
+                        </button>
+                        <button
+                          onClick={() => handleBulkBiwReviewUpdate(null)}
+                          disabled={isBulkBiwUpdating}
+                          className="px-3 sm:px-4 py-2 bg-gray-500 hover:bg-gray-600 disabled:opacity-50 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2 animate-in fade-in zoom-in-95 duration-150"
+                          title="Bulk Clear BIW Review"
+                        >
+                          {isBulkBiwUpdating ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                          <span className="hidden md:inline">BIW Clear</span>
+                          <span className="md:hidden">Clear</span>
+                        </button>
+                        <button
+                          onClick={() => setShowBulkDeleteConfirm(true)}
+                          disabled={isBulkBiwUpdating}
+                          className="px-3 sm:px-4 py-2 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2 animate-in fade-in zoom-in-95 duration-150"
+                          title="Delete selected responses"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span className="hidden xs:inline">
+                            Delete ({selectedResponseIds.length})
+                          </span>
+                        </button>
+                      </>
                     )}
 
                     {showResponsesFilter && (
@@ -8571,7 +9993,7 @@ export default function FormAnalyticsDashboard() {
                               onClick={() =>
                                 setSelectedResponsesSectionIds(
                                   form?.sections?.map((s: Section) => s.id) ||
-                                    [],
+                                  [],
                                 )
                               }
                               className="flex-1 px-2 py-1.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-900/30 hover:bg-indigo-200 dark:hover:bg-indigo-900/50 rounded transition-colors"
@@ -8694,9 +10116,9 @@ export default function FormAnalyticsDashboard() {
                       </div>
                     </div>
 
-                    <div className="overflow-x-auto no-scrollbar rounded-xl border border-gray-200 dark:border-gray-700">
+                    <div className="overflow-auto no-scrollbar rounded-xl border border-gray-200 dark:border-gray-700 max-h-[90vh]">
                       <table className="text-xs border-collapse w-full">
-                        <thead className="sticky top-18 z-30">
+                        <thead className="sticky top-0 z-30">
                           <tr className="bg-gray-100 dark:bg-gray-800">
                             <th className="hidden sm:table-cell sticky left-0 z-30 text-center px-3 py-3 font-semibold text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800">
                               <input
@@ -8704,12 +10126,12 @@ export default function FormAnalyticsDashboard() {
                                 checked={
                                   selectedResponseIds.length > 0 &&
                                   selectedResponseIds.length ===
-                                    filteredResponses.length
+                                  tableResponses.length
                                 }
                                 onChange={(e) => {
                                   if (e.target.checked) {
                                     setSelectedResponseIds(
-                                      filteredResponses.map((r) => r.id),
+                                      tableResponses.map((r) => r.id),
                                     );
                                   } else {
                                     setSelectedResponseIds([]);
@@ -8721,8 +10143,31 @@ export default function FormAnalyticsDashboard() {
                             <th className="sticky left-0 sm:left-12 z-30 text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-100 dark:bg-gray-800 min-w-[120px]">
                               <span>Actions</span>
                             </th>
-                            <th className="text-center px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-24 whitespace-nowrap bg-gray-100 dark:bg-gray-800">
-                              Dispatch
+                            <th className="text-center px-6 py-3 ...">
+                              <div className="flex flex-col items-center gap-1.5 justify-center">
+                                <span>Dispatch</span>
+                                {canBulkSelectResponses && (
+                                  <label className="flex items-center gap-1.5 cursor-pointer font-normal text-[10px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 normal-case">
+                                    <input
+                                      type="checkbox"
+                                      checked={isAllDispatchableSelected}
+                                      disabled={dispatchableResponses.length === 0 || pendingDispatchResponses.length === 0 || isBulkDispatching}
+                                      onChange={handleHeaderDispatchChange}
+                                      className="w-3.5 h-3.5 text-green-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-green-600"
+                                    />
+                                    <span>Select All</span>
+                                  </label>
+                                )}
+                                {selectedDispatchIds.length > 0 && (
+                                  <button
+                                    onClick={() => setShowBulkDispatchConfirm(true)}
+                                    className="mt-1 bg-green-600 hover:bg-green-700 text-white text-[10px] px-2 py-0.5 rounded shadow transition-colors"
+                                    title={`Dispatch ${selectedDispatchIds.length} selected items`}
+                                  >
+                                    Proceed ({selectedDispatchIds.length})
+                                  </button>
+                                )}
+                              </div>
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
                               Submitted by
@@ -8730,15 +10175,94 @@ export default function FormAnalyticsDashboard() {
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-32 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
                               Status
                             </th>
-                            <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              Selected Chassis
+                            <th className="text-left px-6 py-3 ... min-w-40 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
+                              <div className="flex items-center gap-1.5">
+                                <span>Selected Chassis</span>
+                                {canBulkSelectResponses && (
+                                  <button
+                                    onClick={handleAutoFillAllChassis}
+                                    disabled={isAutoFillingChassis || !chassisMasterOptions.length}
+                                    title="Auto-fill every response with no chassis number using the first option"
+                                    className="p-1 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed normal-case tracking-normal"
+                                  >
+                                    {isAutoFillingChassis ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <CheckCircle className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                )}
+                              </div>
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
                               Review
                             </th>
+                            <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-44 whitespace-nowrap bg-purple-50 dark:bg-purple-900/20">
+                              <div className="flex flex-col items-center gap-1.5 justify-center">
+                                <span>BIW Review</span>
+                                {canBulkSelectResponses && (
+                                  <label className="flex items-center gap-1.5 cursor-pointer font-normal text-[10px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 normal-case">
+                                    <input
+                                      type="checkbox"
+                                      checked={tableResponses.length > 0 && selectedBiwIds.length === tableResponses.length}
+                                      disabled={tableResponses.length === 0 || isBulkBiwUpdating}
+                                      onChange={(e) => {
+                                        if (e.target.checked) setSelectedBiwIds(tableResponses.map(r => r.id));
+                                        else setSelectedBiwIds([]);
+                                      }}
+                                      className="w-3.5 h-3.5 text-purple-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-purple-600"
+                                    />
+                                    <span>Select All</span>
+                                  </label>
+                                )}
+                                <select
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val) {
+                                      const status = val === "Clear" ? null : val as "Accepted" | "Rejected" | "Reworked";
+                                      if (selectedBiwIds.length === 0) {
+                                        showToast("Please select items using checkboxes first", "error");
+                                      } else {
+                                        // Reuse existing logic, but for selectedBiwIds
+                                        const validResponseIds: string[] = [];
+                                        let selfSubmissionsCount = 0;
+                                        selectedBiwIds.forEach((id) => {
+                                          const resp = responses.find((r) => r.id === id);
+                                          if (resp) {
+                                            if (status !== null && isSubmitterOfResponse(resp)) {
+                                              selfSubmissionsCount++;
+                                            } else {
+                                              validResponseIds.push(id);
+                                            }
+                                          }
+                                        });
+                                        if (validResponseIds.length === 0) {
+                                          showToast("You cannot BIW review your own submissions. All selected items were skipped.", "error");
+                                        } else {
+                                          setBiwBulkUpdateStatus(status);
+                                          setBiwBulkUpdateTargetIds(validResponseIds);
+                                          setBiwBulkUpdateSkippedCount(selfSubmissionsCount);
+                                          setShowBiwBulkUpdateModal(true);
+                                        }
+                                      }
+                                      e.target.value = "";
+                                    }
+                                  }}
+                                  disabled={isBulkBiwUpdating || tableResponses.length === 0}
+                                  className="px-2 py-1 text-[10px] font-black border border-purple-200 dark:border-purple-700 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none normal-case tracking-normal cursor-pointer shadow-sm hover:border-purple-400 transition-colors"
+                                >
+                                  <option value="">Apply to Selected...</option>
+                                  <option value="Accepted">Accept Selected</option>
+                                  <option value="Rejected">Reject Selected</option>
+                                  <option value="Reworked">Rework Selected</option>
+                                  <option value="Clear">Clear Selected</option>
+                                </select>
+                              </div>
+                            </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
                               Timestamp
                             </th>
+
                             <th className="text-center px-4 py-3 font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
                               Time Taken
                             </th>
@@ -8750,10 +10274,7 @@ export default function FormAnalyticsDashboard() {
                                 section.questions?.map((q: any) => {
                                   const isFollowUp =
                                     q.parentId || q.showWhen?.questionId;
-                                  const columnOptions = getUniqueColumnValues(
-                                    q.id,
-                                    responses,
-                                  );
+                                  const columnOptions = uniqueColumnValues.get(q.id) || [];
 
                                   return (
                                     <th
@@ -8790,8 +10311,8 @@ export default function FormAnalyticsDashboard() {
                         </thead>
 
                         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                          {filteredResponses.length > 0 ? (
-                            filteredResponses.map(
+                          {tableResponses.length > 0 ? (
+                            tableResponses.map(
                               (response: Response, idx: number) => (
                                 <tr
                                   key={response.id}
@@ -8868,7 +10389,7 @@ export default function FormAnalyticsDashboard() {
                                               !responseTenantId ||
                                               (currentUserTenantId &&
                                                 responseTenantId.toString() ===
-                                                  currentUserTenantId.toString());
+                                                currentUserTenantId.toString());
                                             const isOwnTenant =
                                               isActualOwnTenant;
 
@@ -8954,129 +10475,70 @@ export default function FormAnalyticsDashboard() {
                                       )}
                                     </div>
                                   </td>
-                                  <td
-                                    className={`px-3 py-3 text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap ${editingResponseId === response.id ? "bg-blue-50 dark:bg-blue-900/20" : idx % 2 === 0 ? "bg-white dark:bg-gray-900" : "bg-gray-50 dark:bg-gray-800"}`}
-                                  >
-                                    {/* Dispatch cell content */}
+                                  <td className="px-3 py-3 text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                     {(() => {
-                                      const status =
-                                        responseStatuses[response.id] || "";
-                                      const canShowDispatch =
-                                        status === "Direct Ok" ||
+                                      const status = responseStatuses[response.id] || "";
+
+                                      // 1️⃣ Check if response is eligible for dispatch based on status
+                                      const canShowDispatch = status === "Direct Ok" ||
                                         status === "Rework Accepted" ||
                                         status === "Rework Completed" ||
                                         status === "Accepted";
-                                      // Check submitter based on email/username like other parts of the code
-                                      const userEmail = user?.email || "";
-                                      const userUsername = user?.username || "";
-                                      const userIdStr = user?._id
-                                        ? String(user._id)
-                                        : user?.id
-                                          ? String(user.id)
-                                          : "";
-                                      const creatorId =
-                                        typeof response.createdBy === "object"
-                                          ? (response.createdBy as any)?._id ||
-                                            (response.createdBy as any)?.id
-                                          : response.createdBy;
-                                      const creatorIdStr = creatorId
-                                        ? String(creatorId)
-                                        : "";
 
-                                      const isSubmitter =
-                                        response.submittedBy === userEmail ||
-                                        response.submittedBy === userUsername ||
-                                        response.createdBy === userEmail ||
-                                        response.createdBy === userUsername ||
-                                        response.submitterContact?.email ===
-                                          userEmail ||
-                                        (creatorIdStr &&
-                                          creatorIdStr === userIdStr);
+                                      // 2️⃣ Use the tenant check function
+                                      const isSameTenant = isOwnTenantResponse(response);
 
-                                      // Debug: Uncomment to see what statuses are being checked
-                                      console.log(
-                                        `Dispatch check for response ${response.id}:`,
-                                        {
-                                          status,
-                                          canShow: canShowDispatch,
-                                          isSubmitter,
-                                          userEmail,
-                                          userUsername,
-                                          responseSubmittedBy:
-                                            response.submittedBy,
-                                          responseCreatedBy: response.createdBy,
-                                          responseSubmitterEmail:
-                                            response.submitterContact?.email,
-                                        },
-                                      );
-
+                                      // ❌ Not eligible based on status
                                       if (!canShowDispatch) {
-                                        return (
-                                          <span className="text-gray-400 text-xs">
-                                            -
-                                          </span>
-                                        );
+                                        return <span className="text-gray-400 text-xs">-</span>;
                                       }
 
-                                      // Show enabled state for all users once dispatch is enabled
+                                      // ✅ Already dispatched - show read-only badge
                                       if (response.isDispatched) {
+                                        const dispatchDate = response.dispatchedAt ? new Date(response.dispatchedAt) : null;
                                         return (
-                                          <div className="flex items-center justify-center">
-                                            <input
-                                              type="checkbox"
-                                              checked={true}
-                                              disabled={true}
-                                              className="w-4 h-4 text-green-600 border-gray-300 dark:border-gray-600 rounded accent-green-600 opacity-60"
-                                              title="Dispatch enabled"
-                                            />
-                                            <span className="ml-2 text-xs text-green-600 font-medium">
-                                              Enabled
-                                            </span>
+                                          <div className="flex flex-col items-center justify-center text-xs text-center gap-0.5">
+                                            <div className="flex items-center text-green-600 font-medium">
+                                              <CheckCircle className="w-3.5 h-3.5 mr-1" />
+                                              <span>Enabled</span>
+                                            </div>
+                                            {response.dispatchedByName ? (
+                                              <span className="text-gray-600 dark:text-gray-300 text-[10px] font-semibold whitespace-nowrap">
+                                                {response.dispatchedByName}
+                                              </span>
+                                            ) : (
+                                              <span className="text-gray-400 text-[10px] italic">Unknown user</span>
+                                            )}
+                                            {dispatchDate && (
+                                              <span className="text-gray-400 text-[9px] whitespace-nowrap">
+                                                {dispatchDate.toLocaleDateString()} · {dispatchDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                              </span>
+                                            )}
                                           </div>
                                         );
                                       }
 
-                                      // Only show interactive checkbox for the submitter
+                                      // 🔒 CROSS-TENANT: Show dash (NO CHECKBOX)
+                                      if (!isSameTenant) {
+                                        return <span className="text-gray-400 text-xs">-</span>;
+                                      }
+
+                                      // ✅ SAME TENANT: Show checkbox
                                       return (
                                         <input
                                           type="checkbox"
-                                          checked={false}
-                                          onChange={async (e) => {
-                                            if (
-                                              e.target.checked &&
-                                              !response.isDispatched
-                                            ) {
-                                              try {
-                                                await apiClient.updateResponse(
-                                                  response.id,
-                                                  { isDispatched: true },
-                                                );
-                                                // Update local state to reflect change immediately
-                                                setResponses((prev) =>
-                                                  prev.map((r) =>
-                                                    r.id === response.id
-                                                      ? {
-                                                          ...r,
-                                                          isDispatched: true,
-                                                          dispatchedAt:
-                                                            new Date().toISOString(),
-                                                        }
-                                                      : r,
-                                                  ),
-                                                );
-                                              } catch (error) {
-                                                console.error(
-                                                  "Failed to enable dispatch:",
-                                                  error,
-                                                );
-                                                alert(
-                                                  "Failed to enable dispatch. Please try again.",
-                                                );
-                                              }
+                                          checked={selectedDispatchIds.includes(response.id)}
+                                          disabled={isBulkDispatching}
+                                          onChange={(e) => {
+                                            e.stopPropagation();
+                                            if (e.target.checked) {
+                                              setSelectedDispatchIds(prev => [...prev, response.id]);
+                                            } else {
+                                              setSelectedDispatchIds(prev => prev.filter(id => id !== response.id));
                                             }
                                           }}
-                                          className="w-4 h-4 text-green-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-green-600"
-                                          title="Enable dispatch (only submitter can do this)"
+                                          className="w-4 h-4 text-green-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                                          title="Select for dispatch"
                                         />
                                       );
                                     })()}
@@ -9088,75 +10550,131 @@ export default function FormAnalyticsDashboard() {
                                   </td>
                                   <td className="px-6 py-3 text-sm font-bold border border-gray-200 dark:border-gray-700 min-w-32 whitespace-nowrap bg-gray-50/50 dark:bg-gray-800/30">
                                     <span
-                                      className={`px-2 py-1 rounded-full text-xs ${
-                                        responseStatuses[response.id] ===
+                                      className={`px-2 py-1 rounded-full text-xs ${responseStatuses[response.id] ===
                                         "Rejected"
-                                          ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300"
-                                          : responseStatuses[
-                                                response.id
-                                              ]?.includes("Rework") &&
-                                              responseStatuses[response.id] !==
-                                                "Rework Accepted"
-                                            ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
-                                            : responseStatuses[response.id] ===
-                                                  "Direct Ok" ||
-                                                responseStatuses[
-                                                  response.id
-                                                ] === "Rework Accepted" ||
-                                                responseStatuses[
-                                                  response.id
-                                                ] === "Accepted"
-                                              ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
-                                              : responseStatuses[
-                                                    response.id
-                                                  ] === "Pending Review"
-                                                ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
-                                                : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
-                                      }`}
+                                        ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300"
+                                        : responseStatuses[
+                                          response.id
+                                        ]?.includes("Rework") &&
+                                          responseStatuses[response.id] !==
+                                          "Rework Accepted"
+                                          ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                                          : responseStatuses[response.id] ===
+                                            "Direct Ok" ||
+                                            responseStatuses[
+                                            response.id
+                                            ] === "Rework Accepted" ||
+                                            responseStatuses[
+                                            response.id
+                                            ] === "Accepted"
+                                            ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                                            : responseStatuses[
+                                              response.id
+                                            ] === "Pending Review"
+                                              ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
+                                              : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                                        }`}
                                     >
                                       {responseStatuses[response.id] ||
                                         "Pending Review"}
                                     </span>
                                   </td>
                                   <td className="px-6 py-3 text-sm text-gray-900 dark:text-white font-medium border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap bg-gray-50/50 dark:bg-gray-800/30">
-                                    {response.answers?.chassis_number || "-"}
+                                    {editingChassisResponseId === response.id ? (
+                                      <div className="flex items-center gap-1.5">
+                                        <select
+                                          value={chassisEditValue}
+                                          onChange={(e) => setChassisEditValue(e.target.value)}
+                                          autoFocus
+                                          className="flex-1 px-2 py-1 text-xs border border-blue-400 dark:border-blue-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        >
+                                          <option value="">Select Chassis</option>
+                                          {chassisMasterOptions.map((opt) => (
+                                            <option key={opt.value} value={opt.value}>
+                                              {opt.label}
+                                            </option>
+                                          ))}
+                                          {chassisEditValue &&
+                                            !chassisMasterOptions.some((o) => o.value === chassisEditValue) && (
+                                              <option value={chassisEditValue}>
+                                                {chassisEditValue} (current)
+                                              </option>
+                                            )}
+                                        </select>
+                                        <button
+                                          onClick={() => handleSaveChassisEdit(response)}
+                                          disabled={isSavingChassis}
+                                          title="Save"
+                                          className="p-1 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/30 rounded transition-colors disabled:opacity-50"
+                                        >
+                                          <CheckCircle className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={handleCancelChassisEdit}
+                                          disabled={isSavingChassis}
+                                          title="Cancel"
+                                          className="p-1 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+                                        >
+                                          <XCircle className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-1.5 group">
+                                        <span>{getChassisDisplayValue(response.answers?.chassis_number)}</span>
+                                        <button
+                                          onClick={() => handleStartChassisEdit(response)}
+                                          title="Edit Chassis"
+                                          className="p-1 text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded transition-all opacity-0 group-hover:opacity-100"
+                                        >
+                                          <Edit className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="px-6 py-3 text-sm border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50/50 dark:bg-gray-800/30">
                                     {(() => {
-                                      const reviewObj =
-                                        (response as any).review ||
-                                        (reviewedBy[response.id]
-                                          ? {
-                                              status:
-                                                reviewedBy[response.id]
-                                                  ?.option ||
-                                                reviewedBy[response.id]?.status,
-                                              reviewer:
-                                                reviewedBy[response.id]?.name ||
-                                                reviewedBy[response.id]
-                                                  ?.reviewer ||
-                                                "Reviewer",
-                                              flaggedQuestions:
-                                                reviewedBy[response.id]
-                                                  ?.flaggedQuestions || [],
-                                            }
-                                          : null);
+                                      const localReview = reviewedBy[response.id];
+                                      const legacyServerReview = (response as any).review;
+
+                                      let reviewObj: {
+                                        status: any;
+                                        reviewer: any;
+                                        flaggedQuestions: any[];
+                                      } | null = null;
+
+                                      if (localReview) {
+                                        reviewObj = {
+                                          status: localReview.option || localReview.status,
+                                          reviewer: localReview.reviewer || localReview.name,
+                                          flaggedQuestions: localReview.flaggedQuestions || [],
+                                        };
+                                      } else if (legacyServerReview) {
+                                        reviewObj = {
+                                          status: legacyServerReview.status,
+                                          reviewer: legacyServerReview.reviewer || legacyServerReview.name,
+                                          flaggedQuestions: legacyServerReview.flaggedQuestions || [],
+                                        };
+                                      }
+
+                                      if (reviewObj && !reviewObj.reviewer) {
+                                        reviewObj.reviewer = "Reviewer";
+                                      }
 
                                       return reviewObj ? (
+
                                         <div className="flex flex-col gap-1">
                                           <div className="flex items-center gap-2">
                                             <span
-                                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
-                                                String(reviewObj.status)
+                                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${String(reviewObj.status)
+                                                .toLowerCase()
+                                                .trim() === "accepted"
+                                                ? "bg-green-500/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800"
+                                                : String(reviewObj.status)
                                                   .toLowerCase()
-                                                  .trim() === "accepted"
-                                                  ? "bg-green-500/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800"
-                                                  : String(reviewObj.status)
-                                                        .toLowerCase()
-                                                        .trim() === "rejected"
-                                                    ? "bg-red-500/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800"
-                                                    : "bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800"
-                                              }`}
+                                                  .trim() === "rejected"
+                                                  ? "bg-red-500/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800"
+                                                  : "bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800"
+                                                }`}
                                             >
                                               {reviewObj.status}
                                             </span>
@@ -9169,7 +10687,7 @@ export default function FormAnalyticsDashboard() {
                                           </div>
                                           {reviewObj.flaggedQuestions &&
                                             reviewObj.flaggedQuestions.length >
-                                              0 && (
+                                            0 && (
                                               <div className="mt-1 flex flex-wrap gap-1">
                                                 {reviewObj.flaggedQuestions.map(
                                                   (q: any, i: number) => (
@@ -9192,13 +10710,116 @@ export default function FormAnalyticsDashboard() {
                                       );
                                     })()}
                                   </td>
+                                  <td className="px-4 py-3 border border-gray-200 dark:border-gray-700 min-w-40 bg-purple-50/50 dark:bg-purple-900/10">
+                                    {(() => {
+                                      const isSubmitter =
+                                        isSubmitterOfResponse(response);
+                                      const currentStatus =
+                                        response.biwReview?.status;
+                                      const isSaving =
+                                        biwSavingResponseId === response.id;
+
+                                      const options: {
+                                        status:
+                                        | "Accepted"
+                                        | "Rejected"
+                                        | "Reworked";
+                                        label: string;
+                                        icon: any;
+                                        activeClass: string;
+                                      }[] = [
+                                          {
+                                            status: "Accepted",
+                                            label: "Accept",
+                                            icon: CheckCircle,
+                                            activeClass:
+                                              "text-green-600 dark:text-green-400",
+                                          },
+                                          {
+                                            status: "Rejected",
+                                            label: "Reject",
+                                            icon: XCircle,
+                                            activeClass:
+                                              "text-red-600 dark:text-red-400",
+                                          },
+                                          {
+                                            status: "Reworked",
+                                            label: "Rework",
+                                            icon: RotateCcw,
+                                            activeClass:
+                                              "text-orange-600 dark:text-orange-400",
+                                          },
+                                        ];
+
+                                      return (
+                                        <div className="flex flex-col gap-1.5">
+                                          <div className="flex items-center gap-2 mb-1 border-b border-gray-200 dark:border-gray-700 pb-1">
+                                            <input
+                                              type="checkbox"
+                                              checked={selectedBiwIds.includes(response.id)}
+                                              onChange={(e) => {
+                                                if (e.target.checked) setSelectedBiwIds(prev => [...prev, response.id]);
+                                                else setSelectedBiwIds(prev => prev.filter(id => id !== response.id));
+                                              }}
+                                              className="w-3.5 h-3.5 text-purple-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-purple-600"
+                                              title="Select for bulk review"
+                                            />
+                                            <span className="text-[10px] text-gray-500 font-semibold uppercase">Select</span>
+                                          </div>
+                                          {options.map((opt) => {
+                                            const Icon = opt.icon;
+                                            const checked =
+                                              currentStatus === opt.status;
+                                            return (
+                                              <label
+                                                key={opt.status}
+                                                title={
+                                                  isSubmitter
+                                                    ? "You cannot BIW review your own submission"
+                                                    : opt.label
+                                                }
+                                                className={`flex items-center gap-1.5 text-xs font-medium ${isSubmitter
+                                                  ? "opacity-40 cursor-not-allowed"
+                                                  : "cursor-pointer"
+                                                  } ${checked ? opt.activeClass : "text-gray-500 dark:text-gray-400"}`}
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  checked={checked}
+                                                  disabled={
+                                                    isSubmitter || isSaving
+                                                  }
+                                                  onChange={() =>
+                                                    handleBiwReviewChange(
+                                                      response,
+                                                      opt.status,
+                                                    )
+                                                  }
+                                                  className="w-3.5 h-3.5 rounded cursor-pointer accent-current disabled:cursor-not-allowed"
+                                                />
+                                                <Icon className="w-3.5 h-3.5" />
+                                                <span>{opt.label}</span>
+                                              </label>
+                                            );
+                                          })}
+                                          {isSaving && (
+                                            <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                                              <Loader2 className="w-3 h-3 animate-spin" />
+                                              Saving...
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
+                                  </td>
                                   <td className="px-6 py-3 text-sm text-gray-600 dark:text-gray-400 font-medium border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
                                     {getResponseTimestamp(response)
                                       ? new Date(
-                                          getResponseTimestamp(response)!,
-                                        ).toLocaleString()
+                                        getResponseTimestamp(response)!,
+                                      ).toLocaleDateString("en-US")
                                       : "-"}
                                   </td>
+
                                   <td className="px-6 py-3 text-sm text-center font-bold text-blue-600 dark:text-blue-400 border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                     {(() => {
                                       // Check both timeSpent (backend) and totalTimeSpent (frontend type)
@@ -9249,28 +10870,26 @@ export default function FormAnalyticsDashboard() {
                                             q.correctAnswer,
                                           )
                                             ? q.correctAnswer
-                                                .join(", ")
-                                                .toLowerCase()
+                                              .join(", ")
+                                              .toLowerCase()
                                             : String(
-                                                q.correctAnswer,
-                                              ).toLowerCase();
+                                              q.correctAnswer,
+                                            ).toLowerCase();
                                           isCorrect = answerStr === correctStr;
                                         }
 
                                         return (
                                           <td
                                             key={`${response.id}-${q.id}`}
-                                            className={`px-6 py-3 text-sm border border-gray-200 dark:border-gray-700 min-w-64 break-words ${
-                                              isFollowUp
-                                                ? "bg-purple-50 dark:bg-purple-900/10"
-                                                : ""
-                                            } ${
-                                              hasCorrectAnswer && !isEditing
+                                            className={`px-6 py-3 text-sm border border-gray-200 dark:border-gray-700 min-w-64 break-words ${isFollowUp
+                                              ? "bg-purple-50 dark:bg-purple-900/10"
+                                              : ""
+                                              } ${hasCorrectAnswer && !isEditing
                                                 ? isCorrect
                                                   ? "bg-green-100 dark:bg-green-900/30"
                                                   : "bg-red-100 dark:bg-red-900/30"
                                                 : ""
-                                            }`}
+                                              }`}
                                           >
                                             {isEditing ? (
                                               <input
@@ -9278,18 +10897,18 @@ export default function FormAnalyticsDashboard() {
                                                 value={
                                                   typeof editFormData[q.id] ===
                                                     "object" &&
-                                                  "status" in editFormData[q.id]
+                                                    "status" in editFormData[q.id]
                                                     ? editFormData[q.id].status
                                                     : editFormData[q.id]
                                                       ? typeof editFormData[
-                                                          q.id
-                                                        ] === "string"
+                                                        q.id
+                                                      ] === "string"
                                                         ? editFormData[q.id]
                                                         : JSON.stringify(
-                                                            editFormData[q.id],
-                                                            null,
-                                                            2,
-                                                          )
+                                                          editFormData[q.id],
+                                                          null,
+                                                          2,
+                                                        )
                                                       : ""
                                                 }
                                                 onChange={(e) => {
@@ -9297,10 +10916,10 @@ export default function FormAnalyticsDashboard() {
                                                   if (
                                                     editFormData[q.id] &&
                                                     typeof editFormData[
-                                                      q.id
+                                                    q.id
                                                     ] === "object" &&
                                                     "status" in
-                                                      editFormData[q.id]
+                                                    editFormData[q.id]
                                                   ) {
                                                     setEditFormData({
                                                       ...editFormData,
@@ -9330,7 +10949,7 @@ export default function FormAnalyticsDashboard() {
                                                 {renderAnswerDisplay(answer, q)}
                                                 {q.trackResponseRank &&
                                                   response.responseRanks?.[
-                                                    q.id
+                                                  q.id
                                                   ] && (
                                                     <span
                                                       className={`text-[10px] font-bold min-w-[24px] h-6 px-1.5 rounded-full flex items-center justify-center border shadow-sm w-fit mt-1 ${getRankStyle(answer, darkMode)}`}
@@ -9338,7 +10957,7 @@ export default function FormAnalyticsDashboard() {
                                                       #
                                                       {
                                                         response.responseRanks[
-                                                          q.id
+                                                        q.id
                                                         ]
                                                       }
                                                     </span>
@@ -9389,17 +11008,76 @@ export default function FormAnalyticsDashboard() {
       )}
 
       {/* Cascading Filter Modal */}
+      {/* Cascading Filter Modal */}
       <CascadingFilterModal
         isOpen={showFilterModal}
         onClose={() => setShowFilterModal(false)}
         questions={
-          form?.sections?.[0]?.questions?.filter(
+          (form?.sections?.flatMap((s: any) => s.questions || []) || []).filter(
             (q: any) => !q.parentId && !q.showWhen?.questionId,
-          ) || []
+          )
         }
         responses={responses}
         onApplyFilters={(filters) => {
+          setHasUserAppliedDateFilter(true); // user has taken explicit control of filtering
           const { dates, locations, ...questionFilters } = filters as any;
+
+          // ✅ Build applied filters array for display
+          const newAppliedFilters: Array<{ id: string; label: string; value: string }> = [];
+
+          // Add question filters
+          Object.entries(questionFilters).forEach(([questionId, answers]) => {
+            if (Array.isArray(answers) && answers.length > 0) {
+              // Find the question text from the form
+              let questionText = questionId;
+              if (form?.sections) {
+                for (const section of form.sections) {
+                  const found = section.questions?.find((q: any) => q.id === questionId);
+                  if (found) {
+                    questionText = found.text || found.label || questionId;
+                    break;
+                  }
+                }
+              }
+              newAppliedFilters.push({
+                id: questionId,
+                label: questionText,
+                value: answers.join(', ')
+              });
+            }
+          });
+
+          // Add location filters
+          if (locations && locations.length > 0) {
+            newAppliedFilters.push({
+              id: 'location',
+              label: 'Location',
+              value: locations.join(', ')
+            });
+          }
+
+          // Add date filters
+          if (dates && (dates.startDate || dates.endDate)) {
+            let dateLabel = 'Date';
+            let dateValue = '';
+            if (dates.startDate && dates.endDate) {
+              dateValue = `${dates.startDate} to ${dates.endDate}`;
+            } else if (dates.startDate) {
+              dateValue = `From ${dates.startDate}`;
+            } else if (dates.endDate) {
+              dateValue = `Until ${dates.endDate}`;
+            }
+            newAppliedFilters.push({
+              id: 'date',
+              label: dateLabel,
+              value: dateValue
+            });
+          }
+
+          // ✅ Update appliedFilters state
+          setAppliedFilters(newAppliedFilters);
+
+          // Update other filter states
           setCascadingFilters(questionFilters);
           if (dates) {
             setDateFilter({
@@ -9411,6 +11089,9 @@ export default function FormAnalyticsDashboard() {
           if (locations && locations.length > 0) {
             setLocationFilter(locations);
           }
+
+          // Close the modal
+          setShowFilterModal(false);
         }}
       />
 
@@ -9449,8 +11130,8 @@ export default function FormAnalyticsDashboard() {
                   <p className="text-gray-900 dark:text-white">
                     {getResponseTimestamp(selectedResponse)
                       ? new Date(
-                          getResponseTimestamp(selectedResponse)!,
-                        ).toLocaleString()
+                        getResponseTimestamp(selectedResponse)!,
+                      ).toLocaleDateString("en-US")
                       : "N/A"}
                   </p>
                 </div>
@@ -9543,7 +11224,7 @@ export default function FormAnalyticsDashboard() {
                               )}
                               {question.trackResponseRank &&
                                 selectedResponse.responseRanks?.[
-                                  question.id
+                                question.id
                                 ] && (
                                   <span
                                     className={`text-[10px] font-bold min-w-[24px] h-6 px-1.5 rounded-full flex items-center justify-center border shadow-sm ${getRankStyle(answer, darkMode)}`}
@@ -9551,7 +11232,7 @@ export default function FormAnalyticsDashboard() {
                                     #
                                     {
                                       selectedResponse.responseRanks[
-                                        question.id
+                                      question.id
                                       ]
                                     }
                                   </span>
@@ -9590,11 +11271,10 @@ export default function FormAnalyticsDashboard() {
               <div className="flex gap-1 bg-white dark:bg-gray-700 rounded-lg p-1 w-fit border border-gray-200 dark:border-gray-600">
                 <button
                   onClick={() => setComparisonViewMode("dashboard")}
-                  className={`flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
-                    comparisonViewMode === "dashboard"
-                      ? "text-white shadow-sm"
-                      : "text-gray-900 dark:text-gray-100 hover:text-black dark:hover:text-white"
-                  }`}
+                  className={`flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${comparisonViewMode === "dashboard"
+                    ? "text-white shadow-sm"
+                    : "text-gray-900 dark:text-gray-100 hover:text-black dark:hover:text-white"
+                    }`}
                   style={{
                     backgroundColor:
                       comparisonViewMode === "dashboard"
@@ -9607,11 +11287,10 @@ export default function FormAnalyticsDashboard() {
                 </button>
                 <button
                   onClick={() => setComparisonViewMode("responses")}
-                  className={`flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
-                    comparisonViewMode === "responses"
-                      ? "text-white shadow-sm"
-                      : "text-gray-900 dark:text-gray-100 hover:text-black dark:hover:text-white"
-                  }`}
+                  className={`flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${comparisonViewMode === "responses"
+                    ? "text-white shadow-sm"
+                    : "text-gray-900 dark:text-gray-100 hover:text-black dark:hover:text-white"
+                    }`}
                   style={{
                     backgroundColor:
                       comparisonViewMode === "responses"
@@ -9731,13 +11410,13 @@ export default function FormAnalyticsDashboard() {
                             <p className="text-xs text-gray-600 dark:text-gray-400">
                               {getResponseTimestamp(response)
                                 ? new Date(
-                                    getResponseTimestamp(response)!,
-                                  ).toLocaleDateString("en-US", {
-                                    month: "short",
-                                    day: "numeric",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })
+                                  getResponseTimestamp(response)!,
+                                ).toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })
                                 : "N/A"}
                             </p>
                             <p className="text-2xl font-bold text-blue-900 dark:text-blue-300 mt-2">
@@ -10044,11 +11723,11 @@ export default function FormAnalyticsDashboard() {
                                   <span className="text-xs font-semibold text-gray-600 dark:text-gray-400 leading-tight">
                                     {getResponseTimestamp(response)
                                       ? new Date(
-                                          getResponseTimestamp(response)!,
-                                        ).toLocaleDateString("en-US", {
-                                          month: "short",
-                                          day: "numeric",
-                                        })
+                                        getResponseTimestamp(response)!,
+                                      ).toLocaleDateString("en-US", {
+                                        month: "short",
+                                        day: "numeric",
+                                      })
                                       : "N/A"}
                                   </span>
                                 </div>
@@ -10115,17 +11794,17 @@ export default function FormAnalyticsDashboard() {
                                           {response.responseRanks?.[
                                             question.id
                                           ] && (
-                                            <span
-                                              className={`text-[10px] font-bold min-w-[24px] h-6 px-1.5 rounded-full flex items-center justify-center border shadow-sm ${getRankStyle(answer, darkMode)}`}
-                                            >
-                                              #
-                                              {
-                                                response.responseRanks[
+                                              <span
+                                                className={`text-[10px] font-bold min-w-[24px] h-6 px-1.5 rounded-full flex items-center justify-center border shadow-sm ${getRankStyle(answer, darkMode)}`}
+                                              >
+                                                #
+                                                {
+                                                  response.responseRanks[
                                                   question.id
-                                                ]
-                                              }
-                                            </span>
-                                          )}
+                                                  ]
+                                                }
+                                              </span>
+                                            )}
                                         </div>
                                       ) : (
                                         <span className="text-xs text-gray-400 dark:text-gray-500">
@@ -10244,6 +11923,124 @@ export default function FormAnalyticsDashboard() {
         </div>
       )}
 
+      {/* Bulk BIW Review Confirmation Modal */}
+      {showBiwBulkUpdateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-sm w-full animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <div className={`flex items-center justify-center w-12 h-12 mx-auto rounded-full mb-4 ${biwBulkUpdateStatus === "Accepted"
+                ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                : biwBulkUpdateStatus === "Rejected"
+                  ? "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                  : biwBulkUpdateStatus === "Reworked"
+                    ? "bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400"
+                    : "bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400"
+                }`}>
+                {biwBulkUpdateStatus === "Accepted" && <CheckCircle className="w-6 h-6" />}
+                {biwBulkUpdateStatus === "Rejected" && <XCircle className="w-6 h-6" />}
+                {biwBulkUpdateStatus === "Reworked" && <RotateCcw className="w-6 h-6" />}
+                {biwBulkUpdateStatus === null && <Trash2 className="w-6 h-6" />}
+              </div>
+
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white text-center mb-2">
+                {biwBulkUpdateStatus === null ? "Clear BIW Reviews" : `Mark BIW Reviews as ${biwBulkUpdateStatus}`}
+              </h3>
+
+              <p className="text-sm text-gray-600 dark:text-gray-400 text-center mb-4">
+                Are you sure you want to {biwBulkUpdateStatus === null ? "clear the BIW review for" : `mark as ${biwBulkUpdateStatus}`} {biwBulkUpdateTargetIds.length} response(s)?
+              </p>
+
+              {biwBulkUpdateSkippedCount > 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 text-center bg-amber-50 dark:bg-amber-900/20 p-2 rounded-lg mb-4">
+                  Note: {biwBulkUpdateSkippedCount} submission(s) will be skipped because you cannot review your own work.
+                </p>
+              )}
+
+              <div className="flex gap-2 justify-center">
+                <button
+                  onClick={() => {
+                    setShowBiwBulkUpdateModal(false);
+                  }}
+                  disabled={isBulkBiwUpdating}
+                  className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors font-medium disabled:opacity-50 text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={executeBulkBiwReviewUpdate}
+                  disabled={isBulkBiwUpdating}
+                  className={`px-4 py-2 text-white rounded-lg transition-colors font-medium disabled:opacity-50 flex items-center gap-2 text-sm ${biwBulkUpdateStatus === "Accepted"
+                    ? "bg-green-600 hover:bg-green-700"
+                    : biwBulkUpdateStatus === "Rejected"
+                      ? "bg-red-600 hover:bg-red-700"
+                      : biwBulkUpdateStatus === "Reworked"
+                        ? "bg-orange-600 hover:bg-orange-700"
+                        : "bg-gray-600 hover:bg-gray-700"
+                    }`}
+                >
+                  {isBulkBiwUpdating ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      Updating...
+                    </>
+                  ) : (
+                    "Confirm"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Dispatch Confirmation Modal */}
+      {showBulkDispatchConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-sm w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-center w-12 h-12 mx-auto bg-green-100 dark:bg-green-900/30 rounded-full mb-4">
+                <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white text-center mb-2">
+                Bulk Dispatch Responses
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 text-center mb-2">
+                Are you sure you want to enable dispatch for the {selectedDispatchIds.length} selected response{selectedDispatchIds.length === 1 ? "" : "s"}?
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-500 text-center mb-6">
+                This will enable dispatching only for the response{selectedDispatchIds.length === 1 ? "" : "s"} you selected.
+              </p>
+              <div className="flex gap-2 justify-center">
+                <button
+                  onClick={() => {
+                    setShowBulkDispatchConfirm(false);
+                  }}
+                  disabled={isBulkDispatching}
+                  className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors font-medium disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleExecuteBulkDispatch}
+                  disabled={isBulkDispatching}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isBulkDispatching ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      Dispatching...
+                    </>
+                  ) : (
+                    `Dispatch ${selectedDispatchIds.length} Response${selectedDispatchIds.length === 1 ? "" : "s"}`
+
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Action Menu Modal */}
       {showActionMenuModal && actionResponse && (
         <div className="fixed inset-0 bg-black/60 dark:bg-black/75 flex items-center justify-center p-4 z-[120] backdrop-blur-sm animate-in fade-in duration-200">
@@ -10269,9 +12066,9 @@ export default function FormAnalyticsDashboard() {
                   Selected Response
                 </p>
                 <p className="text-sm font-bold text-gray-700 dark:text-gray-300 truncate">
-                  {actionResponse.answers?.chassis_number ||
-                    actionResponse.submittedBy ||
-                    "Anonymous"}
+                  {actionResponse.answers?.chassis_number
+                    ? getChassisDisplayValue(actionResponse.answers.chassis_number)
+                    : actionResponse.submittedBy || "Anonymous"}
                 </p>
               </div>
 
@@ -10284,14 +12081,14 @@ export default function FormAnalyticsDashboard() {
                   !responseTenantId ||
                   (currentUserTenantId &&
                     responseTenantId.toString() ===
-                      currentUserTenantId.toString());
+                    currentUserTenantId.toString());
 
                 const isActualOwnTenant =
                   user?.role === "superadmin" ||
                   !responseTenantId ||
                   (currentUserTenantId &&
                     responseTenantId.toString() ===
-                      currentUserTenantId.toString());
+                    currentUserTenantId.toString());
 
                 return (
                   <>
@@ -10428,13 +12225,12 @@ export default function FormAnalyticsDashboard() {
       {/* Toast Notification */}
       {toast && (
         <div
-          className={`fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white font-medium z-50 animate-fadeIn ${
-            toast.type === "success"
-              ? "bg-green-500 dark:bg-green-600"
-              : toast.type === "info"
-                ? "bg-blue-500 dark:bg-blue-600"
-                : "bg-red-500 dark:bg-red-600"
-          }`}
+          className={`fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white font-medium z-50 animate-fadeIn ${toast.type === "success"
+            ? "bg-green-500 dark:bg-green-600"
+            : toast.type === "info"
+              ? "bg-blue-500 dark:bg-blue-600"
+              : "bg-red-500 dark:bg-red-600"
+            }`}
         >
           <div className="flex items-center gap-2">
             {toast.type === "success" ? (
@@ -10545,9 +12341,9 @@ export default function FormAnalyticsDashboard() {
                     const scoreVal =
                       performanceScores[chatResponse?.submittedBy || ""] ??
                       performanceScores[
-                        (chatResponse?.createdBy as any)?._id ||
-                          (chatResponse?.createdBy as string) ||
-                          ""
+                      (chatResponse?.createdBy as any)?._id ||
+                      (chatResponse?.createdBy as string) ||
+                      ""
                       ];
 
                     return (
@@ -10569,11 +12365,11 @@ export default function FormAnalyticsDashboard() {
                     !reviewedBy[chatResponse?.id || ""] &&
                     (responseStatuses[chatResponse?.id] === "Direct Ok" ||
                       responseStatuses[chatResponse?.id] ===
-                        "Rework Accepted" ||
+                      "Rework Accepted" ||
                       responseStatuses[chatResponse?.id] === "Accepted" ||
                       responseStatuses[chatResponse?.id] === "Pending Review" ||
                       responseStatuses[chatResponse?.id] ===
-                        "Rework Completed") &&
+                      "Rework Completed") &&
                     (() => {
                       const userEmail = user?.email || "";
                       const userUsername = user?.username || "";
@@ -10582,7 +12378,7 @@ export default function FormAnalyticsDashboard() {
                       const creatorId =
                         typeof chatResponse?.createdBy === "object"
                           ? (chatResponse.createdBy as any)?._id ||
-                            (chatResponse.createdBy as any)?.id
+                          (chatResponse.createdBy as any)?.id
                           : chatResponse?.createdBy;
                       const creatorIdStr = creatorId ? String(creatorId) : "";
 
@@ -10597,11 +12393,10 @@ export default function FormAnalyticsDashboard() {
                       /* Pending state: show label + cancel */
                       <div className="flex items-center gap-2">
                         <span
-                          className={`px-3 py-1 text-xs font-bold rounded ${
-                            pendingReviewOption === "Rejected"
-                              ? "bg-red-500/30 text-red-100 border border-red-400"
-                              : "bg-yellow-500/30 text-yellow-100 border border-yellow-400"
-                          }`}
+                          className={`px-3 py-1 text-xs font-bold rounded ${pendingReviewOption === "Rejected"
+                            ? "bg-red-500/30 text-red-100 border border-red-400"
+                            : "bg-yellow-500/30 text-yellow-100 border border-yellow-400"
+                            }`}
                         >
                           {pendingReviewOption === "Rejected" ? "❌" : "🔄"}{" "}
                           {pendingReviewOption} — Select questions below
@@ -10626,7 +12421,7 @@ export default function FormAnalyticsDashboard() {
                         const creatorId =
                           typeof chatResponse?.createdBy === "object"
                             ? (chatResponse.createdBy as any)?._id ||
-                              (chatResponse.createdBy as any)?.id
+                            (chatResponse.createdBy as any)?.id
                             : chatResponse?.createdBy;
                         const creatorIdStr = creatorId ? String(creatorId) : "";
 
@@ -10652,13 +12447,12 @@ export default function FormAnalyticsDashboard() {
                                       setPendingReviewOption(option);
                                     }
                                   }}
-                                  className={`px-3 py-1 text-xs font-bold rounded transition-all border ${
-                                    option === "Accepted"
-                                      ? "bg-green-500/30 border-green-400 text-green-100 hover:bg-green-500/50"
-                                      : option === "Rejected"
-                                        ? "bg-red-500/30 border-red-400 text-red-100 hover:bg-red-500/50"
-                                        : "bg-yellow-500/30 border-yellow-400 text-yellow-100 hover:bg-yellow-500/50"
-                                  }`}
+                                  className={`px-3 py-1 text-xs font-bold rounded transition-all border ${option === "Accepted"
+                                    ? "bg-green-500/30 border-green-400 text-green-100 hover:bg-green-500/50"
+                                    : option === "Rejected"
+                                      ? "bg-red-500/30 border-red-400 text-red-100 hover:bg-red-500/50"
+                                      : "bg-yellow-500/30 border-yellow-400 text-yellow-100 hover:bg-yellow-500/50"
+                                    }`}
                                 >
                                   {option === "Accepted"
                                     ? "✅"
@@ -10789,8 +12583,8 @@ export default function FormAnalyticsDashboard() {
                                             questions: checked
                                               ? [...prev.questions, q.id]
                                               : prev.questions.filter(
-                                                  (id) => id !== q.id,
-                                                ),
+                                                (id) => id !== q.id,
+                                              ),
                                           }));
                                         }}
                                         className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer"
@@ -10811,7 +12605,7 @@ export default function FormAnalyticsDashboard() {
                                             }
                                             value={
                                               chatFilters.suggestedAnswers?.[
-                                                q.id
+                                              q.id
                                               ] || {}
                                             }
                                             onChange={(val) =>
@@ -10909,15 +12703,14 @@ export default function FormAnalyticsDashboard() {
                         className={`flex flex-col ${String(msg.from?._id || msg.from) === String(user?._id || (user as any)?.id) ? "items-end" : "items-start"} animate-in fade-in slide-in-from-bottom-2 duration-300`}
                       >
                         <div
-                          className={`max-w-[90%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                            String(msg.from?._id || msg.from) ===
+                          className={`max-w-[90%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${String(msg.from?._id || msg.from) ===
                             String(user?._id || (user as any)?.id)
-                              ? "bg-[#dcf8c6] text-gray-900 rounded-br-lg rounded-tr-lg rounded-tl-sm"
-                              : "bg-white dark:bg-gray-100 text-gray-900 border border-gray-100 dark:border-gray-700 rounded-bl-lg rounded-tl-lg rounded-tr-sm"
-                          }`}
+                            ? "bg-[#dcf8c6] text-gray-900 rounded-br-lg rounded-tr-lg rounded-tl-sm"
+                            : "bg-white dark:bg-gray-100 text-gray-900 border border-gray-100 dark:border-gray-700 rounded-bl-lg rounded-tl-lg rounded-tr-sm"
+                            }`}
                         >
                           {msg.questionContexts &&
-                          msg.questionContexts.length > 0 ? (
+                            msg.questionContexts.length > 0 ? (
                             <div className="space-y-3">
                               {msg.questionContexts.map(
                                 (ctx: any, idx: number) => (
@@ -10991,7 +12784,7 @@ export default function FormAnalyticsDashboard() {
                         <div className="flex items-center gap-1 mt-1.5 px-1 opacity-60">
                           <span className="text-[9px] font-medium text-gray-500 dark:text-gray-400">
                             {String(msg.from?._id || msg.from) ===
-                            String(user?._id || (user as any)?.id)
+                              String(user?._id || (user as any)?.id)
                               ? "You"
                               : msg.from?.name || "Inspector"}{" "}
                             •{" "}
@@ -11002,21 +12795,21 @@ export default function FormAnalyticsDashboard() {
                           </span>
                           {String(msg.from?._id || msg.from) !==
                             String(user?._id || (user as any)?.id) && (
-                            <button
-                              onClick={() => {
-                                setNewMessage(
-                                  `Replying to: "${msg.message.substring(0, 30)}..." \n`,
-                                );
-                                const textarea =
-                                  document.querySelector("textarea");
-                                if (textarea) textarea.focus();
-                              }}
-                              className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:underline ml-2 pointer-events-auto"
-                            >
-                              <Reply className="w-3 h-3" />
-                              Reply
-                            </button>
-                          )}
+                              <button
+                                onClick={() => {
+                                  setNewMessage(
+                                    `Replying to: "${msg.message.substring(0, 30)}..." \n`,
+                                  );
+                                  const textarea =
+                                    document.querySelector("textarea");
+                                  if (textarea) textarea.focus();
+                                }}
+                                className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:underline ml-2 pointer-events-auto"
+                              >
+                                <Reply className="w-3 h-3" />
+                                Reply
+                              </button>
+                            )}
                         </div>
                       </div>
                     ))
@@ -11034,7 +12827,7 @@ export default function FormAnalyticsDashboard() {
                   const creatorId =
                     typeof chatResponse?.createdBy === "object"
                       ? (chatResponse.createdBy as any)?._id ||
-                        (chatResponse.createdBy as any)?.id
+                      (chatResponse.createdBy as any)?.id
                       : chatResponse?.createdBy;
                   const creatorIdStr = creatorId ? String(creatorId) : "";
 
@@ -11082,13 +12875,12 @@ export default function FormAnalyticsDashboard() {
                           }
                         }}
                         disabled={isSendingMessage || !newMessage.trim()}
-                        className={`w-full flex items-center justify-center gap-2 px-6 py-3.5 text-white text-sm font-black rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98] shadow-xl ${
-                          pendingReviewOption && !isSubmitter
-                            ? pendingReviewOption === "Rejected"
-                              ? "bg-red-600 hover:bg-red-700 shadow-red-200 dark:shadow-none"
-                              : "bg-yellow-600 hover:bg-yellow-700 shadow-yellow-200 dark:shadow-none"
-                            : "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200 dark:shadow-none"
-                        }`}
+                        className={`w-full flex items-center justify-center gap-2 px-6 py-3.5 text-white text-sm font-black rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98] shadow-xl ${pendingReviewOption && !isSubmitter
+                          ? pendingReviewOption === "Rejected"
+                            ? "bg-red-600 hover:bg-red-700 shadow-red-200 dark:shadow-none"
+                            : "bg-yellow-600 hover:bg-yellow-700 shadow-yellow-200 dark:shadow-none"
+                          : "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200 dark:shadow-none"
+                          }`}
                       >
                         {isSendingMessage ? (
                           <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -11115,7 +12907,7 @@ export default function FormAnalyticsDashboard() {
                       </div>
                     </div>
                   );
-                })()}
+                })()}s
               </div>
             </div>
           </div>

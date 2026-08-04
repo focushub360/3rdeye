@@ -2,6 +2,13 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import { apiClient, ApiError } from "../api/client";
 import type { StaffMember } from "../types";
 
+interface UserGranularPermissions {
+  canEditAttendanceTime: boolean;
+  canEditInvoices: boolean;
+  canEditPricing: boolean;
+  canBulkSelectResponses?: boolean;
+}
+
 interface User {
   _id: string;
   id?: string;
@@ -18,6 +25,7 @@ interface User {
   customRole?: any;
   permissions?: string[];
   tenantId?: string;
+  granularPermissions?: UserGranularPermissions;
 }
 
 interface TenantSettings {
@@ -77,12 +85,12 @@ const AuthContext = createContext<AuthContextType>({
   tenant: null,
   login: async () => false,
   signup: async () => false,
-  logout: () => {},
+  logout: () => { },
   isAuthenticated: false,
   loading: false,
   error: null,
-  updateTenant: () => {},
-  updateUser: () => {},
+  updateTenant: () => { },
+  updateUser: () => { },
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

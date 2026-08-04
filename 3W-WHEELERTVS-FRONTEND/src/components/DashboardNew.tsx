@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+// add CheckCircle, XCircle, RotateCcw to your lucide-react import
 import {
   FileText,
   ChevronLeft,
@@ -21,13 +22,18 @@ import {
   Eye,
   ChevronUp,
   ChevronDown,
+  CheckCircle,
+  XCircle,
+  RotateCcw,
 } from "lucide-react";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import { Doughnut } from "react-chartjs-2";
 import { apiClient } from "../api/client";
+import PerformanceTable from "./PerformanceTable";
 import { LAYOUT_CONFIG } from "../config/layoutConfig";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
+
 
 interface Tenant {
   _id: string;
@@ -263,19 +269,26 @@ export default function DashboardNew() {
   const navigate = useNavigate();
   const { user, tenant: currentTenant } = useAuth();
   const [userPerformanceScore, setUserPerformanceScore] = useState(100);
-  const [formsData, setFormsData] = useState<any>(null);
-  const [formsLoading, setFormsLoading] = useState(false);
+  const [formsData, setFormsData] = useState<any>(() => {
+    return apiClient.getCachedData("/forms?limit=100") || null;
+  });
+  const [formsLoading, setFormsLoading] = useState(() => {
+    return !apiClient.getCachedData("/forms?limit=100");
+  });
   const [formsError, setFormsError] = useState<string | null>(null);
 
-  const [responsesData, setResponsesData] = useState<any>(null);
-  const [responsesLoading, setResponsesLoading] = useState(false);
-  const [responsesError, setResponsesError] = useState<string | null>(null);
+
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   // New states for tenant management
-  const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [tenantsLoading, setTenantsLoading] = useState(false);
+  const [tenants, setTenants] = useState<Tenant[]>(() => {
+    const cached = apiClient.getCachedData<any>("/tenants");
+    return cached?.tenants || [];
+  });
+  const [tenantsLoading, setTenantsLoading] = useState(() => {
+    return !apiClient.getCachedData("/tenants");
+  });
   const [tenantsError, setTenantsError] = useState<string | null>(null);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
   const [tenantStats, setTenantStats] = useState<Record<string, TenantStats>>(
@@ -293,32 +306,19 @@ export default function DashboardNew() {
   const [summaryEndDate, setSummaryEndDate] = useState(() => {
     return new Date().toISOString().split("T")[0];
   });
-  const [myReviewStats, setMyReviewStats] = useState<any>(null);
-  const [myReviewStatsLoading, setMyReviewStatsLoading] = useState(false);
-  const [performanceTableData, setPerformanceTableData] = useState<any[]>([]);
-  const [performanceTableLoading, setPerformanceTableLoading] = useState(false);
-  const [perfStartDate, setPerfStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return d.toISOString().split("T")[0];
+  const [myReviewStats, setMyReviewStats] = useState<any>(() => {
+    return apiClient.getCachedData("/analytics/my-review-stats") || null;
   });
-  const [perfEndDate, setPerfEndDate] = useState(() => {
-    return new Date().toISOString().split("T")[0];
+  const [myReviewStatsLoading, setMyReviewStatsLoading] = useState(() => {
+    return !apiClient.getCachedData("/analytics/my-review-stats");
   });
-  const [perfInspectorSummary, setPerfInspectorSummary] = useState<any[]>([]);
-  const [activeUserNames, setActiveUserNames] = useState<Set<string>>(
-    new Set(),
-  );
-
-  const [showPerformanceTable, setShowPerformanceTable] = useState(false);
   const [showSummaryTable, setShowSummaryTable] = useState(false);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
 
 
   // Pagination states
   const [summaryPage, setSummaryPage] = useState(1);
   const [summaryPageSize, setSummaryPageSize] = useState(10);
-  const [performancePage, setPerformancePage] = useState(1);
-  const [performancePageSize, setPerformancePageSize] = useState(10);
   const [expandedForms, setExpandedForms] = useState<Set<string>>(new Set());
 
   // Check user role
@@ -366,6 +366,354 @@ export default function DashboardNew() {
     [isUserActive, getUserNameAliases],
   );
 
+
+  const [showBiwTable, setShowBiwTable] = useState(false);
+  const [biwResponses, setBiwResponses] = useState<any[]>([]);
+  const [biwLoading, setBiwLoading] = useState(false);
+  const [biwPage, setBiwPage] = useState(1);
+  const [biwPageSize, setBiwPageSize] = useState(10);
+
+  // Replace the existing useEffect for fetching BIW data
+  useEffect(() => {
+    if (!showBiwTable) return;
+
+    const fetchBiwSummary = async () => {
+      setBiwLoading(true);
+      try {
+        // Use the new dedicated endpoint
+        const response = await apiClient.getBiwSummary({ forceNetwork: true });
+        console.log('[BIW] Summary response:', response);
+
+        if (response?.data) {
+          // The data is already grouped and ready to display
+          const data = Array.isArray(response.data) ? response.data : [];
+          console.log(`[BIW] Total users: ${data.length}`);
+          console.log(`[BIW] Total responses: ${response.totalResponses || 'N/A'}`);
+          setBiwResponses(data);
+        } else {
+          setBiwResponses([]);
+        }
+      } catch (error) {
+        console.error("Error fetching BIW summary:", error);
+        setBiwResponses([]);
+      } finally {
+        setBiwLoading(false);
+      }
+    };
+
+    fetchBiwSummary();
+  }, [showBiwTable]);
+
+  // Simplify biwReviewTableData - data is already grouped from backend
+  const biwReviewTableData = useMemo(() => {
+    // If data is already grouped from the backend, just return it
+    if (biwResponses.length > 0 && 'totalSubmitted' in biwResponses[0]) {
+      return biwResponses;
+    }
+
+    // Fallback: group data manually (in case the endpoint returns raw responses)
+    const byUser = new Map<string, {
+      name: string;
+      totalSubmitted: number;
+      dispatched: number;
+      accepted: number;
+      rejected: number;
+      rework: number;
+    }>();
+
+    const filteredResponses = biwResponses.filter((response: any) => {
+      if (isSuperAdmin) return true;
+
+      const responseTenantId = response.tenantId?._id || response.tenantId;
+      const isSameTenant = responseTenantId === currentTenant?._id ||
+        responseTenantId === currentTenant?.slug;
+
+      if (!isSameTenant) return false;
+
+      const submittedBy = response.submittedBy || response.createdBy || "";
+      if (submittedBy === "Excel Import" ||
+        submittedBy === "System" ||
+        submittedBy === "Admin Import") {
+        return false;
+      }
+
+      return true;
+    });
+
+    filteredResponses.forEach((response: any) => {
+      const name = response.submittedBy || response.createdBy || "Anonymous";
+
+      if (!byUser.has(name)) {
+        byUser.set(name, {
+          name,
+          totalSubmitted: 0,
+          dispatched: 0,
+          accepted: 0,
+          rejected: 0,
+          rework: 0,
+        });
+      }
+
+      const stats = byUser.get(name)!;
+      stats.totalSubmitted += 1;
+      if (response.isDispatched) stats.dispatched += 1;
+
+      const biwStatus = response.biwReview?.status;
+      if (biwStatus === "Accepted") {
+        stats.accepted += 1;
+      } else if (biwStatus === "Rejected") {
+        stats.rejected += 1;
+      } else if (biwStatus === "Reworked") {
+        stats.rework += 1;
+      }
+    });
+
+    return Array.from(byUser.values()).map((stats) => {
+      const totalReviewed = stats.accepted + stats.rejected + stats.rework;
+      const performanceScore = totalReviewed > 0
+        ? Math.round((stats.accepted / totalReviewed) * 100)
+        : 0;
+      return { ...stats, totalReviewed, performanceScore };
+    });
+  }, [biwResponses, isSuperAdmin, currentTenant]);
+
+  const renderBiwReviewTable = () => {
+    if (!showBiwTable) {
+      return (
+        <div className="mt-12 pt-8 border-t border-gray-100 dark:border-gray-700">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-2 h-8 bg-purple-600 rounded-full shadow-sm shadow-purple-500/20"></div>
+            <div>
+              <h3 className="text-xl font-black text-gray-900 dark:text-white leading-none mb-1">
+                BIW Review Table
+              </h3>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                Performance based on BIW review checkmarks
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowBiwTable(true)}
+            className="w-full py-8 bg-purple-50 dark:bg-purple-900/10 border-2 border-dashed border-purple-300 dark:border-purple-700 rounded-3xl hover:bg-purple-100 dark:hover:bg-purple-900/20 transition-all group"
+          >
+            <div className="flex flex-col items-center gap-3">
+              <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-full group-hover:scale-110 transition-transform">
+                <CheckCircle className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-purple-700 dark:text-purple-300">
+                  Load BIW Review Table
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  View BIW review performance across all forms
+                </p>
+              </div>
+            </div>
+          </button>
+        </div>
+      );
+    }
+
+    if (biwLoading) {
+      return (
+        <div className="mt-12 text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-4 border-purple-600 border-t-transparent mx-auto mb-4"></div>
+          <p className="text-gray-500 text-sm">Loading BIW review data...</p>
+        </div>
+      );
+    }
+
+    if (biwReviewTableData.length === 0) {
+      return (
+        <div className="mt-12 pt-8 border-t border-gray-100 dark:border-gray-700 text-center py-8 text-gray-500 text-sm">
+          No BIW review data available yet.
+        </div>
+      );
+    }
+
+    const totalBiwItems = biwReviewTableData.length;
+    const totalBiwPages = Math.max(1, Math.ceil(totalBiwItems / biwPageSize));
+    const biwStartIndex = (biwPage - 1) * biwPageSize;
+    const biwEndIndex = biwStartIndex + biwPageSize;
+    const paginatedBiw = biwReviewTableData.slice(biwStartIndex, biwEndIndex);
+    console.log("[BIW] biwReviewTableData:", biwReviewTableData);
+    console.log("[BIW] totalBiwItems:", totalBiwItems, "paginatedBiw:", paginatedBiw);
+
+    return (
+      <div className="mt-12 pt-8 border-t border-gray-100 dark:border-gray-700">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-2 h-8 bg-purple-600 rounded-full shadow-sm shadow-purple-500/20"></div>
+          <div>
+            <h3 className="text-xl font-black text-gray-900 dark:text-white leading-none mb-1">
+              BIW Review Table
+            </h3>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+              Performance based on BIW review checkmarks (all forms)
+            </p>
+          </div>
+        </div>
+
+        <div className="relative bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 shadow-xl shadow-gray-200/50 dark:shadow-none overflow-hidden">
+          <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
+            <table className="w-full text-sm text-left border-collapse">
+              <thead className="bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-md sticky top-16 z-10 text-gray-500 dark:text-gray-400 uppercase text-[10px] font-black tracking-[0.15em]">
+                <tr>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap">
+                    User Name
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">
+                    Total Submitted
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-blue-600">
+                    Dispatched
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">
+                    Total Reviewed
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-green-600">
+                    Accepted
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-red-600">
+                    Rejected
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-orange-600">
+                    Reworked
+                  </th>
+                  <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">
+                    Performance Score
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
+                {paginatedBiw.map((row, idx) => (
+                  <tr
+                    key={idx}
+                    className="hover:bg-purple-50/30 dark:hover:bg-purple-900/10 transition-colors"
+                  >
+                    <td className="px-4 sm:px-6 py-5 font-bold text-gray-900 dark:text-white whitespace-nowrap">
+                      {row.name}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center tabular-nums">
+                      {row.totalSubmitted}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-blue-600 dark:text-blue-400 tabular-nums">
+                      {row.dispatched || 0}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center tabular-nums">
+                      {row.totalReviewed}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-green-600 tabular-nums">
+                      {row.accepted}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-red-600 tabular-nums">
+                      {row.rejected}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 font-black text-center text-orange-600 tabular-nums">
+                      {row.rework}
+                    </td>
+                    <td className="px-4 sm:px-6 py-5 text-center">
+                      <span
+                        className={`px-3 py-1 rounded-full text-[10px] font-black tabular-nums shadow-sm ${row.performanceScore >= 80
+                          ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
+                          : row.performanceScore >= 50
+                            ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400"
+                            : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
+                          }`}
+                      >
+                        {row.performanceScore}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {totalBiwPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-6 bg-gray-50/50 dark:bg-gray-900/50 border-t border-gray-50 dark:border-gray-700">
+              <div className="flex items-center gap-3">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                  Show
+                </label>
+                <select
+                  value={biwPageSize}
+                  onChange={(e) => {
+                    setBiwPageSize(Number(e.target.value));
+                    setBiwPage(1);
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all shadow-sm"
+                >
+                  {[5, 10, 20, 50].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                  {biwStartIndex + 1}-{Math.min(biwEndIndex, totalBiwItems)} of{" "}
+                  {totalBiwItems}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setBiwPage((prev) => Math.max(1, prev - 1))}
+                  disabled={biwPage === 1}
+                  className="p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl disabled:opacity-30 transition-all hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalBiwPages }, (_, i) => i + 1)
+                    .filter(
+                      (num) =>
+                        totalBiwPages <= 5 ||
+                        Math.abs(num - biwPage) <= 1 ||
+                        num === 1 ||
+                        num === totalBiwPages,
+                    )
+                    .map((pageNum, idx, arr) => (
+                      <React.Fragment key={pageNum}>
+                        {idx > 0 && arr[idx - 1] !== pageNum - 1 && (
+                          <span className="text-gray-300 mx-1">...</span>
+                        )}
+                        <button
+                          onClick={() => setBiwPage(pageNum)}
+                          className={`min-w-[32px] h-8 text-[10px] font-black rounded-xl transition-all ${biwPage === pageNum
+                            ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30"
+                            : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-50"
+                            }`}
+                        >
+                          {pageNum}
+                        </button>
+                      </React.Fragment>
+                    ))}
+                </div>
+
+                <button
+                  onClick={() =>
+                    setBiwPage((prev) => Math.min(totalBiwPages, prev + 1))
+                  }
+                  disabled={biwPage === totalBiwPages}
+                  className="p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl disabled:opacity-30 transition-all hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const activeUserNames = useMemo(
+    () => buildActiveUserNames(allUsers),
+    [allUsers, buildActiveUserNames],
+  );
+
   const getInspectorName = useCallback((item: any) => {
     return (
       item?.qcInspector ||
@@ -386,6 +734,7 @@ export default function DashboardNew() {
     const aliases = getUserNameAliases({ username: inspectorName });
     return Array.from(aliases).some((alias) => activeUserNames.has(alias));
   };
+
 
   // Calculate trial days left
   const getTrialDaysLeft = () => {
@@ -416,25 +765,13 @@ export default function DashboardNew() {
     storedTenant: localStorage.getItem("tenant_info"),
   });
   console.log("Forms Data:", formsData);
-  console.log("Responses Data:", responsesData);
 
 
   const isInitialLoadRef = useRef(true);
   // Load forms when tenant is selected
 
 
-  // Load forms when tenant is selected - BUT NOT on initial page load
-  useEffect(() => {
-    // ✅ Skip if this is the initial page load
-    if (isInitialLoadRef.current) {
-      isInitialLoadRef.current = false;
-      return;
-    }
 
-    if (selectedTenant && viewMode === "forms") {
-      loadFormsForTenant(selectedTenant._id);
-    }
-  }, [selectedTenant, viewMode]);
   // Add this function
 
   // Add this state near other states
@@ -448,26 +785,31 @@ export default function DashboardNew() {
     }
   }, [selectedTenant, viewMode, formsLoaded]);
 
-  // In loadFormsForTenant, after successful load:
   const loadFormsForTenant = useCallback(async (tenantId: string) => {
     if (!tenantId) return;
 
-    setFormsLoading(true);
+    const cacheKey = `/forms?tenantId=${tenantId}&limit=100`;
+    if (apiClient.isCacheFresh(cacheKey, 30)) {
+      setFormsLoading(false);
+      setFormsLoaded(true);
+      return;
+    }
+
+    const hasCache = apiClient.getCachedData(cacheKey) !== null;
+    if (!hasCache) {
+      setFormsLoading(true);
+    }
     setFormsError(null);
 
     try {
       const formsResponse = await apiClient.getForms({
         tenantId: tenantId,
-        limit: 20,
+        limit: 100,
+        forceNetwork: true
       });
+
       setFormsData(formsResponse);
       setFormsLoaded(true); // ✅ Mark as loaded
-
-      if (formsResponse?.forms?.length > 0) {
-        const formIds = formsResponse.forms.map((f: any) => f.id || f._id);
-        const responsesResponse = await apiClient.getResponses({ formIds: formIds.join(','), limit: 100, });
-        setResponsesData(responsesResponse);
-      }
     } catch (error: any) {
       console.error("Error loading forms:", error);
       setFormsError(error.message || "Failed to load forms");
@@ -527,11 +869,20 @@ export default function DashboardNew() {
         return;
       }
 
-      setTenantsLoading(true);
+      const cacheKey = "/tenants";
+      if (apiClient.isCacheFresh(cacheKey, 30)) {
+        setTenantsLoading(false);
+        return;
+      }
+
+      const hasCache = apiClient.getCachedData(cacheKey) !== null;
+      if (!hasCache) {
+        setTenantsLoading(true);
+      }
       setTenantsError(null);
       try {
         console.log("Fetching tenants for superadmin...");
-        const response = await apiClient.getTenants();
+        const response = await apiClient.request<{ tenants: any[] }>(cacheKey, { forceNetwork: true });
         console.log("Tenants API response:", response);
 
         if (response && response.tenants) {
@@ -582,71 +933,9 @@ export default function DashboardNew() {
     }
   }, [currentTenant, isSuperAdmin, showTenants]); // ✅ Added showTenants as dependency
 
-  useEffect(() => {
-    if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
-      return;
-    }
 
-    let cancelled = false;
 
-    const fetchActiveUsers = async () => {
-      try {
-        const [adminData, subadminData, inspectorData] = await Promise.all([
-          apiClient.getUsers({ role: "admin", limit: 100 }),
-          apiClient.getUsers({ role: "subadmin", limit: 100 }),
-          apiClient.getUsers({ role: "inspector", limit: 100 }),
-        ]);
 
-        const allUsers = [
-          ...(Array.isArray(adminData.users) ? adminData.users : []),
-          ...(Array.isArray(subadminData.users) ? subadminData.users : []),
-          ...(Array.isArray(inspectorData.users) ? inspectorData.users : []),
-        ];
-
-        if (!cancelled) {
-          setActiveUserNames(buildActiveUserNames(allUsers));
-        }
-      } catch (error) {
-        console.error("Error fetching active users:", error);
-        if (!cancelled) {
-          setActiveUserNames(new Set());
-        }
-      }
-    };
-
-    fetchActiveUsers();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [user?._id, user?.role]);
-
-  useEffect(() => {
-    // ✅ Don't fetch if not showing
-    if (!showPerformanceTable) return;
-
-    if (!user || (user.role !== "admin" && user.role !== "superadmin")) return;
-    let cancelled = false;
-    const fetchPerfSummary = async () => {
-      try {
-        let url = "/analytics/inspector-summary";
-        const params = new URLSearchParams();
-        if (perfStartDate) params.append("startDate", perfStartDate);
-        if (perfEndDate) params.append("endDate", perfEndDate);
-        const queryString = params.toString();
-        if (queryString) url += `?${queryString}`;
-        const response = await apiClient.get<any>(url);
-        if (!cancelled && response.data) {
-          setPerfInspectorSummary(response.data.summary || []);
-        }
-      } catch (error) {
-        console.error("Error fetching perf inspector summary:", error);
-        if (!cancelled) setPerfInspectorSummary([]);
-      }
-    };
-    fetchPerfSummary();
-    return () => { cancelled = true; };
-  }, [user, perfStartDate, perfEndDate, showPerformanceTable]);
   // Fetch inspector summary data - ONLY when user clicks "Load"
   useEffect(() => {
     // ✅ Don't fetch if not showing
@@ -668,6 +957,9 @@ export default function DashboardNew() {
           const summary = response.data.summary || [];
           setInspectorSummary(summary);
           setSummaryStatuses(response.data.allStatuses || []);
+          if (response.data.users && Array.isArray(response.data.users)) {
+            setAllUsers(response.data.users);
+          }
         }
       } catch (error) {
         console.error("Error fetching inspector summary:", error);
@@ -693,17 +985,7 @@ export default function DashboardNew() {
     return statuses.length > 0 ? statuses : summaryStatuses;
   }, [activeInspectorSummary, summaryStatuses]);
 
-  // Performance table statuses: derived from perfInspectorSummary (its own date range)
-  const performanceStatuses = useMemo(() => {
-    const statuses = Array.from(
-      new Set(
-        perfInspectorSummary.flatMap((item: any) =>
-          Object.keys(item.statusCounts || {}),
-        ),
-      ),
-    );
-    return statuses.length > 0 ? statuses : summaryStatuses;
-  }, [perfInspectorSummary, summaryStatuses]);
+
 
   const groupedSummary = useMemo(() => {
     const groups: Record<string, any> = {};
@@ -731,9 +1013,18 @@ export default function DashboardNew() {
   // Fetch my review stats
   useEffect(() => {
     const fetchMyStats = async () => {
-      setMyReviewStatsLoading(true);
+      const cacheKey = "/analytics/my-review-stats";
+      if (apiClient.isCacheFresh(cacheKey, 30)) {
+        setMyReviewStatsLoading(false);
+        return;
+      }
+
+      const hasCache = apiClient.getCachedData(cacheKey) !== null;
+      if (!hasCache) {
+        setMyReviewStatsLoading(true);
+      }
       try {
-        const response = await apiClient.getMyReviewStats();
+        const response = await apiClient.getMyReviewStats({ forceNetwork: true });
         if (response.success) {
           setMyReviewStats(response.data);
         }
@@ -751,66 +1042,10 @@ export default function DashboardNew() {
 
 
 
-  // Fetch performance table data
-  useEffect(() => {
-    // ✅ Don't fetch if not showing
-    if (!showPerformanceTable) return;
 
-    if (!user || (user.role !== "admin" && user.role !== "superadmin")) return;
-
-    // ✅ Create an async function inside useEffect
-    const fetchPerformanceTable = async () => {
-      setPerformanceTableLoading(true);
-      try {
-        const response = await apiClient.getPerformanceTable({
-          startDate: perfStartDate,
-          endDate: perfEndDate,
-        });
-        if (response.success) {
-          const dispatchMap = new Map<string, number>();
-
-          perfInspectorSummary.forEach((item: any) => {
-            const userName = item.qcInspector;
-            if (userName && item.statusCounts?.Dispatched) {
-              const currentCount = dispatchMap.get(userName) || 0;
-              dispatchMap.set(
-                userName,
-                currentCount + (item.statusCounts.Dispatched || 0),
-              );
-            }
-          });
-
-          const filteredRows = response.data.filter(
-            (row: any) => isUserActive(row) && isInspectorActive(row),
-          );
-
-          const mergedData = filteredRows.map((row: any) => ({
-            ...row,
-            dispatched: dispatchMap.get(row.name) || row.dispatched || 0,
-          }));
-
-          setPerformanceTableData(mergedData);
-        }
-      } catch (error) {
-        console.error("Error fetching performance table:", error);
-      } finally {
-        setPerformanceTableLoading(false);
-      }
-    };
-
-    // ✅ Call the async function
-    fetchPerformanceTable();
-  }, [
-    user,
-    perfStartDate,
-    perfEndDate,
-    perfInspectorSummary,
-    activeUserNames,
-    showPerformanceTable,
-  ]);
   // Calculate tenant statistics
   useEffect(() => {
-    if (formsData?.forms && responsesData?.responses && tenants.length > 0) {
+    if (formsData?.forms && tenants.length > 0) {
       console.log("Calculating tenant stats...");
       // Use the loaded user performance score
       const currentUserScore = userPerformanceScore;
@@ -837,41 +1072,14 @@ export default function DashboardNew() {
           `Tenant ${tenant.companyName} has ${tenantForms.length} forms`,
         );
 
-        // Get all responses for this tenant's forms
-        const tenantFormIds = tenantForms.map(
-          (form: any) => form.id || form._id,
+        const totalResponses = tenantForms.reduce(
+          (sum: number, form: any) => sum + (form.responseCount || 0),
+          0,
         );
-        const tenantResponses = responsesData.responses.filter(
-          (response: any) =>
-            tenantFormIds.includes(response.formId || response.questionId),
-        );
-
-        // Calculate promoter percentage
-        let yesCount = 0;
-        let totalResponses = 0;
-
-        tenantResponses.forEach((response: any) => {
-          if (response.answers) {
-            Object.values(response.answers).forEach((answer: any) => {
-              const answerStr = String(answer).toLowerCase();
-              if (answerStr === "yes") {
-                yesCount++;
-              }
-              if (
-                answerStr === "yes" ||
-                answerStr === "no" ||
-                answerStr === "n/a" ||
-                answerStr === "na"
-              ) {
-                totalResponses++;
-              }
-            });
-          }
-        });
 
         stats[tenant._id] = {
           totalForms: tenantForms.length,
-          totalResponses: tenantResponses.length,
+          totalResponses: totalResponses,
           performanceScore: currentUserScore,
         };
 
@@ -880,7 +1088,7 @@ export default function DashboardNew() {
 
       setTenantStats(stats);
     }
-  }, [formsData, responsesData, tenants]);
+  }, [formsData, tenants, userPerformanceScore]);
 
   // Load user performance score
   useEffect(() => {
@@ -983,53 +1191,7 @@ export default function DashboardNew() {
     return [];
   }, [formsData?.forms, selectedTenant, viewMode, searchQuery]);
 
-  const statsCache = React.useMemo(() => {
-    const cache = new Map<
-      string,
-      { yesCount: number; noCount: number; naCount: number; total: number }
-    >();
 
-    if (responsesData?.responses) {
-      responsesData.responses.forEach((response: any) => {
-        if (response.answers) {
-          const formId = response.questionId || response.formId;
-          if (!cache.has(formId)) {
-            cache.set(formId, {
-              yesCount: 0,
-              noCount: 0,
-              naCount: 0,
-              total: 0,
-            });
-          }
-          const stats = cache.get(formId)!;
-          Object.values(response.answers).forEach((answer: any) => {
-            const answerStr = String(answer).toLowerCase();
-            if (answerStr === "yes") {
-              stats.yesCount++;
-            } else if (answerStr === "no") {
-              stats.noCount++;
-            } else if (answerStr === "n/a" || answerStr === "na") {
-              stats.naCount++;
-            }
-          });
-          stats.total = stats.yesCount + stats.noCount + stats.naCount;
-        }
-      });
-    }
-
-    return cache;
-  }, [responsesData?.responses]);
-
-  const getFormResponseStats = (formId: string) => {
-    return (
-      statsCache.get(formId) || {
-        yesCount: 0,
-        noCount: 0,
-        naCount: 0,
-        total: 0,
-      }
-    );
-  };
 
   const scroll = (direction: "left" | "right") => {
     if (scrollContainerRef.current) {
@@ -1315,7 +1477,7 @@ export default function DashboardNew() {
       );
     }
 
-    if (formsError || responsesError) {
+    if (formsError) {
       return (
         <div className="text-center py-12">
           <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -1325,7 +1487,7 @@ export default function DashboardNew() {
             Error loading data
           </h3>
           <p className="text-gray-600 dark:text-gray-400">
-            {formsError || responsesError}
+            {formsError}
           </p>
         </div>
       );
@@ -1405,11 +1567,6 @@ export default function DashboardNew() {
       <div className="relative">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6 lg:gap-8">
           {filteredForms.map((form: any) => {
-            const stats = getFormResponseStats(form.id);
-            const promoterPercentage =
-              stats.total > 0
-                ? ((stats.yesCount / stats.total) * 100).toFixed(1)
-                : "0";
             return (
               <div
                 key={form._id}
@@ -1454,51 +1611,17 @@ export default function DashboardNew() {
                       Success Rate
                     </p>
                     <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-                      {promoterPercentage}%
+                      0%
                     </p>
                   </div>
                 </div>
 
                 <div className="mt-auto space-y-6">
-                  {stats.total > 0 ? (
-                    <>
-                      <div className="grid grid-cols-3 gap-4 py-4 bg-gray-50/50 dark:bg-gray-900/50 rounded-2xl border border-gray-100 dark:border-gray-700">
-                        <div className="text-center">
-                          <Smile className="w-5 h-5 text-emerald-500 mx-auto mb-1" />
-                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                            Yes
-                          </p>
-                          <p className="text-sm font-black text-gray-900 dark:text-white">
-                            {stats.yesCount}
-                          </p>
-                        </div>
-                        <div className="text-center border-x border-gray-100 dark:border-gray-700">
-                          <Frown className="w-5 h-5 text-rose-500 mx-auto mb-1" />
-                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                            No
-                          </p>
-                          <p className="text-sm font-black text-gray-900 dark:text-white">
-                            {stats.noCount}
-                          </p>
-                        </div>
-                        <div className="text-center">
-                          <Meh className="w-5 h-5 text-amber-500 mx-auto mb-1" />
-                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                            N/A
-                          </p>
-                          <p className="text-sm font-black text-gray-900 dark:text-white">
-                            {stats.naCount}
-                          </p>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="py-8 text-center bg-gray-50/50 dark:bg-gray-900/30 rounded-2xl border-2 border-dashed border-gray-100 dark:border-gray-700">
-                      <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-                        No response data yet
-                      </p>
-                    </div>
-                  )}
+                  <div className="py-8 text-center bg-gray-50/50 dark:bg-gray-900/30 rounded-2xl border-2 border-dashed border-gray-100 dark:border-gray-700">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                      No response data yet
+                    </p>
+                  </div>
 
                   <button
                     onClick={() => navigate(`/forms/${form.id}/analytics`)}
@@ -1529,6 +1652,13 @@ export default function DashboardNew() {
   };
 
   const renderSummaryTable = () => {
+    // Pagination logic (defined early to ensure availability in all branches)
+    const totalSummaryItems = groupedSummary.length;
+    const totalSummaryPages = Math.max(1, Math.ceil(totalSummaryItems / summaryPageSize));
+    const startIndex = (summaryPage - 1) * summaryPageSize;
+    const endIndex = startIndex + summaryPageSize;
+    const paginatedSummary = groupedSummary.slice(startIndex, endIndex);
+
     if (!showSummaryTable) {
       return (
         <div className="mt-12 pt-8 border-t border-gray-100 dark:border-gray-700">
@@ -1582,13 +1712,6 @@ export default function DashboardNew() {
         </div>
       );
     }
-
-    // Pagination logic
-    const totalSummaryItems = groupedSummary.length;
-    const totalSummaryPages = Math.ceil(totalSummaryItems / summaryPageSize);
-    const startIndex = (summaryPage - 1) * summaryPageSize;
-    const endIndex = startIndex + summaryPageSize;
-    const paginatedSummary = groupedSummary.slice(startIndex, endIndex);
 
     return (
       <div className="mt-12 pt-8 border-t border-gray-100 dark:border-gray-700">
@@ -1950,633 +2073,7 @@ export default function DashboardNew() {
     );
   };
 
-  const renderPerformanceTable = () => {
-    if (user?.role !== "admin" && user?.role !== "superadmin") return null;
 
-    // ✅ ADD THIS: Show load button if not showing yet
-    if (!showPerformanceTable) {
-      return (
-        <div className="mt-12 border-t border-gray-100 dark:border-gray-600 pt-8">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-1.5 h-6 bg-purple-600 rounded-full"></div>
-            <div>
-              <h3 className="text-lg font-bold text-gray-800 dark:text-white leading-none mb-1">
-                Performance Table
-              </h3>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-                Per-user performance data
-              </p>
-            </div>
-          </div>
-
-          <button
-            onClick={() => setShowPerformanceTable(true)}
-            className="w-full py-8 bg-purple-50 dark:bg-purple-900/10 border-2 border-dashed border-purple-300 dark:border-purple-700 rounded-3xl hover:bg-purple-100 dark:hover:bg-purple-900/20 transition-all group"
-          >
-            <div className="flex flex-col items-center gap-3">
-              <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-full group-hover:scale-110 transition-transform">
-                <Users className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-purple-700 dark:text-purple-300">
-                  Load Performance Table
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  View per-user performance data
-                </p>
-              </div>
-            </div>
-          </button>
-        </div>
-      );
-    }
-
-    if (performanceTableLoading) {
-      return (
-        <div className="mt-12 text-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-4 border-purple-600 border-t-transparent mx-auto mb-4"></div>
-          <p className="text-gray-500 text-sm">Loading performance data...</p>
-        </div>
-      );
-    }
-
-    // ✅ ADD THIS: Show empty state instead of returning null
-    if (performanceTableData.length === 0) {
-      return (
-        <div className="mt-12 border-t border-gray-100 dark:border-gray-600 pt-8">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-1.5 h-6 bg-purple-600 rounded-full"></div>
-            <h3 className="text-lg font-bold text-gray-800 dark:text-white">
-              Performance Table
-            </h3>
-          </div>
-          <div className="text-center py-8 text-gray-500 text-sm bg-gray-50 dark:bg-gray-900/20 rounded-2xl border border-gray-100 dark:border-gray-700">
-            No performance data available for the selected date range.
-            <button
-              onClick={() => {
-                setShowPerformanceTable(false);
-                setTimeout(() => setShowPerformanceTable(true), 100);
-              }}
-              className="block mx-auto mt-3 px-4 py-2 text-xs font-bold text-purple-600 hover:text-purple-700 bg-purple-50 rounded-xl transition-colors"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    // Build a map of inspectorName -> { [status]: count } from perfInspectorSummary
-    const inspectorStatusMap: Record<string, Record<string, number>> = {};
-    perfInspectorSummary.forEach((item: any) => {
-      const name = item.qcInspector;
-      if (!name) return;
-      if (!inspectorStatusMap[name]) inspectorStatusMap[name] = {};
-      Object.entries(item.statusCounts || {}).forEach(([status, count]) => {
-        inspectorStatusMap[name][status] =
-          (inspectorStatusMap[name][status] || 0) + (count as number);
-      });
-    });
-
-    // Pagination logic
-    const totalPerformanceItems = performanceTableData.length;
-    const totalPerformancePages = Math.ceil(
-      totalPerformanceItems / performancePageSize,
-    );
-    const startIndex = (performancePage - 1) * performancePageSize;
-    const endIndex = startIndex + performancePageSize;
-    const paginatedPerformance = performanceTableData.slice(
-      startIndex,
-      endIndex,
-    );
-
-    return (
-      <div className="mt-12 border-t border-gray-100 dark:border-gray-600 pt-8">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-1.5 h-6 bg-purple-600 rounded-full"></div>
-            <div>
-              <h3 className="text-lg font-bold text-gray-800 dark:text-white leading-none mb-1">
-                Performance Table
-              </h3>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-                Per-user performance data
-              </p>
-            </div>
-          </div>
-
-          {/* Independent date filters for Performance Table */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <div className="flex items-center bg-white dark:bg-gray-800 rounded-2xl px-4 py-2 border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-4 focus-within:ring-purple-500/10 transition-all">
-              <span className="text-[10px] font-black text-gray-400 mr-3 uppercase tracking-wider">
-                From
-              </span>
-              <input
-                type="date"
-                value={perfStartDate}
-                onChange={(e) => {
-                  setPerfStartDate(e.target.value);
-                  setPerformancePage(1);
-                }}
-                className="bg-transparent text-sm font-bold text-gray-700 dark:text-gray-200 focus:outline-none w-full"
-              />
-            </div>
-            <div className="flex items-center bg-white dark:bg-gray-800 rounded-2xl px-4 py-2 border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-4 focus-within:ring-purple-500/10 transition-all">
-              <span className="text-[10px] font-black text-gray-400 mr-3 uppercase tracking-wider">
-                To
-              </span>
-              <input
-                type="date"
-                value={perfEndDate}
-                onChange={(e) => {
-                  setPerfEndDate(e.target.value);
-                  setPerformancePage(1);
-                }}
-                className="bg-transparent text-sm font-bold text-gray-700 dark:text-gray-200 focus:outline-none w-full"
-              />
-            </div>
-            {(perfStartDate || perfEndDate) && (
-              <button
-                onClick={() => {
-                  setPerfStartDate("");
-                  setPerfEndDate("");
-                  setPerformancePage(1);
-                }}
-                className="px-4 py-2 text-xs font-black text-rose-600 hover:text-rose-700 bg-rose-50 dark:bg-rose-900/20 rounded-xl transition-colors uppercase tracking-widest"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700 max-h-[600px]">
-            <table className="w-full text-sm text-left border-collapse">
-              <thead className="bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-md sticky top-0 z-10 text-gray-700 dark:text-gray-300 uppercase text-[10px] font-black tracking-widest">
-                <tr>
-                  {isSuperAdmin && (
-                    <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap">
-                      Tenant
-                    </th>
-                  )}
-                  <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap">
-                    User Name
-                  </th>
-
-                  {/* NEW: dynamic status columns from Inspection Summary (Dispatched rendered separately) */}
-                  {performanceStatuses
-                    .filter((status) => status !== "Dispatched")
-                    .map((status) => (
-                      <th
-                        key={status}
-                        className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-indigo-600"
-                      >
-                        {status}
-                      </th>
-                    ))}
-
-                  {/* Dispatch Pending column (before Dispatched) */}
-                  <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-violet-600">
-                    Dispatch Pending
-                  </th>
-
-                  {/* Dispatched column */}
-                  {performanceStatuses.includes("Dispatched") && (
-                    <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-indigo-600">
-                      Dispatched
-                    </th>
-                  )}
-
-                  <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center">
-                    Total Submitted
-                  </th>
-                  <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center">
-                    Total Reviewed
-                  </th>
-                  <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-amber-600">
-                    Review Pending
-                  </th>
-                  <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-green-600">
-                    Accepted
-                  </th>
-                  <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-red-600">
-                    Rejected
-                  </th>
-                  <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-orange-600">
-                    Reworked
-                  </th>
-                  <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center">
-                    Performance Score
-                  </th>
-                  <th className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center">
-                    Performance Category
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                {paginatedPerformance.map((row, idx) => (
-                  <tr
-                    key={idx}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-                  >
-                    {isSuperAdmin && (
-                      <td className="px-4 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                        {row.tenantName}
-                      </td>
-                    )}
-                    <td className="px-4 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                      {row.name}
-                    </td>
-
-                    {/* NEW: dynamic status counts from Inspection Summary (Dispatched rendered separately) */}
-                    {performanceStatuses
-                      .filter((status) => status !== "Dispatched")
-                      .map((status) => {
-                        const count =
-                          inspectorStatusMap[row.name]?.[status] || 0;
-                        const isZero = count === 0;
-                        const colorClass =
-                          status === "Direct Ok" || status === "Rework Accepted"
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : status.startsWith("Rework")
-                              ? "text-amber-600 dark:text-amber-400"
-                              : status === "Rejected"
-                                ? "text-rose-600 dark:text-rose-400"
-                                : "text-blue-600 dark:text-blue-400";
-                        return (
-                          <td
-                            key={status}
-                            className={`px-4 py-4 font-bold text-center tabular-nums transition-opacity ${isZero ? "opacity-20 text-gray-400" : colorClass}`}
-                          >
-                            {count}
-                          </td>
-                        );
-                      })}
-
-                    {/* Dispatch Pending = (Direct Ok + Rework QC Completed) - Dispatched */}
-                    {(() => {
-                      const directOk =
-                        inspectorStatusMap[row.name]?.["Direct Ok"] || 0;
-                      const reworkQCCompleted =
-                        inspectorStatusMap[row.name]?.["Rework QC Completed"] ||
-                        0;
-                      const dispatched =
-                        inspectorStatusMap[row.name]?.["Dispatched"] || 0;
-                      const dispatchPending = Math.max(
-                        0,
-                        directOk + reworkQCCompleted - dispatched,
-                      );
-                      const isZero = dispatchPending === 0;
-                      return (
-                        <td
-                          className={`px-4 py-4 font-bold text-center tabular-nums transition-opacity ${isZero ? "opacity-20 text-gray-400" : "text-violet-600 dark:text-violet-400"}`}
-                        >
-                          {dispatchPending}
-                        </td>
-                      );
-                    })()}
-
-                    {/* Dispatched column */}
-                    {performanceStatuses.includes("Dispatched") &&
-                      (() => {
-                        const count =
-                          inspectorStatusMap[row.name]?.["Dispatched"] || 0;
-                        const isZero = count === 0;
-                        return (
-                          <td
-                            className={`px-4 py-4 font-bold text-center tabular-nums transition-opacity ${isZero ? "opacity-20 text-gray-400" : "text-blue-600 dark:text-blue-400"}`}
-                          >
-                            {count}
-                          </td>
-                        );
-                      })()}
-
-                    <td className="px-4 py-4 font-bold text-center tabular-nums">
-                      {row.totalSubmitted}
-                    </td>
-                    <td className="px-4 py-4 font-bold text-center tabular-nums">
-                      {row.totalReviewed}
-                    </td>
-                    {/* Review Pending = Dispatched - Total Reviewed */}
-                    <td
-                      className={`px-4 py-4 font-bold text-center tabular-nums ${(() => {
-                        const dispatched =
-                          inspectorStatusMap[row.name]?.["Dispatched"] || 0;
-                        const pending = Math.max(
-                          0,
-                          dispatched - (row.totalReviewed || 0),
-                        );
-                        return pending === 0
-                          ? "opacity-20 text-gray-400"
-                          : "text-amber-600 dark:text-amber-400";
-                      })()}`}
-                    >
-                      {Math.max(
-                        0,
-                        (inspectorStatusMap[row.name]?.["Dispatched"] || 0) -
-                        (row.totalReviewed || 0),
-                      )}
-                    </td>
-                    <td className="px-4 py-4 font-bold text-center text-green-600 tabular-nums">
-                      {row.accepted}
-                    </td>
-                    <td className="px-4 py-4 font-bold text-center text-red-600 tabular-nums">
-                      {row.rejected}
-                    </td>
-                    <td className="px-4 py-4 font-bold text-center text-orange-600 tabular-nums">
-                      {row.rework}
-                    </td>
-                    <td className="px-4 py-4 text-center">
-                      <span
-                        className={`px-2 py-1 rounded-full text-[10px] font-black tabular-nums ${row.performanceScore >= 80
-                          ? "bg-green-100 text-green-700"
-                          : row.performanceScore >= 50
-                            ? "bg-orange-100 text-orange-700"
-                            : "bg-red-100 text-red-700"
-                          }`}
-                      >
-                        {row.performanceScore}%
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-center">
-                      <span
-                        className={`px-2 py-1 rounded-full text-[10px] font-black ${(() => {
-                          const score = row.performanceScore || 0;
-                          if (score < 60) return "bg-red-100 text-red-700";
-                          if (score < 70) return "bg-orange-100 text-orange-700";
-                          if (score < 80) return "bg-yellow-100 text-yellow-700";
-                          if (score < 90) return "bg-green-100 text-green-700";
-                          return "bg-emerald-100 text-emerald-700";
-                        })()}`}
-                      >
-                        {(() => {
-                          const score = row.performanceScore || 0;
-                          if (score < 60) return "Not met performer";
-                          if (score < 70) return "partially met performer";
-                          if (score < 80) return "Met expectation";
-                          if (score < 90) return "exceeded Performance";
-                          return "Exemplary performer";
-                        })()}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-
-                {/* ── TOTALS ROW ── */}
-                {(() => {
-                  const totalDispatched = performanceTableData.reduce(
-                    (sum, row) =>
-                      sum + (inspectorStatusMap[row.name]?.["Dispatched"] || 0),
-                    0,
-                  );
-                  const totalTotalSubmitted = performanceTableData.reduce(
-                    (sum, row) => sum + (row.totalSubmitted || 0),
-                    0,
-                  );
-                  const totalTotalReviewed = performanceTableData.reduce(
-                    (sum, row) => sum + (row.totalReviewed || 0),
-                    0,
-                  );
-                  const totalAccepted = performanceTableData.reduce(
-                    (sum, row) => sum + (row.accepted || 0),
-                    0,
-                  );
-                  const totalRejected = performanceTableData.reduce(
-                    (sum, row) => sum + (row.rejected || 0),
-                    0,
-                  );
-                  const totalRework = performanceTableData.reduce(
-                    (sum, row) => sum + (row.rework || 0),
-                    0,
-                  );
-                  const avgPerformance =
-                    performanceTableData.length > 0
-                      ? Math.round(
-                        performanceTableData.reduce(
-                          (sum, row) => sum + (row.performanceScore || 0),
-                          0,
-                        ) / performanceTableData.length,
-                      )
-                      : 0;
-
-                  // Totals per dynamic status (excluding Dispatched)
-                  const statusTotals: Record<string, number> = {};
-                  performanceStatuses
-                    .filter((s) => s !== "Dispatched")
-                    .forEach((status) => {
-                      statusTotals[status] = performanceTableData.reduce(
-                        (sum, row) =>
-                          sum + (inspectorStatusMap[row.name]?.[status] || 0),
-                        0,
-                      );
-                    });
-
-                  const totalDirectOk = performanceTableData.reduce(
-                    (sum, row) =>
-                      sum + (inspectorStatusMap[row.name]?.["Direct Ok"] || 0),
-                    0,
-                  );
-                  const totalReworkQCCompleted = performanceTableData.reduce(
-                    (sum, row) =>
-                      sum +
-                      (inspectorStatusMap[row.name]?.["Rework QC Completed"] ||
-                        0),
-                    0,
-                  );
-                  const totalDispatchPending = Math.max(
-                    0,
-                    totalDirectOk + totalReworkQCCompleted - totalDispatched,
-                  );
-                  const totalReviewPending = Math.max(
-                    0,
-                    totalDispatched - totalTotalReviewed,
-                  );
-
-                  return (
-                    <tr className="bg-gray-100 dark:bg-gray-700 border-t-2 border-gray-300 dark:border-gray-500 font-black text-gray-900 dark:text-white">
-                      {isSuperAdmin && (
-                        <td className="px-4 py-4 whitespace-nowrap text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                          —
-                        </td>
-                      )}
-                      <td className="px-4 py-4 whitespace-nowrap text-xs font-black uppercase tracking-widest text-gray-700 dark:text-gray-200">
-                        Total
-                      </td>
-
-                      {performanceStatuses
-                        .filter((s) => s !== "Dispatched")
-                        .map((status) => (
-                          <td
-                            key={status}
-                            className={`px-4 py-4 text-center tabular-nums font-black ${status === "Direct Ok" ||
-                              status === "Rework Accepted"
-                              ? "text-emerald-700 dark:text-emerald-300"
-                              : status.startsWith("Rework")
-                                ? "text-amber-700 dark:text-amber-300"
-                                : status === "Rejected"
-                                  ? "text-rose-700 dark:text-rose-300"
-                                  : "text-blue-700 dark:text-blue-300"
-                              }`}
-                          >
-                            {statusTotals[status] || 0}
-                          </td>
-                        ))}
-
-                      <td className="px-4 py-4 text-center tabular-nums font-black text-violet-700 dark:text-violet-300">
-                        {totalDispatchPending}
-                      </td>
-
-                      {performanceStatuses.includes("Dispatched") && (
-                        <td className="px-4 py-4 text-center tabular-nums font-black text-blue-700 dark:text-blue-300">
-                          {totalDispatched}
-                        </td>
-                      )}
-
-                      <td className="px-4 py-4 text-center tabular-nums font-black">
-                        {totalTotalSubmitted}
-                      </td>
-                      <td className="px-4 py-4 text-center tabular-nums font-black">
-                        {totalTotalReviewed}
-                      </td>
-                      <td className="px-4 py-4 text-center tabular-nums font-black text-amber-700 dark:text-amber-300">
-                        {totalReviewPending}
-                      </td>
-                      <td className="px-4 py-4 text-center tabular-nums font-black text-green-700 dark:text-green-300">
-                        {totalAccepted}
-                      </td>
-                      <td className="px-4 py-4 text-center tabular-nums font-black text-red-700 dark:text-red-300">
-                        {totalRejected}
-                      </td>
-                      <td className="px-4 py-4 text-center tabular-nums font-black text-orange-700 dark:text-orange-300">
-                        {totalRework}
-                      </td>
-                      <td className="px-4 py-4 text-center">
-                        <span
-                          className={`px-2 py-1 rounded-full text-[10px] font-black tabular-nums ${avgPerformance >= 80
-                            ? "bg-green-200 text-green-800"
-                            : avgPerformance >= 50
-                              ? "bg-orange-200 text-orange-800"
-                              : "bg-red-200 text-red-800"
-                            }`}
-                        >
-                          {avgPerformance}%
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-center">
-                        <span
-                          className={`px-2 py-1 rounded-full text-[10px] font-black ${(() => {
-                            if (avgPerformance < 60) return "bg-red-100 text-red-700";
-                            if (avgPerformance < 70) return "bg-orange-100 text-orange-700";
-                            if (avgPerformance < 80) return "bg-yellow-100 text-yellow-700";
-                            if (avgPerformance < 90) return "bg-green-100 text-green-700";
-                            return "bg-emerald-100 text-emerald-700";
-                          })()}`}
-                        >
-                          {avgPerformance < 60
-                            ? "Not met performer"
-                            : avgPerformance < 70
-                              ? "partially met performer"
-                              : avgPerformance < 80
-                                ? "Met expectation"
-                                : avgPerformance < 90
-                                  ? "exceeded Performance"
-                                  : "Exemplary performer"}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })()}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination Controls - Responsive */}
-          {totalPerformancePages > 1 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-gray-50/30 dark:bg-gray-900/30 border-t border-gray-100 dark:border-gray-700">
-              <div className="flex items-center gap-3">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                  Show
-                </label>
-                <select
-                  value={performancePageSize}
-                  onChange={(e) => {
-                    setPerformancePageSize(Number(e.target.value));
-                    setPerformancePage(1);
-                  }}
-                  className="px-2 py-1 text-xs font-bold border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none"
-                >
-                  {[5, 10, 20, 50].map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </select>
-                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest hidden xs:inline">
-                  {startIndex + 1}-{Math.min(endIndex, totalPerformanceItems)}{" "}
-                  of {totalPerformanceItems}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() =>
-                    setPerformancePage((prev) => Math.max(1, prev - 1))
-                  }
-                  disabled={performancePage === 1}
-                  className="p-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg disabled:opacity-30 transition-all hover:bg-gray-50 shadow-sm"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-
-                <div className="flex items-center gap-1 overflow-x-auto max-w-[120px] sm:max-w-none scrollbar-none">
-                  {Array.from(
-                    { length: totalPerformancePages },
-                    (_, i) => i + 1,
-                  )
-                    .filter(
-                      (num) =>
-                        totalPerformancePages <= 3 ||
-                        Math.abs(num - performancePage) <= 1 ||
-                        num === 1 ||
-                        num === totalPerformancePages,
-                    )
-                    .map((pageNum, idx, arr) => (
-                      <React.Fragment key={pageNum}>
-                        {idx > 0 && arr[idx - 1] !== pageNum - 1 && (
-                          <span className="text-gray-300 text-[10px]">...</span>
-                        )}
-                        <button
-                          onClick={() => setPerformancePage(pageNum)}
-                          className={`min-w-[28px] h-7 text-[10px] font-black rounded-lg transition-all ${performancePage === pageNum
-                            ? "bg-purple-600 text-white shadow-md shadow-purple-500/20"
-                            : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700"
-                            }`}
-                        >
-                          {pageNum}
-                        </button>
-                      </React.Fragment>
-                    ))}
-                </div>
-
-                <button
-                  onClick={() =>
-                    setPerformancePage((prev) =>
-                      Math.min(totalPerformancePages, prev + 1),
-                    )
-                  }
-                  disabled={performancePage === totalPerformancePages}
-                  className="p-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg disabled:opacity-30 transition-all hover:bg-gray-50 shadow-sm"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   // Determine page title based on user role
   const getPageTitle = () => {
@@ -2642,22 +2139,44 @@ export default function DashboardNew() {
               </div>
             </div>
             {currentTenant.slug &&
-              currentTenant.settings?.showCustomerPortal && (
-                <div className="lg:text-right pt-4 lg:pt-0 border-t lg:border-t-0 border-blue-100 dark:border-blue-800">
-                  <p className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-widest">
-                    Customer Portal
-                  </p>
-                  <a
-                    href={`https://3wheelertvs.focusengineeringapp.com/${currentTenant.slug}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center text-sm font-bold text-blue-600 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-100 transition-colors break-all"
-                  >
-                    <Eye className="w-4 h-4 mr-2 flex-shrink-0" />
-                    {`3wheelertvs.focusengineeringapp.com/${currentTenant.slug}`}
-                  </a>
-                </div>
-              )}
+              currentTenant.settings?.showCustomerPortal && (() => {
+                const isLocal =
+                  window.location.hostname === "localhost" ||
+                  window.location.hostname === "127.0.0.1" ||
+                  window.location.hostname.startsWith("192.168.") ||
+                  window.location.hostname.startsWith("10.") ||
+                  window.location.hostname.startsWith("172.");
+
+                const isStaging =
+                  window.location.hostname.includes("netlify.app") ||
+                  window.location.hostname.includes("netlify.live");
+
+                const customerBaseUrl = isLocal
+                  ? "http://localhost:5174/"
+                  : isStaging
+                  ? "https://servicerequests.netlify.app/"
+                  : "https://3wheelertvs.focusengineeringapp.com/";
+
+                const customerPortalUrl = `${customerBaseUrl}${currentTenant.slug}`;
+                const customerPortalDisplay = customerPortalUrl.replace("https://", "").replace("http://", "");
+
+                return (
+                  <div className="lg:text-right pt-4 lg:pt-0 border-t lg:border-t-0 border-blue-100 dark:border-blue-800">
+                    <p className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-widest">
+                      Customer Portal
+                    </p>
+                    <a
+                      href={customerPortalUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center text-sm font-bold text-blue-600 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-100 transition-colors break-all"
+                    >
+                      <Eye className="w-4 h-4 mr-2 flex-shrink-0" />
+                      {customerPortalDisplay}
+                    </a>
+                  </div>
+                );
+              })()}
           </div>
         </div>
       )}
@@ -2795,7 +2314,10 @@ export default function DashboardNew() {
         {renderSummaryTable()}
 
         {/* Performance Table - Visible for admins and superadmins */}
-        {renderPerformanceTable()}
+        <PerformanceTable />
+
+        {!isInspector && renderBiwReviewTable()}
+
 
 
       </div>

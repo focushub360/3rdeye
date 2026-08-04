@@ -860,7 +860,7 @@ export function downloadNestedFormImportTemplate() {
     "Subsection Of: Enter the parent section number (e.g., '1' to make this section a subsection of section 1)",
     "The question text to ask",
     "Additional details about the question",
-    "Type: text, paragraph, radio, checkbox, search-select, yesNoNA, file, chassis-with-zone, chassis-without-zone, zone-in, zone-out",
+    "Type: text, paragraph, radio, checkbox, search-select, yesNoNA, file, chassis-with-zone, chassis-without-zone, zone-in, zone-out, slider-feedback, emoji-star-feedback, emoji-reaction-feedback, rating-number",
     "TRUE/FALSE - is this question required?",
     "For choice questions: Option 1, Option 2, Option 3 (comma-separated)",
     "Jump to Section for Option 1: number (e.g. 2), 'end', or '0' (none)",
@@ -1694,7 +1694,7 @@ export function downloadFormImportTemplate() {
     "Subsection Of: Enter the parent section number (e.g., '1' to make this section a subsection of section 1)",
     "The question text to ask",
     "Additional details about the question",
-    "Type: text, paragraph, radio, checkbox, search-select, yesNoNA, file, chassis-with-zone, chassis-without-zone, zone-in, zone-out",
+    "Type: text, paragraph, radio, checkbox, search-select, yesNoNA, file, chassis-with-zone, chassis-without-zone, zone-in, zone-out, slider-feedback, emoji-star-feedback, emoji-reaction-feedback, rating-number",
     "TRUE/FALSE - is this question required?",
     "For choice questions: Option 1, Option 2, Option 3 (comma-separated)",
     "Jump to Section for Option 1: number (e.g. 2), 'end', or '0' (none)",
@@ -2360,6 +2360,16 @@ function parseNewTemplateFormat(
       "zone out": "zone-out",
       "zone-out": "zone-out",
       "zoneout": "zone-out",
+
+      // Feedback types
+      "slider-feedback": "slider-feedback",
+      sliderfeedback: "slider-feedback",
+      "emoji-star-feedback": "emoji-star-feedback",
+      emojistarfeedback: "emoji-star-feedback",
+      "emoji-reaction-feedback": "emoji-reaction-feedback",
+      emojireactionfeedback: "emoji-reaction-feedback",
+      "rating-number": "rating-number",
+      ratingnumber: "rating-number",
     };
 
     // First try exact match after normalization

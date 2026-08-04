@@ -18,13 +18,22 @@ import {
   Check,
   Phone,
   CheckCircle,
+  UserX,
+  UserCheck,
 } from "lucide-react";
 import { apiClient, ApiError } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
 import { useLogo } from "../../context/LogoContext";
 import { useNotification } from "../../context/NotificationContext";
 import ResponseDashboard from "./ResponseDashboard.tsx";
+import PermissionTree from "../common/PermissionTree";
+import { buildPermissionTree, FormLike } from "../../config/permissionTree";
 
+// NOTE: MODULE_OPTIONS is the legacy flat permission set, still used by the
+// quick-toggle columns in the admin list table below. The Create/Edit User
+// forms now use the full hierarchical tree from src/config/permissionTree.ts
+// instead (leaf ids like "hr:leaves", "attendance:record:report",
+// "analytics:form:<formId>:response"), so ModuleKey is widened to `string`.
 const MODULE_OPTIONS = [
   { key: "dashboard:view", label: "Dashboard" },
   { key: "analytics:view", label: "Service Analytics" },
@@ -32,7 +41,7 @@ const MODULE_OPTIONS = [
   { key: "requests:manage", label: "Request Management" },
 ] as const;
 
-type ModuleKey = (typeof MODULE_OPTIONS)[number]["key"];
+type ModuleKey = string;
 
 interface SubAdmin {
   _id: string;
@@ -81,6 +90,11 @@ export default function AdminManagement() {
   const { logo, updateLogo } = useLogo();
   const { showSuccess, showError } = useNotification();
   const [admins, setAdmins] = useState<SubAdmin[]>([]);
+  const [forms, setForms] = useState<FormLike[]>([]);
+  const permissionTree = React.useMemo(
+    () => buildPermissionTree(forms),
+    [forms],
+  );
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -115,6 +129,83 @@ export default function AdminManagement() {
 
   const [activeTab, setActiveTab] = useState<"admins" | "responses">("admins");
   const [performanceScores, setPerformanceScores] = useState<Record<string, number>>({});
+  const [shifts, setShifts] = useState<any[]>([]);
+
+  // Load shifts for assignment
+  useEffect(() => {
+    const fetchShifts = async () => {
+      try {
+        const response = await apiClient.getShifts();
+        if (response && response.data) {
+          setShifts(response.data);
+        } else if (response) {
+          setShifts(response as any);
+        }
+      } catch (error) {
+        console.error("Error fetching shifts:", error);
+      }
+    };
+    if (isAdmin) {
+      fetchShifts();
+    }
+  }, [isAdmin]);
+
+  // Load forms so "Service Analytics" in the permission tree can list them
+  useEffect(() => {
+    const fetchFormsForPermissionTree = async () => {
+      try {
+        const response = await apiClient.getForms({ tenantId: tenant?._id });
+        setForms((response?.forms || []).map((f: any) => ({ _id: f._id, title: f.title })));
+      } catch (error) {
+        console.error("Error fetching forms for permission tree:", error);
+      }
+    };
+    if (isAdmin) {
+      fetchFormsForPermissionTree();
+    }
+  }, [isAdmin, tenant?._id]);
+
+  const getUserShiftId = (userId: string) => {
+    const userShift = shifts.find((s) =>
+      s.assignedInspectors?.some((ins: any) =>
+        (typeof ins === "string" ? ins : ins._id || ins) === userId
+      )
+    );
+    return userShift?._id || "";
+  };
+
+  const handleAssignShift = async (userId: string, newShiftId: string) => {
+    setUpdatingId(userId);
+    try {
+      const oldShiftId = getUserShiftId(userId);
+
+      // 1. Remove from old shift if any
+      if (oldShiftId) {
+        await apiClient.removeInspectorsFromShift(oldShiftId, [userId]);
+      }
+
+      // 2. Assign to new shift if selected (not "")
+      if (newShiftId) {
+        await apiClient.assignInspectorsToShift(newShiftId, [userId]);
+        showSuccess("Shift assigned successfully");
+      } else if (oldShiftId) {
+        showSuccess("Shift removed successfully");
+      }
+
+      // 3. Reload shifts to get updated assignments
+      const response = await apiClient.getShifts({ forceNetwork: true });
+      if (response && response.data) {
+        setShifts(response.data);
+      } else if (response) {
+        setShifts(response as any);
+      }
+    } catch (error: any) {
+      console.error("Error assigning shift:", error);
+      showError(error.message || "Failed to assign shift");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
   const TabNavigation = () => (
     <div className="mb-6 border-b border-gray-200 dark:border-gray-700 overflow-x-auto no-scrollbar">
       <nav className="flex space-x-4 sm:space-x-8 min-w-max px-2" aria-label="Tabs">
@@ -341,18 +432,6 @@ export default function AdminManagement() {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const toggleFormPermission = (permission: ModuleKey) => {
-    setForm((prev) => {
-      const nextPermissions = new Set(prev.permissions);
-      if (nextPermissions.has(permission)) {
-        nextPermissions.delete(permission);
-      } else {
-        nextPermissions.add(permission);
-      }
-      return { ...prev, permissions: nextPermissions };
-    });
-  };
-
   const handleSendOtp = async () => {
     if (!form.mobile) {
       showError("Please enter mobile number first");
@@ -394,8 +473,8 @@ export default function AdminManagement() {
       return;
     }
 
-    if (!otpVerified) {
-      showError("Please verify the mobile number first");
+    if (form.mobile && otpSent && !otpVerified) {
+      showError("Please verify mobile number with OTP, or clear the mobile number field.");
       return;
     }
 
@@ -527,19 +606,6 @@ export default function AdminManagement() {
     });
   };
 
-  const handleEditPermissionToggle = (permission: ModuleKey) => {
-    setEditingForm((prev) => {
-      if (!prev) return null;
-      const nextPermissions = new Set(prev.permissions);
-      if (nextPermissions.has(permission)) {
-        nextPermissions.delete(permission);
-      } else {
-        nextPermissions.add(permission);
-      }
-      return { ...prev, permissions: nextPermissions };
-    });
-  };
-
   const handleSaveAdminChanges = async () => {
     if (!editingForm || !isAdmin) {
       return;
@@ -643,29 +709,7 @@ export default function AdminManagement() {
     }
   };
 
-  // const handleDeleteAdmin = async (adminId: string) => {
-  //   if (!isAdmin) {
-  //     return;
-  //   }
-
-  //   setUpdatingId(adminId);
-  //   setError(null);
-
-  //   try {
-  //     await apiClient.deleteUser(adminId);
-
-  //     setAdmins((prev) => prev.filter((item) => item._id !== adminId));
-  //     setDeleteConfirmAdminId(null);
-  //     showSuccess("Admin deleted successfully", "Success");
-  //   } catch (err) {
-  //     const message = err instanceof ApiError ? err.message : "Failed to delete admin";
-  //     setError(message);
-  //     showError(message, "Error");
-  //   } finally {
-  //     setUpdatingId(null);
-  //   }
-  // };
-  const handleDeactivateAdmin = async (adminId: string) => {
+  const handleDeleteAdmin = async (adminId: string) => {
     if (!isAdmin) {
       return;
     }
@@ -674,30 +718,13 @@ export default function AdminManagement() {
     setError(null);
 
     try {
-      const target = admins.find((item) => item._id === adminId);
-      if (!target) {
-        return;
-      }
+      await apiClient.deleteUser(adminId);
 
-      // Instead of deleting, we deactivate the user
-      await apiClient.updateUser(adminId, {
-        isActive: false,
-      });
-
-      setAdmins((prev) =>
-        prev.map((item) =>
-          item._id === adminId ? { ...item, isActive: false } : item,
-        ),
-      );
-
+      setAdmins((prev) => prev.filter((item) => item._id !== adminId));
       setDeleteConfirmAdminId(null);
-      showSuccess(
-        `Admin ${target.firstName} ${target.lastName} has been deactivated`,
-        "Success",
-      );
+      showSuccess("Admin deleted successfully", "Success");
     } catch (err) {
-      const message =
-        err instanceof ApiError ? err.message : "Failed to deactivate admin";
+      const message = err instanceof ApiError ? err.message : "Failed to delete admin";
       setError(message);
       showError(message, "Error");
     } finally {
@@ -746,14 +773,13 @@ export default function AdminManagement() {
   }
 
   return (
-    <div className="w-full px-6 md:px-8 py-6">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-xl">
-        <div className="p-6 md:p-8 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-4xl font-bold text-gray-900 dark:text-gray-100">
-                Admin Management
-              </h1>
+    <div className="w-full py-6">
+      <div className="pb-6 border-b border-gray-200 dark:border-gray-700 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-4xl font-bold text-gray-900 dark:text-gray-100">
+              Admin Management
+            </h1>
               <p className="text-gray-600 dark:text-gray-400 mt-2">
                 Manage Users and their permissions
               </p>
@@ -964,7 +990,7 @@ export default function AdminManagement() {
 
                           <div className="mt-4">
                             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5">
-                              Mobile Number *
+                              Mobile Number
                             </label>
                             <div className="flex gap-2">
                               <div className="relative flex-1">
@@ -974,9 +1000,8 @@ export default function AdminManagement() {
                                   type="tel"
                                   value={form.mobile}
                                   onChange={handleInputChange}
-                                  required
                                   disabled={otpSent && !otpVerified}
-                                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-sm disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
+                                  className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-sm disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
                                   placeholder="Enter mobile number"
                                 />
                               </div>
@@ -1144,32 +1169,19 @@ export default function AdminManagement() {
                           <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
                             Module Access
                           </p>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            {MODULE_OPTIONS.map((option) => (
-                              <label
-                                key={option.key}
-                                className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 cursor-pointer transition"
-                              >
-                                <input
-                                  type="checkbox"
-                                  className="w-5 h-5 rounded border-gray-300 dark:border-gray-500 text-blue-600 dark:text-blue-500 focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                                  checked={form.permissions.has(option.key)}
-                                  onChange={() =>
-                                    toggleFormPermission(option.key)
-                                  }
-                                />
-                                <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                                  {option.label}
-                                </span>
-                              </label>
-                            ))}
-                          </div>
+                          <PermissionTree
+                            nodes={permissionTree}
+                            selected={form.permissions}
+                            onChange={(next) =>
+                              setForm((prev) => ({ ...prev, permissions: next }))
+                            }
+                          />
                         </div>
 
                         <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
                           <button
                             type="submit"
-                            disabled={saving || !otpVerified}
+                            disabled={saving || (form.mobile && otpSent && !otpVerified)}
                             className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white px-8 py-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 disabled:cursor-not-allowed disabled:opacity-60 transition"
                           >
                             {saving ? (
@@ -1190,7 +1202,7 @@ export default function AdminManagement() {
                 )}
 
                 {/* Administrators Table */}
-                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-lg overflow-hidden">
+                <div className="border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden">
                   <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
                     <div className="flex items-center justify-between">
                       <div>
@@ -1274,6 +1286,9 @@ export default function AdminManagement() {
                             </th>
                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                Role
+                             </th>
+                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                               Shift
                              </th>
                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                Performance Score
@@ -1380,6 +1395,29 @@ export default function AdminManagement() {
                                         : admin.role}
                                    </span>
                                  </td>
+                                  <td className="px-6 py-4">
+                                    {admin.role === "inspector" ? (
+                                      <select
+                                        value={getUserShiftId(admin._id)}
+                                        onChange={(e) =>
+                                          handleAssignShift(admin._id, e.target.value)
+                                        }
+                                        disabled={updatingId === admin._id}
+                                        className="text-xs rounded-lg border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:ring-blue-500 focus:border-blue-500 block w-[140px] p-1.5 shadow-sm"
+                                      >
+                                        <option value="">None</option>
+                                        {shifts.map((s) => (
+                                          <option key={s._id} value={s._id}>
+                                            {s.displayName || s.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      <span className="text-gray-400 dark:text-gray-600 text-xs">
+                                        —
+                                      </span>
+                                    )}
+                                  </td>
                                  <td className="px-6 py-4">
                                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                                      {(performanceScores[admin._id] || 0)}%
@@ -1448,16 +1486,20 @@ export default function AdminManagement() {
                                       <Edit2 className="w-4 h-4" />
                                     </button>
                                     <button
+                                      onClick={() => handleToggleActiveStatus(admin._id)}
+                                      disabled={updatingId === admin._id}
+                                      className="p-2 text-gray-600 hover:text-yellow-600 dark:text-gray-400 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded-lg transition-colors"
+                                      title={admin.isActive ? "Deactivate Admin" : "Activate Admin"}
+                                    >
+                                      {admin.isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                                    </button>
+                                    <button
                                       onClick={() =>
                                         setDeleteConfirmAdminId(admin._id)
                                       }
                                       disabled={updatingId === admin._id}
                                       className="p-2 text-gray-600 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                                      title={
-                                        admin.isActive
-                                          ? "Deactivate Admin"
-                                          : "Already Deactivated"
-                                      }
+                                      title="Delete Admin"
                                     >
                                       <Trash2 className="w-4 h-4" />
                                     </button>
@@ -1510,6 +1552,13 @@ export default function AdminManagement() {
                                 <Edit2 className="w-4 h-4" />
                               </button>
                               <button
+                                onClick={() => handleToggleActiveStatus(admin._id)}
+                                className="p-2 text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg"
+                                title={admin.isActive ? "Deactivate Admin" : "Activate Admin"}
+                              >
+                                {admin.isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                              </button>
+                              <button
                                 onClick={() =>
                                   setDeleteConfirmAdminId(admin._id)
                                 }
@@ -1547,6 +1596,28 @@ export default function AdminManagement() {
                                 {admin.role}
                               </span>
                             </div>
+                            {admin.role === "inspector" && (
+                              <div className="col-span-2">
+                                <p className="text-gray-500 mb-1 font-bold uppercase tracking-wider text-[10px]">
+                                  Shift
+                                </p>
+                                <select
+                                  value={getUserShiftId(admin._id)}
+                                  onChange={(e) =>
+                                    handleAssignShift(admin._id, e.target.value)
+                                  }
+                                  disabled={updatingId === admin._id}
+                                  className="text-xs rounded-lg border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:ring-blue-500 focus:border-blue-500 block w-full p-1.5 shadow-sm"
+                                >
+                                  <option value="">None</option>
+                                  {shifts.map((s) => (
+                                    <option key={s._id} value={s._id}>
+                                      {s.displayName || s.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
                             <div>
                               <p className="text-gray-500 mb-1 font-bold uppercase tracking-wider text-[10px]">
                                 Score
@@ -1622,13 +1693,13 @@ export default function AdminManagement() {
                 {editingForm && (
                   <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center p-2 sm:p-4 z-50 overflow-y-auto">
                     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xl max-w-4xl w-full my-auto">
-                      <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 sm:px-6 py-3 flex items-center justify-between rounded-t-2xl z-10">
-                        <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">
+                      <div className="sticky top-0 bg-primary-600 px-4 sm:px-6 py-3 flex items-center justify-between rounded-t-2xl z-10">
+                        <h2 className="text-xl sm:text-2xl font-bold text-white">
                           Edit User
                         </h2>
                         <button
                           onClick={handleCancelEdit}
-                          className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition"
+                          className="text-white/80 hover:text-white transition"
                         >
                           <X className="w-6 h-6" />
                         </button>
@@ -1704,7 +1775,7 @@ export default function AdminManagement() {
                                   value={editingForm.mobile}
                                   onChange={handleEditInputChange}
                                   placeholder="Enter mobile number"
-                                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-sm"
+                                  className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-sm"
                                 />
                               </div>
                             </div>
@@ -1811,28 +1882,15 @@ export default function AdminManagement() {
                               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
                                 Module Access
                               </p>
-                              <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
-                                {MODULE_OPTIONS.map((option) => (
-                                  <label
-                                    key={option.key}
-                                    className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 cursor-pointer transition"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      className="w-5 h-5 rounded border-gray-300 dark:border-gray-500 text-blue-600 dark:text-blue-500 focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                                      checked={editingForm.permissions.has(
-                                        option.key,
-                                      )}
-                                      onChange={() =>
-                                        handleEditPermissionToggle(option.key)
-                                      }
-                                    />
-                                    <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                                      {option.label}
-                                    </span>
-                                  </label>
-                                ))}
-                              </div>
+                              <PermissionTree
+                                nodes={permissionTree}
+                                selected={editingForm.permissions}
+                                onChange={(next) =>
+                                  setEditingForm((prev) =>
+                                    prev ? { ...prev, permissions: next } : null,
+                                  )
+                                }
+                              />
                             </div>
 
                             <div className="pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row gap-2">
@@ -1869,7 +1927,7 @@ export default function AdminManagement() {
                   </div>
                 )}
 
-                {/* Delete/Deactivate Confirmation Modal */}
+                {/* Delete Confirmation Modal */}
                 {deleteConfirmAdminId && (
                   <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center p-4 z-50">
                     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xl max-w-md w-full p-6">
@@ -1878,17 +1936,15 @@ export default function AdminManagement() {
                           <Trash2 className="w-6 h-6 text-red-600 dark:text-red-400" />
                         </div>
                         <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">
-                          Deactivate Administrator?
+                          Delete User?
                         </h3>
                         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
-                          This will deactivate the administrator. They will no
-                          longer be able to access the system. You can
-                          reactivate them later from the status toggle.
+                          This will permanently delete the User. This action cannot be undone.
                         </p>
                         <div className="flex gap-3">
                           <button
                             onClick={() =>
-                              handleDeactivateAdmin(deleteConfirmAdminId)
+                              handleDeleteAdmin(deleteConfirmAdminId)
                             }
                             disabled={updatingId === deleteConfirmAdminId}
                             className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 hover:bg-red-700 text-white px-3 py-2 text-sm font-semibold disabled:opacity-60 transition"
@@ -1896,10 +1952,10 @@ export default function AdminManagement() {
                             {updatingId === deleteConfirmAdminId ? (
                               <>
                                 <Loader2 className="w-4 h-4 animate-spin" />
-                                Deactivating...
+                                Deleting...
                               </>
                             ) : (
-                              "Deactivate"
+                              "Delete"
                             )}
                           </button>
                           <button
@@ -1917,11 +1973,10 @@ export default function AdminManagement() {
               </>
             ) : (
               /* ===== USERS RESPONSE DASHBOARD TAB CONTENT ===== */
-              <ResponseDashboard />
+              <ResponseDashboard isEmbedded={true} />
             )}
           </>
         )}
-      </div>
     </div>
   );
 }

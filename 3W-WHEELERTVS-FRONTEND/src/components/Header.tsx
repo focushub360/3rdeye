@@ -27,6 +27,7 @@ import { useTheme } from "../context/ThemeContext";
 import ProfileModal from "./ProfileModal";
 import NotificationCenter from "./ui/NotificationCenter";
 import { Calendar, MessageCircle } from "lucide-react";
+import { useForms } from "../hooks/useApi";
 
 interface MenuItem {
   title: string;
@@ -56,6 +57,89 @@ export default function Header() {
   const { darkMode, toggleDarkMode } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
+
+  const [mobileActiveFormId, setMobileActiveFormId] = useState<string | null>(null);
+  const [hoveredFormId, setHoveredFormId] = useState<string | null>(null);
+  const [isAnalyticsHovered, setIsAnalyticsHovered] = useState(false);
+  const closeTimeoutRef = useRef<any>(null);
+
+  const handleMouseEnter = () => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+    setIsAnalyticsHovered(true);
+  };
+
+  const handleMouseLeave = () => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current);
+    }
+    closeTimeoutRef.current = setTimeout(() => {
+      setIsAnalyticsHovered(false);
+      setHoveredFormId(null);
+    }, 250);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (closeTimeoutRef.current) {
+        clearTimeout(closeTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const permissionSet = React.useMemo(() => new Set(user?.permissions || []), [user?.permissions]);
+
+  // Fetch available forms for the dropdown
+  const { data: formsData } = useForms(
+    isAuthenticated &&
+    !!user &&
+    ["admin", "superadmin", "inspector", "subadmin"].includes(user?.role || "")
+  );
+
+  // Filter forms based on permissions
+  const visibleForms = React.useMemo(() => {
+    if (!isAuthenticated || !user) return [];
+    const forms = formsData?.forms || [];
+    
+    return forms.filter((form: any) => {
+      const formId = form._id || form.id;
+      if (!formId) return false;
+      
+      // Admins and superadmins see all forms
+      if (user.role === 'admin' || user.role === 'superadmin') {
+        return true;
+      }
+      
+      // For inspector/subadmin, check if they have ANY analytics permission for this form
+      const subTypes = ['response', 'dashboard', 'overall', 'questions', 'sections'];
+      for (const subType of subTypes) {
+        if (permissionSet.has(`analytics:form:${formId}:${subType}`)) {
+          return true;
+        }
+      }
+      return false;
+    });
+  }, [formsData, user, isAuthenticated, permissionSet]);
+
+  const getAllowedTabsForForm = React.useCallback((formId: string) => {
+    const tabs = [
+      { name: "Dashboard", key: "dashboard", subType: "dashboard" },
+      { name: "Questions", key: "question", subType: "questions" },
+      { name: "Sections", key: "section", subType: "sections" },
+      { name: "Overall", key: "overall", subType: "overall" },
+      { name: "Responses", key: "responses", subType: "response" },
+    ];
+
+    if (user?.role === "admin" || user?.role === "superadmin") {
+      return tabs;
+    }
+
+    return tabs.filter(tab => 
+      permissionSet.has(`analytics:form:${formId}:${tab.subType}`)
+    );
+  }, [user, permissionSet]);
 
   const canViewInternalTracking = user?.role === "superadmin" || ["admin", "tenant_admin", "subadmin"].includes(user?.role || "") && (
     tenant?.internalTrackingEnabled === true &&
@@ -112,6 +196,8 @@ export default function Header() {
       icon: BarChart2,
       path: "/overall",
       description: "View overall statistics",
+      permission: "analytics:view",
+      roles: ["admin", "inspector", "subadmin"],
     },
     {
       title: "Tenant Management",
@@ -161,13 +247,15 @@ export default function Header() {
       icon: BarChart2,
       path: "/overall",
       description: "View overall statistics",
+      permission: "Overall:view",
+      roles: ["admin", "inspector", "subadmin"],
     },
     {
       title: "Service Analytics",
       icon: BarChart2,
       path: "/forms/analytics",
       description: "Detailed service analytics and insights",
-      permission: MODULE_PERMISSIONS.ANALYTICS,
+      permission: "analytics:view",
       roles: ["admin", "inspector", "subadmin"],
     },
     {
@@ -179,14 +267,14 @@ export default function Header() {
     },
     ...(canViewInternalTracking
       ? [
-          {
-            title: "Internal Tracking",
-            icon: Eye,
-            path: "/internal-tracking",
-            description: "View cross-tenant performance data",
-            roles: ["admin", "tenant_admin", "subadmin"] as string[],
-          },
-        ]
+        {
+          title: "Internal Tracking",
+          icon: Eye,
+          path: "/internal-tracking",
+          description: "View cross-tenant performance data",
+          roles: ["admin", "tenant_admin", "subadmin"] as string[],
+        },
+      ]
       : []),
     {
       title: "Attendance",
@@ -214,7 +302,7 @@ export default function Header() {
       icon: MessageCircle,
       path: "/inspector/chat",
       description: "Communicate with Service Analytics administrators",
-      roles: ["inspector", "admin", "tenant_admin", "staff"],
+      roles: ["inspector", "admin", "tenant_admin", "staff", "subadmin"],
     },
   ];
 
@@ -225,8 +313,6 @@ export default function Header() {
     description: "Manage tenant administrators and permissions",
     roles: ["admin"],
   };
-
-  const permissionSet = new Set(user?.permissions || []);
 
   const menuItems: MenuItem[] = (() => {
     if (!isAuthenticated || !user) {
@@ -246,75 +332,129 @@ export default function Header() {
         return true;
       }
 
+      // Admin role bypass - admins see everything
       if (user.role === "admin") {
         return true;
+      }
+
+      // Special handling for analytics permissions: the tree only ever
+      // grants "analytics:form:<id>:<tab>" leaves, never "analytics:view".
+      if (item.permission === "analytics:view") {
+        return Array.from(permissionSet).some(permission =>
+          permission.startsWith("analytics:form:")
+        );
+      }
+
+      // Same problem for Customer Requests: the tree only grants
+      // "requests:dashboard" / "requests:response", never "requests:view".
+      if (item.permission === MODULE_PERMISSIONS.CUSTOMER_REQUESTS) {
+        return (
+          permissionSet.has("requests:view") ||
+          permissionSet.has("requests:dashboard") ||
+          permissionSet.has("requests:response")
+        );
       }
 
       return permissionSet.has(item.permission);
     });
 
     if (user.role === "admin" || user.role === "subadmin") {
-      filteredItems.push(adminManagementMenuItem);
-      filteredItems.push({
-        title: "Attendance",
-        icon: UserCheck,
-        path: "/admin/attendance",
-        description: "Track user attendance and working hours",
-        roles: ["admin"],
-        children: [
-          {
-            title: "Attendance Record",
-            icon: UserCheck,
-            path: "/admin/attendance",
-            description: "Track user attendance and working hours",
-            roles: ["admin"],
-          },
-          {
-            title: "Activity Logs",
-            icon: History,
-            path: "/admin/activity-logs",
-            description: "View user logins and activity logs",
-            roles: ["admin"],
-          },
-        ],
-      });
-      filteredItems.push({
-        title: "HR",
-        icon: CalendarDays,
-        path: "/hr/leaves",
-        description: "Leaves, Permissions, Shifts, HR Reports",
-        roles: ["admin", "subadmin"],
-        children: [
-          {
-            title: "Leaves",
-            icon: Calendar,
-            path: "/hr/leaves",
-            description: "Manage leave requests and status",
-            roles: ["admin", "subadmin"],
-          },
-          {
-            title: "Permissions",
-            icon: Clock,
-            path: "/hr/permissions",
-            description: "Manage short leave and gate pass",
-            roles: ["admin", "subadmin"],
-          },
-          {
-            title: "Shifts",
-            icon: CalendarDays,
-            path: "/shifts",
-            description: "Manage inspector shifts",
-            roles: ["admin", "subadmin"],
-          },
-          {
-            title: "HR Reports",
-            icon: ShieldCheck,
-            path: "/hr-attendance",
-            description: "Detailed shift-based attendance reports",
-            roles: ["admin", "subadmin"],
-          },
-        ],
-      });
+      // Admin Management - admins always see it, subadmins need permission
+      if (user.role === "admin" || permissionSet.has("admin:manage")) {
+        filteredItems.push(adminManagementMenuItem);
+      }
+
+      // Attendance - admins always see everything, subadmins only see the
+      // specific children they were granted.
+      const attendanceChildren = [
+        (user.role === "admin" ||
+          [
+            "attendance:record:report",
+            "attendance:record:response",
+            "attendance:record:calendar",
+            "attendance:record:summary",
+          ].some((permission) => permissionSet.has(permission))) && {
+          title: "Attendance Record",
+          icon: UserCheck,
+          path: "/admin/attendance",
+          description: "Track user attendance and working hours",
+          roles: ["admin", "subadmin"],
+        },
+        (user.role === "admin" || permissionSet.has("attendance:activityLogs")) && {
+          title: "Activity Logs",
+          icon: History,
+          path: "/admin/activity-logs",
+          description: "View user logins and activity logs",
+          roles: ["admin", "subadmin"],
+        },
+      ].filter(Boolean) as MenuItem[];
+
+      if (attendanceChildren.length > 0) {
+        filteredItems.push({
+          title: "Attendance",
+          icon: UserCheck,
+          path: attendanceChildren[0].path,
+          description: "Track user attendance and working hours",
+          roles: ["admin", "subadmin"],
+          children: attendanceChildren,
+        });
+      }
+
+      // HR - admins always see everything, subadmins only see the specific
+      // children they were granted (previously ANY one HR permission
+      // revealed ALL 4 children — fixed here).
+      const hrChildren = [
+        (user.role === "admin" || permissionSet.has("hr:leaves")) && {
+          title: "Leaves",
+          icon: Calendar,
+          path: "/hr/leaves",
+          description: "Manage leave requests and status",
+          roles: ["admin", "subadmin"],
+        },
+        (user.role === "admin" || permissionSet.has("hr:permission")) && {
+          title: "Permissions",
+          icon: Clock,
+          path: "/hr/permissions",
+          description: "Manage short leave and gate pass",
+          roles: ["admin", "subadmin"],
+        },
+        (user.role === "admin" || permissionSet.has("hr:shifts")) && {
+          title: "Shifts",
+          icon: CalendarDays,
+          path: "/shifts",
+          description: "Manage inspector shifts",
+          roles: ["admin", "subadmin"],
+        },
+        (user.role === "admin" || permissionSet.has("hr:reports")) && {
+          title: "HR Reports",
+          icon: ShieldCheck,
+          path: "/hr-attendance",
+          description: "Detailed shift-based attendance reports",
+          roles: ["admin", "subadmin"],
+        },
+      ].filter(Boolean) as MenuItem[];
+
+      if (hrChildren.length > 0) {
+        filteredItems.push({
+          title: "HR",
+          icon: CalendarDays,
+          path: hrChildren[0].path,
+          description: "Leaves, Permissions, Shifts, HR Reports",
+          roles: ["admin", "subadmin"],
+          children: hrChildren,
+        });
+      }
+    }
+
+    // Chat System: inspector/admin/tenant_admin/staff keep unrestricted
+    // access. subadmin needs the "chat" leaf granted in the permission tree
+    // (it's already included via roles above so it survives the generic
+    // filter; here we additionally require the permission for subadmin only).
+    if (
+      user.role === "subadmin" &&
+      !permissionSet.has("chat")
+    ) {
+      return filteredItems.filter((item) => item.title !== "Chat System");
     }
 
     return filteredItems;
@@ -359,6 +499,90 @@ export default function Header() {
                 const isActive = location.pathname === item.path;
                 const Icon = item.icon;
 
+                if (item.title === "Service Analytics") {
+                  const activeFormTabs = hoveredFormId ? getAllowedTabsForForm(hoveredFormId) : [];
+                  const activeForm = visibleForms.find(f => (f._id || f.id) === hoveredFormId);
+
+                  return (
+                    <div
+                      key={item.path}
+                      className="relative"
+                      onMouseEnter={handleMouseEnter}
+                      onMouseLeave={handleMouseLeave}
+                    >
+                      <Link
+                        to={item.path}
+                        className={`
+                          flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200
+                          ${isActive
+                            ? "bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400"
+                            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+                          }
+                        `}
+                      >
+                        <Icon className="w-4 h-4 mr-2" />
+                        {item.title}
+                        <ChevronRight className="w-3 h-3 ml-1 rotate-90" />
+                      </Link>
+
+                      <div className={`absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-white dark:bg-gray-900 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 flex z-50 overflow-hidden transition-all duration-200 ${isAnalyticsHovered ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'} ${hoveredFormId ? 'w-[28rem]' : 'w-64'}`}>
+                        {/* Left Pane - Forms List */}
+                        <div className="w-64 max-h-80 overflow-y-auto py-1.5 flex-shrink-0">
+                          {visibleForms.length === 0 ? (
+                            <div className="px-4 py-3 text-sm text-gray-400 dark:text-gray-500 italic">
+                              No forms available
+                            </div>
+                          ) : (
+                            visibleForms.map((form) => {
+                              const formId = form._id || form.id;
+                              const isCurrentHovered = hoveredFormId === formId;
+
+                              return (
+                                <button
+                                  key={formId}
+                                  onMouseEnter={() => setHoveredFormId(formId)}
+                                  onClick={() => navigate(`/forms/${formId}/analytics`)}
+                                  className={`
+                                    flex items-center justify-between px-4 py-2.5 text-sm text-left w-full transition-colors duration-150
+                                    ${isCurrentHovered
+                                      ? "bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400 font-semibold"
+                                      : "text-gray-755 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                                    }
+                                  `}
+                                >
+                                  <span className="truncate pr-2">{form.title}</span>
+                                  <ChevronRight className={`w-3.5 h-3.5 transition-transform ${isCurrentHovered ? 'text-primary-500 dark:text-primary-400 transform translate-x-0.5' : 'text-gray-300 dark:text-gray-655'}`} />
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        {/* Right Pane - Tabs List */}
+                        {hoveredFormId && activeForm && (
+                          <div className="w-48 bg-gray-50/50 dark:bg-gray-800/40 p-2 max-h-80 overflow-y-auto flex flex-col space-y-1 border-l border-gray-100 dark:border-gray-800 flex-shrink-0">
+                            {activeFormTabs.length === 0 ? (
+                              <div className="px-3 py-3 text-xs text-gray-400 dark:text-gray-500 italic text-center">
+                                No permitted actions
+                              </div>
+                            ) : (
+                              activeFormTabs.map((tab) => (
+                                <Link
+                                  key={tab.key}
+                                  to={`/forms/${hoveredFormId}/analytics?tab=${tab.key}`}
+                                  className="flex items-center px-3.5 py-2 rounded-lg text-sm text-gray-755 dark:text-gray-300 hover:bg-white hover:text-primary-700 dark:hover:bg-gray-800 dark:hover:text-primary-400 shadow-sm border border-transparent hover:border-gray-100 dark:hover:border-gray-700 transition-all duration-150 font-medium"
+                                >
+                                  {tab.name}
+                                </Link>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+
                 if (item.children) {
                   const isOpen = activeDropdown === item.title;
                   return (
@@ -371,10 +595,9 @@ export default function Header() {
                         onClick={() => setActiveDropdown(isOpen ? null : item.title)}
                         className={`
                           flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200
-                          ${
-                            isOpen
-                              ? "bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400"
-                              : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+                          ${isOpen
+                            ? "bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400"
+                            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
                           }
                         `}
                       >
@@ -407,10 +630,9 @@ export default function Header() {
                     to={item.path}
                     className={`
                       flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200
-                      ${
-                        isActive
-                          ? "bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400"
-                          : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+                      ${isActive
+                        ? "bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400"
+                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
                       }
                     `}
                   >
@@ -488,17 +710,19 @@ export default function Header() {
                 const hasChildren = item.children && item.children.length > 0;
                 const isExpanded = mobileActiveDropdown === item.title;
 
-                if (hasChildren) {
+                if (item.title === "Service Analytics") {
                   return (
                     <div key={item.title} className="flex flex-col space-y-1">
                       <button
-                        onClick={() => setMobileActiveDropdown(isExpanded ? null : item.title)}
+                        onClick={() => {
+                          setMobileActiveDropdown(isExpanded ? null : "Service Analytics");
+                          setMobileActiveFormId(null);
+                        }}
                         className={`
                           flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-colors duration-200
-                          ${
-                            isExpanded
-                              ? "bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400"
-                              : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                          ${isExpanded
+                            ? "bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400"
+                            : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
                           }
                         `}
                       >
@@ -508,7 +732,90 @@ export default function Header() {
                         </div>
                         <ChevronRight className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
                       </button>
-                      
+
+                      {isExpanded && (
+                        <div className="pl-6 flex flex-col space-y-1 mt-1 border-l-2 border-gray-100 dark:border-gray-800 ml-4">
+                          {visibleForms.length === 0 ? (
+                            <div className="pl-4 py-2 text-xs text-gray-400 italic">
+                              No forms available
+                            </div>
+                          ) : (
+                            visibleForms.map((form) => {
+                              const formId = form._id || form.id;
+                              const isFormExpanded = mobileActiveFormId === formId;
+                              const allowedTabs = getAllowedTabsForForm(formId);
+
+                              return (
+                                <div key={formId} className="flex flex-col space-y-1">
+                                  <button
+                                    onClick={() => setMobileActiveFormId(isFormExpanded ? null : formId)}
+                                    className={`
+                                      flex items-center justify-between pl-4 pr-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200
+                                      ${isFormExpanded
+                                        ? "text-primary-700 dark:text-primary-400 bg-gray-50 dark:bg-gray-800/40"
+                                        : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                                      }
+                                    `}
+                                  >
+                                    <span className="truncate pr-2 text-left">{form.title}</span>
+                                    {allowedTabs.length > 0 && (
+                                      <ChevronRight className={`w-4 h-4 flex-shrink-0 transition-transform duration-200 ${isFormExpanded ? 'rotate-90' : ''}`} />
+                                    )}
+                                  </button>
+
+                                  {isFormExpanded && allowedTabs.length > 0 && (
+                                    <div className="pl-8 flex flex-col space-y-1 mt-1 border-l border-gray-100 dark:border-gray-800 ml-4">
+                                      {allowedTabs.map((tab) => {
+                                        const isTabActive = location.pathname === `/forms/${formId}/analytics` && new URLSearchParams(location.search).get("tab") === tab.key;
+                                        return (
+                                          <Link
+                                            key={tab.key}
+                                            to={`/forms/${formId}/analytics?tab=${tab.key}`}
+                                            onClick={closeMobile}
+                                            className={`
+                                              block py-2 text-sm transition-colors duration-200
+                                              ${isTabActive
+                                                ? "text-primary-700 font-bold dark:text-primary-400"
+                                                : "text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                                              }
+                                            `}
+                                          >
+                                            {tab.name}
+                                          </Link>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                if (hasChildren) {
+                  return (
+                    <div key={item.title} className="flex flex-col space-y-1">
+                      <button
+                        onClick={() => setMobileActiveDropdown(isExpanded ? null : item.title)}
+                        className={`
+                          flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-colors duration-200
+                          ${isExpanded
+                            ? "bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400"
+                            : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                          }
+                        `}
+                      >
+                        <div className="flex items-center">
+                          <Icon className="w-5 h-5 mr-3" />
+                          {item.title}
+                        </div>
+                        <ChevronRight className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
+                      </button>
+
                       {isExpanded && (
                         <div className="pl-12 flex flex-col space-y-1 mt-1">
                           {item.children?.map((child) => {
@@ -520,10 +827,9 @@ export default function Header() {
                                 onClick={closeMobile}
                                 className={`
                                   block py-2 text-sm transition-colors duration-200
-                                  ${
-                                    isChildActive
-                                      ? "text-primary-700 font-bold dark:text-primary-400"
-                                      : "text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                                  ${isChildActive
+                                    ? "text-primary-700 font-bold dark:text-primary-400"
+                                    : "text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
                                   }
                                 `}
                               >
@@ -544,10 +850,9 @@ export default function Header() {
                     onClick={closeMobile}
                     className={`
                       flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-colors duration-200
-                      ${
-                        isActive
-                          ? "bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400"
-                          : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+                      ${isActive
+                        ? "bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400"
+                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
                       }
                     `}
                   >

@@ -8,12 +8,19 @@ const API_BASE_URL = (() => {
     hostname.startsWith("10.") ||
     hostname.startsWith("172.");
 
+  const isStaging =
+    hostname.includes("netlify.app") ||
+    hostname.includes("netlify.live");
+
   const baseUrl = isLocal
     ? "http://127.0.0.1:5000/api"
+    : isStaging
+    ? "https://threew-wheeler-backend.onrender.com/api"
     : "https://3wheelertvsbackend.focusengineeringapp.com/api";
 
   console.log(
-    `🔗 API Base URL: ${baseUrl} (Environment: ${isLocal ? "Local" : "Production"
+    `🔗 API Base URL: ${baseUrl} (Environment: ${
+      isLocal ? "Local" : isStaging ? "Staging" : "Production"
     })`,
   );
   return baseUrl;
@@ -54,11 +61,54 @@ class ApiClient {
   setToken(token: string) {
     this.token = token;
     localStorage.setItem("auth_token", token);
+    try {
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith("api_cache:")) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch (_) { }
   }
 
   clearToken() {
     this.token = null;
     localStorage.removeItem("auth_token");
+    try {
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith("api_cache:")) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch (_) { }
+  }
+
+  public getCachedData<T>(endpoint: string): T | null {
+    try {
+      const cacheKey = `api_cache:${endpoint}`;
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const { data, timestamp } = JSON.parse(cached);
+        const TTL = 2 * 60 * 1000; // 2 minutes TTL
+        if (Date.now() - timestamp < TTL) {
+          return data as T;
+        }
+      }
+    } catch (_) { }
+    return null;
+  }
+
+  public isCacheFresh(endpoint: string, freshnessSeconds = 30): boolean {
+    try {
+      const cacheKey = `api_cache:${endpoint}`;
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const { timestamp } = JSON.parse(cached);
+        if (Date.now() - timestamp < freshnessSeconds * 1000) {
+          return true;
+        }
+      }
+    } catch (_) { }
+    return false;
   }
 
   public getBaseUrl() {
@@ -67,8 +117,57 @@ class ApiClient {
 
   public async request<T>(
     endpoint: string,
-    options: RequestInit & { timeout?: number } = {},
+    options: RequestInit & { timeout?: number; forceNetwork?: boolean } = {},
   ): Promise<T> {
+    const method = (options.method || "GET").toUpperCase();
+    const CACHE_BLACKLIST = [
+      "/auth/me",
+      "/auth/status",
+      "/auth/login",
+      "/users/me",
+      "/chat",
+      "/messages",
+      "/notifications",
+      "/otp",
+      "/verify",
+    ];
+
+    const isCacheable =
+      method === "GET" &&
+      !CACHE_BLACKLIST.some((path) => endpoint.includes(path));
+
+    const cacheKey = `api_cache:${endpoint}`;
+
+    if (isCacheable && !options.forceNetwork) {
+      try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const { data, timestamp } = JSON.parse(cached);
+          const TTL = 2 * 60 * 1000; // 2 minutes TTL
+          if (Date.now() - timestamp < TTL) {
+            console.log(`[CACHE HIT] Returning cached data for: ${endpoint}`);
+            return data as T;
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to read from cache:", err);
+      }
+    }
+
+    const isMutation = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
+    if (isMutation) {
+      try {
+        Object.keys(localStorage).forEach((key) => {
+          if (key.startsWith("api_cache:")) {
+            localStorage.removeItem(key);
+          }
+        });
+        console.log("[CACHE INVALIDATION] Cleared all GET cache keys due to mutation request.");
+      } catch (err) {
+        console.warn("Failed to clear cache:", err);
+      }
+    }
+
     const url = `${this.baseUrl}${endpoint}`;
 
     const headers: Record<string, string> = {
@@ -127,6 +226,25 @@ class ApiClient {
         throw new ApiError(response.status, data, errorMessage);
       }
 
+      if (isCacheable) {
+        try {
+          localStorage.setItem(
+            cacheKey,
+            JSON.stringify({ data: data.data, timestamp: Date.now() })
+          );
+        } catch (err) {
+          console.warn("Failed to write to cache:", err);
+          // If storage is full, clean our cache keys to free up space
+          try {
+            Object.keys(localStorage).forEach((key) => {
+              if (key.startsWith("api_cache:")) {
+                localStorage.removeItem(key);
+              }
+            });
+          } catch (_) { }
+        }
+      }
+
       return data.data as T;
     } catch (error) {
       clearTimeout(timeoutId);
@@ -147,7 +265,7 @@ class ApiClient {
   // HTTP Helper Methods
   public async get<T>(
     endpoint: string,
-    options: RequestInit = {},
+    options: RequestInit & { timeout?: number; forceNetwork?: boolean } = {},
   ): Promise<{ success: boolean; data: T; message?: string }> {
     const data = await this.request<T>(endpoint, { ...options, method: "GET" });
     return { success: true, data };
@@ -408,6 +526,7 @@ class ApiClient {
     page?: number;
     limit?: number;
     tenantId?: string;
+    forceNetwork?: boolean;
   }) {
     const query = new URLSearchParams();
 
@@ -433,7 +552,9 @@ class ApiClient {
 
     const endpoint = `/users${query.toString() ? `?${query.toString()}` : ""}`;
 
-    return this.request<{ users: any[]; pagination: any }>(endpoint);
+    return this.request<{ users: any[]; pagination: any }>(endpoint, {
+      forceNetwork: params?.forceNetwork,
+    });
   }
 
   async createUser(userData: any) {
@@ -460,6 +581,20 @@ class ApiClient {
     return this.request(`/users/${id}/reset-password`, {
       method: "PUT",
       body: JSON.stringify({ newPassword }),
+    });
+  }
+
+  async updateGranularPermissions(
+    id: string,
+    permissions: {
+      canEditAttendanceTime?: boolean;
+      canEditInvoices?: boolean;
+      canEditPricing?: boolean;
+    },
+  ) {
+    return this.request<{ user: any }>(`/users/${id}/granular-permissions`, {
+      method: "PUT",
+      body: JSON.stringify(permissions),
     });
   }
 
@@ -689,21 +824,39 @@ class ApiClient {
   }
 
   // Responses
-  async getResponses(params?: { formIds?: string; limit?: number }) {
+  async getResponses(params?: { formIds?: string; limit?: number; forceNetwork?: boolean }) {
     const query = new URLSearchParams();
-    query.set("limit", (params?.limit ?? 1000).toString());
+    query.set("limit", (params?.limit ?? 50000).toString());
     if (params?.formIds) {
       query.set("formIds", params.formIds);
     }
     return this.request<{ responses: any[]; pagination?: any }>(
-      `/responses?${query.toString()}`, { timeout: 60000 }
+      `/responses?${query.toString()}`, { timeout: 60000, forceNetwork: params?.forceNetwork }
     );
   }
 
-  async getFormResponses(formId: string, options?: { analytics?: boolean }) {
-    const query = options?.analytics ? "?analytics=true" : "";
-    return this.request<{ responses: any[] }>(
-      `/responses/form/${formId}${query}`,
+  async getFormResponses(
+    formId: string,
+    options?: {
+      analytics?: boolean;
+      page?: number;
+      limit?: number;
+      status?: string;
+      includePartial?: boolean;
+      forceNetwork?: boolean;
+    },
+  ) {
+    const query = new URLSearchParams();
+    if (options?.analytics) query.set("analytics", "true");
+    if (options?.page) query.set("page", options.page.toString());
+    if (options?.limit) query.set("limit", options.limit.toString());
+    if (options?.status) query.set("status", options.status);
+    if (options?.includePartial) query.set("includePartial", "true");
+
+    const queryString = query.toString() ? `?${query.toString()}` : "";
+    return this.request<{ responses: any[]; form: any; pagination: any }>(
+      `/responses/form/${formId}${queryString}`,
+      { forceNetwork: options?.forceNetwork }
     );
   }
 
@@ -711,56 +864,66 @@ class ApiClient {
     return this.request<{ response: any }>(`/responses/${id}`);
   }
 
-  async createResponse(responseData: any) {
-    const tenantSlug = responseData.tenantSlug;
-    const formId = responseData.questionId || responseData.formId;
-
-    let url = `${this.baseUrl}/responses`;
-    if (tenantSlug && formId) {
-      url = `${this.baseUrl}/responses/${tenantSlug}/forms/${formId}/responses`;
-    }
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (this.token) headers.Authorization = `Bearer ${this.token}`;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(responseData),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-      const json = await res.json();
-
-      if (!res.ok) {
-        throw new ApiError(
-          res.status,
-          json,
-          json.message || "Failed to create response",
-        );
-      }
-
-      return json;
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      if (err.name === "AbortError") {
-        throw new ApiError(
-          408,
-          null,
-          "Request timed out. The server took too long to respond.",
-        );
-      }
-      if (err instanceof ApiError) throw err;
-      throw new ApiError(500, null, err.message || "Failed to create response");
-    }
+ // In client.ts - replace the createResponse method
+async createResponse(
+  tenantSlug: string,
+  formId: string,
+  responseData: any
+) {
+  // Build the URL with tenant slug and form ID in the path
+  const url = `${this.baseUrl}/responses/${tenantSlug}/forms/${formId}/responses`;
+  
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-App-Type": "website",
+  };
+  
+  if (this.token) {
+    headers.Authorization = `Bearer ${this.token}`;
   }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(responseData),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    const json = await res.json();
+
+    if (!res.ok) {
+      throw new ApiError(
+        res.status,
+        json,
+        json.message || "Failed to create response",
+      );
+    }
+
+    // The backend returns { success, message, data }
+    // But we want to return the data directly for consistency
+    if (json.success && json.data) {
+      return json.data;
+    }
+    
+    return json;
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === "AbortError") {
+      throw new ApiError(
+        408,
+        null,
+        "Request timed out. The server took too long to respond.",
+      );
+    }
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(500, null, err.message || "Failed to create response");
+  }
+}
 
   async batchImportResponses(batchData: any) {
     return this.request<any>("/responses/batch/import", {
@@ -809,9 +972,36 @@ class ApiClient {
     return result;
   }
 
+  async autoFillChassisNumbers(formId: string) {
+    console.log("API Client: Auto-filling chassis numbers for form", formId);
+    const result = await this.request<{
+      defaultValue: string;
+      matchedCount: number;
+      modifiedCount: number;
+    }>(`/responses/form/${formId}/auto-fill-chassis`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    console.log("API Client: Auto-fill chassis result", result);
+    return result;
+  }
+
   async deleteResponse(id: string) {
     return this.request(`/responses/${id}`, {
       method: "DELETE",
+    });
+  }
+
+  async bulkUpdateBiwReview(ids: string[], status: "Accepted" | "Rejected" | "Reworked" | null) {
+    console.log("API Client: Bulk updating BIW reviews", { ids, status });
+    return this.request<{
+      success: boolean;
+      message: string;
+      updatedCount: number;
+      skippedCount: number;
+    }>(`/responses/bulk-biw-review`, {
+      method: "PATCH",
+      body: JSON.stringify({ ids, status }),
     });
   }
 
@@ -874,7 +1064,7 @@ class ApiClient {
     }>("/analytics/my-review-stats");
   }
 
-  async getPerformanceTable(params?: { startDate?: string; endDate?: string; formId?: string }) {
+  async getPerformanceTable(params?: { startDate?: string; endDate?: string; formId?: string; tenantId?: string }) {
     let url = "/analytics/performance-table";
     if (params) {
       const searchParams = new URLSearchParams();
@@ -1031,7 +1221,7 @@ class ApiClient {
     answer: any,
     tenantSlug?: string,
   ) {
-    let endpoint = tenantSlug
+    const endpoint = tenantSlug
       ? `/responses/${tenantSlug}/forms/${formId}/rank`
       : `/responses/rank`;
 
@@ -1082,7 +1272,7 @@ class ApiClient {
     answer: any,
     tenantSlug?: string,
   ) {
-    let endpoint = tenantSlug
+    const endpoint = tenantSlug
       ? `/responses/${tenantSlug}/forms/${formId}/suggestions`
       : `/responses/suggestions`;
 
@@ -1102,7 +1292,7 @@ class ApiClient {
     questionId: string,
     tenantSlug?: string,
   ) {
-    let endpoint = tenantSlug
+    const endpoint = tenantSlug
       ? `/responses/${tenantSlug}/forms/${formId}/previous-answers`
       : `/responses/previous-answers`;
 
@@ -2095,9 +2285,23 @@ class ApiClient {
     if (params?.limit) query.set("limit", params.limit.toString());
     if (params?.tenantId) query.set("tenantId", params.tenantId);
 
-    return this.request<{ logs: any[]; pagination: any }>(
-      `/attendance${query.toString() ? `?${query.toString()}` : ""}`,
-    );
+    const url = `${this.baseUrl}/attendance${query.toString() ? `?${query.toString()}` : ""}`;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+
+    const res = await fetch(url, { headers });
+    const json = await res.json();
+
+    console.log("📥 [getAttendance] raw response:", json);
+
+    if (!res.ok) {
+      throw new ApiError(res.status, json, json.message || "Failed to fetch attendance");
+    }
+
+    // Handle both shapes defensively
+    if (json.data?.logs) return { logs: json.data.logs, pagination: json.data.pagination };
+    if (json.logs) return { logs: json.logs, pagination: json.pagination };
+    return { logs: [], pagination: null };
   }
 
   async getAttendanceSummary(date?: string) {
@@ -2171,8 +2375,8 @@ class ApiClient {
     });
   }
 
-  async getShifts() {
-    return this.request<{ data: any[] }>("/hr/shifts");
+  async getShifts(options?: { forceNetwork?: boolean }) {
+    return this.request<{ data: any[] }>("/hr/shifts", { forceNetwork: options?.forceNetwork });
   }
 
   async updateShift(id: string, shiftData: any) {
@@ -2216,7 +2420,7 @@ class ApiClient {
     lat: number;
     lng: number;
     accuracy: number;
-    otp: string;
+    otp?: string;
   }) {
     return this.request<{ data: any }>("/hr/attendance/checkin", {
       method: "POST",
@@ -2292,6 +2496,47 @@ class ApiClient {
 
   async getHRTenantSummary() {
     return this.request<{ data: any }>("/hr/attendance/summary");
+  }
+
+
+
+  async updateAttendanceTime(
+    id: string,
+    data: {
+      checkIn?: string | null;
+      checkOut?: string | null;
+      status?: string;
+      shift?: string;
+    }
+  ): Promise<{ data: any; success: boolean; message?: string }> {
+    console.log("📤 [API] updateAttendanceTime called:", { id, data });
+
+    try {
+      const result = await this.request<{ data: any }>(`/attendance/${id}/time`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      });
+      console.log("📥 [API] updateAttendanceTime response:", result);
+      return result;
+    } catch (error) {
+      console.error("❌ [API] updateAttendanceTime error:", error);
+      throw error;
+    }
+  }
+
+  async createAttendance(data: {
+    userId: string;
+    date: string;
+    status: string;
+    checkIn?: string | null;
+    checkOut?: string | null;
+    workingHours?: number;
+    shift?: string;
+  }) {
+    return this.request<{ data: any }>("/attendance/create", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   }
 
   // --- LEAVE MANAGEMENT ---
@@ -2577,6 +2822,146 @@ class ApiClient {
       }>;
     }>;
   }
+
+  async getInspectorSummary(params: { startDate?: string; endDate?: string; formId?: string }) {
+    const queryParams = new URLSearchParams();
+    if (params.startDate) queryParams.append("startDate", params.startDate);
+    if (params.endDate) queryParams.append("endDate", params.endDate);
+    if (params.formId) queryParams.append("formId", params.formId);
+    return this.request<{
+      summary: Array<{
+        tenantName: string;
+        date: string;
+        shift: string;
+        formTitle: string;
+        qcInspector: string;
+        role: string;
+        username: string;
+        email: string;
+        isActive: boolean;
+        status: string;
+        totalInspection: number;
+        statusCounts: {
+          'Direct Ok': number;
+          'Rework QC Completed': number;
+          'Rework QC Pending': number;
+          'Rejected': number;
+          'Dispatched'?: number;
+        };
+        userId: string;
+        formId: string;
+      }>;
+      allStatuses: string[];
+    }>(`/analytics/inspector-summary?${queryParams.toString()}`);
+  }
+
+  async getInspectors() {
+    return this.request<Array<{
+      _id: string;
+      firstName: string;
+      lastName: string;
+      username: string;
+      email: string;
+      role: string;
+    }>>("/attendance/inspectors");
+  }
+
+  async swapResponses(payload: {
+    sourceUserId: string;
+    targetUserId: string;
+    sourceDate: string;     // ✅ Changed
+    targetDate: string;     // ✅ New
+    formId: string;
+    quantities: {
+      directOk?: number;
+      reworkCompleted?: number;
+      reworkPending?: number;
+      rejected?: number;
+    };
+  }) {
+    console.log("📤 [API] swapResponses called with:", payload);
+
+    // Use fetch directly to avoid the request() wrapper issues
+    const url = `${this.baseUrl}/attendance/swap-responses`;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-App-Type": "website",
+    };
+
+    if (this.token) {
+      headers.Authorization = `Bearer ${this.token}`;
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      console.log("📥 [API] swapResponses raw response:", data);
+
+      if (!response.ok) {
+        throw new Error(data.message || `HTTP ${response.status}: Swap failed`);
+      }
+
+      // ✅ The backend returns { success, message, data }
+      // Return it as-is for the frontend to handle
+      return data;
+    } catch (error) {
+      console.error("📥 [API] swapResponses error:", error);
+      throw error;
+    }
+  }
+
+  async getAllFormResponses(
+    formId: string,
+    options?: { status?: string; includePartial?: boolean; analytics?: boolean; forceNetwork?: boolean },
+  ) {
+    // Deliberately large: the backend has no server-side cap on `limit`
+    // (it used to default to 10000 with no issue), so fetching in one
+    // big request avoids the round-trip overhead of many small pages —
+    // each request re-runs auth/tenant-access middleware, so 10 requests
+    // of 500 is much slower in practice than 1 request of 5000, even
+    // though the total data transferred is the same. Only forms with
+    // more than this many responses will need a second round-trip.
+    const pageLimit = 5000;
+    let page = 1;
+    let allResponses: any[] = [];
+    let totalPages = 1;
+    let form: any = undefined;
+
+    do {
+      const result = await this.getFormResponses(formId, {
+        ...options,
+        page,
+        limit: pageLimit,
+        forceNetwork: options?.forceNetwork,
+      });
+      allResponses = allResponses.concat(result.responses || []);
+      form = result.form ?? form;
+      totalPages = result.pagination?.totalPages ?? 1;
+      page += 1;
+    } while (page <= totalPages);
+
+    return { responses: allResponses, form };
+  }
+  async getBiwSummary(params?: { forceNetwork?: boolean }) {
+  return this.get<{
+    data: Array<{
+      name: string;
+      totalSubmitted: number;
+      dispatched: number;
+      accepted: number;
+      rejected: number;
+      rework: number;
+      totalReviewed: number;
+      performanceScore: number;
+    }>;
+    totalResponses: number;
+  }>("/biw-summary", { forceNetwork: params?.forceNetwork });
+}
 }
 
 // Create and export a singleton instance

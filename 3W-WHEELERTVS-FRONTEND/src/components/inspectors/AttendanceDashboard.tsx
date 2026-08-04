@@ -310,10 +310,11 @@ export default function AttendanceDashboard({
   };
 
   const verifyOTPAndCheckIn = async () => {
-    if (!otp || otp.length !== 4) {
+    // Allow empty OTP (skip OTP verification)
+    if (otp.length > 0 && otp.length !== 4) {
       setStatusMessage({
         type: "error",
-        text: "Please enter valid 4-digit OTP",
+        text: "Please enter valid 4-digit OTP or leave empty to skip",
       });
       return;
     }
@@ -325,7 +326,7 @@ export default function AttendanceDashboard({
         lat: location!.lat,
         lng: location!.lng,
         accuracy: location!.accuracy,
-        otp: otp,
+        otp: otp.length === 4 ? otp : undefined,
       });
       setStatusMessage({ type: "success", text: "Check-in successful!" });
       setOtp("");
@@ -504,21 +505,35 @@ export default function AttendanceDashboard({
               )}
             </div>
 
-            {!attendance?.checkInTime ? (
-              <button
-                //disabled={!shift || !location || !isWithinRadius || punching}
-                disabled={!shift || !location || !isWithinRadius || punching}
-                onClick={handlePunchIn}
-                className="w-full h-20 bg-green-600 hover:bg-green-700 disabled:bg-gray-200 text-white rounded-3xl font-black text-xl shadow-lg shadow-green-100 transition-all flex items-center justify-center gap-3 active:scale-95"
-              >
-                {punching ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <LogIn size={28} />
+            {!attendance?.checkInTime || attendance?.checkOutTime ? (
+              <div className="space-y-4">
+                {attendance?.checkOutTime && (
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl text-center space-y-2">
+                    <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">
+                      Last Clocked Out At
+                    </p>
+                    <p className="text-xl font-black text-gray-800">
+                      {formatLocalTime(attendance.checkOutTime)}
+                    </p>
+                    <p className="text-xs text-gray-500 font-medium">
+                      Total Working Hours: <span className="font-bold text-gray-700">{attendance.workingHours} hrs</span>
+                    </p>
+                  </div>
                 )}
-                Clock In
-              </button>
-            ) : !attendance?.checkOutTime ? (
+                <button
+                  disabled={!shift || !location || !isWithinRadius || punching}
+                  onClick={handlePunchIn}
+                  className="w-full h-20 bg-green-600 hover:bg-green-700 disabled:bg-gray-200 text-white rounded-3xl font-black text-xl shadow-lg shadow-green-100 transition-all flex items-center justify-center gap-3 active:scale-95"
+                >
+                  {punching ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <LogIn size={28} />
+                  )}
+                  {attendance?.checkOutTime ? "Clock In Again" : "Clock In"}
+                </button>
+              </div>
+            ) : (
               <div className="space-y-4">
                 <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl text-center">
                   <p className="text-xs text-blue-600 font-bold uppercase tracking-widest mb-1">
@@ -544,34 +559,6 @@ export default function AttendanceDashboard({
                   )}
                   Clock Out
                 </button>
-              </div>
-            ) : (
-              <div className="p-8 bg-gray-100 border border-gray-200 rounded-3xl text-center">
-                <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <CheckCircle2 size={32} />
-                </div>
-                <h3 className="text-xl font-bold text-gray-900">
-                  Shift Completed!
-                </h3>
-                <p className="text-gray-500 mt-1">
-                  You have successfully clocked out for today.
-                </p>
-                <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest border-t pt-4">
-                  <div>
-                    <div>Punch In</div>
-                    <div className="text-gray-900 text-sm mt-1">
-                      {formatLocalTime(attendance.checkInTime)}
-
-                    </div>
-                  </div>
-                  <div>
-                    <div>Punch Out</div>
-                    <div className="text-gray-900 text-sm mt-1">
-                      {formatLocalTime(attendance.checkOutTime)}
-
-                    </div>
-                  </div>
-                </div>
               </div>
             )}
           </div>
@@ -655,61 +642,61 @@ export default function AttendanceDashboard({
           </div>
         </div>
 
-        {/* OTP Verification Modal */}
-        {showOTPScreen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div
-              className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm"
-              onClick={() => setShowOTPScreen(false)}
-            ></div>
-            <div className="relative bg-white rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-2">
-                Verify OTP
-              </h2>
-              <p className="text-gray-500 text-sm mb-4">
-                Enter the 4-digit OTP sent to your mobile number.
-              </p>
+{/* OTP Verification Modal */}
+         {showOTPScreen && (
+           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+             <div
+               className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm"
+               onClick={() => setShowOTPScreen(false)}
+             ></div>
+             <div className="relative bg-white rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 p-6">
+               <h2 className="text-xl font-bold text-gray-900 mb-2">
+                 Verify OTP
+               </h2>
+<p className="text-gray-500 text-sm mb-4">
+                  Enter the 4-digit OTP sent to your mobile number (optional).
+                </p>
 
-              <div className="space-y-4">
-                <div>
-                  <input
-                    type="text"
-                    maxLength={4}
-                    value={otp}
-                    onChange={(e) =>
-                      setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))
-                    }
-                    placeholder="Enter 4-digit OTP"
-                    className="w-full text-center text-2xl tracking-widest border border-gray-200 rounded-xl px-4 py-3 font-black"
-                  />
-                </div>
+               <div className="space-y-4">
+                 <div>
+                   <input
+                     type="text"
+                     maxLength={4}
+                     value={otp}
+                     onChange={(e) =>
+                       setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))
+                     }
+                     placeholder="Enter 4-digit OTP (optional)"
+                     className="w-full text-center text-2xl tracking-widest border border-gray-200 rounded-xl px-4 py-3 font-black"
+                   />
+                 </div>
 
-                <button
-                  disabled={punching || otp.length !== 4}
-                  onClick={verifyOTPAndCheckIn}
-                  className="w-full h-14 bg-green-600 hover:bg-green-700 disabled:bg-gray-200 text-white rounded-xl font-bold text-lg"
-                >
-                  {punching ? (
-                    <Loader2 className="animate-spin mx-auto" />
-                  ) : (
-                    "Verify & Clock In"
-                  )}
-                </button>
+                 <button
+                   disabled={punching}
+                   onClick={verifyOTPAndCheckIn}
+                   className="w-full h-14 bg-green-600 hover:bg-green-700 disabled:bg-gray-200 text-white rounded-xl font-bold text-lg"
+                 >
+                   {punching ? (
+                     <Loader2 className="animate-spin mx-auto" />
+                   ) : (
+                     otp.length === 0 ? "Clock In Without OTP" : "Verify & Clock In"
+                   )}
+                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowOTPScreen(false);
-                    setOtp("");
-                  }}
-                  className="w-full text-gray-500 text-sm hover:text-gray-700"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+                 <button
+                   type="button"
+                   onClick={() => {
+                     setShowOTPScreen(false);
+                     setOtp("");
+                   }}
+                   className="w-full text-gray-500 text-sm hover:text-gray-700"
+                 >
+                   Cancel
+                 </button>
+               </div>
+             </div>
+           </div>
+         )}
       </div>
     </div>
   );
