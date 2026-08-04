@@ -76,7 +76,7 @@ const developmentOrigins = [
 ];
 
 // Combine production and development origins
-const allAllowedOrigins = [...allowedOrigins, ...developmentOrigins];
+const allAllowedOrigins = [...allowedOrigins, ...developmentOrigins].map(url => url.replace(/\/$/, ""));
 
 // Middleware
 app.use(cors({
@@ -84,13 +84,23 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
 
-    if (allAllowedOrigins.indexOf(origin) !== -1) {
+    const cleanOrigin = origin.replace(/\/$/, "");
+
+    if (
+      allAllowedOrigins.includes(cleanOrigin) ||
+      cleanOrigin.endsWith(".focusengineeringapp.com") ||
+      cleanOrigin.endsWith(".netlify.app") ||
+      cleanOrigin.endsWith(".cloudfront.net")
+    ) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      console.warn(`[CORS Blocked Origin]: ${origin}`);
+      callback(null, false);
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-tenant-id', 'x-session-id']
 }));
 
 app.use(
