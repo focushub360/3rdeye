@@ -242,23 +242,6 @@ const LoginScreen = () => {
       return false;
     };
 
-    // Check connection first
-    const netState = await NetInfo.fetch();
-    console.log('[LOGIN] Network connection status:', netState.isConnected, 'Type:', netState.type);
-    if (!netState.isConnected) {
-      console.log('[LOGIN] Offline. Attempting offline login fallback.');
-      const offlineSuccess = await attemptOfflineLogin();
-      if (offlineSuccess) {
-        setLoading(false);
-        return;
-      } else {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        setError('You are offline. Please connect to the internet or enter your previously logged-in credentials.');
-        setLoading(false);
-        return;
-      }
-    }
-
     try {
       const loginPayload: any = { 
         email, 
@@ -278,13 +261,6 @@ const LoginScreen = () => {
         
         console.log('[LOGIN] Received user details:', JSON.stringify(userWithTenant));
         
-        // Cache credentials for future offline login
-        await SecureStore.setItemAsync('offline_email', email);
-        if (user.mobile) {
-          await SecureStore.setItemAsync('offline_mobile', user.mobile);
-        }
-        await SecureStore.setItemAsync('offline_password', password);
-        
         await login({ token, user: userWithTenant, sessionLogId });
         
         console.log('[LOGIN] State initialized. Replacing screen with MainTabs.');
@@ -295,15 +271,9 @@ const LoginScreen = () => {
         setError(response.data.message || 'Incorrect email or password.');
       }
     } catch (error: any) {
-      console.error('[LOGIN] Request failed:', error.message, 'Response status:', error.response?.status, 'Response data:', error.response?.data);
-      // Fallback to offline login if server/connection fails
-      const offlineSuccess = await attemptOfflineLogin();
-      if (offlineSuccess) {
-        console.log('[LOGIN] Offline login fallback succeeded after API failure.');
-        setLoading(false);
-        return;
+      if (error.response?.status !== 401) {
+        console.error('[LOGIN] Request failed:', error.message, 'Response status:', error.response?.status, 'Response data:', error.response?.data);
       }
-
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(error.response?.data?.message || 'Incorrect email or password. Check your connection.');
     } finally {

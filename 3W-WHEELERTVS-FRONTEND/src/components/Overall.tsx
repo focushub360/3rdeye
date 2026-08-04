@@ -2158,6 +2158,32 @@ export default function Overall() {
         }
       });
 
+      const formQuestionTextsCache: Record<string, Record<string, string>> = {};
+      Object.values(formsMapObj).forEach((form: any) => {
+        const fid = form._id || form.id;
+        if (!fid) return;
+        const qTexts: Record<string, string> = {};
+        if (form.sections?.length > 0) {
+          for (const section of form.sections) {
+            if (section.questions?.length > 0) {
+              for (const q of section.questions) {
+                if (q.id) {
+                  qTexts[q.id] = q.text || q.label || `Question: ${q.id.substring(0, 8)}`;
+                }
+                if (q.followUpQuestions) {
+                  for (const fq of q.followUpQuestions) {
+                    if (fq.id) {
+                      qTexts[fq.id] = fq.text || fq.label || `Follow-up: ${fq.id.substring(0, 8)}`;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        formQuestionTextsCache[fid] = qTexts;
+      });
+
       const extractDealer = (response: any, form: Form | undefined) => {
         if (!form || !response.answers) return { name: null, rank: null };
         const fid = form._id || form.id;
@@ -2196,7 +2222,11 @@ export default function Overall() {
 
         let firstQ = "Unknown Question";
         let firstA = "N/A";
+<<<<<<< Updated upstream
         const questionTexts = formQuestionTextsMap[actualFormId] || {};
+=======
+        const questionTexts = formQuestionTextsCache[actualFormId] || {};
+>>>>>>> Stashed changes
 
         if (form && form.sections?.length > 0) {
           // Get first question for display

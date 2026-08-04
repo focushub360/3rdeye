@@ -619,13 +619,15 @@ export default function TenantManagement() {
     }
   };
 
-  const getInitials = (name: string) =>
-    name
+  const getInitials = (name: string) => {
+    if (!name || typeof name !== 'string') return "?";
+    return name
       .split(" ")
       .map((n) => n[0])
       .join("")
       .toUpperCase()
       .slice(0, 2);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
