@@ -2962,18 +2962,37 @@ class ApiClient {
     // Use longer timeout for analytics
     const timeout = options?.analytics ? 180000 : 60000;
 
-    do {
-      const result = await this.getFormResponses(formId, {
-        ...options,
-        page,
-        limit: pageLimit,
-        forceNetwork: options?.forceNetwork,
-      });
-      allResponses = allResponses.concat(result.responses || []);
-      form = result.form ?? form;
-      totalPages = result.pagination?.totalPages ?? 1;
-      page += 1;
-    } while (page <= totalPages);
+    // Fetch page 1 first to get totalPages and initial responses
+    const firstResult = await this.getFormResponses(formId, {
+      ...options,
+      page: 1,
+      limit: pageLimit,
+      forceNetwork: options?.forceNetwork,
+    });
+
+    let allResponses: any[] = firstResult.responses || [];
+    const form = firstResult.form;
+    const totalPages = firstResult.pagination?.totalPages ?? 1;
+
+    if (totalPages > 1) {
+      // Fetch all remaining page chunks in PARALLEL for ultra-fast load time
+      const remainingPromises = [];
+      for (let page = 2; page <= totalPages; page++) {
+        remainingPromises.push(
+          this.getFormResponses(formId, {
+            ...options,
+            page,
+            limit: pageLimit,
+            forceNetwork: options?.forceNetwork,
+          })
+        );
+      }
+
+      const remainingResults = await Promise.all(remainingPromises);
+      for (const res of remainingResults) {
+        allResponses = allResponses.concat(res.responses || []);
+      }
+    }
 
     return { responses: allResponses, form };
   }

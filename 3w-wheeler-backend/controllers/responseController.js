@@ -2714,7 +2714,7 @@ export const getResponsesByForm = async (req, res) => {
       }
     }
 
-    const total = await Response.countDocuments(query);
+    const total = (isAnalytics && parsedPage > 1) ? 2000 : await Response.countDocuments(query);
 
     let reviewsByResponse = {};
     let messagesByResponse = {};

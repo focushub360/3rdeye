@@ -3804,16 +3804,19 @@ export default function FormAnalyticsDashboard() {
         return;
       }
 
-      console.log("[ANALYTICS DEBUG] Fetching form:", id);
+      console.log("[ANALYTICS DEBUG] Parallel fetching form & responses for:", id);
 
-      // Fetch form details with longer timeout
-      const formData = await apiClient.request<{ form: any }>(formCacheKey, {
-        forceNetwork: true,
-        timeout: 60000 // 60 seconds for form data
-      });
+      // Parallelize form details & response chunks to eliminate waterfall delay
+      const [formData, responsesData] = await Promise.all([
+        apiClient.request<{ form: any }>(formCacheKey, {
+          timeout: 60000
+        }),
+        apiClient.getAllFormResponses(id, {
+          analytics: true
+        })
+      ]);
+
       setForm(formData.form);
-
-      console.log("[ANALYTICS DEBUG] Form fetched:", formData.form?.title);
 
       if (formData.form?.sections && formData.form.sections.length > 0) {
         setSelectedResponsesSectionIds(
@@ -3821,11 +3824,6 @@ export default function FormAnalyticsDashboard() {
         );
       }
 
-      // Fetch ALL responses with longer timeout
-      const responsesData = await apiClient.getAllFormResponses(id, {
-        analytics: true,
-        forceNetwork: true
-      });
       console.log(
         "[ANALYTICS DEBUG] Responses fetched:",
         responsesData.responses?.length || 0,
