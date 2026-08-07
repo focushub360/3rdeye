@@ -1,0 +1,40 @@
+name: Deploy Backend to AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '3w-wheeler-backend/**'
+
+jobs:
+  deploy:
+    name: Deploy Backend via SSH
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          timeout: 120s
+          script: |
+            echo "📦 Pulling latest backend code..."
+            cd /home/ubuntu/3w-wheeler-backend
+            git pull origin main
+
+            echo "📥 Installing dependencies..."
+            npm install --omit=dev
+
+            echo "♻️ Restarting backend with PM2..."
+            pm2 restart backend --update-env
+            pm2 save
+
+            echo "✅ Backend deployed successfully!"
+            pm2 status
