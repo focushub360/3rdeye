@@ -29,3 +29,13 @@ Thumbs.db
 # local dev folders
 .mongodb_data/
 node-dist/
+
+# mobile app
+mobile-expo/
+
+# backups & uploads
+backups/
+3w-wheeler-backend/backups/
+3w-wheeler-backend/uploads/
+uploads/
+test.txt

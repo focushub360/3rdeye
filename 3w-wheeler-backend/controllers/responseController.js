@@ -2662,18 +2662,19 @@ export const getResponsesByForm = async (req, res) => {
       sort: { createdAt: -1 }
     };
 
-    const isAnalytics = req.query.analytics === 'true';
+    const isAnalytics = req.query.analytics === 'true' || parseInt(limit) >= 500;
 
     let responsesQuery = Response.find(query);
     if (isAnalytics) {
       responsesQuery = responsesQuery.select(
         '_id id questionId formId answers status submissionMetadata responseRanks createdAt timestamp submittedBy createdBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId'
-      );
+      ).lean();
     } else {
       responsesQuery = responsesQuery
         .populate('assignedTo', 'username firstName lastName email')
         .populate('verifiedBy', 'username firstName lastName email')
-        .populate('createdBy', 'username firstName lastName email');
+        .populate('createdBy', 'username firstName lastName email')
+        .lean();
     }
 
     let responses = await responsesQuery
@@ -2715,17 +2716,18 @@ export const getResponsesByForm = async (req, res) => {
     let reviewsByResponse = {};
     let messagesByResponse = {};
 
-    if (!isAnalytics) {
+    if (!isAnalytics && responses.length < 500) {
       // Fetch reviews and chat messages for these responses to show in the "Review" column
-      const responseIds = responses.map(r => r.id);
+      const responseIds = responses.map(r => r._id || r.id);
       const reviews = await Review.find({ responseId: { $in: responseIds } })
         .populate('reviewerId', 'firstName lastName email username')
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .lean();
 
       const chatMessages = await ChatMessage.find({
         responseId: { $in: responseIds },
         questionContexts: { $exists: true, $not: { $size: 0 } }
-      }).sort({ createdAt: -1 });
+      }).sort({ createdAt: -1 }).lean();
 
       // Group reviews and messages by responseId
       reviewsByResponse = reviews.reduce((acc, r) => {
@@ -2743,11 +2745,12 @@ export const getResponsesByForm = async (req, res) => {
       }, {});
     }
 
-    // Convert Map to Object for JSON serialization
+    // Convert to serializable format efficiently
     const formattedResponses = responses.map(response => {
-      const responseObj = response.toObject();
-      const review = reviewsByResponse[response.id];
-      const message = messagesByResponse[response.id];
+      const responseObj = response.toObject ? response.toObject() : { ...response };
+      const responseIdStr = (response._id || response.id)?.toString();
+      const review = reviewsByResponse[responseIdStr];
+      const message = messagesByResponse[responseIdStr];
 
       // Determine the best display name for submittedBy
       let displaySubmittedBy = response.submittedBy;
@@ -2775,13 +2778,23 @@ export const getResponsesByForm = async (req, res) => {
       const reviewInfo = review ? {
         status: review.reviewOption,
         reviewer: review.reviewerName || (review.reviewerId ? (review.reviewerId.firstName ? `${review.reviewerId.firstName} ${review.reviewerId.lastName}` : review.reviewerId.username) : 'Reviewer'),
-        flaggedQuestions: message ? message.questionContexts.map(c => c.title) : []
+        flaggedQuestions: message ? message.questionContexts?.map(c => c.title) || [] : []
       } : null;
+
+      const finalAnswers = response.answers instanceof Map 
+        ? Object.fromEntries(response.answers) 
+        : (response.answers && typeof response.answers === 'object' ? response.answers : {});
+
+      const finalRanks = response.responseRanks instanceof Map 
+        ? Object.fromEntries(response.responseRanks) 
+        : (response.responseRanks && typeof response.responseRanks === 'object' ? response.responseRanks : {});
 
       return {
         ...responseObj,
-        answers: response.answers ? Object.fromEntries(response.answers) : {},
-        responseRanks: response.responseRanks ? Object.fromEntries(response.responseRanks) : {},
+        id: responseIdStr || responseObj.id,
+        _id: responseIdStr || responseObj._id,
+        answers: finalAnswers,
+        responseRanks: finalRanks,
         submissionMetadata: responseObj.submissionMetadata || null,
         submittedBy: displaySubmittedBy, // Override with better display name
         review: reviewInfo
