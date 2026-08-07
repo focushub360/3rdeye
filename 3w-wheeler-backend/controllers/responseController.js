@@ -86,13 +86,20 @@ export const createResponse = async (req, res) => {
       completedAt
     } = req.body;
     const { tenantSlug, formId: paramFormId } = req.params;
+    const questionId = paramFormId || bodyFormId;
+
+    if (!questionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Form ID is required'
+      });
+    }
 
     let form;
     let submissionTimeSpent = 0;
     let formSession = null;
     let actualStartedAt = startedAt ? new Date(startedAt) : null;
     let actualCompletedAt = completedAt ? new Date(completedAt) : new Date();
-
     // ========== TIMING CALCULATION ==========
     // Calculate time if we have start time
     if (actualStartedAt) {
@@ -190,7 +197,7 @@ export const createResponse = async (req, res) => {
     console.log(`[TIME TRACKING] Form submission - Time spent: ${formatTimeDisplay(submissionTimeSpent)}`);
 
     // ========== FORM VALIDATION (Keep your existing code) ==========
-    const questionId = paramFormId || bodyFormId;
+
 
     if (!questionId) {
       return res.status(400).json({
@@ -2052,7 +2059,7 @@ export const getAllResponses = async (req, res) => {
     // Convert Map to Object for JSON serialization
     const formattedResponses = responses.map(response => {
       const responseObj = response.toObject();
-      console.log('[DEBUG] Response metadata from DB in getAllResponses:', responseObj.submissionMetadata);
+      //console.log('[DEBUG] Response metadata from DB in getAllResponses:', responseObj.submissionMetadata);
       return {
         ...responseObj,
         answers: Object.fromEntries(response.answers),
