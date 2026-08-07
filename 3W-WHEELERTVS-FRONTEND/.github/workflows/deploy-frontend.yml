@@ -2,7 +2,8 @@ name: Deploy Frontend to S3 + CloudFront
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
+  workflow_dispatch:
 
 jobs:
   deploy:
