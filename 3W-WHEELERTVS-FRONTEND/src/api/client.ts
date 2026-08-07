@@ -2952,8 +2952,8 @@ class ApiClient {
     formId: string,
     options?: { status?: string; includePartial?: boolean; analytics?: boolean; forceNetwork?: boolean },
   ) {
-    // Use a single larger limit for analytics to reduce round-trips
-    const pageLimit = options?.analytics ? 10000 : 5000;
+    // Use 1000 limit per page chunk for fast, reliable data transfer
+    const pageLimit = 1000;
     let page = 1;
     let allResponses: any[] = [];
     let totalPages = 1;

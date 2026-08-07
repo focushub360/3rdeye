@@ -2656,13 +2656,16 @@ export const getResponsesByForm = async (req, res) => {
       Object.assign(query, req.tenantFilter);
     }
 
+    const parsedLimit = Math.min(Math.max(parseInt(limit) || 1000, 1), 2000);
+    const parsedPage = Math.max(parseInt(page) || 1, 1);
+
     const options = {
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page: parsedPage,
+      limit: parsedLimit,
       sort: { createdAt: -1 }
     };
 
-    const isAnalytics = req.query.analytics === 'true' || parseInt(limit) >= 500;
+    const isAnalytics = req.query.analytics === 'true' || parsedLimit >= 500;
 
     let responsesQuery = Response.find(query);
     if (isAnalytics) {
