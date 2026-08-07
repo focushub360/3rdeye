@@ -38,12 +38,20 @@ import hrRoutes from './routes/hrRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import internalTrackingRoutes from './routes/internalTrackingRoutes.js';
 
-// Connect to database
-await connectDB();
+// Connect to database safely without crashing startup
+try {
+  await connectDB();
+} catch (dbErr) {
+  console.error("⚠️ Database initial connection failed:", dbErr.message || dbErr);
+}
 
 // Initialize AutoSend cron job
 import { initAutoSendJob } from './services/autoSendService.js';
-initAutoSendJob();
+try {
+  initAutoSendJob();
+} catch (cronErr) {
+  console.error("⚠️ Cron job init failed:", cronErr.message || cronErr);
+}
 
 const app = express();
 
