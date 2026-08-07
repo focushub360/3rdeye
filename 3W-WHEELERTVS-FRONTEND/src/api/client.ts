@@ -15,12 +15,11 @@ const API_BASE_URL = (() => {
   const baseUrl = isLocal
     ? "http://127.0.0.1:5000/api"
     : isStaging
-    ? "https://threew-wheeler-backend.onrender.com/api"
-    : "https://3wheelertvsbackend.focusengineeringapp.com/api";
+      ? "https://threew-wheeler-backend.onrender.com/api"
+      : "https://3wheelertvsbackend.focusengineeringapp.com/api";
 
   console.log(
-    `🔗 API Base URL: ${baseUrl} (Environment: ${
-      isLocal ? "Local" : isStaging ? "Staging" : "Production"
+    `🔗 API Base URL: ${baseUrl} (Environment: ${isLocal ? "Local" : isStaging ? "Staging" : "Production"
     })`,
   );
   return baseUrl;
@@ -186,7 +185,10 @@ class ApiClient {
     }
 
     const controller = new AbortController();
-    const timeout = options.timeout || 30000;
+    let timeout = options.timeout || 30000;
+    if (this.isHeavyAnalyticsEndpoint(endpoint)) {
+      timeout = options.timeout || 120000; // 2 minutes for analytics
+    }
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     const config: RequestInit = {
@@ -326,6 +328,16 @@ class ApiClient {
     } catch {
       return normalized;
     }
+  }
+
+  private isHeavyAnalyticsEndpoint(endpoint: string): boolean {
+    const heavyEndpoints = [
+      '/analytics/performance-table',
+      '/responses/form/',
+      '/analytics/inspector-summary',
+      '/responses/bulk'
+    ];
+    return heavyEndpoints.some(path => endpoint.includes(path));
   }
 
   // Authentication
@@ -854,76 +866,79 @@ class ApiClient {
     if (options?.includePartial) query.set("includePartial", "true");
 
     const queryString = query.toString() ? `?${query.toString()}` : "";
+    // Add 2-minute timeout for analytics
+    const timeout = options?.analytics ? 120000 : 30000;
     return this.request<{ responses: any[]; form: any; pagination: any }>(
       `/responses/form/${formId}${queryString}`,
-      { forceNetwork: options?.forceNetwork }
+      { forceNetwork: options?.forceNetwork, timeout }
     );
   }
+
 
   async getResponse(id: string) {
     return this.request<{ response: any }>(`/responses/${id}`);
   }
 
- // In client.ts - replace the createResponse method
-async createResponse(
-  tenantSlug: string,
-  formId: string,
-  responseData: any
-) {
-  // Build the URL with tenant slug and form ID in the path
-  const url = `${this.baseUrl}/responses/${tenantSlug}/forms/${formId}/responses`;
-  
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-App-Type": "website",
-  };
-  
-  if (this.token) {
-    headers.Authorization = `Bearer ${this.token}`;
+  // In client.ts - replace the createResponse method
+  async createResponse(
+    tenantSlug: string,
+    formId: string,
+    responseData: any
+  ) {
+    // Build the URL with tenant slug and form ID in the path
+    const url = `${this.baseUrl}/responses/${tenantSlug}/forms/${formId}/responses`;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-App-Type": "website",
+    };
+
+    if (this.token) {
+      headers.Authorization = `Bearer ${this.token}`;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(responseData),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new ApiError(
+          res.status,
+          json,
+          json.message || "Failed to create response",
+        );
+      }
+
+      // The backend returns { success, message, data }
+      // But we want to return the data directly for consistency
+      if (json.success && json.data) {
+        return json.data;
+      }
+
+      return json;
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (err.name === "AbortError") {
+        throw new ApiError(
+          408,
+          null,
+          "Request timed out. The server took too long to respond.",
+        );
+      }
+      if (err instanceof ApiError) throw err;
+      throw new ApiError(500, null, err.message || "Failed to create response");
+    }
   }
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(responseData),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-    const json = await res.json();
-
-    if (!res.ok) {
-      throw new ApiError(
-        res.status,
-        json,
-        json.message || "Failed to create response",
-      );
-    }
-
-    // The backend returns { success, message, data }
-    // But we want to return the data directly for consistency
-    if (json.success && json.data) {
-      return json.data;
-    }
-    
-    return json;
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    if (err.name === "AbortError") {
-      throw new ApiError(
-        408,
-        null,
-        "Request timed out. The server took too long to respond.",
-      );
-    }
-    if (err instanceof ApiError) throw err;
-    throw new ApiError(500, null, err.message || "Failed to create response");
-  }
-}
 
   async batchImportResponses(batchData: any) {
     return this.request<any>("/responses/batch/import", {
@@ -1064,17 +1079,35 @@ async createResponse(
     }>("/analytics/my-review-stats");
   }
 
-  async getPerformanceTable(params?: { startDate?: string; endDate?: string; formId?: string; tenantId?: string }) {
+  async getPerformanceTable(params?: {
+    startDate?: string;
+    endDate?: string;
+    formId?: string;
+    tenantId?: string;
+    page?: number;
+    limit?: number;
+  }) {
     let url = "/analytics/performance-table";
     if (params) {
       const searchParams = new URLSearchParams();
       if (params.startDate) searchParams.append("startDate", params.startDate);
       if (params.endDate) searchParams.append("endDate", params.endDate);
       if (params.formId) searchParams.append("formId", params.formId);
+      if (params.tenantId) searchParams.append("tenantId", params.tenantId);
+      searchParams.append("page", String(params.page || 1));
+      searchParams.append("limit", String(params.limit || 50));
       const query = searchParams.toString();
       if (query) url += `?${query}`;
     }
-    return this.get<any[]>(url);
+    // Pagination + server-side maxTimeMS keep this well under 5s now, but
+    // keep a generous timeout as a safety net for slow networks.
+    return this.get<{
+      success: boolean;
+      data: any[];
+      summary: any;
+      meta: any;
+      pagination: { page: number; limit: number; hasMore: boolean };
+    }>(url, { timeout: 30000 });
   }
 
   async getInternalTrackingPerformance(params?: { page?: number; limit?: number; search?: string; sortBy?: string; sortOrder?: string }) {
@@ -2919,18 +2952,15 @@ async createResponse(
     formId: string,
     options?: { status?: string; includePartial?: boolean; analytics?: boolean; forceNetwork?: boolean },
   ) {
-    // Deliberately large: the backend has no server-side cap on `limit`
-    // (it used to default to 10000 with no issue), so fetching in one
-    // big request avoids the round-trip overhead of many small pages —
-    // each request re-runs auth/tenant-access middleware, so 10 requests
-    // of 500 is much slower in practice than 1 request of 5000, even
-    // though the total data transferred is the same. Only forms with
-    // more than this many responses will need a second round-trip.
-    const pageLimit = 5000;
+    // Use a single larger limit for analytics to reduce round-trips
+    const pageLimit = options?.analytics ? 10000 : 5000;
     let page = 1;
     let allResponses: any[] = [];
     let totalPages = 1;
     let form: any = undefined;
+
+    // Use longer timeout for analytics
+    const timeout = options?.analytics ? 180000 : 60000;
 
     do {
       const result = await this.getFormResponses(formId, {
@@ -2948,20 +2978,20 @@ async createResponse(
     return { responses: allResponses, form };
   }
   async getBiwSummary(params?: { forceNetwork?: boolean }) {
-  return this.get<{
-    data: Array<{
-      name: string;
-      totalSubmitted: number;
-      dispatched: number;
-      accepted: number;
-      rejected: number;
-      rework: number;
-      totalReviewed: number;
-      performanceScore: number;
-    }>;
-    totalResponses: number;
-  }>("/biw-summary", { forceNetwork: params?.forceNetwork });
-}
+    return this.get<{
+      data: Array<{
+        name: string;
+        totalSubmitted: number;
+        dispatched: number;
+        accepted: number;
+        rejected: number;
+        rework: number;
+        totalReviewed: number;
+        performanceScore: number;
+      }>;
+      totalResponses: number;
+    }>("/biw-summary", { forceNetwork: params?.forceNetwork });
+  }
 }
 
 // Create and export a singleton instance

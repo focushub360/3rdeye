@@ -2222,11 +2222,7 @@ export default function Overall() {
 
         let firstQ = "Unknown Question";
         let firstA = "N/A";
-<<<<<<< Updated upstream
         const questionTexts = formQuestionTextsMap[actualFormId] || {};
-=======
-        const questionTexts = formQuestionTextsCache[actualFormId] || {};
->>>>>>> Stashed changes
 
         if (form && form.sections?.length > 0) {
           // Get first question for display
