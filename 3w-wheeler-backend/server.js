@@ -7,6 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 import cors from "cors";
+import compression from "compression";
 import { createServer } from "http";
 import connectDB from "./config/database.js";
 import authRoutes from "./routes/authRoutes.js";
@@ -141,6 +142,16 @@ const corsOptions = {
 
 // Middleware
 app.use(cors(corsOptions));
+
+// Gzip compression — reduces JSON payloads by ~90% (20MB → ~2MB)
+app.use(compression({
+  level: 6,
+  threshold: 1024, // Only compress responses > 1KB
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  }
+}));
 
 app.use(
   "/api/github-webhook",
