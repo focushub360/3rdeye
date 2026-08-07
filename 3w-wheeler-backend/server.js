@@ -78,8 +78,7 @@ const developmentOrigins = [
 // Combine production and development origins
 const allAllowedOrigins = [...allowedOrigins, ...developmentOrigins].map(url => url.replace(/\/$/, ""));
 
-// Middleware
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
@@ -90,7 +89,8 @@ app.use(cors({
       allAllowedOrigins.includes(cleanOrigin) ||
       cleanOrigin.endsWith(".focusengineeringapp.com") ||
       cleanOrigin.endsWith(".netlify.app") ||
-      cleanOrigin.endsWith(".cloudfront.net")
+      cleanOrigin.endsWith(".cloudfront.net") ||
+      cleanOrigin === "https://focusengineeringapp.com"
     ) {
       callback(null, true);
     } else {
@@ -100,8 +100,40 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-tenant-id', 'x-session-id']
-}));
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'x-tenant-id',
+    'X-Tenant-Id',
+    'x-session-id',
+    'X-Session-Id',
+    'x-app-type',
+    'X-App-Type',
+    'x-user-id',
+    'X-User-Id',
+    'x-tenant',
+    'X-Tenant',
+    'x-client-version',
+    'X-Client-Version',
+    'x-platform',
+    'X-Platform'
+  ],
+  exposedHeaders: [
+    'Content-Type',
+    'Content-Disposition',
+    'Content-Length',
+    'X-Generation-Time',
+    'X-PDF-Format'
+  ],
+  optionsSuccessStatus: 200
+};
+
+// Middleware
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.use(
   "/api/github-webhook",

@@ -7,6 +7,10 @@ export const initializeSocket = (server) => {
     "https://servicerequests.netlify.app",
     "https://formsadmin.netlify.app",
     "https://formsuperadmin.focusengineeringapp.com",
+    "https://3wheelertvs.focusengineeringapp.com",
+    "https://focus3rdeye.netlify.app",
+    "https://threew-wheeler-backend.onrender.com",
+    ...(process.env.CLOUDFRONT_URL ? [process.env.CLOUDFRONT_URL] : []),
     ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(url => url.trim()) : [])
   ];
 
@@ -23,7 +27,7 @@ export const initializeSocket = (server) => {
     "http://127.0.0.1:8080"
   ];
 
-  const allOrigins = [...allowedOrigins, ...developmentOrigins];
+  const allOrigins = [...allowedOrigins, ...developmentOrigins].map(url => url.replace(/\/$/, ""));
 
   io = new Server(server, {
     cors: {
@@ -31,7 +35,14 @@ export const initializeSocket = (server) => {
         if (!origin) {
           return callback(null, true);
         }
-        if (allOrigins.includes(origin)) {
+        const cleanOrigin = origin.replace(/\/$/, "");
+        if (
+          allOrigins.includes(cleanOrigin) ||
+          cleanOrigin.endsWith(".focusengineeringapp.com") ||
+          cleanOrigin.endsWith(".netlify.app") ||
+          cleanOrigin.endsWith(".cloudfront.net") ||
+          cleanOrigin === "https://focusengineeringapp.com"
+        ) {
           callback(null, true);
         } else {
           console.warn(`🚫 Socket.IO CORS blocked: ${origin}`);
@@ -40,6 +51,7 @@ export const initializeSocket = (server) => {
       },
       credentials: true,
       methods: ["GET", "POST"],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-tenant-id', 'X-Tenant-Id', 'x-session-id', 'X-Session-Id', 'x-app-type', 'X-App-Type'],
       allowEIO3: true
     }
   });
