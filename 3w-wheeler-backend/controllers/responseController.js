@@ -2654,6 +2654,27 @@ export const getResponsesByForm = async (req, res) => {
       query.isSectionSubmit = { $ne: true };
     }
 
+    // Apply granular chassis filtering for chassis-shared users BEFORE querying MongoDB
+    if (!isSuperAdmin && !isOwner && hasChassisShare && !isShared) {
+      const myAssignedChassis = (form.chassisTenantAssignments || [])
+        .filter(a => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr))
+        .map(a => a.chassisNumber)
+        .filter(Boolean);
+
+      if (myAssignedChassis.length > 0) {
+        const chassisQuestion = form.sections?.flatMap(s => s.questions || []).find(q => q.type === 'chassisNumber')
+          || form.followUpQuestions?.find(q => q.type === 'chassisNumber');
+        const chassisFieldId = chassisQuestion?.id || 'chassis_number';
+        
+        // Push the filter to mongo natively 
+        // e.g., answers.12345: { $in: ["CHAS1", "CHAS2"] }
+        query[`answers.${chassisFieldId}`] = { $in: myAssignedChassis };
+      } else {
+        // They have chassis share access, but zero chassis assigned? Return empty.
+        query._id = null; // Impossible query to force empty results
+      }
+    }
+
     // Apply tenant filtering
     console.log('[GET RESPONSES] Inspector check - role:', req.user.role, 'userId:', req.user._id, 'tenantId:', req.user.tenantId, 'email:', req.user.email);
     if (req.user.role === 'inspector') {
@@ -2703,14 +2724,18 @@ export const getResponsesByForm = async (req, res) => {
     // analytics path (up to 10k docs per request) this is the single
     // biggest win available here. Combined with the count query, both run
     // in parallel instead of as two sequential round trips to Mongo.
-    const [responsesRaw, total] = await Promise.all([
-      responsesQuery
+    const responsesPromise = responsesQuery
         .sort(options.sort)
         .limit(options.limit * 1)
         .skip((options.page - 1) * options.limit)
-        .lean(),
-      Response.countDocuments(query)
-    ]);
+        .lean();
+    
+    // Optimize count query: if it's analytics and page > 1, assume 2000 to avoid full scan
+    const countPromise = (isAnalytics && options.page > 1) 
+        ? Promise.resolve(2000) 
+        : Response.countDocuments(query);
+
+    const [responsesRaw, total] = await Promise.all([responsesPromise, countPromise]);
     let responses = responsesRaw;
 
     console.log('[GET RESPONSES] Query:', JSON.stringify(query));
@@ -2718,28 +2743,6 @@ export const getResponsesByForm = async (req, res) => {
     if (responses.length > 0) {
       console.log('[GET RESPONSES] First response createdBy:', responses[0].createdBy);
       console.log('[GET RESPONSES] First response submittedBy:', responses[0].submittedBy);
-    }
-
-    // Apply granular chassis filtering for chassis-shared users
-    if (!isSuperAdmin && !isOwner && hasChassisShare && !isShared) {
-      const myAssignedChassis = (form.chassisTenantAssignments || [])
-        .filter(a => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr))
-        .map(a => a.chassisNumber)
-        .filter(Boolean);
-
-      if (myAssignedChassis.length > 0) {
-        // Find the question ID that has type 'chassisNumber'
-        const chassisQuestion = form.sections?.flatMap(s => s.questions || []).find(q => q.type === 'chassisNumber')
-          || form.followUpQuestions?.find(q => q.type === 'chassisNumber');
-        const chassisFieldId = chassisQuestion?.id || 'chassis_number';
-
-        responses = responses.filter(r => {
-          const rAnswers = r.answers instanceof Map ? Object.fromEntries(r.answers) : (r.answers || {});
-          return myAssignedChassis.includes(rAnswers[chassisFieldId] || rAnswers['chassis_number']);
-        });
-      } else {
-        responses = [];
-      }
     }
 
     let reviewsByResponse = {};
@@ -2753,11 +2756,13 @@ export const getResponsesByForm = async (req, res) => {
       const [reviews, chatMessages] = await Promise.all([
         Review.find({ responseId: { $in: responseIds } })
           .populate('reviewerId', 'firstName lastName email username')
-          .sort({ createdAt: -1 }),
+          .sort({ createdAt: -1 })
+          .lean(),
         ChatMessage.find({
           responseId: { $in: responseIds },
           questionContexts: { $exists: true, $not: { $size: 0 } }
-        }).sort({ createdAt: -1 }),
+        }).sort({ createdAt: -1 })
+          .lean(),
       ]);
 
       // Group reviews and messages by responseId
