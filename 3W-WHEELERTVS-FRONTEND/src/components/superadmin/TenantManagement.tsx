@@ -297,6 +297,11 @@ export default function TenantManagement() {
         payload.mobile = newAdminData.mobile;
       }
       await apiClient.addAdminToTenant(tenantId, payload);
+
+      // Reset the form and close it
+      handleCancelAddAdmin(); // This will reset all form states
+
+      showSuccess("Admin added successfully");
       fetchTenants();
     } catch (error: any) {
       showError(error.response?.message || "Failed to add admin");
@@ -528,7 +533,6 @@ export default function TenantManagement() {
       setUpdatingAdmin(null);
     }
   };
-
   const handleDeleteAdmin = async (
     tenantId: string,
     adminId: string,
@@ -538,20 +542,36 @@ export default function TenantManagement() {
       !window.confirm(
         `Are you sure you want to remove ${adminName}? This action cannot be undone.`,
       )
-    )
-      return;
+    ) return;
+
     setDeletingAdmin(adminId);
     try {
       await apiClient.removeAdminFromTenant(tenantId, adminId);
       showSuccess("Admin removed successfully");
-      fetchTenants();
+
+      // Option 1: Refetch tenants (current approach)
+      await fetchTenants();
+
+      // Option 2: Optimistically update the local state
+      // This is faster and more responsive
+      setTenants(prevTenants =>
+        prevTenants.map(tenant => {
+          if (tenant._id === tenantId) {
+            return {
+              ...tenant,
+              adminId: tenant.adminId?.filter(admin => admin._id !== adminId)
+            };
+          }
+          return tenant;
+        })
+      );
+
     } catch (error: any) {
       showError(error.response?.message || "Failed to remove admin");
     } finally {
       setDeletingAdmin(null);
     }
   };
-
   const handlePermissionToggle = async (adminId: string, permissionKey: string, currentValue: boolean) => {
     // Optimistically update local state for immediate visual feedback
     const checkboxKey = `${adminId}-${permissionKey}`;
@@ -619,15 +639,13 @@ export default function TenantManagement() {
     }
   };
 
-  const getInitials = (name: string) => {
-    if (!name || typeof name !== 'string') return "?";
-    return name
+  const getInitials = (name: string) =>
+    name
       .split(" ")
       .map((n) => n[0])
       .join("")
       .toUpperCase()
       .slice(0, 2);
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
@@ -924,7 +942,8 @@ export default function TenantManagement() {
                                 Administrators
                               </span>
                               <span className="bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 text-xs font-bold px-2 py-0.5 rounded-full">
-                                {tenant.adminId?.length || 0}
+                                {/* Count only admin role users */}
+                                {tenant.adminId?.filter(admin => admin.role === 'admin').length || 0}
                               </span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -945,68 +964,202 @@ export default function TenantManagement() {
 
                           {adminsExpanded && (
                             <div className="p-3 space-y-2 bg-white dark:bg-gray-900">
-                              {/* Existing Administrators List */}
-                              {Array.isArray(tenant.adminId) && tenant.adminId.length > 0 ? (
+                              {/* Filter only admin role users */}
+                              {Array.isArray(tenant.adminId) && tenant.adminId.filter(admin => admin.role === 'admin').length > 0 ? (
                                 <div className="space-y-2 mb-3">
-                                  {tenant.adminId.map((admin: any) => (
-                                    <div key={admin._id || admin} className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
-                                      <div className="flex items-center gap-2">
-                                        <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center">
-                                          <span className="text-xs font-bold text-primary-600 dark:text-primary-400">
-                                            {admin.firstName?.[0]}{admin.lastName?.[0]}
-                                          </span>
+                                  {tenant.adminId
+                                    .filter(admin => admin.role === 'admin')
+                                    .map((admin: any) => {
+                                      // Handle both object and string ID cases
+                                      const adminId = admin._id || admin;
+                                      const adminFirstName = admin.firstName || '';
+                                      const adminLastName = admin.lastName || '';
+
+                                      // Check if this admin is currently being edited
+                                      const isEditing = editingAdmin?.tenantId === tenant._id &&
+                                        editingAdmin?.admin?._id === (admin._id || admin);
+
+                                      return (
+                                        <div key={adminId} className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
+                                          {isEditing ? (
+                                            // Edit Form
+                                            <div className="w-full">
+                                              <div className="flex items-center justify-between mb-3">
+                                                <h6 className="text-sm font-bold text-gray-900 dark:text-white">
+                                                  Edit Administrator
+                                                </h6>
+                                                <button
+                                                  onClick={handleCancelEdit}
+                                                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                                                >
+                                                  <X className="w-4 h-4" />
+                                                </button>
+                                              </div>
+                                              <div className="grid grid-cols-2 gap-2.5 mb-2.5">
+                                                <div>
+                                                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                                                    First Name *
+                                                  </label>
+                                                  <input
+                                                    type="text"
+                                                    value={editAdminData.firstName}
+                                                    onChange={(e) =>
+                                                      handleEditAdminChange("firstName", e.target.value)
+                                                    }
+                                                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
+                                                    placeholder="First name"
+                                                  />
+                                                </div>
+                                                <div>
+                                                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                                                    Last Name *
+                                                  </label>
+                                                  <input
+                                                    type="text"
+                                                    value={editAdminData.lastName}
+                                                    onChange={(e) =>
+                                                      handleEditAdminChange("lastName", e.target.value)
+                                                    }
+                                                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
+                                                    placeholder="Last name"
+                                                  />
+                                                </div>
+                                              </div>
+                                              <div className="mb-2.5">
+                                                <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                                                  Email *
+                                                </label>
+                                                <input
+                                                  type="email"
+                                                  value={editAdminData.email}
+                                                  onChange={(e) =>
+                                                    handleEditAdminChange("email", e.target.value)
+                                                  }
+                                                  className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
+                                                  placeholder="admin@company.com"
+                                                />
+                                              </div>
+                                              <div className="grid grid-cols-2 gap-2.5 mb-3">
+                                                <div>
+                                                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                                                    New Password (optional)
+                                                  </label>
+                                                  <input
+                                                    type="password"
+                                                    value={editAdminData.newPassword}
+                                                    onChange={(e) =>
+                                                      handleEditAdminChange("newPassword", e.target.value)
+                                                    }
+                                                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 transition-all"
+                                                    placeholder="Min 6 characters"
+                                                  />
+                                                </div>
+                                                <div>
+                                                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                                                    Confirm New Password
+                                                  </label>
+                                                  <input
+                                                    type="password"
+                                                    value={editAdminData.confirmNewPassword}
+                                                    onChange={(e) =>
+                                                      handleEditAdminChange("confirmNewPassword", e.target.value)
+                                                    }
+                                                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 transition-all"
+                                                    placeholder="Confirm new password"
+                                                  />
+                                                </div>
+                                              </div>
+                                              <div className="flex gap-2">
+                                                <button
+                                                  onClick={handleEditAdminSubmit}
+                                                  disabled={updatingAdmin === (admin._id || admin)}
+                                                  className="flex-1 bg-primary-600 hover:bg-primary-700 text-white text-sm font-bold py-2.5 rounded-xl transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+                                                >
+                                                  {updatingAdmin === (admin._id || admin) ? (
+                                                    <>
+                                                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Updating...
+                                                    </>
+                                                  ) : (
+                                                    <>
+                                                      <Edit className="w-4 h-4" /> Update Admin
+                                                    </>
+                                                  )}
+                                                </button>
+                                                <button
+                                                  onClick={handleCancelEdit}
+                                                  className="px-4 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 text-sm font-semibold rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+                                                >
+                                                  Cancel
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            // Normal Admin Display
+                                            <>
+                                              <div className="flex items-center gap-2">
+                                                <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center">
+                                                  <span className="text-xs font-bold text-primary-600 dark:text-primary-400">
+                                                    {admin.firstName?.[0]}{admin.lastName?.[0]}
+                                                  </span>
+                                                </div>
+                                                <div>
+                                                  <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                                    {admin.firstName} {admin.lastName}
+                                                  </p>
+                                                  <p className="text-xs text-gray-500">{admin.email}</p>
+                                                  {/* Optional: Show role badge */}
+                                                  <span className="text-[10px] bg-primary-100 dark:bg-primary-900/40 text-primary-600 dark:text-primary-400 px-2 py-0.5 rounded-full">
+                                                    {admin.role}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                              <div className="flex items-center gap-2">
+                                                <div className="flex flex-col items-end gap-1">
+                                                  <div className="flex items-center gap-1.5">
+                                                    <input
+                                                      type="checkbox"
+                                                      checked={(localCheckboxState[`${admin._id}-canEditAttendanceTime`] ?? admin.granularPermissions?.canEditAttendanceTime) || false}
+                                                      onChange={() => {
+                                                        const currentLocalValue = localCheckboxState[`${admin._id}-canEditAttendanceTime`];
+                                                        const currentServerValue = admin.granularPermissions?.canEditAttendanceTime || false;
+                                                        const currentValue = currentLocalValue !== undefined ? currentLocalValue : currentServerValue;
+                                                        handlePermissionToggle(admin._id, 'canEditAttendanceTime', currentValue);
+                                                      }}
+                                                      disabled={updatingPermissions[admin._id] || false}
+                                                      className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50 cursor-pointer"
+                                                    />
+                                                    <span className="text-xs font-medium text-gray-600 dark:text-gray-400 select-none">
+                                                      Can Edit Attendance, Swap, Bulk Import Response, Select All options.
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                                {updatingPermissions[admin._id] && (
+                                                  <div className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+                                                )}
+                                                <div className="flex items-center gap-1">
+                                                  <button
+                                                    onClick={() => handleEditAdminClick(tenant._id, admin)}
+                                                    disabled={updatingAdmin === (admin._id || admin)}
+                                                    className="p-1 text-gray-400 hover:text-primary-600 rounded"
+                                                    title="Edit admin"
+                                                  >
+                                                    Edit
+                                                  </button>
+                                                  <button
+                                                    onClick={() => handleDeleteAdmin(tenant._id, adminId, `${adminFirstName} ${adminLastName}`)}
+                                                    disabled={deletingAdmin === adminId}
+                                                    className="p-1 text-gray-400 hover:text-red-600 rounded"
+                                                    title="Remove admin"
+                                                  >
+                                                    Remove
+                                                  </button>
+                                                </div>
+                                              </div>
+                                            </>
+                                          )}
                                         </div>
-                                        <div>
-                                          <p className="text-sm font-medium text-gray-900 dark:text-white">
-                                            {admin.firstName} {admin.lastName}
-                                          </p>
-                                          <p className="text-xs text-gray-500">{admin.email}</p>
-                                        </div>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <div className="flex flex-col items-end gap-1">
-                                          <div className="flex items-center gap-1.5">
-                                            <input
-                                              type="checkbox"
-                                              checked={(localCheckboxState[`${admin._id}-canEditAttendanceTime`] ?? admin.granularPermissions?.canEditAttendanceTime) || false}
-                                              onChange={() => {
-                                                const currentLocalValue = localCheckboxState[`${admin._id}-canEditAttendanceTime`];
-                                                const currentServerValue = admin.granularPermissions?.canEditAttendanceTime || false;
-                                                const currentValue = currentLocalValue !== undefined ? currentLocalValue : currentServerValue;
-                                                handlePermissionToggle(admin._id, 'canEditAttendanceTime', currentValue);
-                                              }}
-                                              disabled={updatingPermissions[admin._id] || false}
-                                              className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50 cursor-pointer"
-                                            />
-                                            <span className="text-xs font-medium text-gray-600 dark:text-gray-400 select-none">
-                                              Can Edit Attendance, Swap, Bulk Import Response, Select All options.
-                                            </span>
-                                          </div>
-                                        </div>
-                                        {updatingPermissions[admin._id] && (
-                                          <div className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
-                                        )}
-                                        <div className="flex items-center gap-1">
-                                          <button
-                                            onClick={() => handleEditAdminClick(tenant._id, admin)}
-                                            disabled={updatingAdmin === (admin._id || admin)}
-                                            className="p-1 text-gray-400 hover:text-primary-600 rounded"
-                                            title="Edit admin"
-                                          >
-                                            Edit
-                                          </button>
-                                          <button
-                                            onClick={() => handleDeleteAdmin(tenant._id, admin._id || admin, `${admin.firstName} ${admin.lastName}`)}
-                                            disabled={deletingAdmin === (admin._id || admin)}
-                                            className="p-1 text-gray-400 hover:text-red-600 rounded"
-                                            title="Remove admin"
-                                          >
-                                            Remove
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))}
+                                      );
+                                    })}
                                 </div>
                               ) : showAddAdminForm !== tenant._id && (
                                 <p className="text-xs text-gray-400 mb-3">No administrators found</p>

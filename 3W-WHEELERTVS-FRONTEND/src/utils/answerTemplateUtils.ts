@@ -150,55 +150,137 @@ export async function generateFollowUpAnswerTemplate(
 
   const inspectorNames = inspectors
     ? inspectors.map((i) =>
-        `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.username || i.email
-      )
+      `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.username || i.email
+    )
     : [];
 
   if (!form.sections || form.sections.length === 0) {
     throw new Error("Form has no sections or questions");
   }
 
-  // Collect all top-level questions to build parent labels
-  const topLevelQuestions: FollowUpQuestion[] = [];
-  const collectTopLevel = (questions: FollowUpQuestion[]) => {
-    if (!questions) return;
-    for (const q of questions) {
-      topLevelQuestions.push(q);
-      if (q.followUpQuestions && q.followUpQuestions.length > 0) {
-        collectTopLevel(q.followUpQuestions);
-      }
-    }
-  };
+  // Collect ALL questions from sections
+  const allQuestions: FollowUpQuestion[] = [];
   form.sections.forEach((section) => {
     if (section.questions) {
-      collectTopLevel(section.questions);
+      allQuestions.push(...section.questions);
     }
   });
 
-  // Collect ONLY nested follow-up questions (not top-level)
-  const nestedQuestions = collectNestedFollowUpQuestions(topLevelQuestions);
+  console.log(`📋 Total questions found: ${allQuestions.length}`);
+  console.log("📋 All questions:", allQuestions.map(q => ({
+    id: q.id,
+    text: q.text,
+    type: q.type,
+    parentQuestionId: q.parentQuestionId,
+    isFollowUp: q.isFollowUp
+  })));
 
-  // Also treat Zone In / Zone Out questions as follow-up questions for Template 2
-  const zoneQuestions = collectZoneQuestions(topLevelQuestions);
+  // STRATEGY 1: Look for nested follow-ups (in followUpQuestions arrays)
+  const nestedFollowUps: FollowUpQuestion[] = [];
+  allQuestions.forEach((q) => {
+    if (q.followUpQuestions && q.followUpQuestions.length > 0) {
+      nestedFollowUps.push(...q.followUpQuestions);
+    }
+  });
 
-  // Merge nested follow-ups and zone questions, deduplicated by id
+  console.log(`📋 Found ${nestedFollowUps.length} nested follow-up questions`);
+
+  // STRATEGY 2: Look for questions with parentQuestionId
+  const questionsWithParent = allQuestions.filter((q) => {
+    return q.parentQuestionId &&
+      q.parentQuestionId !== "" &&
+      q.parentQuestionId !== null &&
+      q.parentQuestionId !== "null" &&
+      q.parentQuestionId !== "undefined";
+  });
+
+  console.log(`📋 Found ${questionsWithParent.length} questions with parentQuestionId`);
+
+  // STRATEGY 3: Look for Zone In/Out questions
+  const zoneQuestions = allQuestions.filter((q) =>
+    q.type === "zone-in" || q.type === "zone-out"
+  );
+
+  console.log(`📋 Found ${zoneQuestions.length} Zone In/Out questions`);
+
+  // STRATEGY 4: Look for questions with "follow-up" in the text (your case)
+  const textBasedFollowUps = allQuestions.filter((q) => {
+    if (!q.text) return false;
+    const text = q.text.toLowerCase();
+    return text.includes("follow-up") ||
+      text.includes("follow up") ||
+      text.includes("conditional") ||
+      text.includes("if you answered") ||
+      text.includes("depends on");
+  });
+
+  console.log(`📋 Found ${textBasedFollowUps.length} questions with follow-up in text`);
+
+  // Combine all follow-up questions from all strategies
   const followUpMap = new Map<string, FollowUpQuestion>();
-  [...nestedQuestions, ...zoneQuestions].forEach((q) => {
+
+  // Add nested follow-ups
+  nestedFollowUps.forEach((q) => {
     followUpMap.set(q.id, q);
   });
+
+  // Add questions with parentQuestionId
+  questionsWithParent.forEach((q) => {
+    followUpMap.set(q.id, q);
+  });
+
+  // Add zone questions
+  zoneQuestions.forEach((q) => {
+    followUpMap.set(q.id, q);
+  });
+
+  // Add text-based follow-ups
+  textBasedFollowUps.forEach((q) => {
+    followUpMap.set(q.id, q);
+  });
+
   const followUpQuestions = Array.from(followUpMap.values());
 
   console.log(
-    `📋 Found ${topLevelQuestions.length} main questions, ${nestedQuestions.length} nested follow-up questions, and ${zoneQuestions.length} Zone In/Out questions.`
+    `📋 Total follow-up questions found: ${followUpQuestions.length}`
   );
 
+  // If still no follow-ups, try using the question type pattern
   if (followUpQuestions.length === 0) {
+    // Check if there are questions that are NOT the main question
+    // This is a last resort - assume the first question is main, rest are follow-ups
+    if (allQuestions.length > 1) {
+      console.warn("⚠️ No follow-up flags found. Assuming first question is main, rest are follow-ups.");
+      // Skip the first question, take all others as follow-ups
+      const assumedFollowUps = allQuestions.slice(1);
+      assumedFollowUps.forEach((q) => {
+        followUpMap.set(q.id, q);
+      });
+    }
+  }
+
+  const finalFollowUpQuestions = Array.from(followUpMap.values());
+
+  if (finalFollowUpQuestions.length === 0) {
+    // If still no follow-ups, show detailed error
+    console.error("❌ No follow-up questions found. Available questions:",
+      allQuestions.map(q => ({
+        id: q.id,
+        text: q.text,
+        type: q.type,
+        parentQuestionId: q.parentQuestionId,
+        isFollowUp: q.isFollowUp,
+        hasFollowUps: q.followUpQuestions?.length || 0
+      }))
+    );
+
     throw new Error(
-      "No follow-up questions found in this form. Template 2 requires at least one main question with nested follow-up questions."
+      "No follow-up questions found in this form.\n" +
+      "Available questions: " + allQuestions.map(q => `"${q.text}"`).join(", ")
     );
   }
 
-  // Build columns
+  // Build columns (rest of the function remains the same)
   const columns: {
     label: string;
     id: string;
@@ -235,7 +317,7 @@ export async function generateFollowUpAnswerTemplate(
     });
   }
 
-  followUpQuestions.forEach((q) => {
+  finalFollowUpQuestions.forEach((q) => {
     let headerText = q.text || `Untitled Question (ID: ${q.id})`;
 
     columns.push({
@@ -246,9 +328,6 @@ export async function generateFollowUpAnswerTemplate(
       required: q.required,
     });
 
-    // For Zone In / Zone Out questions, also emit their follow-up fields
-    // (Remark and Evidence Photo) as separate columns, exactly like the
-    // form UI shows them when a status is selected.
     if (q.type === "zone-in" || q.type === "zone-out") {
       columns.push({
         label: `${headerText} - Remark`,
@@ -371,11 +450,10 @@ export async function generateFollowUpAnswerTemplate(
     activePane: "bottomRight",
   };
 
-  const fileName = `${
-    (form.title || "form")
-      .replace(/[^a-z0-9]+/gi, "-")
-      .toLowerCase()
-  }-followup-template.xlsx`;
+  const fileName = `${(form.title || "form")
+    .replace(/[^a-z0-9]+/gi, "-")
+    .toLowerCase()
+    }-followup-template.xlsx`;
 
   const excelBuffer = write(workbook, { bookType: "xlsx", type: "array" });
 
@@ -420,39 +498,92 @@ export async function generateFollowUpAnswerTemplate(
   }
   return fileName;
 }
-
 export async function generateAnswerTemplate(form: Question, inspectors?: any[]) {
   console.log("🔄 Generating new row-based answer template...");
-  
+
   const inspectorNames = inspectors
     ? inspectors.map((i) =>
-        `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.username || i.email
-      )
+      `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.username || i.email
+    )
     : [];
 
   if (!form.sections || form.sections.length === 0) {
     throw new Error("Form has no sections or questions");
   }
 
-  // 1. Flatten all questions from all sections into a single list
-  const allQuestions: FollowUpQuestion[] = [];
-  const collectAllQuestions = (questions: FollowUpQuestion[]) => {
-    if (!questions) return;
-    for (const q of questions) {
-      allQuestions.push(q);
-      if (q.followUpQuestions && q.followUpQuestions.length > 0) {
-        collectAllQuestions(q.followUpQuestions);
-      }
-    }
-  };
-
+  // DEBUG: Log all questions to see their structure
+  console.log("🔍 All questions in form:");
   form.sections.forEach((section) => {
     if (section.questions) {
-      collectAllQuestions(section.questions);
+      section.questions.forEach((q) => {
+        console.log(`  - "${q.text}" (ID: ${q.id})`, {
+          parentQuestionId: q.parentQuestionId,
+          isFollowUp: q.isFollowUp,
+          type: q.type,
+          condition: q.condition // If there's a condition field
+        });
+      });
     }
   });
 
-  console.log(`📋 Found ${allQuestions.length} questions to create as columns.`);
+  // 1. Collect ONLY top-level questions (exclude those with parentQuestionId)
+  const allQuestions: FollowUpQuestion[] = [];
+
+  form.sections.forEach((section) => {
+    if (section.questions) {
+      // Filter out questions that have a parentQuestionId (these are follow-ups)
+      const topLevelQuestions = section.questions.filter((q) => {
+        // Check if this question has a parent (meaning it's a follow-up)
+        const hasParent = q.parentQuestionId &&
+          q.parentQuestionId !== "" &&
+          q.parentQuestionId !== null &&
+          q.parentQuestionId !== "null" &&
+          q.parentQuestionId !== "undefined";
+
+        const isMarkedFollowUp = q.isFollowUp === true;
+
+        // Also check if the question text indicates it's a conditional follow-up
+        const textIndicatesFollowUp = q.text &&
+          (q.text.toLowerCase().includes("follow-up") ||
+            q.text.toLowerCase().includes("follow up") ||
+            q.text.toLowerCase().includes("conditional") ||
+            q.text.toLowerCase().includes("if you answered"));
+
+        // If it has a parent OR is marked as follow-up OR text indicates follow-up, exclude it
+        return !hasParent && !isMarkedFollowUp && !textIndicatesFollowUp;
+      });
+
+      allQuestions.push(...topLevelQuestions);
+    }
+  });
+
+  console.log(`📋 Found ${allQuestions.length} main questions (excluding follow-ups).`);
+  console.log("📋 Main questions:", allQuestions.map(q => q.text));
+
+  // If no main questions found, fallback to using questions without parentQuestionId
+  if (allQuestions.length === 0) {
+    console.warn("⚠️ No main questions found. Falling back to questions without parentQuestionId.");
+    form.sections.forEach((section) => {
+      if (section.questions) {
+        const fallbackQuestions = section.questions.filter((q) => {
+          return !q.parentQuestionId ||
+            q.parentQuestionId === "" ||
+            q.parentQuestionId === null;
+        });
+        allQuestions.push(...fallbackQuestions);
+      }
+    });
+  }
+
+  // If STILL no questions found, use all questions as last resort
+  if (allQuestions.length === 0) {
+    console.warn("⚠️ Still no main questions. Using all questions as fallback.");
+    form.sections.forEach((section) => {
+      if (section.questions) {
+        allQuestions.push(...section.questions);
+      }
+    });
+  }
 
   // 2. Create Header Rows dynamically
   const columns: {
@@ -498,14 +629,14 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
 
   allQuestions.forEach((q) => {
     let headerText = q.text || `Untitled Question (ID: ${q.id})`;
-    
+
     if (headerCounts[headerText]) {
       headerCounts[headerText]++;
       headerText = `${headerText} (${headerCounts[headerText]})`;
     } else {
       headerCounts[headerText] = 1;
     }
-    
+
     columns.push({
       label: headerText,
       id: q.id,
@@ -551,16 +682,16 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
     fill: { fgColor: { rgb: "1D4ED8" } },
     alignment: { horizontal: "center", vertical: "center", wrapText: true },
     border: {
-        top: { style: "thin", color: { rgb: "000000" } },
-        bottom: { style: "thin", color: { rgb: "000000" } },
-        left: { style: "thin", color: { rgb: "000000" } },
-        right: { style: "thin", color: { rgb: "000000" } },
+      top: { style: "thin", color: { rgb: "000000" } },
+      bottom: { style: "thin", color: { rgb: "000000" } },
+      left: { style: "thin", color: { rgb: "000000" } },
+      right: { style: "thin", color: { rgb: "000000" } },
     },
   };
-  
+
   const idHeaderStyle = {
-      font: { color: { rgb: "EBF1FC" } }, // Hide the text by matching background
-      fill: { fgColor: { rgb: "EBF1FC" } },
+    font: { color: { rgb: "EBF1FC" } },
+    fill: { fgColor: { rgb: "EBF1FC" } },
   };
 
   // Apply styles to header rows
@@ -571,40 +702,40 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
   });
 
   idHeader.forEach((_, c) => {
-      const cellRef = utils.encode_cell({ r: 1, c });
-      if (!worksheet[cellRef]) worksheet[cellRef] = { t: 's', v: '' };
-      worksheet[cellRef].s = idHeaderStyle;
+    const cellRef = utils.encode_cell({ r: 1, c });
+    if (!worksheet[cellRef]) worksheet[cellRef] = { t: 's', v: '' };
+    worksheet[cellRef].s = idHeaderStyle;
   });
 
   // Add comments to headers
   columns.forEach((col, index) => {
-      const cellRef = utils.encode_cell({ r: 0, c: index });
-      const commentLines: string[] = [];
-      if (col.id === "submitterName") {
-        commentLines.push("Type: select");
-        if (col.options && col.options.length > 0) {
-          commentLines.push("Available Inspectors (Copy name exactly):");
-          col.options.forEach((name) => {
-            commentLines.push(`- ${name}`);
-          });
-        } else {
-          commentLines.push("No inspectors registered yet.");
-        }
+    const cellRef = utils.encode_cell({ r: 0, c: index });
+    const commentLines: string[] = [];
+    if (col.id === "submitterName") {
+      commentLines.push("Type: select");
+      if (col.options && col.options.length > 0) {
+        commentLines.push("Available Inspectors (Copy name exactly):");
+        col.options.forEach((name) => {
+          commentLines.push(`- ${name}`);
+        });
       } else {
-        if (col.type) {
-          commentLines.push(`Type: ${col.type}`);
-        }
-        if (col.options && col.options.length > 0) {
-          commentLines.push(`Options: ${col.options.join(", ")}`);
-        }
+        commentLines.push("No inspectors registered yet.");
       }
-      if (col.required) {
-          commentLines.push("Required: YES");
+    } else {
+      if (col.type) {
+        commentLines.push(`Type: ${col.type}`);
       }
-      
-      if (worksheet[cellRef] && commentLines.length > 0) {
-          worksheet[cellRef].c = [{ a: 'System', t: commentLines.join("\n") }];
+      if (col.options && col.options.length > 0) {
+        commentLines.push(`Options: ${col.options.join(", ")}`);
       }
+    }
+    if (col.required) {
+      commentLines.push("Required: YES");
+    }
+
+    if (worksheet[cellRef] && commentLines.length > 0) {
+      worksheet[cellRef].c = [{ a: 'System', t: commentLines.join("\n") }];
+    }
   });
 
   // Style data rows with alternating colors
@@ -626,36 +757,33 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
     }
   }
 
-
   // 5. Set column widths and row heights
   const colWidths = visibleHeader.map(header => ({
     wch: header.length > 20 ? 30 : 20
   }));
   worksheet["!cols"] = colWidths;
   worksheet["!rows"] = [
-    { hpx: 40 }, // Visible header height
-    { hpx: 0 },   // Hidden ID row
+    { hpx: 40 },
+    { hpx: 0 },
   ];
-  
-  // Freeze the top row
-  worksheet["!freeze"] = { xSplit: 0, ySplit: 2, topLeftCell: "A3", activePane: "bottomRight" }; // Adjusted xSplit to 0
 
+  // Freeze the top row
+  worksheet["!freeze"] = { xSplit: 0, ySplit: 2, topLeftCell: "A3", activePane: "bottomRight" };
 
   // 6. Write and download the file
   const fileName = `${(form.title || "form")
     .replace(/[^a-z0-9]+/gi, "-")
     .toLowerCase()}-bulk-response-template.xlsx`;
 
-  // Post-process the generated Excel file to fix SheetJS's hardcoded comment anchor shift
+  // Post-process the generated Excel file
   const excelBuffer = write(workbook, { bookType: "xlsx", type: "array" });
-  
+
   try {
     const zip = await JSZip.loadAsync(excelBuffer);
     const vmlFileKey = Object.keys(zip.files).find(name => name.includes('vmlDrawing'));
     if (vmlFileKey) {
       let vmlContent = await zip.file(vmlFileKey)!.async("string");
-      
-      // Shift Anchor col1 and col2 left by 1 to align comment box visually with its host cell
+
       vmlContent = vmlContent.replace(
         /<x:Anchor>(\d+),(\d+),(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)<\/x:Anchor>/g,
         (match, col1, o1, r1, o2, col2, o3, r2, o4) => {
@@ -664,13 +792,12 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
           return `<x:Anchor>${c1 - 1},${o1},${r1},${o2},${c2 - 1},${o3},${r2},${o4}</x:Anchor>`;
         }
       );
-      
+
       zip.file(vmlFileKey, vmlContent);
     }
-    
+
     const finalBlob = await zip.generateAsync({ type: "blob" });
-    
-    // Trigger download in browser
+
     const url = window.URL.createObjectURL(finalBlob);
     const a = document.createElement("a");
     a.href = url;
@@ -679,7 +806,7 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
     a.click();
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
-    
+
     console.log(`✅ New template saved as: ${fileName}`);
   } catch (err) {
     console.error("Error post-processing VML comments, falling back to standard write:", err);
@@ -687,6 +814,7 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
   }
   return fileName;
 }
+
 function parseExcelDate(value: any): Date | null {
   if (value instanceof Date) {
     return isNaN(value.getTime()) ? null : value;
@@ -698,13 +826,13 @@ function parseExcelDate(value: any): Date | null {
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) return null;
-    
+
     // 1. Try standard Javascript date parsing (handles YYYY-MM-DD, MM/DD/YYYY)
     const parsed = new Date(trimmed);
     if (!isNaN(parsed.getTime())) {
       return parsed;
     }
-    
+
     // 2. Fallback to DD/MM/YYYY or DD-MM-YYYY formats (standard in UK/India)
     const match = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$/);
     if (match) {
@@ -767,7 +895,7 @@ export async function parseAnswerWorkbook(
       console.log(`Skipping empty row ${rowIndex + 2}`);
       return;
     }
-    
+
     const singleResponse: {
       answers: { [key: string]: any };
       submittedBy: string;
@@ -792,7 +920,7 @@ export async function parseAnswerWorkbook(
       } else {
         // It's a question ID or chassis_number
         if (cellValue !== "" && cellValue !== null && cellValue !== undefined) {
-             singleResponse.answers[id] = cellValue;
+          singleResponse.answers[id] = cellValue;
         }
       }
     });
@@ -863,7 +991,7 @@ function parseChassisAnswer(value: string, type: string) {
         .split(",")
         .map((z) => z.trim())
         .filter(Boolean);
-      
+
       // Normalize zone names to match ZONES constant in ChassisWithZone.tsx
       result.zone = rawZones.map(rz => {
         const found = VALID_ZONES.find(vz => vz.toLowerCase() === rz.toLowerCase());
@@ -879,16 +1007,16 @@ function parseChassisAnswer(value: string, type: string) {
       const defectsStr = part.split(":")[1]?.trim() || "";
       // Split defects by comma, but be careful of commas inside remarks/brackets
       const defectItems = defectsStr.split(",").map((d) => d.trim()).filter(Boolean);
-      
+
       result.defects = defectItems.map(item => {
         // Look for remark in () and URL in {}
         const remarkMatch = item.match(/\((.*?)\)/);
         const urlMatch = item.match(/\{(.*?)\}/);
-        
+
         let name = item;
         if (remarkMatch) name = name.replace(remarkMatch[0], "");
         if (urlMatch) name = name.replace(urlMatch[0], "");
-        
+
         return {
           name: name.trim(),
           remark: remarkMatch ? remarkMatch[1] : "",
@@ -908,7 +1036,7 @@ function parseChassisAnswer(value: string, type: string) {
       if (!result.zonesData[z]) {
         result.zonesData[z] = { categories: [] };
       }
-      
+
       if (result.defectCategory.length > 0) {
         result.defectCategory.forEach((catName: string) => {
           result.zonesData[z].categories.push({

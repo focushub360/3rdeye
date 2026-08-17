@@ -28,6 +28,7 @@ import { useNotification } from "../../context/NotificationContext";
 import ResponseDashboard from "./ResponseDashboard.tsx";
 import PermissionTree from "../common/PermissionTree";
 import { buildPermissionTree, FormLike } from "../../config/permissionTree";
+import RoleManagement from "../management/sections/RoleManagement";
 
 // NOTE: MODULE_OPTIONS is the legacy flat permission set, still used by the
 // quick-toggle columns in the admin list table below. The Create/Edit User
@@ -67,6 +68,7 @@ interface CreateFormState {
   role: "subadmin" | "inspector";
   permissions: Set<ModuleKey>;
   accessType: "website" | "mobile" | "both";
+  customRole: string;
 }
 
 interface EditFormState extends CreateFormState {
@@ -80,9 +82,10 @@ const createInitialFormState = (): CreateFormState => ({
   username: "",
   password: "",
   mobile: "",
-  role: "subadmin",
+  role: "inspector",
   permissions: new Set<ModuleKey>(),
   accessType: "both",
+  customRole: "",
 });
 
 export default function AdminManagement() {
@@ -127,9 +130,10 @@ export default function AdminManagement() {
 
   const isAdmin = user?.role === "admin" || user?.role === "superadmin";
 
-  const [activeTab, setActiveTab] = useState<"admins" | "responses">("admins");
+  const [activeTab, setActiveTab] = useState<"admins" | "responses" | "roles">("admins");
   const [performanceScores, setPerformanceScores] = useState<Record<string, number>>({});
   const [shifts, setShifts] = useState<any[]>([]);
+  const [customRoles, setCustomRoles] = useState<any[]>([]);
 
   // Load shifts for assignment
   useEffect(() => {
@@ -164,6 +168,21 @@ export default function AdminManagement() {
       fetchFormsForPermissionTree();
     }
   }, [isAdmin, tenant?._id]);
+
+  // Load custom roles for dropdown selection
+  useEffect(() => {
+    const fetchCustomRoles = async () => {
+      try {
+        const response = await apiClient.getRoles();
+        setCustomRoles(response?.roles || []);
+      } catch (error) {
+        console.error("Error fetching custom roles:", error);
+      }
+    };
+    if (isAdmin && activeTab === "admins") {
+      fetchCustomRoles();
+    }
+  }, [isAdmin, activeTab]);
 
   const getUserShiftId = (userId: string) => {
     const userShift = shifts.find((s) =>
@@ -247,6 +266,32 @@ export default function AdminManagement() {
             />
           </svg>
           Users Response Dashboard
+        </button>
+        <button
+          onClick={() => setActiveTab("roles")}
+          className={`
+          py-4 px-1 inline-flex items-center gap-2 border-b-2 font-medium text-sm whitespace-nowrap
+          ${
+            activeTab === "roles"
+              ? "border-blue-500 text-blue-600 dark:text-blue-400"
+              : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+          }
+        `}
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+            />
+          </svg>
+          Manage Roles
         </button>
       </nav>
     </div>
@@ -1134,6 +1179,36 @@ export default function AdminManagement() {
                           </p>
                         </div>
 
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5">
+                            Custom Role (Optional)
+                          </label>
+                          <select
+                            name="customRole"
+                            value={form.customRole}
+                            onChange={(e) => {
+                              const roleId = e.target.value;
+                              const selectedRole = customRoles.find(r => (r._id || r.id) === roleId);
+                              setForm((prev) => ({
+                                ...prev,
+                                customRole: roleId,
+                                permissions: new Set(selectedRole?.permissions || []),
+                              }));
+                            }}
+                            className="w-full rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                          >
+                            <option value="">None (Custom Permissions)</option>
+                            {customRoles.map((r) => (
+                              <option key={r._id || r.id} value={r._id || r.id}>
+                                {r.name}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            Select a custom role to inherit module access permissions automatically.
+                          </p>
+                        </div>
+
                         {form.role === "inspector" && (
                           <div>
                             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5">
@@ -1169,12 +1244,20 @@ export default function AdminManagement() {
                           <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
                             Module Access
                           </p>
+                          {form.customRole && (
+                            <div className="mb-3 p-3 rounded-lg bg-blue-50 border border-blue-200 dark:bg-blue-900/10 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300">
+                              Permissions are inherited from the selected Custom Role. Clear the Custom Role to customize permissions individually.
+                            </div>
+                          )}
                           <PermissionTree
                             nodes={permissionTree}
                             selected={form.permissions}
-                            onChange={(next) =>
-                              setForm((prev) => ({ ...prev, permissions: next }))
-                            }
+                            onChange={(next) => {
+                              if (!form.customRole) {
+                                setForm((prev) => ({ ...prev, permissions: next }));
+                              }
+                            }}
+                            className={form.customRole ? "opacity-60 pointer-events-none" : ""}
                           />
                         </div>
 
@@ -1388,11 +1471,13 @@ export default function AdminManagement() {
                                             : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400"
                                     }`}
                                   >
-                                    {admin.role === "subadmin"
-                                      ? "Subadmin"
-                                      : admin.role === "inspector"
-                                        ? "Inspector"
-                                        : admin.role}
+                                    {admin.customRole?.name
+                                      ? admin.customRole.name
+                                      : admin.role === "subadmin"
+                                        ? "Subadmin"
+                                        : admin.role === "inspector"
+                                          ? "Inspector"
+                                          : admin.role}
                                    </span>
                                  </td>
                                   <td className="px-6 py-4">
@@ -1809,12 +1894,12 @@ export default function AdminManagement() {
                                   ) : (
                                     <Eye className="w-5 h-5" />
                                   )}
-                                </button>
-                              </div>
+                              </button>
                             </div>
                           </div>
+                        </div>
 
-                          <div className="space-y-4">
+                        <div className="space-y-4">
                             <div>
                               <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5">
                                 User Role
@@ -1843,6 +1928,39 @@ export default function AdminManagement() {
                                 Inspector can view forms, fill forms, and access
                                 analytics (all forms). Subadmin has full access with
                                 permissions.
+                              </p>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5">
+                                Custom Role (Optional)
+                              </label>
+                              <select
+                                name="customRole"
+                                value={editingForm.customRole}
+                                onChange={(e) => {
+                                  const roleId = e.target.value;
+                                  const selectedRole = customRoles.find(r => (r._id || r.id) === roleId);
+                                  setEditingForm((prev) => {
+                                    if (!prev) return null;
+                                    return {
+                                      ...prev,
+                                      customRole: roleId,
+                                      permissions: new Set(selectedRole?.permissions || []),
+                                    };
+                                  });
+                                }}
+                                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                              >
+                                <option value="">None (Custom Permissions)</option>
+                                {customRoles.map((r) => (
+                                  <option key={r._id || r.id} value={r._id || r.id}>
+                                    {r.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                Select a custom role to inherit module access permissions automatically.
                               </p>
                             </div>
 
@@ -1882,14 +2000,22 @@ export default function AdminManagement() {
                               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
                                 Module Access
                               </p>
+                              {editingForm.customRole && (
+                                <div className="mb-3 p-3 rounded-lg bg-blue-50 border border-blue-200 dark:bg-blue-900/10 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300">
+                                  Permissions are inherited from the selected Custom Role. Clear the Custom Role to customize permissions individually.
+                                </div>
+                              )}
                               <PermissionTree
                                 nodes={permissionTree}
                                 selected={editingForm.permissions}
-                                onChange={(next) =>
-                                  setEditingForm((prev) =>
-                                    prev ? { ...prev, permissions: next } : null,
-                                  )
-                                }
+                                onChange={(next) => {
+                                  if (!editingForm.customRole) {
+                                    setEditingForm((prev) =>
+                                      prev ? { ...prev, permissions: next } : null,
+                                    );
+                                  }
+                                }}
+                                className={editingForm.customRole ? "opacity-60 pointer-events-none" : ""}
                               />
                             </div>
 
@@ -1971,9 +2097,12 @@ export default function AdminManagement() {
                   </div>
                 )}
               </>
-            ) : (
+            ) : activeTab === "responses" ? (
               /* ===== USERS RESPONSE DASHBOARD TAB CONTENT ===== */
               <ResponseDashboard isEmbedded={true} />
+            ) : (
+              /* ===== ROLES TAB CONTENT ===== */
+              <RoleManagement />
             )}
           </>
         )}

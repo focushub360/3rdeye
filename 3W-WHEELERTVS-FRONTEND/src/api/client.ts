@@ -12,11 +12,39 @@ const API_BASE_URL = (() => {
     hostname.includes("netlify.app") ||
     hostname.includes("netlify.live");
 
-  const baseUrl = isLocal
-    ? "http://127.0.0.1:5000/api"
-    : isStaging
-      ? "https://threew-wheeler-backend.onrender.com/api"
-      : "https://3wheelertvsbackend.focusengineeringapp.com/api";
+  // api/client.ts
+
+  const getBaseUrl = (): string => {
+    const hostname = window.location.hostname;
+
+    // Development/Local
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return "http://127.0.0.1:5000/api";
+    }
+
+    // AWS Deployment
+    if (hostname === '3wheelertvs.focusengineeringapp.com') {
+      return "https://3wheelertvsbackend.focusengineeringapp.com/api";
+    }
+
+    // Hostinger VPS Deployment
+    if (hostname === '3wtvs.focusengineeringapp.com' || hostname.includes('3wtvs')) {
+      return "https://3wbackend.focusengineeringapp.com/api"; // Adjust this URL
+    }
+
+    // Staging/Render
+    if (hostname.includes('staging') || hostname.includes('render')) {
+      return "https://threew-wheeler-backend.onrender.com/api";
+    }
+
+    // Fallback - Production
+    return "https://3wheelertvsbackend.focusengineeringapp.com/api";
+  };
+
+  const baseUrl = getBaseUrl();
+
+  console.log(`[API] Detected hostname: ${hostname}`);
+  console.log(`[API] Using backend URL: ${baseUrl}`);
 
   console.log(
     `🔗 API Base URL: ${baseUrl} (Environment: ${isLocal ? "Local" : isStaging ? "Staging" : "Production"
@@ -866,8 +894,12 @@ class ApiClient {
     if (options?.includePartial) query.set("includePartial", "true");
 
     const queryString = query.toString() ? `?${query.toString()}` : "";
-    // Add 2-minute timeout for analytics
-    const timeout = options?.analytics ? 120000 : 30000;
+    // Analytics requests are now paginated (500 rows/page) instead of
+    // fetching a form's entire history in one shot, so they no longer
+    // need a multi-minute timeout - 30s is generous for a bounded batch
+    // and fails fast if something's actually wrong, instead of the UI
+    // silently hanging.
+    const timeout = 30000;
     return this.request<{ responses: any[]; form: any; pagination: any }>(
       `/responses/form/${formId}${queryString}`,
       { forceNetwork: options?.forceNetwork, timeout }
@@ -1099,8 +1131,6 @@ class ApiClient {
       const query = searchParams.toString();
       if (query) url += `?${query}`;
     }
-    // Pagination + server-side maxTimeMS keep this well under 5s now, but
-    // keep a generous timeout as a safety net for slow networks.
     return this.get<{
       success: boolean;
       data: any[];
@@ -2733,16 +2763,70 @@ class ApiClient {
     pdfHtml?: string,
     shareMode: string = "both",
   ) {
-    return this.request<{
-      sent: number;
-      failed: number;
-      allSuccessful: boolean;
-      details: any[];
-    }>(`/analytics-invites/${formId}/send`, {
-      method: "POST",
-      body: JSON.stringify({ invites, channels, customMessage, pdfHtml, shareMode }),
-      timeout: 600000, // 10 minutes timeout for PDF generation and bulk sending
+    console.log('📤 [API] sendAnalyticsInvites called with:', {
+      formId,
+      invitesCount: invites.length,
+      channels,
+      shareMode,
+      hasPdfHtml: !!pdfHtml
     });
+
+    try {
+      const url = `${this.baseUrl}/analytics-invites/${formId}/send`;
+      console.log('📤 [API] Full URL:', url);
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "X-App-Type": "website",
+      };
+
+      if (this.token) {
+        headers.Authorization = `Bearer ${this.token}`;
+      }
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          invites,
+          channels,
+          customMessage,
+          pdfHtml,
+          shareMode
+        }),
+      });
+
+      console.log('📥 [API] Response status:', response.status);
+
+      const data = await response.json();
+      console.log('📥 [API] Response data:', data);
+
+      if (!response.ok) {
+        throw new Error(data.message || `HTTP ${response.status}`);
+      }
+
+      if (!data.success) {
+        throw new Error(data.message || 'Request failed');
+      }
+
+      // ✅ Handle the response format - data.data contains the actual data
+      return {
+        sent: data.data?.sent || 0,
+        failed: data.data?.failed || 0,
+        allSuccessful: data.data?.allSuccessful || false,
+        details: data.data?.details || [],
+        message: data.message || 'Invites processed'
+      };
+    } catch (error: any) {
+      console.error('❌ [API] sendAnalyticsInvites error:', error);
+      return {
+        sent: 0,
+        failed: 0,
+        allSuccessful: false,
+        details: [],
+        message: error.message || 'Failed to send invites'
+      };
+    }
   }
 
   async requestAnalyticsOTP(
@@ -2950,49 +3034,65 @@ class ApiClient {
 
   async getAllFormResponses(
     formId: string,
-    options?: { status?: string; includePartial?: boolean; analytics?: boolean; forceNetwork?: boolean },
+    options?: {
+      status?: string;
+      includePartial?: boolean;
+      analytics?: boolean;
+      forceNetwork?: boolean;
+      // Called after each page is fetched, with just that page's rows plus
+      // running progress. Lets callers (e.g. the analytics dashboard)
+      // render/merge data incrementally instead of waiting for every page
+      // to finish before showing anything - the backend now paginates
+      // analytics requests (500 rows/page) instead of returning the whole
+      // form's history in one unbounded request, so a big form arrives as
+      // a stream of quick requests rather than one multi-minute one.
+      onPage?: (page: {
+        responses: any[];
+        pageNumber: number;
+        totalPages: number;
+        isLast: boolean;
+      }) => void;
+    },
   ) {
-    // Use 1000 limit per page chunk for fast, reliable data transfer
-    const pageLimit = 1000;
+    // Analytics used to request one giant 10000-row page to "reduce round
+    // trips" - that's exactly what made a single request take minutes on
+    // large forms. Now it matches the backend's per-page cap (500) so each
+    // round trip stays fast and predictable regardless of the form's total
+    // response count.
+    const pageLimit = options?.analytics ? 500 : 5000;
     let page = 1;
     let allResponses: any[] = [];
     let totalPages = 1;
     let form: any = undefined;
 
-    // Use longer timeout for analytics
-    const timeout = options?.analytics ? 180000 : 60000;
+    // Shorter per-request timeout now that each request is a bounded
+    // batch, not the whole dataset - a single slow page fails fast instead
+    // of the entire load silently hanging for minutes.
+    const timeout = options?.analytics ? 30000 : 60000;
 
-    // Fetch page 1 first to get totalPages and initial responses
-    const firstResult = await this.getFormResponses(formId, {
-      ...options,
-      page: 1,
-      limit: pageLimit,
-      forceNetwork: options?.forceNetwork,
-    });
+    do {
+      const result = await this.getFormResponses(formId, {
+        status: options?.status,
+        includePartial: options?.includePartial,
+        analytics: options?.analytics,
+        page,
+        limit: pageLimit,
+        forceNetwork: options?.forceNetwork,
+      });
+      const pageResponses = result.responses || [];
+      allResponses = allResponses.concat(pageResponses);
+      form = result.form ?? form;
+      totalPages = result.pagination?.totalPages ?? 1;
 
-    let allResponses: any[] = firstResult.responses || [];
-    const form = firstResult.form;
-    const totalPages = firstResult.pagination?.totalPages ?? 1;
+      options?.onPage?.({
+        responses: pageResponses,
+        pageNumber: page,
+        totalPages,
+        isLast: page >= totalPages,
+      });
 
-    if (totalPages > 1) {
-      // Fetch all remaining page chunks in PARALLEL for ultra-fast load time
-      const remainingPromises = [];
-      for (let page = 2; page <= totalPages; page++) {
-        remainingPromises.push(
-          this.getFormResponses(formId, {
-            ...options,
-            page,
-            limit: pageLimit,
-            forceNetwork: options?.forceNetwork,
-          })
-        );
-      }
-
-      const remainingResults = await Promise.all(remainingPromises);
-      for (const res of remainingResults) {
-        allResponses = allResponses.concat(res.responses || []);
-      }
-    }
+      page += 1;
+    } while (page <= totalPages);
 
     return { responses: allResponses, form };
   }
@@ -3009,7 +3109,7 @@ class ApiClient {
         performanceScore: number;
       }>;
       totalResponses: number;
-    }>("/biw-summary", { forceNetwork: params?.forceNetwork });
+    }>("/responses/biw-summary", { forceNetwork: params?.forceNetwork });
   }
 }
 
