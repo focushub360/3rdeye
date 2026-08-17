@@ -489,11 +489,28 @@ export const createResponse = async (req, res) => {
         );
 
         if (answer !== undefined && answer !== null && answer !== "") {
-          // Count existing responses with the SAME answer for this form
+          const strAnswer = String(answer).trim();
+          const escapedAnswer = strAnswer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const exactRegex = new RegExp(`^${escapedAnswer}$`, "i");
+
+          const formIds = [form.id, form._id ? form._id.toString() : null, questionId].filter(Boolean);
+
+          const orConditions = [
+            { [`answers.${trackingQId}`]: exactRegex },
+            { [`answers.${qId}`]: exactRegex }
+          ];
+
+          const numAnswer = Number(strAnswer);
+          if (!isNaN(numAnswer)) {
+            orConditions.push({ [`answers.${trackingQId}`]: numAnswer });
+            orConditions.push({ [`answers.${qId}`]: numAnswer });
+          }
+
+          // Count existing responses with the EXACT SAME answer for this form
           // We filter by tenantId to avoid cross-business rank contamination
           const query = {
-            questionId: questionId,
-            [`answers.${trackingQId}`]: answer,
+            questionId: { $in: formIds },
+            $or: orConditions,
             isSectionSubmit: { $ne: true },
             tenantId: form.tenantId,
           };
@@ -501,7 +518,7 @@ export const createResponse = async (req, res) => {
           try {
             const count = await Response.countDocuments(query);
             console.log(
-              `[RANK DEBUG] Found ${count} existing final responses for form ${questionId}, question ${qId}, trackingField ${trackingQId}, answer "${answer}". New rank: ${count + 1}`,
+              `[RANK DEBUG] Found ${count} existing final responses for form ${questionId}, question ${qId}, trackingField ${trackingQId}, answer "${strAnswer}". New rank: ${count + 1}`,
             );
             responseRanks[qId] = count + 1;
           } catch (countError) {
@@ -1349,23 +1366,28 @@ export const getRank = async (req, res) => {
       trackingQId = `${questionId}_tracking`;
     }
 
-    // Count existing final responses with the SAME answer for this form
-    const query = {
-      questionId: { $in: [form.id, form._id.toString()] },
-      isSectionSubmit: { $ne: true },
-    };
+    // Count existing final responses with the EXACT SAME answer for this form
+    const formIds = [form.id, form._id ? form._id.toString() : null, formId].filter(Boolean);
+    const strAnswer = String(answer).trim();
+    const escapedAnswer = strAnswer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const exactRegex = new RegExp(`^${escapedAnswer}$`, "i");
 
-    // Try both exact match and numeric match if applicable
     const orConditions = [
-      { [`answers.${trackingQId}`]: answer }
+      { [`answers.${trackingQId}`]: exactRegex },
+      { [`answers.${questionId}`]: exactRegex }
     ];
 
-    const numAnswer = Number(answer);
+    const numAnswer = Number(strAnswer);
     if (!isNaN(numAnswer)) {
       orConditions.push({ [`answers.${trackingQId}`]: numAnswer });
+      orConditions.push({ [`answers.${questionId}`]: numAnswer });
     }
 
-    query.$or = orConditions;
+    const query = {
+      questionId: { $in: formIds },
+      $or: orConditions,
+      isSectionSubmit: { $ne: true },
+    };
 
     if (tenantId) query.tenantId = tenantId;
 
@@ -2656,34 +2678,40 @@ export const getResponsesByForm = async (req, res) => {
       Object.assign(query, req.tenantFilter);
     }
 
-    const parsedLimit = Math.min(Math.max(parseInt(limit) || 1000, 1), 2000);
-    const parsedPage = Math.max(parseInt(page) || 1, 1);
-
     const options = {
-      page: parsedPage,
-      limit: parsedLimit,
+      page: parseInt(page),
+      limit: parseInt(limit),
       sort: { createdAt: -1 }
     };
 
-    const isAnalytics = req.query.analytics === 'true' || parsedLimit >= 500;
+    const isAnalytics = req.query.analytics === 'true';
 
     let responsesQuery = Response.find(query);
     if (isAnalytics) {
       responsesQuery = responsesQuery.select(
         '_id id questionId formId answers status submissionMetadata responseRanks createdAt timestamp submittedBy createdBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId'
-      ).lean();
+      );
     } else {
       responsesQuery = responsesQuery
         .populate('assignedTo', 'username firstName lastName email')
         .populate('verifiedBy', 'username firstName lastName email')
-        .populate('createdBy', 'username firstName lastName email')
-        .lean();
+        .populate('createdBy', 'username firstName lastName email');
     }
 
-    let responses = await responsesQuery
-      .sort(options.sort)
-      .limit(options.limit * 1)
-      .skip((options.page - 1) * options.limit);
+    // .lean() skips Mongoose document hydration (getters/setters/change
+    // tracking) since this endpoint only ever reads the data. For the
+    // analytics path (up to 10k docs per request) this is the single
+    // biggest win available here. Combined with the count query, both run
+    // in parallel instead of as two sequential round trips to Mongo.
+    const [responsesRaw, total] = await Promise.all([
+      responsesQuery
+        .sort(options.sort)
+        .limit(options.limit * 1)
+        .skip((options.page - 1) * options.limit)
+        .lean(),
+      Response.countDocuments(query)
+    ]);
+    let responses = responsesRaw;
 
     console.log('[GET RESPONSES] Query:', JSON.stringify(query));
     console.log('[GET RESPONSES] Responses found:', responses.length);
@@ -2714,23 +2742,23 @@ export const getResponsesByForm = async (req, res) => {
       }
     }
 
-    const total = (isAnalytics && parsedPage > 1) ? 2000 : await Response.countDocuments(query);
-
     let reviewsByResponse = {};
     let messagesByResponse = {};
 
-    if (!isAnalytics && responses.length < 500) {
-      // Fetch reviews and chat messages for these responses to show in the "Review" column
-      const responseIds = responses.map(r => r._id || r.id);
-      const reviews = await Review.find({ responseId: { $in: responseIds } })
-        .populate('reviewerId', 'firstName lastName email username')
-        .sort({ createdAt: -1 })
-        .lean();
-
-      const chatMessages = await ChatMessage.find({
-        responseId: { $in: responseIds },
-        questionContexts: { $exists: true, $not: { $size: 0 } }
-      }).sort({ createdAt: -1 }).lean();
+    if (!isAnalytics) {
+      // Fetch reviews and chat messages for these responses to show in the
+      // "Review" column. These two lookups don't depend on each other, so
+      // run them concurrently instead of one after the other.
+      const responseIds = responses.map(r => r.id);
+      const [reviews, chatMessages] = await Promise.all([
+        Review.find({ responseId: { $in: responseIds } })
+          .populate('reviewerId', 'firstName lastName email username')
+          .sort({ createdAt: -1 }),
+        ChatMessage.find({
+          responseId: { $in: responseIds },
+          questionContexts: { $exists: true, $not: { $size: 0 } }
+        }).sort({ createdAt: -1 }),
+      ]);
 
       // Group reviews and messages by responseId
       reviewsByResponse = reviews.reduce((acc, r) => {
@@ -2748,12 +2776,14 @@ export const getResponsesByForm = async (req, res) => {
       }, {});
     }
 
-    // Convert to serializable format efficiently
+    // With .lean(), `response` is already a plain object (no .toObject(),
+    // and Map-typed fields like `answers`/`responseRanks` come back as
+    // plain objects rather than Map instances) — handle both shapes so
+    // this keeps working if lean() is ever removed on this path.
     const formattedResponses = responses.map(response => {
-      const responseObj = response.toObject ? response.toObject() : { ...response };
-      const responseIdStr = (response._id || response.id)?.toString();
-      const review = reviewsByResponse[responseIdStr];
-      const message = messagesByResponse[responseIdStr];
+      const responseObj = typeof response.toObject === 'function' ? response.toObject() : response;
+      const review = reviewsByResponse[response.id];
+      const message = messagesByResponse[response.id];
 
       // Determine the best display name for submittedBy
       let displaySubmittedBy = response.submittedBy;
@@ -2781,23 +2811,18 @@ export const getResponsesByForm = async (req, res) => {
       const reviewInfo = review ? {
         status: review.reviewOption,
         reviewer: review.reviewerName || (review.reviewerId ? (review.reviewerId.firstName ? `${review.reviewerId.firstName} ${review.reviewerId.lastName}` : review.reviewerId.username) : 'Reviewer'),
-        flaggedQuestions: message ? message.questionContexts?.map(c => c.title) || [] : []
+        flaggedQuestions: message ? message.questionContexts.map(c => c.title) : []
       } : null;
 
-      const finalAnswers = response.answers instanceof Map 
-        ? Object.fromEntries(response.answers) 
-        : (response.answers && typeof response.answers === 'object' ? response.answers : {});
-
-      const finalRanks = response.responseRanks instanceof Map 
-        ? Object.fromEntries(response.responseRanks) 
-        : (response.responseRanks && typeof response.responseRanks === 'object' ? response.responseRanks : {});
+      const toPlainObject = (val) => {
+        if (!val) return {};
+        return val instanceof Map ? Object.fromEntries(val) : val;
+      };
 
       return {
         ...responseObj,
-        id: responseIdStr || responseObj.id,
-        _id: responseIdStr || responseObj._id,
-        answers: finalAnswers,
-        responseRanks: finalRanks,
+        answers: toPlainObject(response.answers),
+        responseRanks: toPlainObject(response.responseRanks),
         submissionMetadata: responseObj.submissionMetadata || null,
         submittedBy: displaySubmittedBy, // Override with better display name
         review: reviewInfo
