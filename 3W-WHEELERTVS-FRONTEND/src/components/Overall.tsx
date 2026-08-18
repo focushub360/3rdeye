@@ -561,6 +561,8 @@ export default function Overall() {
         ...r,
         actualFormId: actualFormId,
         formTitle: form?.title || "Unknown Form",
+        yesNoScore: form ? computeYesNoScore(r.answers, form) : undefined,
+        stats: computeResponseStats(r.answers),
         dealerName: dealer.name || "Unknown",
         dealerRank: dealer.rank,
         firstQuestionText: firstQ,
