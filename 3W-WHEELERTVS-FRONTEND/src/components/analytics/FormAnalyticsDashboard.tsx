@@ -4146,28 +4146,34 @@ export default function FormAnalyticsDashboard() {
   const fetchFullAnalyticsResponses = async () => {
     if (!id) return;
     setAnalyticsResponsesLoading(true);
-    setResponses([]); // clear any stale set before streaming the fresh one in
+
+    // Check memory cache first for instant <10ms rendering
+    const cacheKey = `/responses/form/${id}?analytics=true&page=1&limit=2500`;
+    const cachedData = apiClient.getCachedData<any>(cacheKey);
+    if (cachedData?.responses?.length) {
+      setResponses(cachedData.responses);
+    }
+
     try {
       const responsesData = await apiClient.getAllFormResponses(id, {
         analytics: true,
-        forceNetwork: true,
-        onPage: ({ responses: pageResponses, pageNumber, totalPages }: {
+        forceNetwork: false,
+        onPage: ({ responses: pageResponses, pageNumber }: {
           responses: any[];
           pageNumber: number;
           totalPages: number;
           isLast: boolean;
         }) => {
-          console.log(
-            `[ANALYTICS DEBUG] Analytics page ${pageNumber}/${totalPages} fetched:`,
-            pageResponses.length,
-          );
-          setResponses((prev) => prev.concat(pageResponses));
+          if (pageNumber === 1) {
+            setResponses(pageResponses);
+          } else {
+            setResponses((prev) => prev.concat(pageResponses));
+          }
         },
       });
-      console.log(
-        "[ANALYTICS DEBUG] Full analytics responses fetched:",
-        responsesData.responses?.length || 0,
-      );
+      if (responsesData.responses?.length) {
+        setResponses(responsesData.responses);
+      }
     } catch (err) {
       console.error("Error fetching full analytics responses:", err);
       showToast("Failed to load analytics data. Please try again.", "error");
