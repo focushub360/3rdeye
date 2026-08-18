@@ -12,8 +12,6 @@ const API_BASE_URL = (() => {
     hostname.includes("netlify.app") ||
     hostname.includes("netlify.live");
 
-  // api/client.ts
-
   const getBaseUrl = (): string => {
     if (import.meta.env.VITE_API_URL) {
       return import.meta.env.VITE_API_URL;
@@ -26,23 +24,8 @@ const API_BASE_URL = (() => {
       return "http://127.0.0.1:5000/api";
     }
 
-    // AWS Deployment
-    if (hostname === '3wheelertvs.focusengineeringapp.com') {
-      return "https://3wheelertvsbackend.focusengineeringapp.com/api";
-    }
-
-    // Hostinger VPS Deployment
-    if (hostname === '3wtvs.focusengineeringapp.com' || hostname.includes('3wtvs')) {
-      return "https://3wbackend.focusengineeringapp.com/api"; // Adjust this URL
-    }
-
-    // Staging/Render
-    if (hostname.includes('staging') || hostname.includes('render')) {
-      return "https://threew-wheeler-backend.onrender.com/api";
-    }
-
-    // Fallback - Production
-    return "https://3wheelertvsbackend.focusengineeringapp.com/api";
+    // Production backend on Render
+    return "https://threew-vu4v.onrender.com/api";
   };
 
   const baseUrl = getBaseUrl();
