@@ -2084,11 +2084,25 @@ export const getAllResponses = async (req, res) => {
 
     // Convert Map to Object for JSON serialization
     const formattedResponses = responses.map(response => {
-      const responseObj = response.toObject();
+      const responseObj = response.toObject ? response.toObject() : response;
+      let answersObj = {};
+      if (response.answers instanceof Map) {
+        answersObj = Object.fromEntries(response.answers);
+      } else if (response.answers && typeof response.answers === 'object') {
+        answersObj = response.answers;
+      }
+
+      let ranksObj = {};
+      if (response.responseRanks instanceof Map) {
+        ranksObj = Object.fromEntries(response.responseRanks);
+      } else if (response.responseRanks && typeof response.responseRanks === 'object') {
+        ranksObj = response.responseRanks;
+      }
+
       return {
         ...responseObj,
-        answers: Object.fromEntries(response.answers),
-        responseRanks: response.responseRanks ? Object.fromEntries(response.responseRanks) : {},
+        answers: answersObj,
+        responseRanks: ranksObj,
         submissionMetadata: responseObj.submissionMetadata || null
       };
     });
