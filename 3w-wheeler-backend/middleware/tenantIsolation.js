@@ -35,12 +35,14 @@ export const addTenantFilter = (req, res, next) => {
   if (user.role === 'superadmin' || user.isGuest) {
     req.tenantFilter = {};
   } else {
-    // All other users (including admin) are filtered by their tenantId
-    // Ensure tenantId is an ObjectId for aggregation pipelines
+    const tenantIdStr = user.tenantId.toString();
+    const tenantIdObj = mongoose.Types.ObjectId.isValid(tenantIdStr)
+      ? new mongoose.Types.ObjectId(tenantIdStr)
+      : null;
+    const tenantValues = [tenantIdStr, tenantIdObj].filter(Boolean);
+
     req.tenantFilter = { 
-      tenantId: user.tenantId instanceof mongoose.Types.ObjectId 
-        ? user.tenantId 
-        : new mongoose.Types.ObjectId(user.tenantId) 
+      tenantId: { $in: tenantValues } 
     };
   }
 
