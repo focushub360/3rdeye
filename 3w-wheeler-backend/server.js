@@ -97,11 +97,13 @@ const corsOptions = {
     if (
       allAllowedOrigins.includes(cleanOrigin) ||
       cleanOrigin.endsWith(".focusengineeringapp.com") ||
+      cleanOrigin.endsWith(".focus3rdeye.com") ||
       cleanOrigin.endsWith(".netlify.app") ||
       cleanOrigin.endsWith(".vercel.app") ||
       cleanOrigin.endsWith(".onrender.com") ||
       cleanOrigin.endsWith(".cloudfront.net") ||
-      cleanOrigin === "https://focusengineeringapp.com"
+      cleanOrigin === "https://focusengineeringapp.com" ||
+      cleanOrigin === "https://focus3rdeye.com"
     ) {
       callback(null, true);
     } else {
