@@ -323,33 +323,21 @@ export default function AdminManagement() {
       return;
     }
 
-    setLoading(true);
+    const cachedData = apiClient.getCachedData<any>("/users?limit=300");
+    if (cachedData?.users?.length) {
+      setAdmins(cachedData.users);
+    } else {
+      setLoading(true);
+    }
     setError(null);
 
     try {
-      const [adminData, subadminData, inspectorData] = await Promise.all([
-        apiClient
-          .getUsers({ role: "admin", limit: 100 })
-          .catch(() => ({ users: [] })),
-        apiClient
-          .getUsers({ role: "subadmin", limit: 100 })
-          .catch(() => ({ users: [] })),
-        apiClient
-          .getUsers({ role: "inspector", limit: 100 })
-          .catch(() => ({ users: [] })),
-      ]);
-
-      const allUsers = [
-        ...(Array.isArray(adminData.users) ? adminData.users : []),
-        ...(Array.isArray(subadminData.users) ? subadminData.users : []),
-        ...(Array.isArray(inspectorData.users) ? inspectorData.users : []),
-      ];
+      const userData = await apiClient.getUsers({ limit: 300 });
+      const allUsers = Array.isArray(userData.users) ? userData.users : [];
 
       // Ensure creator information is properly set
       const usersWithCreatorInfo = allUsers.map((user) => ({
         ...user,
-        // If createdBy is not set in the API response, we need to determine it
-        // This is a fallback - ideally the API should return this info
         createdBy:
           user.createdBy || (user.role === "admin" ? "system" : undefined),
         createdByRole:
@@ -361,7 +349,6 @@ export default function AdminManagement() {
       const message =
         err instanceof ApiError ? err.message : "Failed to load administrators";
       setError(message);
-      setAdmins([]);
     } finally {
       setLoading(false);
     }

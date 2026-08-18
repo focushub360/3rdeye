@@ -838,8 +838,8 @@ export default function AllResponses() {
         setLoading(true);
       }
       const [responsesData, formsData] = await Promise.all([
-        apiClient.getResponses({ limit: 1000, forceNetwork: true }),
-        apiClient.getForms({ forceNetwork: true }),
+        apiClient.getResponses({ limit: 1000, forceNetwork: false }),
+        apiClient.getForms({ forceNetwork: false }),
       ]);
 
       const formsMap = formsData.forms.reduce(
