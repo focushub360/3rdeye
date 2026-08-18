@@ -190,35 +190,37 @@ export const login = async (req, res) => {
       });
     }
 
-    // Update last login
-    user.lastLogin = new Date();
-    await user.save();
-    await user.populate('customRole');
-
-    // Generate token
+    // Generate token immediately
     const token = generateToken(user._id);
 
     // Get IP address for location lookup
     const ipAddress = req.ip || req.connection?.remoteAddress || req.headers['x-forwarded-for'];
+    const userAgent = req.headers['user-agent'];
+    const sessionLogId = new mongoose.Types.ObjectId();
 
-    // Enhance location data with IP-based lookup
-    const enhancedLocation = await enhanceLocationData(location, ipAddress);
+    // Async background logging (does not block user login response speed)
+    setImmediate(async () => {
+      try {
+        user.lastLogin = new Date();
+        await user.save();
+      } catch (e) {
+        console.error('Failed to update lastLogin:', e);
+      }
 
-    // Create LoginLog entry
-    const newLog = new LoginLog({
-      userId: user._id,
-      tenantId: user.tenantId,
-      location: enhancedLocation,
-      ipAddress: ipAddress,
-      userAgent: req.headers['user-agent']
+      try {
+        const enhancedLocation = await enhanceLocationData(location, ipAddress);
+        await LoginLog.create({
+          _id: sessionLogId,
+          userId: user._id,
+          tenantId: user.tenantId,
+          location: enhancedLocation,
+          ipAddress: ipAddress,
+          userAgent: userAgent
+        });
+      } catch (logErr) {
+        console.error('Failed to save login log:', logErr);
+      }
     });
-    let sessionLogId = null;
-    try {
-      await newLog.save();
-      sessionLogId = newLog._id;
-    } catch (logErr) {
-      console.error('Failed to save login log:', logErr);
-    }
 
     const responseData = {
       token,
