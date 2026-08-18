@@ -1990,7 +1990,7 @@ export const getAllResponses = async (req, res) => {
               { submittedBy: userEmail },
               { submittedBy: userUsername },
               { "submitterContact.email": userEmail },
-              { tenantId: { $ne: userTenantId } }
+              { tenantId: { $in: tenantValues } }
             ]
           }
         ];
@@ -1999,7 +1999,7 @@ export const getAllResponses = async (req, res) => {
         // - Responses in their own tenant, OR
         // - Responses for forms shared with their tenant!
         query.$or = [
-          { tenantId: userTenantId },
+          { tenantId: { $in: tenantValues } },
           { questionId: { $in: accessibleFormIds } }
         ];
       }
