@@ -168,7 +168,7 @@ const ResponseSchema = new mongoose.Schema({
   }],
 
   tenantId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: mongoose.Schema.Types.Mixed,
     ref: 'Tenant',
     required: true
   },

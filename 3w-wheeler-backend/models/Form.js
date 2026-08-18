@@ -192,7 +192,7 @@ const FormSchema = new mongoose.Schema({
     required: true
   },
   tenantId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: mongoose.Schema.Types.Mixed,
     ref: 'Tenant',
     required: false
   },
@@ -201,7 +201,7 @@ const FormSchema = new mongoose.Schema({
     default: false
   },
   sharedWithTenants: [{
-    type: mongoose.Schema.Types.ObjectId,
+    type: mongoose.Schema.Types.Mixed,
     ref: 'Tenant'
   }],
   isActive: {

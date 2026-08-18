@@ -349,30 +349,33 @@ export const getAllForms = async (req, res) => {
 
     // If not superadmin, also include global forms shared with this tenant
     if (req.user.role !== 'superadmin' && req.user.tenantId) {
-      const tenantId = req.user.tenantId instanceof mongoose.Types.ObjectId
-        ? req.user.tenantId
-        : new mongoose.Types.ObjectId(req.user.tenantId);
-
-      const tenantIdStr = tenantId.toString();
+      const tenantIdStr = req.user.tenantId.toString();
+      const tenantIdObj = mongoose.Types.ObjectId.isValid(tenantIdStr)
+        ? new mongoose.Types.ObjectId(tenantIdStr)
+        : null;
+      const tenantValues = [tenantIdStr, tenantIdObj].filter(Boolean);
 
       query = {
         $or: [
-          { tenantId: tenantId },
-          { sharedWithTenants: tenantId },
+          { tenantId: { $in: tenantValues } },
+          { sharedWithTenants: { $in: tenantValues } },
           { "chassisTenantAssignments.assignedTenants": tenantIdStr }
         ]
       };
     } else if (req.user.role === 'superadmin' && queryTenantId) {
       // Superadmin can filter by a specific tenantId passed as query param
-      if (mongoose.Types.ObjectId.isValid(queryTenantId)) {
-        const tenantObjId = new mongoose.Types.ObjectId(queryTenantId);
-        query = {
-          $or: [
-            { tenantId: tenantObjId },
-            { sharedWithTenants: tenantObjId }
-          ]
-        };
-      }
+      const tenantIdStr = queryTenantId.toString();
+      const tenantIdObj = mongoose.Types.ObjectId.isValid(tenantIdStr)
+        ? new mongoose.Types.ObjectId(tenantIdStr)
+        : null;
+      const tenantValues = [tenantIdStr, tenantIdObj].filter(Boolean);
+
+      query = {
+        $or: [
+          { tenantId: { $in: tenantValues } },
+          { sharedWithTenants: { $in: tenantValues } }
+        ]
+      };
     }
 
     // Filter by global status
