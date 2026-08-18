@@ -98,6 +98,8 @@ const corsOptions = {
       allAllowedOrigins.includes(cleanOrigin) ||
       cleanOrigin.endsWith(".focusengineeringapp.com") ||
       cleanOrigin.endsWith(".netlify.app") ||
+      cleanOrigin.endsWith(".vercel.app") ||
+      cleanOrigin.endsWith(".onrender.com") ||
       cleanOrigin.endsWith(".cloudfront.net") ||
       cleanOrigin === "https://focusengineeringapp.com"
     ) {
