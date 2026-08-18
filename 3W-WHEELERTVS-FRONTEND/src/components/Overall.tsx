@@ -442,7 +442,7 @@ export default function Overall() {
   };
 
   const getInitialMappedResponses = () => {
-    const cachedResponses = apiClient.getCachedData<any>("/responses?limit=1000");
+    const cachedResponses = apiClient.getCachedData<any>("/responses?limit=100");
     const cachedForms = apiClient.getCachedData<any>("/forms");
     if (!cachedResponses?.responses || !cachedForms?.forms) return [];
 
@@ -583,7 +583,7 @@ export default function Overall() {
 
   const [responses, setResponses] = useState<Response[]>(() => getInitialMappedResponses());
   const [loading, setLoading] = useState(() => {
-    const hasResponses = apiClient.getCachedData("/responses?limit=1000") !== null;
+    const hasResponses = apiClient.getCachedData("/responses?limit=100") !== null;
     const hasForms = apiClient.getCachedData("/forms") !== null;
     return !(hasResponses && hasForms);
   });
@@ -2076,7 +2076,7 @@ export default function Overall() {
   // ─── Fetch ─────────────────────────────────────────────────────────────────
   const fetchData = async () => {
     try {
-      const responsesKey = "/responses?limit=1000";
+      const responsesKey = "/responses?limit=100";
       const formsKey = "/forms";
 
       const isResponsesFresh = apiClient.isCacheFresh(responsesKey, 30);
@@ -2095,7 +2095,7 @@ export default function Overall() {
       }
       setError(null);
       const [responsesData, formsData] = await Promise.all([
-        apiClient.getResponses({ limit: 1000, forceNetwork: true }),
+        apiClient.getResponses({ limit: 100, forceNetwork: true }),
         apiClient.getForms({ forceNetwork: true }),
       ]);
 
