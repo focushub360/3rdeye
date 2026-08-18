@@ -231,6 +231,7 @@ ResponseSchema.index({ 'biwReview.status': 1 }); // NEW - for BIW review table q
 // Support skip()/limit() + sort({createdAt:-1}) pagination scoped by form
 // or by tenant, without a full collection scan.
 ResponseSchema.index({ questionId: 1, createdAt: -1 });
+ResponseSchema.index({ questionId: 1, isSectionSubmit: 1, createdAt: -1 });
 ResponseSchema.index({ tenantId: 1, createdAt: -1 });
 ResponseSchema.index({ createdBy: 1, createdAt: -1, tenantId: 1 });
 
