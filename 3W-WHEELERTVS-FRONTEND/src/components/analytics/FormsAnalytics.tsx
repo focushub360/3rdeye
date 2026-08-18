@@ -354,35 +354,16 @@ export default function FormsAnalytics() {
     return filtered;
   }, [forms, userRole, userPermissions]);
   useEffect(() => {
-  const fetchAccurateCounts = async () => {
     if (!visibleForms.length) return;
-    
     const counts: Record<string, number> = {};
-    
     for (const form of visibleForms) {
       const formId = form._id || form.id;
-      if (!formId) continue;
-      
-      try {
-        // Get ALL responses including partial
-        const result = await apiClient.getFormResponses(formId, {
-          page: 1,
-          limit: 1,
-          includePartial: true,  // ✅ This is the key
-          analytics: true
-        });
-        counts[formId] = result.pagination?.totalResponses || 0;
-      } catch {
-        // Fallback to the existing count if API fails
+      if (formId) {
         counts[formId] = form.responseCount || 0;
       }
     }
-    
     setActualResponseCounts(counts);
-  };
-  
-  fetchAccurateCounts();
-}, [visibleForms]);
+  }, [visibleForms]);
 
   const totalForms = visibleForms.filter((form: FormItem) => !form.parentFormId).length;
   const activeFormsCount = visibleForms.filter(

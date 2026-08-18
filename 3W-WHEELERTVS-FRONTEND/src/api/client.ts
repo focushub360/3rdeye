@@ -3103,40 +3103,56 @@ class ApiClient {
     // large forms. Now it matches the backend's per-page cap (500) so each
     // round trip stays fast and predictable regardless of the form's total
     // response count.
-    const pageLimit = options?.analytics ? 500 : 5000;
-    let page = 1;
-    let allResponses: any[] = [];
-    let totalPages = 1;
-    let form: any = undefined;
+    const pageLimit = options?.analytics ? 2500 : 5000;
+    const firstResult = await this.getFormResponses(formId, {
+      status: options?.status,
+      includePartial: options?.includePartial,
+      analytics: options?.analytics,
+      page: 1,
+      limit: pageLimit,
+      forceNetwork: options?.forceNetwork,
+    });
 
-    // Shorter per-request timeout now that each request is a bounded
-    // batch, not the whole dataset - a single slow page fails fast instead
-    // of the entire load silently hanging for minutes.
-    const timeout = options?.analytics ? 30000 : 60000;
+    const firstPageResponses = firstResult.responses || [];
+    let allResponses = [...firstPageResponses];
+    const form = firstResult.form;
+    const totalPages = firstResult.pagination?.totalPages ?? 1;
 
-    do {
-      const result = await this.getFormResponses(formId, {
-        status: options?.status,
-        includePartial: options?.includePartial,
-        analytics: options?.analytics,
-        page,
-        limit: pageLimit,
-        forceNetwork: options?.forceNetwork,
+    options?.onPage?.({
+      responses: firstPageResponses,
+      pageNumber: 1,
+      totalPages,
+      isLast: totalPages <= 1,
+    });
+
+    if (totalPages > 1) {
+      const remainingPromises = [];
+      for (let p = 2; p <= totalPages; p++) {
+        remainingPromises.push(
+          this.getFormResponses(formId, {
+            status: options?.status,
+            includePartial: options?.includePartial,
+            analytics: options?.analytics,
+            page: p,
+            limit: pageLimit,
+            forceNetwork: options?.forceNetwork,
+          }).then((res) => {
+            const pageResponses = res.responses || [];
+            options?.onPage?.({
+              responses: pageResponses,
+              pageNumber: p,
+              totalPages,
+              isLast: p === totalPages,
+            });
+            return pageResponses;
+          })
+        );
+      }
+      const remainingPages = await Promise.all(remainingPromises);
+      remainingPages.forEach((pageRes) => {
+        allResponses = allResponses.concat(pageRes);
       });
-      const pageResponses = result.responses || [];
-      allResponses = allResponses.concat(pageResponses);
-      form = result.form ?? form;
-      totalPages = result.pagination?.totalPages ?? 1;
-
-      options?.onPage?.({
-        responses: pageResponses,
-        pageNumber: page,
-        totalPages,
-        isLast: page >= totalPages,
-      });
-
-      page += 1;
-    } while (page <= totalPages);
+    }
 
     return { responses: allResponses, form };
   }
