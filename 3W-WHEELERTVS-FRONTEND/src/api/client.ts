@@ -222,7 +222,8 @@ class ApiClient {
     }
 
     const isMutation = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
-    if (isMutation) {
+    const ignoreInvalidation = endpoint.includes("/heartbeat") || endpoint.includes("/activity") || endpoint.includes("/track");
+    if (isMutation && !ignoreInvalidation) {
       this.memoryCache.clear();
       try {
         Object.keys(localStorage).forEach((key) => {
