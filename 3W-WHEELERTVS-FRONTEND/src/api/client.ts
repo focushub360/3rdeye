@@ -83,6 +83,7 @@ class ApiError extends Error {
 class ApiClient {
   private baseUrl: string;
   private token: string | null = null;
+  private memoryCache = new Map<string, { data: any, timestamp: number }>();
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
@@ -92,6 +93,7 @@ class ApiClient {
   setToken(token: string) {
     this.token = token;
     localStorage.setItem("auth_token", token);
+    this.memoryCache.clear();
     try {
       Object.keys(localStorage).forEach((key) => {
         if (key.startsWith("api_cache:")) {
@@ -104,6 +106,7 @@ class ApiClient {
   clearToken() {
     this.token = null;
     localStorage.removeItem("auth_token");
+    this.memoryCache.clear();
     try {
       Object.keys(localStorage).forEach((key) => {
         if (key.startsWith("api_cache:")) {
@@ -114,12 +117,23 @@ class ApiClient {
   }
 
   public getCachedData<T>(endpoint: string): T | null {
+    const cacheKey = `api_cache:${endpoint}`;
+    
+    // Check memory cache first
+    if (this.memoryCache.has(cacheKey)) {
+      const { data, timestamp } = this.memoryCache.get(cacheKey)!;
+      const TTL = 2 * 60 * 1000;
+      if (Date.now() - timestamp < TTL) {
+        return data as T;
+      }
+    }
+
+    // Fallback to localStorage
     try {
-      const cacheKey = `api_cache:${endpoint}`;
       const cached = localStorage.getItem(cacheKey);
       if (cached) {
         const { data, timestamp } = JSON.parse(cached);
-        const TTL = 2 * 60 * 1000; // 2 minutes TTL
+        const TTL = 2 * 60 * 1000;
         if (Date.now() - timestamp < TTL) {
           return data as T;
         }
@@ -129,8 +143,18 @@ class ApiClient {
   }
 
   public isCacheFresh(endpoint: string, freshnessSeconds = 30): boolean {
+    const cacheKey = `api_cache:${endpoint}`;
+    
+    // Check memory cache first
+    if (this.memoryCache.has(cacheKey)) {
+      const { timestamp } = this.memoryCache.get(cacheKey)!;
+      if (Date.now() - timestamp < freshnessSeconds * 1000) {
+        return true;
+      }
+    }
+
+    // Fallback to localStorage
     try {
-      const cacheKey = `api_cache:${endpoint}`;
       const cached = localStorage.getItem(cacheKey);
       if (cached) {
         const { timestamp } = JSON.parse(cached);
@@ -170,13 +194,25 @@ class ApiClient {
     const cacheKey = `api_cache:${endpoint}`;
 
     if (isCacheable && !options.forceNetwork) {
+      // Check memory cache first
+      if (this.memoryCache.has(cacheKey)) {
+        const { data, timestamp } = this.memoryCache.get(cacheKey)!;
+        const TTL = 2 * 60 * 1000;
+        if (Date.now() - timestamp < TTL) {
+          console.log(`[CACHE HIT] Returning fast memory cached data for: ${endpoint}`);
+          return data as T;
+        }
+      }
+
+      // Fallback to localStorage
       try {
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
           const { data, timestamp } = JSON.parse(cached);
           const TTL = 2 * 60 * 1000; // 2 minutes TTL
           if (Date.now() - timestamp < TTL) {
-            console.log(`[CACHE HIT] Returning cached data for: ${endpoint}`);
+            console.log(`[CACHE HIT] Returning local storage data for: ${endpoint}`);
+            this.memoryCache.set(cacheKey, { data, timestamp }); // Populate memory cache
             return data as T;
           }
         }
@@ -187,6 +223,7 @@ class ApiClient {
 
     const isMutation = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
     if (isMutation) {
+      this.memoryCache.clear();
       try {
         Object.keys(localStorage).forEach((key) => {
           if (key.startsWith("api_cache:")) {
@@ -261,21 +298,17 @@ class ApiClient {
       }
 
       if (isCacheable) {
+        // Always save to memory cache to avoid QuotaExceededError and ensure fast re-renders
+        this.memoryCache.set(cacheKey, { data: data.data, timestamp: Date.now() });
+
         try {
           localStorage.setItem(
             cacheKey,
             JSON.stringify({ data: data.data, timestamp: Date.now() })
           );
         } catch (err) {
-          console.warn("Failed to write to cache:", err);
-          // If storage is full, clean our cache keys to free up space
-          try {
-            Object.keys(localStorage).forEach((key) => {
-              if (key.startsWith("api_cache:")) {
-                localStorage.removeItem(key);
-              }
-            });
-          } catch (_) { }
+          console.warn(`Failed to write to localStorage (payload likely too large for ${endpoint}). Kept in fast memory cache.`);
+          // Do NOT purge the entire localStorage cache here. Just ignore the quota error for this large payload.
         }
       }
 
