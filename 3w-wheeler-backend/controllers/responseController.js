@@ -1958,14 +1958,18 @@ export const getAllResponses = async (req, res) => {
 
     let query = {};
     if (req.user && req.user.role !== 'superadmin') {
-      const userTenantId = req.user.tenantId;
+      const userTenantIdStr = req.user.tenantId ? req.user.tenantId.toString() : '';
+      const userTenantIdObj = mongoose.Types.ObjectId.isValid(userTenantIdStr)
+        ? new mongoose.Types.ObjectId(userTenantIdStr)
+        : null;
+      const tenantValues = [userTenantIdStr, userTenantIdObj].filter(Boolean);
 
       // Find all forms that are owned by, shared with, or chassis-assigned to the user's tenant
       const accessibleForms = await Form.find({
         $or: [
-          { tenantId: userTenantId },
-          { sharedWithTenants: userTenantId },
-          { "chassisTenantAssignments.assignedTenants": userTenantId?.toString() }
+          { tenantId: { $in: tenantValues } },
+          { sharedWithTenants: { $in: tenantValues } },
+          { "chassisTenantAssignments.assignedTenants": userTenantIdStr }
         ]
       }).select('id _id');
 
@@ -2597,15 +2601,15 @@ export const getResponsesByForm = async (req, res) => {
 
     // If not superadmin and not guest, check if form belongs to or is shared with this tenant
     if (req.user.role !== 'superadmin' && !req.user.isGuest && req.user.tenantId) {
-      const tenantId = req.user.tenantId instanceof mongoose.Types.ObjectId
-        ? req.user.tenantId
-        : new mongoose.Types.ObjectId(req.user.tenantId);
-
-      const tenantIdStr = tenantId.toString();
+      const tenantIdStr = req.user.tenantId.toString();
+      const tenantIdObj = mongoose.Types.ObjectId.isValid(tenantIdStr)
+        ? new mongoose.Types.ObjectId(tenantIdStr)
+        : null;
+      const tenantValues = [tenantIdStr, tenantIdObj].filter(Boolean);
 
       formSearchQuery.$or = [
-        { tenantId: tenantId },
-        { sharedWithTenants: tenantId },
+        { tenantId: { $in: tenantValues } },
+        { sharedWithTenants: { $in: tenantValues } },
         { "chassisTenantAssignments.assignedTenants": tenantIdStr }
       ];
     }
