@@ -3421,7 +3421,7 @@ export default function FormAnalyticsDashboard() {
   // resolves well before the dashboard's own lazy data finishes loading —
   // wiring it to `loading` would let the empty states flash through
   // exactly as before.
-  const isChartLoading = analyticsResponsesLoading;
+  const isChartLoading = false;
 
   // fetchPerformanceTable and fetchSummary are now plain functions (not
   // auto-firing effects) — they're invoked lazily from the tab-loading
@@ -9305,16 +9305,7 @@ export default function FormAnalyticsDashboard() {
     );
   };
 
-  if (loading) {
-    return (
-      <div className="p-6">
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-primary-600">Loading analytics...</p>
-        </div>
-      </div>
-    );
-  }
+
 
   if (error) {
     const isTimeoutError = error.includes('timeout') || error.includes('too long');
