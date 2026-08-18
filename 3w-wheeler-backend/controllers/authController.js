@@ -130,44 +130,40 @@ export const login = async (req, res) => {
       }
     }
 
-    // For non-superadmin users (including admin), validate tenant
-    let tenant = null;
+    // Run password verification and tenant lookup concurrently
+    const tenantPromise = (user.role !== 'superadmin' && user.tenantId)
+      ? (tenantSlug ? Tenant.findOne({ slug: tenantSlug }).lean() : Tenant.findById(user.tenantId).lean())
+      : Promise.resolve(null);
+
+    const [isPasswordValid, tenantResult] = await Promise.all([
+      user.comparePassword(password),
+      tenantPromise
+    ]);
+
+    if (!isPasswordValid) {
+      console.log('Login failed: Invalid password');
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    let tenant = tenantResult;
     if (user.role !== 'superadmin') {
-      // If tenantSlug is provided, validate it matches user's tenant
-      if (tenantSlug) {
-        tenant = await Tenant.findOne({ slug: tenantSlug });
-        if (!tenant) {
-          return res.status(401).json({
-            success: false,
-            message: 'Invalid tenant'
-          });
-        }
-
-        if (tenant._id.toString() !== user.tenantId.toString()) {
-          return res.status(401).json({
-            success: false,
-            message: 'User does not belong to this tenant'
-          });
-        }
-
-        if (!tenant.isActive) {
-          return res.status(401).json({
-            success: false,
-            message: 'Tenant has been deactivated. Please contact support.'
-          });
-        }
-      } else {
-        // Load user's tenant
-        tenant = await Tenant.findById(user.tenantId);
-        if (!tenant || !tenant.isActive) {
-          return res.status(401).json({
-            success: false,
-            message: 'Tenant has been deactivated. Please contact support.'
-          });
-        }
+      if (!tenant || !tenant.isActive) {
+        return res.status(401).json({
+          success: false,
+          message: 'Tenant has been deactivated. Please contact support.'
+        });
       }
 
-      // Check trial expiration for free plan
+      if (tenantSlug && tenant._id.toString() !== user.tenantId.toString()) {
+        return res.status(401).json({
+          success: false,
+          message: 'User does not belong to this tenant'
+        });
+      }
+
       if (tenant.subscription && tenant.subscription.plan === 'free') {
         const now = new Date();
         if (tenant.subscription.endDate && now > tenant.subscription.endDate) {
@@ -178,17 +174,6 @@ export const login = async (req, res) => {
           });
         }
       }
-    }
-
-    // Check password
-    const isPasswordValid = await user.comparePassword(password);
-    console.log('Password validation:', { isPasswordValid });
-    if (!isPasswordValid) {
-      console.log('Login failed: Invalid password');
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
     }
 
     // Generate token immediately
