@@ -445,14 +445,8 @@ export const getAllForms = async (req, res) => {
       .populate(options.populate)
       .sort(options.sort)
       .limit(options.limit * 1)
-      .skip((options.page - 1) * options.limit);
-
-    console.log('[getAllForms] Found forms count:', forms.length);
-    if (forms.length > 0) {
-      forms.forEach(f => {
-        console.log(`[getAllForms] Form: "${f.title}", id: "${f.id}", _id: "${f._id}"`);
-      });
-    }
+      .skip((options.page - 1) * options.limit)
+      .lean();
 
     const total = await Form.countDocuments(query);
 
