@@ -222,9 +222,13 @@ class ApiClient {
     }
 
     const isMutation = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
-    const ignoreInvalidation = endpoint.includes("/heartbeat") || endpoint.includes("/activity") || endpoint.includes("/track");
-    if (isMutation && !ignoreInvalidation) {
-      console.log(`[CACHE INVALIDATION] Cleared all GET cache keys due to mutation request: ${method} ${endpoint}`);
+    
+    // Only invalidate cache if the mutation affects core data entities
+    const coreEntities = ["/responses", "/forms", "/tenants", "/users", "/roles", "/settings"];
+    const affectsCoreEntity = coreEntities.some(entity => endpoint.startsWith(entity));
+
+    if (isMutation && affectsCoreEntity) {
+      console.log(`[CACHE INVALIDATION] Cleared cache due to mutation on core entity: ${method} ${endpoint}`);
       this.memoryCache.clear();
       try {
         Object.keys(localStorage).forEach((key) => {
