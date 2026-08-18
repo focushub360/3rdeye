@@ -682,7 +682,7 @@ class ApiClient {
   }
 
   // Forms
-  async getForms(params?: { isGlobal?: boolean; search?: string; tenantId?: string; limit?: number }) {
+  async getForms(params?: { isGlobal?: boolean; search?: string; tenantId?: string; limit?: number; forceNetwork?: boolean }) {
     const query = new URLSearchParams();
     if (params?.isGlobal !== undefined) {
       query.set("isGlobal", params.isGlobal.toString());
@@ -699,7 +699,8 @@ class ApiClient {
     const endpoint = `/forms${query.toString() ? `?${query.toString()}` : ""}`;
 
     const result = await this.request<{ forms: any[] }>(endpoint, {
-      timeout: 60000 // 60 seconds instead of default 30s
+      timeout: 60000,
+      forceNetwork: params?.forceNetwork,
     });
 
     return result;

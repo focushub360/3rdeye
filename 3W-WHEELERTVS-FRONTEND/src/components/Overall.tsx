@@ -2812,13 +2812,7 @@ export default function Overall() {
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
+  // Remove full page blocking loader so the layout loads instantly (<100ms)
 
   if (error) {
     return (
@@ -2837,6 +2831,11 @@ export default function Overall() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-blue-100/50 dark:from-gray-900 dark:to-gray-800 p-4 sm:p-6 md:p-8">
+      {loading && (
+        <div className="w-full bg-blue-200/60 dark:bg-blue-900/30 h-1 overflow-hidden rounded-full mb-4">
+          <div className="bg-blue-600 h-full animate-pulse w-2/3 rounded-full"></div>
+        </div>
+      )}
       {/* ── Page Header ────────────────────────────────────────────────────── */}
       <div className="mb-6 sm:mb-8 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 dark:from-blue-900/10 dark:to-indigo-900/10 p-4 sm:p-5 rounded-2xl border border-blue-100 dark:border-blue-800/20 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
