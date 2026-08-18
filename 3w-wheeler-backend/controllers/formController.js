@@ -445,8 +445,7 @@ export const getAllForms = async (req, res) => {
       .populate(options.populate)
       .sort(options.sort)
       .limit(options.limit * 1)
-      .skip((options.page - 1) * options.limit)
-      .lean();
+      .skip((options.page - 1) * options.limit);
 
     const total = await Form.countDocuments(query);
 

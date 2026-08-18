@@ -2074,24 +2074,17 @@ export const getAllResponses = async (req, res) => {
       .populate(options.populate[1].path, options.populate[1].select)
       .sort(options.sort)
       .limit(options.limit * 1)
-      .skip((options.page - 1) * options.limit)
-      .lean();
+      .skip((options.page - 1) * options.limit);
 
     const total = await Response.countDocuments(query);
 
-    // Convert Map / Object for JSON serialization safely
-    const formattedResponses = responses.map(responseObj => {
-      const answersObj = responseObj.answers instanceof Map 
-        ? Object.fromEntries(responseObj.answers) 
-        : (responseObj.answers || {});
-      const ranksObj = responseObj.responseRanks instanceof Map
-        ? Object.fromEntries(responseObj.responseRanks)
-        : (responseObj.responseRanks || {});
-
+    // Convert Map to Object for JSON serialization
+    const formattedResponses = responses.map(response => {
+      const responseObj = response.toObject();
       return {
         ...responseObj,
-        answers: answersObj,
-        responseRanks: ranksObj,
+        answers: Object.fromEntries(response.answers),
+        responseRanks: response.responseRanks ? Object.fromEntries(response.responseRanks) : {},
         submissionMetadata: responseObj.submissionMetadata || null
       };
     });
