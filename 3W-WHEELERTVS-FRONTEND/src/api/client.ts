@@ -217,7 +217,7 @@ class ApiClient {
     }
 
     const controller = new AbortController();
-    let timeout = options.timeout || 30000;
+    let timeout = options.timeout || 60000; // Increased to 60s for Render cold starts
     if (this.isHeavyAnalyticsEndpoint(endpoint)) {
       timeout = options.timeout || 120000; // 2 minutes for analytics
     }
@@ -934,7 +934,7 @@ class ApiClient {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
       const res = await fetch(url, {
