@@ -3086,7 +3086,7 @@ class ApiClient {
     // large forms. Now it matches the backend's per-page cap (500) so each
     // round trip stays fast and predictable regardless of the form's total
     // response count.
-    const pageLimit = options?.analytics ? 2500 : 5000;
+    const pageLimit = options?.analytics ? 200 : 5000;
     const firstResult = await this.getFormResponses(formId, {
       status: options?.status,
       includePartial: options?.includePartial,

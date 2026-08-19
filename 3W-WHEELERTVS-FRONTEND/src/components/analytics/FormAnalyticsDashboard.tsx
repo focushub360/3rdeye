@@ -4148,7 +4148,7 @@ export default function FormAnalyticsDashboard() {
     setAnalyticsResponsesLoading(true);
 
     // Check memory cache first for instant <10ms rendering
-    const cacheKey = `/responses/form/${id}?analytics=true&page=1&limit=2500`;
+    const cacheKey = `/responses/form/${id}?analytics=true&page=1&limit=200`;
     const cachedData = apiClient.getCachedData<any>(cacheKey);
     if (cachedData?.responses?.length) {
       setResponses(cachedData.responses);
