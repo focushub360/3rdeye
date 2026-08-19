@@ -809,9 +809,10 @@ export default function FormsAnalytics() {
   useEffect(() => {
     const fetchInviteCounts = async () => {
       try {
-        const invitePromises = visibleForms.map(async (form) => {
+        const counts: Record<string, number> = {};
+        for (const form of visibleForms) {
           const formId = form.id || form._id;
-          if (!formId) return { id: null, count: 0 };
+          if (!formId) continue;
 
           const ownerTenantId =
             typeof form.tenantId === "object"
@@ -826,7 +827,7 @@ export default function FormsAnalytics() {
             try {
               const response = await apiClient.getInviteStats(formId);
               if (response.success) {
-                return { id: formId, count: response.data.invites?.total || 0 };
+                counts[formId] = response.data.invites?.total || 0;
               }
             } catch (error) {
               console.warn(
@@ -835,16 +836,7 @@ export default function FormsAnalytics() {
               );
             }
           }
-          return { id: formId, count: 0 };
-        });
-
-        const results = await Promise.all(invitePromises);
-        const counts: Record<string, number> = {};
-        results.forEach((r) => {
-          if (r.id) {
-            counts[r.id] = r.count;
-          }
-        });
+        }
 
         setInviteCounts(counts);
       } catch (error) {
