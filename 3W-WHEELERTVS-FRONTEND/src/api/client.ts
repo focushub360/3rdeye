@@ -3109,32 +3109,29 @@ class ApiClient {
     });
 
     if (totalPages > 1) {
-      const remainingPromises = [];
       for (let p = 2; p <= totalPages; p++) {
-        remainingPromises.push(
-          this.getFormResponses(formId, {
+        try {
+          const res = await this.getFormResponses(formId, {
             status: options?.status,
             includePartial: options?.includePartial,
             analytics: options?.analytics,
             page: p,
             limit: pageLimit,
             forceNetwork: options?.forceNetwork,
-          }).then((res) => {
-            const pageResponses = res.responses || [];
-            options?.onPage?.({
-              responses: pageResponses,
-              pageNumber: p,
-              totalPages,
-              isLast: p === totalPages,
-            });
-            return pageResponses;
-          })
-        );
+          });
+          const pageResponses = res.responses || [];
+          allResponses = allResponses.concat(pageResponses);
+          options?.onPage?.({
+            responses: pageResponses,
+            pageNumber: p,
+            totalPages,
+            isLast: p === totalPages,
+          });
+        } catch (err) {
+          console.warn(`Failed to fetch page ${p} of form responses:`, err);
+          // If a chunk fails, we just continue with what we have so the UI doesn't crash
+        }
       }
-      const remainingPages = await Promise.all(remainingPromises);
-      remainingPages.forEach((pageRes) => {
-        allResponses = allResponses.concat(pageRes);
-      });
     }
 
     return { responses: allResponses, form };
