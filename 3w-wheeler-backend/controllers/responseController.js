@@ -2753,7 +2753,18 @@ export const getResponsesByForm = async (req, res) => {
         : Response.countDocuments(query);
 
     const [responsesRaw, total] = await Promise.all([responsesPromise, countPromise]);
+    // .lean() returns Mongoose Map fields as native JS Map objects.
+    // The frontend accesses answers via response.answers[key] which only
+    // works on plain objects, so convert Maps to plain objects here.
     let responses = responsesRaw;
+    if (isAnalytics) {
+      responses = responsesRaw.map(r => {
+        if (r.answers instanceof Map) {
+          r.answers = Object.fromEntries(r.answers);
+        }
+        return r;
+      });
+    }
 
     console.log('[GET RESPONSES] Query:', JSON.stringify(query));
     console.log('[GET RESPONSES] Responses found:', responses.length);
