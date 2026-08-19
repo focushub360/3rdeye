@@ -484,7 +484,12 @@ export default function Header() {
                 alt="Logo"
                 className="h-8 w-auto object-contain max-w-[150px]"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
+                  const target = e.target as HTMLImageElement;
+                  if (!target.src.endsWith('/assets/logo.jpeg')) {
+                    target.src = '/assets/logo.jpeg';
+                  } else {
+                    target.style.display = 'none';
+                  }
                 }}
               />
             </div>
