@@ -6,7 +6,7 @@ import FormInvite from '../models/FormInvite.js';
 import Parameter from '../models/Parameter.js';
 import Profile from '../models/Profile.js';
 import Settings from '../models/Settings.js';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import mongoose from 'mongoose';
 
 // Create a new tenant (SuperAdmin only)
