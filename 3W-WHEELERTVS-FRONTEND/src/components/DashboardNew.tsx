@@ -1034,18 +1034,17 @@ export default function DashboardNew() {
   useEffect(() => {
     const fetchMyStats = async () => {
       const cacheKey = "/analytics/my-review-stats";
-      if (apiClient.isCacheFresh(cacheKey, 30)) {
+      const cachedMyStats = apiClient.getCachedData<any>(cacheKey);
+      if (cachedMyStats) {
+        setMyReviewStats(cachedMyStats);
         setMyReviewStatsLoading(false);
-        return;
-      }
-
-      const hasCache = apiClient.getCachedData(cacheKey) !== null;
-      if (!hasCache) {
+      } else {
         setMyReviewStatsLoading(true);
       }
+
       try {
-        const response = await apiClient.getMyReviewStats({ forceNetwork: true });
-        if (response.success) {
+        const response = await apiClient.getMyReviewStats({ forceNetwork: false });
+        if (response.success && response.data) {
           setMyReviewStats(response.data);
         }
       } catch (error) {
@@ -1065,50 +1064,59 @@ export default function DashboardNew() {
 
   // Calculate tenant statistics
   useEffect(() => {
-    if (formsData?.forms && tenants.length > 0) {
-      console.log("Calculating tenant stats...");
-      // Use the loaded user performance score
+    if (formsData?.forms && selectedTenant) {
       const currentUserScore = userPerformanceScore;
       const stats: Record<string, TenantStats> = {};
 
+      const currentTenantIdStr = selectedTenant._id?.toString?.() || selectedTenant.id?.toString?.() || selectedTenant.slug;
+
+      const tenantForms = formsData.forms.filter((form: any) => {
+        if (!form.tenantId) return true;
+        const formTenantId = typeof form.tenantId === "object" ? (form.tenantId?._id || form.tenantId?.id) : form.tenantId;
+        const formTenantIdStr = formTenantId?.toString?.();
+        return formTenantIdStr === currentTenantIdStr || formTenantIdStr === selectedTenant.slug;
+      });
+
+      const activeTenantForms = tenantForms.length > 0 ? tenantForms : formsData.forms;
+
+      const totalResponses = activeTenantForms.reduce(
+        (sum: number, form: any) => sum + (form.responseCount || 0),
+        0,
+      );
+
+      const statsObj = {
+        totalForms: activeTenantForms.length,
+        totalResponses: totalResponses,
+        performanceScore: currentUserScore,
+      };
+
+      if (selectedTenant._id) stats[selectedTenant._id] = statsObj;
+      if (selectedTenant.id) stats[selectedTenant.id] = statsObj;
+      if (selectedTenant.slug) stats[selectedTenant.slug] = statsObj;
+
       tenants.forEach((tenant) => {
-        // Filter forms by tenant - check multiple possible tenant ID fields
-        const tenantForms = formsData.forms.filter((form: any) => {
-          const formTenantId =
-            typeof form.tenantId === "object"
-              ? form.tenantId?._id
-              : form.tenantId;
-          const matches =
-            formTenantId === tenant._id || formTenantId === tenant.slug;
-          if (matches) {
-            console.log(
-              `✓ Form ${form.title} matches tenant ${tenant.companyName}`,
-            );
-          }
-          return matches;
+        const tenantIdStr = tenant._id?.toString?.() || tenant.id?.toString?.() || tenant.slug;
+        const tForms = formsData.forms.filter((form: any) => {
+          const formTenantId = typeof form.tenantId === "object" ? (form.tenantId?._id || form.tenantId?.id) : form.tenantId;
+          const formTenantIdStr = formTenantId?.toString?.();
+          return formTenantIdStr === tenantIdStr || formTenantIdStr === tenant.slug;
         });
 
-        console.log(
-          `Tenant ${tenant.companyName} has ${tenantForms.length} forms`,
-        );
-
-        const totalResponses = tenantForms.reduce(
-          (sum: number, form: any) => sum + (form.responseCount || 0),
-          0,
-        );
-
-        stats[tenant._id] = {
-          totalForms: tenantForms.length,
-          totalResponses: totalResponses,
+        const tResponses = tForms.reduce((sum: number, form: any) => sum + (form.responseCount || 0), 0);
+        const tStatsObj = {
+          totalForms: tForms.length,
+          totalResponses: tResponses,
           performanceScore: currentUserScore,
         };
 
-        console.log(`Stats for ${tenant.companyName}:`, stats[tenant._id]);
+        if (tenant._id) stats[tenant._id] = tStatsObj;
+        if (tenant.id) stats[tenant.id] = tStatsObj;
+        if (tenant.slug) stats[tenant.slug] = tStatsObj;
       });
 
       setTenantStats(stats);
     }
-  }, [formsData, tenants, userPerformanceScore]);
+  }, [formsData, tenants, selectedTenant, userPerformanceScore]);
 
   // Load user performance score
   useEffect(() => {
