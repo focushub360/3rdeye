@@ -214,7 +214,8 @@ export const getAllUsers = async (req, res) => {
       .populate('customRole')
       .sort(options.sort)
       .limit(options.limit * 1)
-      .skip((options.page - 1) * options.limit);
+      .skip((options.page - 1) * options.limit)
+      .lean();
 
     const total = await User.countDocuments(query);
 
