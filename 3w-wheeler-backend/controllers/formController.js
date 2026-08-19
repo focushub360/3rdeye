@@ -448,7 +448,8 @@ export const getAllForms = async (req, res) => {
       .populate(options.populate)
       .sort(options.sort)
       .limit(options.limit * 1)
-      .skip((options.page - 1) * options.limit);
+      .skip((options.page - 1) * options.limit)
+      .lean({ virtuals: true });
 
     const total = await Form.countDocuments(query);
 
@@ -468,7 +469,8 @@ export const getAllForms = async (req, res) => {
         const formId = form.id || (form._id ? form._id.toString() : '');
         if (!formId) continue;
 
-        const isOwner = form.tenantId?.toString() === currentTenantId;
+        const tenantIdStr = typeof form.tenantId === 'object' && form.tenantId ? form.tenantId._id?.toString() : form.tenantId?.toString();
+        const isOwner = tenantIdStr === currentTenantId;
         const isShared = form.sharedWithTenants?.some(t => t.toString() === currentTenantId);
         const chassisAssignments = form.chassisTenantAssignments || [];
         const hasChassisShare = chassisAssignments.some(
@@ -531,11 +533,10 @@ export const getAllForms = async (req, res) => {
     }
 
     const formsWithCounts = forms.map((form) => {
-      const plain = form.toObject({ virtuals: true });
       const lookupId = form.id || (form._id ? form._id.toString() : "");
       const responseCount = responseCountsMap.get(lookupId) || 0;
       return {
-        ...plain,
+        ...form,
         responseCount
       };
     });
@@ -607,7 +608,8 @@ export const getPublicForms = async (req, res) => {
     const forms = await Form.find(query)
       .select('id title description logoUrl imageUrl createdAt tenantId isActive isVisible sections parentFormId viewType')
       .populate('sections.questions')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     const parentForms = forms.filter((form) => !form.parentFormId);
     const publicForms = parentForms.filter((form) => form.isVisible === true);
