@@ -789,14 +789,12 @@ export default function DashboardNew() {
     if (!tenantId) return;
 
     const cacheKey = `/forms?tenantId=${tenantId}&limit=100`;
-    if (apiClient.isCacheFresh(cacheKey, 30)) {
-      setFormsLoading(false);
+    const cachedForms = apiClient.getCachedData<any>(cacheKey) || apiClient.getCachedData<any>("/forms");
+    if (cachedForms) {
+      setFormsData(cachedForms);
       setFormsLoaded(true);
-      return;
-    }
-
-    const hasCache = apiClient.getCachedData(cacheKey) !== null;
-    if (!hasCache) {
+      setFormsLoading(false);
+    } else {
       setFormsLoading(true);
     }
     setFormsError(null);
@@ -805,14 +803,16 @@ export default function DashboardNew() {
       const formsResponse = await apiClient.getForms({
         tenantId: tenantId,
         limit: 100,
-        forceNetwork: true
+        forceNetwork: false
       });
 
       setFormsData(formsResponse);
       setFormsLoaded(true); // ✅ Mark as loaded
     } catch (error: any) {
       console.error("Error loading forms:", error);
-      setFormsError(error.message || "Failed to load forms");
+      if (!cachedForms) {
+        setFormsError(error.message || "Failed to load forms");
+      }
     } finally {
       setFormsLoading(false);
     }
