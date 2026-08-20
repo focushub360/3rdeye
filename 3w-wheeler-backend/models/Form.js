@@ -472,6 +472,7 @@ FormSchema.index({ createdBy: 1 });
 FormSchema.index({ isVisible: 1 });
 FormSchema.index({ isActive: 1 });
 FormSchema.index({ tenantId: 1 });
+FormSchema.index({ sharedWithTenants: 1 });
 
 const Form = mongoose.model('Form', FormSchema);
 

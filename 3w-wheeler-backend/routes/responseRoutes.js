@@ -30,6 +30,7 @@ import {
   authenticateGuest,
 } from '../middleware/auth.js';
 import { addTenantFilter } from '../middleware/tenantIsolation.js';
+import { cacheMiddleware } from '../utils/cache.js';
 import { processResponseImages, processGoogleDriveImage } from '../services/googleDriveService.js';
 
 const router = express.Router();
@@ -184,7 +185,7 @@ router.post('/batch/import', batchImportResponses);
 router.post('/form/:formId/auto-fill-chassis', autoFillChassisNumbers);
 
 // Response management
-router.get('/', getAllResponses);
+router.get('/', cacheMiddleware(30), getAllResponses);
 router.post('/', createResponse);
 // Also handle POST /responses/:formId for internal submissions
 router.post('/:formId', createResponse);

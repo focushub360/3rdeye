@@ -1971,7 +1971,7 @@ export const getAllResponses = async (req, res) => {
           { sharedWithTenants: { $in: tenantValues } },
           { "chassisTenantAssignments.assignedTenants": userTenantIdStr }
         ]
-      }).select('id _id');
+      }).select('id _id').lean();
 
       const accessibleFormIds = accessibleForms.flatMap(f => [f.id, f._id.toString()]).filter(Boolean);
 
@@ -2073,18 +2073,21 @@ export const getAllResponses = async (req, res) => {
       ]
     };
 
-    const responses = await Response.find(query)
-      .populate(options.populate[0].path, options.populate[0].select)
-      .populate(options.populate[1].path, options.populate[1].select)
-      .sort(options.sort)
-      .limit(options.limit * 1)
-      .skip((options.page - 1) * options.limit);
-
-    const total = await Response.countDocuments(query);
+    // Run find + count in parallel for speed
+    const [responses, total] = await Promise.all([
+      Response.find(query)
+        .populate(options.populate[0].path, options.populate[0].select)
+        .populate(options.populate[1].path, options.populate[1].select)
+        .sort(options.sort)
+        .limit(options.limit * 1)
+        .skip((options.page - 1) * options.limit)
+        .lean(),
+      Response.countDocuments(query)
+    ]);
 
     // Convert Map to Object for JSON serialization
     const formattedResponses = responses.map(response => {
-      const responseObj = response.toObject ? response.toObject() : response;
+      const responseObj = response;
       let answersObj = {};
       if (response.answers instanceof Map) {
         answersObj = Object.fromEntries(response.answers);

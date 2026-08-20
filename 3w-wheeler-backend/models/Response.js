@@ -284,6 +284,29 @@ ResponseSchema.pre('save', async function (next) {
   next();
 });
 
+// ─── Critical Performance Indexes ────────────────────────────────────────────
+// These compound indexes cover the most common query patterns.
+// Without them, every getAllResponses / getResponsesByForm call does a full
+// collection scan, which gets exponentially slower as the collection grows.
+
+// Primary listing query: filter by tenantId, sort by createdAt desc
+ResponseSchema.index({ tenantId: 1, createdAt: -1 });
+
+// Form-specific queries: filter by questionId (formId), sort by createdAt desc
+ResponseSchema.index({ questionId: 1, createdAt: -1 });
+
+// Inspector queries: filter by createdBy + questionId
+ResponseSchema.index({ createdBy: 1, questionId: 1, createdAt: -1 });
+
+// Status filtering
+ResponseSchema.index({ tenantId: 1, status: 1, createdAt: -1 });
+
+// Section submit filter (used in almost every query)
+ResponseSchema.index({ isSectionSubmit: 1 });
+
+// Submitted by search
+ResponseSchema.index({ submittedBy: 1 });
+
 const Response = mongoose.model('Response', ResponseSchema);
 
 export default Response;
