@@ -88,8 +88,42 @@ export default function PreviewFormWrapper() {
   // ── Fetch form ─────────────────────────────────────────────────────────────
   const fetchForm = useCallback(async () => {
     if (!id) return;
+    
+    let hasCachedData = false;
+
+    // 1. FAST PATH: Zero-load time cache retrieval
     try {
-      setLoading(true);
+      // First try to get the specific form cache
+      const specificFormCache = apiClient.getCachedData<any>(`/forms/${id}`);
+      if (specificFormCache?.form) {
+        setForm(specificFormCache.form);
+        setLoading(false);
+        hasCachedData = true;
+      } else {
+        // Otherwise try to find it in the global forms list cache
+        const foundForm = apiClient.getFormFromAnyCache(id);
+        if (foundForm) {
+          setForm(foundForm);
+          setLoading(false);
+          hasCachedData = true;
+        }
+      }
+
+      // Also try to get cached branching rules
+      const branchingCache = apiClient.getCachedData<any>(`/forms/${id}/section-branching`);
+      if (branchingCache?.sectionBranching) {
+        setBranchingRules(branchingCache.sectionBranching);
+      }
+    } catch (e) {
+      // Ignore cache read errors
+    }
+
+    // 2. NETWORK PATH: Revalidate in background
+    try {
+      if (!hasCachedData) {
+        setLoading(true); // Only show loader if we have NO cached data at all
+      }
+      
       const response = await apiClient.getForm(id);
       setForm(response.form);
 
@@ -100,13 +134,16 @@ export default function PreviewFormWrapper() {
         }>(`/forms/${id}/section-branching`);
         setBranchingRules(branchingResponse?.sectionBranching ?? []);
       } catch {
-        setBranchingRules([]);
+        // Fallback to existing or empty
+        setBranchingRules((prev) => prev.length ? prev : []);
       }
 
       setError(null);
     } catch (err) {
       console.error("[PreviewFormWrapper] Error fetching form:", err);
-      setError("Failed to load form");
+      if (!hasCachedData) { // Only show error if we also have no cached data
+        setError("Failed to load form");
+      }
     } finally {
       setLoading(false);
     }

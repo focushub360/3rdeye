@@ -125,6 +125,90 @@ class ApiClient {
     return null;
   }
 
+  public getFormFromAnyCache(id: string): any | null {
+    const TTL = 5 * 60 * 1000; // 5 mins
+    const now = Date.now();
+
+    const checkEntry = (entry: any) => {
+      if (!entry || !entry.data || typeof entry.data !== 'object') return null;
+      if (entry.data.forms && Array.isArray(entry.data.forms)) {
+        return entry.data.forms.find((f: any) => f.id === id || f._id === id);
+      }
+      return null;
+    };
+
+    // 1. Check memory cache
+    for (const [key, value] of this.memoryCache.entries()) {
+      if (key.startsWith("api_cache:/forms") && !key.includes(`/${id}`)) {
+        if (now - value.timestamp < TTL) {
+          const form = checkEntry(value);
+          if (form) return form;
+        }
+      }
+    }
+
+    // 2. Check localStorage
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("api_cache:/forms") && !key.includes(`/${id}`)) {
+          const cached = localStorage.getItem(key);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (now - parsed.timestamp < TTL) {
+              const form = checkEntry(parsed);
+              if (form) return form;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
+  public getResponseFromAnyCache(id: string): any | null {
+    const TTL = 5 * 60 * 1000; // 5 mins
+    const now = Date.now();
+
+    const checkEntry = (entry: any) => {
+      if (!entry || !entry.data || typeof entry.data !== 'object') return null;
+      if (entry.data.responses && Array.isArray(entry.data.responses)) {
+        return entry.data.responses.find((r: any) => r.id === id || r._id === id);
+      }
+      return null;
+    };
+
+    // 1. Check memory cache
+    for (const [key, value] of this.memoryCache.entries()) {
+      if (key.startsWith("api_cache:/responses") && !key.includes(`/${id}`)) {
+        if (now - value.timestamp < TTL) {
+          const resp = checkEntry(value);
+          if (resp) return resp;
+        }
+      }
+    }
+
+    // 2. Check localStorage
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("api_cache:/responses") && !key.includes(`/${id}`)) {
+          const cached = localStorage.getItem(key);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (now - parsed.timestamp < TTL) {
+              const resp = checkEntry(parsed);
+              if (resp) return resp;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
   public isCacheFresh(endpoint: string, freshnessSeconds = 30): boolean {
     const cacheKey = `api_cache:${endpoint}`;
     

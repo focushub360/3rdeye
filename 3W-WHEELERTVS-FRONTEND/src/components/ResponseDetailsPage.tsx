@@ -367,16 +367,44 @@ export default function ResponseDetailsPage() {
 
   const fetchResponseDetails = async () => {
     try {
-      setLoading(true);
-      if (!id) {
-        throw new Error("Response ID is required");
+      if (!id) throw new Error("Response ID is required");
+
+      let hasCachedData = false;
+      let cachedResponse: any = null;
+      let cachedForm: any = null;
+
+      // 1. FAST PATH: Zero-load time cache retrieval
+      try {
+        const specificResponseCache = apiClient.getCachedData<any>(`/responses/${id}`);
+        cachedResponse = specificResponseCache?.response || apiClient.getResponseFromAnyCache(id);
+        
+        if (cachedResponse) {
+          const formIdentifier = cachedResponse.questionId || cachedResponse.formId;
+          if (formIdentifier) {
+            const specificFormCache = apiClient.getCachedData<any>(`/forms/${formIdentifier}`);
+            cachedForm = specificFormCache?.form || apiClient.getFormFromAnyCache(formIdentifier);
+          }
+        }
+
+        if (cachedResponse && cachedForm) {
+          setResponse(cachedResponse);
+          setForm(cachedForm);
+          setLoading(false);
+          hasCachedData = true;
+        }
+      } catch (e) {
+        // Ignore cache read errors
       }
+
+      // 2. NETWORK PATH: Revalidate in background
+      if (!hasCachedData) setLoading(true);
+
       const responseData = await apiClient.getResponse(id);
       const selectedResponse = responseData.response;
 
       if (!selectedResponse) {
         console.error("Response not found. Looking for ID:", id);
-        throw new Error(`Response with ID "${id}" not found. Please check if the response exists.`);
+        throw new Error(`Response with ID "${id}" not found.`);
       }
 
       const formIdentifier = selectedResponse.questionId || selectedResponse.formId;
@@ -406,7 +434,9 @@ export default function ResponseDetailsPage() {
       setResponse(selectedResponse);
       setForm(selectedForm);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load response");
+      if (!response) {
+        setError(err instanceof Error ? err.message : "Failed to load response");
+      }
       console.error("Error loading response details:", err);
     } finally {
       setLoading(false);
