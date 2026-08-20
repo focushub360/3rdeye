@@ -94,9 +94,22 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [tenant, setTenant] = useState<Tenant | null>(null);
-  const [loading, setLoading] = useState(true);
+  // === INSTANT HYDRATION: Load from localStorage immediately (no network wait) ===
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      const cached = localStorage.getItem("cached_user");
+      return cached ? JSON.parse(cached) : null;
+    } catch { return null; }
+  });
+  const [tenant, setTenant] = useState<Tenant | null>(() => {
+    try {
+      const cached = localStorage.getItem("tenant_info");
+      return cached ? JSON.parse(cached) : null;
+    } catch { return null; }
+  });
+  // If we have cached user data, skip the loading spinner entirely
+  const hasCachedAuth = !!localStorage.getItem("auth_token") && !!localStorage.getItem("cached_user");
+  const [loading, setLoading] = useState(!hasCachedAuth);
   const [error, setError] = useState<string | null>(null);
 
   const updateTenantState = (nextTenant: Tenant | null) => {
@@ -110,13 +123,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateUserState = (updatedUser: Partial<User>) => {
     if (user) {
-      setUser({ ...user, ...updatedUser });
+      const merged = { ...user, ...updatedUser };
+      setUser(merged);
+      try { localStorage.setItem("cached_user", JSON.stringify(merged)); } catch {}
     }
   };
 
   const isAuthenticated = !!user;
 
-  // Check for existing auth token on app start
+  // Background refresh: validate token & get fresh data (stale-while-revalidate)
   useEffect(() => {
     const initializeAuth = async () => {
       const token = localStorage.getItem("auth_token");
@@ -126,6 +141,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           const response = await apiClient.getProfile();
           setUser(response.user);
+          // Persist user data for instant hydration on next visit
+          try { localStorage.setItem("cached_user", JSON.stringify(response.user)); } catch {}
 
           if (response.tenant) {
             updateTenantState(response.tenant);
@@ -165,7 +182,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           }
         } catch (err) {
+          // Token expired or invalid — clear everything
           apiClient.clearToken();
+          localStorage.removeItem("cached_user");
+          setUser(null);
           updateTenantState(null);
         }
       }
@@ -194,6 +214,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setUser(response.user);
       updateTenantState(response.tenant || null);
+      // Cache user for instant hydration on next visit
+      try { localStorage.setItem("cached_user", JSON.stringify(response.user)); } catch {}
 
       // Clear guest session info if a regular user logs in
       localStorage.removeItem("guest_auth_token");
@@ -207,7 +229,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setLoading(false);
-      return true;
+      return response;
     } catch (err) {
       setLoading(false);
       if (err instanceof ApiError) {
