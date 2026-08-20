@@ -4073,23 +4073,22 @@ export default function FormAnalyticsDashboard() {
       setError(null); // Clear any previous errors
 
       const formCacheKey = `/forms/${id}`;
-      const isFormFresh = apiClient.isCacheFresh(formCacheKey, 30);
-
-      if (isFormFresh) {
-        console.log("[ANALYTICS DEBUG] Form cache is fresh (<30s). Skipping fetch.");
+      const cachedForm = apiClient.getCachedData<{ form: any }>(formCacheKey);
+      if (cachedForm?.form) {
+        setForm(cachedForm.form);
+        if (cachedForm.form?.sections && cachedForm.form.sections.length > 0) {
+          setSelectedResponsesSectionIds(
+            cachedForm.form.sections.map((s: Section) => s.id),
+          );
+        }
         setLoading(false);
-        return;
       }
 
       console.log("[ANALYTICS DEBUG] Fetching form details:", id);
 
-      // ✅ Only fetch form details on mount now. Responses (full analytics
-      // set, or the paginated Responses-tab set) load lazily, the first
-      // time the user actually visits a tab that needs them — see the
-      // tab-loading effects below.
       const formData = await apiClient.request<{ form: any }>(formCacheKey, {
-        forceNetwork: true,
-        timeout: 60000, // 60 seconds for form data
+        forceNetwork: false,
+        timeout: 30000,
       });
 
       setForm(formData.form);

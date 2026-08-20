@@ -40,7 +40,7 @@ const accessControl = (req, res, next) => {
 };
 
 // Routes requiring guest or standard authentication
-router.get('/form/:formId', authenticateGuest, accessControl, getFormAnalytics);
+router.get('/form/:formId', authenticateGuest, accessControl, cacheMiddleware(60), getFormAnalytics);
 
 // All other routes require standard authentication
 router.use(authenticate);
@@ -60,8 +60,8 @@ router.get('/tenant/stats', inspectorOrAdmin, getTenantSubmissionStats);
 router.get('/export', inspectorOrAdmin, exportAnalytics);
 // Add this new route
 router.get('/forms/:formId/response-times', inspectorOrAdmin, getResponseTimeAnalytics);
-router.get('/inspector-summary', inspectorOrAdmin, getInspectorSummary);
-router.get('/my-review-stats', inspectorOrAdmin, getMyReviewStats);
-router.get('/performance-table', inspectorOrAdmin, getPerformanceTable);
+router.get('/inspector-summary', inspectorOrAdmin, cacheMiddleware(60), getInspectorSummary);
+router.get('/my-review-stats', inspectorOrAdmin, cacheMiddleware(60), getMyReviewStats);
+router.get('/performance-table', inspectorOrAdmin, cacheMiddleware(60), getPerformanceTable);
 
 export default router;

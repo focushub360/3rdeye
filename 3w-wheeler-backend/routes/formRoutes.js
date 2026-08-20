@@ -98,8 +98,8 @@ router.post('/:id/track/complete', (req, res) => {
 });
 
 // Routes requiring guest or standard authentication
-router.get('/:id', authenticateGuest, guestAccessControl, getFormById);
-router.get('/:id/analytics', authenticateGuest, guestAccessControl, getFormAnalytics);
+router.get('/:id', authenticateGuest, guestAccessControl, cacheMiddleware(60), getFormById);
+router.get('/:id/analytics', authenticateGuest, guestAccessControl, cacheMiddleware(60), getFormAnalytics);
 
 // Protected routes (require standard authentication)
 router.use(authenticate);

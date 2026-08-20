@@ -62,7 +62,7 @@ router.get('/test-route', (req, res) => {
 });
 
 // 2. Form-specific responses (Allowed for guests)
-router.get('/form/:formId', authenticateGuest, guestAccessControl, getResponsesByForm);
+router.get('/form/:formId', authenticateGuest, guestAccessControl, cacheMiddleware(30), getResponsesByForm);
 router.get('/form/:formId/export', authenticateGuest, guestAccessControl, exportResponses);
 
 // 3. BATCH IMPORT route - define it clearly
