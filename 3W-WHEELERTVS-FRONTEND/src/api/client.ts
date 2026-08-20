@@ -125,6 +125,36 @@ class ApiClient {
     return null;
   }
 
+  public getAnyCachedList<T>(endpointPrefix: string): T | null {
+    const TTL = 2 * 60 * 1000;
+    const now = Date.now();
+    const cachePrefix = `api_cache:${endpointPrefix}`;
+
+    for (const [key, value] of this.memoryCache.entries()) {
+      if (key.startsWith(cachePrefix)) {
+        if (now - value.timestamp < TTL) {
+          return value.data as T;
+        }
+      }
+    }
+
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(cachePrefix)) {
+          const cached = localStorage.getItem(key);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (now - parsed.timestamp < TTL) {
+              return parsed.data as T;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   public getFormFromAnyCache(id: string): any | null {
     const TTL = 5 * 60 * 1000; // 5 mins
     const now = Date.now();

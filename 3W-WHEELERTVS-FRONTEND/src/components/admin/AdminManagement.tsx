@@ -322,11 +322,22 @@ export default function AdminManagement() {
     if (!isAdmin) {
       return;
     }
-
     const cachedData = apiClient.getCachedData<any>("/users?limit=300");
+    let hasCachedData = false;
+    
     if (cachedData?.users?.length) {
-      setAdmins(cachedData.users);
-    } else {
+      // Ensure creator information is properly set even for cached users
+      const usersWithCreatorInfo = cachedData.users.map((user: any) => ({
+        ...user,
+        createdBy: user.createdBy || (user.role === "admin" ? "system" : undefined),
+        createdByRole: user.createdByRole || (user.role === "admin" ? "system" : undefined),
+      }));
+      setAdmins(usersWithCreatorInfo);
+      setLoading(false);
+      hasCachedData = true;
+    }
+
+    if (!hasCachedData) {
       setLoading(true);
     }
     setError(null);

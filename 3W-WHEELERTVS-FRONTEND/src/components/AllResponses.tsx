@@ -823,18 +823,43 @@ export default function AllResponses() {
       const responsesKey = "/responses?limit=1000";
       const formsKey = "/forms";
 
+      let hasCachedData = false;
+
+      // 1. FAST PATH: Zero-load cache retrieval
+      try {
+        const cachedResponsesData = apiClient.getCachedData<any>(responsesKey);
+        const cachedFormsData = apiClient.getCachedData<any>(formsKey);
+  
+        if (cachedResponsesData?.responses && cachedFormsData?.forms) {
+          const cFormsMap = cachedFormsData.forms.reduce(
+            (map: Record<string, Form>, form: any) => {
+              if (form?._id) map[form._id] = form as Form;
+              if (form?.id) map[form.id] = form as Form;
+              return map;
+            },
+            {} as Record<string, Form>
+          );
+          setForms(cachedFormsData.forms);
+          setFormsMap(cFormsMap);
+          setResponses(cachedResponsesData.responses);
+          setFilteredResponses(cachedResponsesData.responses);
+          setLoading(false);
+          hasCachedData = true;
+        }
+      } catch (e) {
+        // ignore cache errors
+      }
+
       const isResponsesFresh = apiClient.isCacheFresh(responsesKey, 30);
       const isFormsFresh = apiClient.isCacheFresh(formsKey, 30);
 
-      if (isResponsesFresh && isFormsFresh) {
+      if (isResponsesFresh && isFormsFresh && hasCachedData) {
         console.log("[AllResponses] Cache is fresh (<30s). Skipping background API calls.");
-        setLoading(false);
         return;
       }
 
-      const hasResponses = apiClient.getCachedData(responsesKey) !== null;
-      const hasForms = apiClient.getCachedData(formsKey) !== null;
-      if (!(hasResponses && hasForms)) {
+      // 2. NETWORK PATH: Revalidate in background
+      if (!hasCachedData) {
         setLoading(true);
       }
       const [responsesData, formsData] = await Promise.all([

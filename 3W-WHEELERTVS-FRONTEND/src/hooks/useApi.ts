@@ -21,7 +21,7 @@ export function useApi<T>(
 ): UseApiReturn<T> {
   const [state, setState] = useState<UseApiState<T>>(() => {
     if (cacheEndpoint) {
-      const cached = apiClient.getCachedData<T>(cacheEndpoint);
+      const cached = apiClient.getCachedData<T>(cacheEndpoint) || apiClient.getAnyCachedList<T>(cacheEndpoint);
       if (cached) {
         return { data: cached, loading: false, error: null };
       }
@@ -39,7 +39,7 @@ export function useApi<T>(
 
   const execute = useCallback(
     async (...args: any[]): Promise<T | null> => {
-      const hasCache = cacheEndpoint && apiClient.getCachedData(cacheEndpoint) !== null;
+      const hasCache = cacheEndpoint && (apiClient.getCachedData(cacheEndpoint) !== null || apiClient.getAnyCachedList(cacheEndpoint) !== null);
       if (!hasCache) {
         setState((prev) => ({ ...prev, loading: true, error: null }));
       }
@@ -49,9 +49,11 @@ export function useApi<T>(
         setState({ data: result, loading: false, error: null });
         return result;
       } catch (err) {
-        const error =
-          err instanceof ApiError ? err.message : "An error occurred";
-        setState({ data: null, loading: false, error });
+        if (!hasCache) {
+          const error =
+            err instanceof ApiError ? err.message : "An error occurred";
+          setState({ data: null, loading: false, error });
+        }
         return null;
       }
     },

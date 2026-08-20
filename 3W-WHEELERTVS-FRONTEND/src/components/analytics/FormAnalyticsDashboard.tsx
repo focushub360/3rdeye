@@ -4069,19 +4069,25 @@ export default function FormAnalyticsDashboard() {
     }
 
     try {
-      setLoading(true);
-      setError(null); // Clear any previous errors
+      let hasCachedData = false;
 
       const formCacheKey = `/forms/${id}`;
-      const cachedForm = apiClient.getCachedData<{ form: any }>(formCacheKey);
-      if (cachedForm?.form) {
-        setForm(cachedForm.form);
-        if (cachedForm.form?.sections && cachedForm.form.sections.length > 0) {
+      const specificFormCache = apiClient.getCachedData<{ form: any }>(formCacheKey);
+      const cachedForm = specificFormCache?.form || apiClient.getFormFromAnyCache(id);
+
+      if (cachedForm) {
+        setForm(cachedForm);
+        if (cachedForm?.sections && cachedForm.sections.length > 0) {
           setSelectedResponsesSectionIds(
-            cachedForm.form.sections.map((s: Section) => s.id),
+            cachedForm.sections.map((s: Section) => s.id),
           );
         }
         setLoading(false);
+        hasCachedData = true;
+      }
+
+      if (!hasCachedData) {
+        setLoading(true);
       }
 
       console.log("[ANALYTICS DEBUG] Fetching form details:", id);
