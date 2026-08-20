@@ -444,14 +444,15 @@ export const getAllForms = async (req, res) => {
       ]
     };
 
-    const forms = await Form.find(query)
-      .populate(options.populate)
-      .sort(options.sort)
-      .limit(options.limit * 1)
-      .skip((options.page - 1) * options.limit)
-      .lean({ virtuals: true });
-
-    const total = await Form.countDocuments(query);
+    const [forms, total] = await Promise.all([
+      Form.find(query)
+        .populate(options.populate)
+        .sort(options.sort)
+        .limit(options.limit * 1)
+        .skip((options.page - 1) * options.limit)
+        .lean({ virtuals: true }),
+      Form.countDocuments(query)
+    ]);
 
     const formIdsForCounts = forms
       .map((form) => form.id || (form._id ? form._id.toString() : null))

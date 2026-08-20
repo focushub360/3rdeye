@@ -248,11 +248,6 @@ export default function FormsAnalytics() {
     execute: refetchForms,
   } = useForms(!isAnswerTemplateOpen);
 
-  const {
-    data: responsesData,
-    refetch: refetchResponses,
-  } = useResponses();
-
   const deleteMutation = useMutation((id: string) => apiClient.deleteForm(id), {
     onSuccess: () => {
       refetchForms();
@@ -1799,7 +1794,6 @@ export default function FormsAnalytics() {
         onClose={() => setIsAnswerTemplateOpen(false)}
         onSuccess={() => {
           refetchForms();
-          refetchResponses();
         }}
       />
 
