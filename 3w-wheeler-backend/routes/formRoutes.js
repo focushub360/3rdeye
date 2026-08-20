@@ -42,6 +42,7 @@ import {
   authenticateGuest,
 } from '../middleware/auth.js';
 import { addTenantFilter } from '../middleware/tenantIsolation.js';
+import { cacheMiddleware } from '../utils/cache.js';
 import formInviteRoutes from './formInviteRoutes.js';
 import multer from 'multer';
 
@@ -65,7 +66,7 @@ const guestAccessControl = (req, res, next) => {
 };
 
 // Public routes (no authentication required)
-router.get('/public/:tenantSlug', getPublicForms);  // Get all public forms for a tenant
+router.get('/public/:tenantSlug', cacheMiddleware(120), getPublicForms);  // Get all public forms for a tenant
 router.get('/:id/public/:tenantSlug', getFormById);  // Get specific form for a tenant
 router.get('/:id/section-branching/public/:tenantSlug', getSectionBranchingPublic);
 
@@ -107,8 +108,8 @@ router.use(addTenantFilter);
 // Form CRUD operations
 router.post('/', createForm);
 router.post('/import/csv', upload.single('file'), importFormFromCSV);
-router.get('/', getAllForms);
-router.get('/public', getPublicForms);  // Moved here for tenant isolation
+router.get('/', cacheMiddleware(60), getAllForms);
+router.get('/public', cacheMiddleware(120), getPublicForms);  // Moved here for tenant isolation
 // router.get('/:id', getFormById); // Moved above
 router.put('/:id', updateForm);
 router.delete('/:id', deleteForm);

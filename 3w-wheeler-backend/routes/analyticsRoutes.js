@@ -17,6 +17,7 @@ import {
 } from '../controllers/analyticsController.js';
 import { authenticate, adminOnly, superAdminOnly, inspectorOrAdmin, authenticateGuest } from '../middleware/auth.js';
 import { addTenantFilter } from '../middleware/tenantIsolation.js';
+import { cacheMiddleware } from '../utils/cache.js';
 
 const router = express.Router();
 
@@ -46,8 +47,8 @@ router.use(authenticate);
 router.use(addTenantFilter);
 
 // Analytics routes
-router.get('/dashboard', inspectorOrAdmin, getDashboardStats);
-router.get('/overall', inspectorOrAdmin, getOverallAnalytics);
+router.get('/dashboard', inspectorOrAdmin, cacheMiddleware(300), getDashboardStats);
+router.get('/overall', inspectorOrAdmin, cacheMiddleware(300), getOverallAnalytics);
 // router.get('/form/:formId', inspectorOrAdmin, getFormAnalytics); // Moved above
 router.get('/users', adminOnly, getUserAnalytics);
 router.get('/admin/:adminId/performance', getAdminPerformance);
