@@ -17,23 +17,8 @@ export default function LoginForm({ onClose }: LoginFormProps) {
 
     let locationData: { status: string; latitude?: number; longitude?: number } = { status: 'unknown' };
 
-    if ("geolocation" in navigator) {
-      try {
-        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            timeout: 5000,
-            maximumAge: 0
-          });
-        });
-        locationData = {
-          status: 'granted',
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude
-        };
-      } catch (err) {
-        locationData = { status: 'denied' };
-      }
-    }
+    // Do not block login to fetch geolocation. 
+    // Backend will use IP-based location automatically in the background.
 
     const success = await login(email, password, undefined, locationData);
     if (success) {
