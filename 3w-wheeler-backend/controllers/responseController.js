@@ -1964,21 +1964,32 @@ export const getAllResponses = async (req, res) => {
         : null;
       const tenantValues = [userTenantIdStr, userTenantIdObj].filter(Boolean);
 
-      // Find all forms that are owned by, shared with, or chassis-assigned to the user's tenant
-      const accessibleForms = await Form.find({
+      // For Admin/Subadmin, if they have NO shared forms from other tenants, we can completely drop the expensive $or query
+      // and just query by tenantId. This allows MongoDB to perfectly use the (tenantId, createdAt) index.
+      const sharedForms = await Form.find({
         $or: [
-          { tenantId: { $in: tenantValues } },
           { sharedWithTenants: { $in: tenantValues } },
           { "chassisTenantAssignments.assignedTenants": userTenantIdStr }
-        ]
+        ],
+        tenantId: { $nin: tenantValues } // Only forms they DON'T own
       }).select('id _id').lean();
-
-      const accessibleFormIds = accessibleForms.flatMap(f => [f.id, f._id.toString()]).filter(Boolean);
+      
+      const sharedFormIds = sharedForms.flatMap(f => [f.id, f._id.toString()]).filter(Boolean);
 
       if (req.user.role === 'inspector') {
         const userEmail = req.user.email || '';
         const userUsername = req.user.username || '';
         const userId = req.user._id;
+
+        // Find ALL accessible forms (owned + shared) for the inspector constraint
+        const accessibleForms = await Form.find({
+          $or: [
+            { tenantId: { $in: tenantValues } },
+            { sharedWithTenants: { $in: tenantValues } },
+            { "chassisTenantAssignments.assignedTenants": userTenantIdStr }
+          ]
+        }).select('id _id').lean();
+        const accessibleFormIds = accessibleForms.flatMap(f => [f.id, f._id.toString()]).filter(Boolean);
 
         // Inspector sees own submissions (any tenant) OR different tenant submissions,
         // but still limited to accessible forms!
@@ -1998,10 +2009,15 @@ export const getAllResponses = async (req, res) => {
         // Admin / subadmin / other roles see:
         // - Responses in their own tenant, OR
         // - Responses for forms shared with their tenant!
-        query.$or = [
-          { tenantId: { $in: tenantValues } },
-          { questionId: { $in: accessibleFormIds } }
-        ];
+        if (sharedFormIds.length > 0) {
+          query.$or = [
+            { tenantId: { $in: tenantValues } },
+            { questionId: { $in: sharedFormIds } }
+          ];
+        } else {
+          // HUGE optimization: No shared forms means we just query by tenantId!
+          query.tenantId = { $in: tenantValues };
+        }
       }
     } else {
       // Superadmin sees everything (no restriction)
@@ -2010,7 +2026,8 @@ export const getAllResponses = async (req, res) => {
 
     // Filter out partial submissions unless explicitly requested
     if (includePartial !== 'true') {
-      query.isSectionSubmit = { $ne: true };
+      // Use $in instead of $ne because $ne breaks index prefixes in MongoDB
+      query.isSectionSubmit = { $in: [false, null, undefined] };
     }
 
     // Filter by form (single ID)
