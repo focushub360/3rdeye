@@ -130,8 +130,10 @@ class ApiClient {
     const now = Date.now();
     const cachePrefix = `api_cache:${endpointPrefix}`;
 
+    const isMatch = (key: string) => key === cachePrefix || key.startsWith(`${cachePrefix}?`);
+
     for (const [key, value] of this.memoryCache.entries()) {
-      if (key.startsWith(cachePrefix)) {
+      if (isMatch(key)) {
         if (now - value.timestamp < TTL) {
           return value.data as T;
         }
@@ -141,7 +143,7 @@ class ApiClient {
     try {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && key.startsWith(cachePrefix)) {
+        if (key && isMatch(key)) {
           const cached = localStorage.getItem(key);
           if (cached) {
             const parsed = JSON.parse(cached);
