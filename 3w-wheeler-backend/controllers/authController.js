@@ -4,10 +4,13 @@ import User from '../models/User.js';
 import Tenant from '../models/Tenant.js';
 import LoginLog from '../models/LoginLog.js';
 import Otp from '../models/Otp.js';
+import Form from '../models/Form.js';
+import Response from '../models/Response.js';
+import Review from '../models/Review.js';
 import { generateToken } from '../middleware/auth.js';
 import crypto from 'crypto';
 import axios from 'axios';
-import smsService from '../services/smsService.js'; 
+import smsService from '../services/smsService.js';
 
 // Helper function to get location from IP address
 const getLocationFromIP = async (ip) => {
@@ -130,14 +133,42 @@ export const login = async (req, res) => {
       }
     }
 
-    // Run password verification and tenant lookup concurrently
+    // Run password verification and data fetching concurrently for faster UX
     const tenantPromise = (user.role !== 'superadmin' && user.tenantId)
       ? (tenantSlug ? Tenant.findOne({ slug: tenantSlug }).lean() : Tenant.findById(user.tenantId).lean())
       : Promise.resolve(null);
+      
+    const formsPromise = (user.role !== 'superadmin' && user.tenantId)
+      ? Form.find({ tenantId: user.tenantId, isGlobal: false }).sort({ createdAt: -1 }).limit(100).lean().catch(() => [])
+      : Promise.resolve([]);
 
-    const [isPasswordValid, tenantResult] = await Promise.all([
+    const statsPromise = (async () => {
+       try {
+         const userId = user._id;
+         const userEmail = user.email;
+         const userUsername = user.username;
+         const totalResponses = await Response.countDocuments({
+           $or: [ { createdBy: userId }, { submittedBy: userEmail }, { submittedBy: userUsername } ]
+         });
+         const reviews = await Review.find({
+           $or: [ { submitterId: userId.toString() }, { submitterId: userEmail }, { submitterId: userUsername } ]
+         });
+         const total = reviews.length;
+         const accepted = reviews.filter(r => r.reviewOption === 'Accepted').length;
+         const rejected = reviews.filter(r => r.reviewOption === 'Rejected').length;
+         const rework = reviews.filter(r => r.reviewOption === 'Rework').length;
+         const performanceScore = total > 0 ? Math.round((accepted / total) * 100) : 0;
+         return { totalResponses, reviewed: total, accepted, rejected, rework, performanceScore };
+       } catch (e) {
+         return null;
+       }
+    })();
+
+    const [isPasswordValid, tenantResult, formsResult, statsResult] = await Promise.all([
       user.comparePassword(password),
-      tenantPromise
+      tenantPromise,
+      formsPromise,
+      statsPromise
     ]);
 
     if (!isPasswordValid) {
@@ -249,6 +280,12 @@ export const login = async (req, res) => {
       };
       responseData.user.tenantId = tenant._id;
     }
+
+    // Add prefetched dashboard data for instant frontend rendering
+    responseData.initialData = {
+      forms: formsResult,
+      myReviewStats: statsResult
+    };
 
     res.json({
       success: true,
