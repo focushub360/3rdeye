@@ -522,12 +522,33 @@ class ApiClient {
       token: string;
       tenant?: any;
       sessionLogId?: string;
+      initialData?: {
+        forms: any[];
+        myReviewStats: any;
+      };
     }>("/auth/login", {
       method: "POST",
       body: JSON.stringify(credentials),
     });
 
     this.setToken(data.token);
+    
+    // Idea A: Instantly inject backend prefetched data into memory cache!
+    // Dashboard components reading `apiClient.getCachedData()` will get 0ms renders.
+    if (data.initialData) {
+      const now = Date.now();
+      if (data.initialData.forms && data.tenant?.id) {
+        // Cache the specific forms request Dashboard uses
+        this.memoryCache.set(`api_cache:/forms?tenantId=${data.tenant.id}&limit=100`, { timestamp: now, data: { forms: data.initialData.forms } });
+        // And the general one
+        this.memoryCache.set(`api_cache:/forms?limit=100`, { timestamp: now, data: { forms: data.initialData.forms } });
+        this.memoryCache.set(`api_cache:/forms`, { timestamp: now, data: { forms: data.initialData.forms } });
+      }
+      if (data.initialData.myReviewStats) {
+        this.memoryCache.set(`api_cache:/analytics/my-review-stats`, { timestamp: now, data: data.initialData.myReviewStats });
+      }
+    }
+
     return data;
   }
 
