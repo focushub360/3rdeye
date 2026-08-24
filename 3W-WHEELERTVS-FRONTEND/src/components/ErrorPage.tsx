@@ -26,6 +26,22 @@ export default function ErrorPage() {
     errorMessage = error.message;
   }
 
+  // Auto-reload once if a newly deployed build has invalidated old chunk hashes
+  React.useEffect(() => {
+    if (
+      errorMessage.toLowerCase().includes("dynamically imported module") ||
+      errorMessage.toLowerCase().includes("failed to fetch dynamically")
+    ) {
+      const hasReloaded = sessionStorage.getItem("chunk_reload_retry");
+      if (!hasReloaded) {
+        sessionStorage.setItem("chunk_reload_retry", "true");
+        window.location.reload();
+      }
+    } else {
+      sessionStorage.removeItem("chunk_reload_retry");
+    }
+  }, [errorMessage]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-800 to-primary-900 dark:from-gray-900 dark:to-gray-950 flex items-center justify-center p-6">
       <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden">

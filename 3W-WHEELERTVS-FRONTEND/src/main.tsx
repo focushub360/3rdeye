@@ -11,6 +11,12 @@ import "./index.css";
 
 migrateLocalStorageForms();
 
+// Automatically reload page when a new deployment invalidates old chunk hashes
+window.addEventListener("vite:preloadError", (event) => {
+  console.warn("Vite preload error detected. Reloading page to fetch latest deployment...");
+  window.location.reload();
+});
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>
