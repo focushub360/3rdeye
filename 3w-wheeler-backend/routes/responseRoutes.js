@@ -20,6 +20,7 @@ import {
   autoFillChassisNumbers,
   getBiwSummary,
   bulkUpdateBiwReview
+} from '../controllers/responseController.js';
 import { getReviewsForResponse, getBulkReviewsForResponses } from '../controllers/userController.js';
 import {
   authenticate,
