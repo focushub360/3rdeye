@@ -1,12 +1,14 @@
-import React, { useState, useRef, useEffect } from "react";
-import { Filter, Search } from "lucide-react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { Filter, Search, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 
 interface TableColumnFilterProps {
   columnId: string;
   title: string;
   options: string[];
-  selectedValues: string[];
+  selectedValues: string[] | null;
   onFilterChange: (columnId: string, values: string[] | null) => void;
+  sortDirection?: "asc" | "desc" | null;
+  onSortChange?: (columnId: string, direction: "asc" | "desc" | null) => void;
 }
 
 export default function TableColumnFilter({
@@ -15,6 +17,8 @@ export default function TableColumnFilter({
   options,
   selectedValues,
   onFilterChange,
+  sortDirection = null,
+  onSortChange,
 }: TableColumnFilterProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -27,7 +31,7 @@ export default function TableColumnFilter({
       const rect = buttonRef.current.getBoundingClientRect();
       setDropdownPosition({
         top: rect.bottom + window.scrollY + 8,
-        left: rect.right + window.scrollX - 256
+        left: rect.right + window.scrollX - 256,
       });
     }
   }, [isOpen]);
@@ -53,96 +57,119 @@ export default function TableColumnFilter({
     };
   }, [isOpen]);
 
-  const filteredOptions = options.filter((option) =>
-    option.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Orderly natural sort of options (numeric-aware: 1031 < 1032 < 1103)
+  const sortedOptions = useMemo(() => {
+    return [...options].sort((a, b) => {
+      if (a === "") return 1;
+      if (b === "") return -1;
+      return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+    });
+  }, [options]);
 
-  // If selectedValues is null, it means "All Selected" (no filter)
-  // We convert it to a Set for easier checking, or treat as all options
+  const filteredOptions = useMemo(() => {
+    if (!searchTerm) return sortedOptions;
+    const term = searchTerm.toLowerCase();
+    return sortedOptions.filter((option) =>
+      option.toLowerCase().includes(term)
+    );
+  }, [sortedOptions, searchTerm]);
+
   const effectiveSelectedValues = selectedValues === null ? options : selectedValues;
 
   const toggleOption = (option: string) => {
     let newValues: string[];
-    
+
     if (selectedValues === null) {
-        // If currently "All", and we toggle one, we are deselecting it
-        // So new state is ALL options except this one
-        newValues = options.filter(o => o !== option);
+      newValues = options.filter((o) => o !== option);
     } else {
-        if (selectedValues.includes(option)) {
-            newValues = selectedValues.filter((v) => v !== option);
-        } else {
-            newValues = [...selectedValues, option];
-        }
+      if (selectedValues.includes(option)) {
+        newValues = selectedValues.filter((v) => v !== option);
+      } else {
+        newValues = [...selectedValues, option];
+      }
     }
-    
-    // If we end up selecting everything, revert to null (no filter)
+
     if (newValues.length === options.length && options.length > 0) {
-        onFilterChange(columnId, null);
+      onFilterChange(columnId, null);
     } else {
-        onFilterChange(columnId, newValues);
+      onFilterChange(columnId, newValues);
     }
   };
 
-  const handleSelectAll = () => {
-    if (effectiveSelectedValues.length === filteredOptions.length && searchTerm === "") {
-        // If showing all and everything selected, deselect all
-        // OR if filter is active, and we have selected everything visible
-        onFilterChange(columnId, []);
+  const toggleSelectAll = () => {
+    if (filteredOptions.every((opt) => effectiveSelectedValues.includes(opt))) {
+      if (selectedValues === null) {
+        const visibleSet = new Set(filteredOptions);
+        const newValues = options.filter((o) => !visibleSet.has(o));
+        onFilterChange(columnId, newValues);
+      } else {
+        const newValues = selectedValues.filter((v) => !filteredOptions.includes(v));
+        onFilterChange(columnId, newValues);
+      }
     } else {
-        // If search is active, we might want to just add visible ones?
-        // Simple behavior: Select All means reset to No Filter (null) if no search
-        if (searchTerm === "") {
-             onFilterChange(columnId, null);
-        } else {
-             // If search active, add all filtered options to selection
-             const newValues = Array.from(new Set([...(selectedValues || []), ...filteredOptions]));
-             onFilterChange(columnId, newValues);
-        }
+      const newValues = Array.from(
+        new Set([...(selectedValues || []), ...filteredOptions])
+      );
+      if (newValues.length === options.length) {
+        onFilterChange(columnId, null);
+      } else {
+        onFilterChange(columnId, newValues);
+      }
     }
   };
-  
-  // Specific handler for the "Select All" checkbox
-  const toggleSelectAll = () => {
-      if (filteredOptions.every(opt => effectiveSelectedValues.includes(opt))) {
-          // Deselect all visible
-          if (selectedValues === null) {
-               // We were selecting all, now we want to deselect visible
-               const visibleSet = new Set(filteredOptions);
-               const newValues = options.filter(o => !visibleSet.has(o));
-               onFilterChange(columnId, newValues);
-          } else {
-               const newValues = selectedValues.filter(v => !filteredOptions.includes(v));
-               onFilterChange(columnId, newValues);
-          }
-      } else {
-          // Select all visible
-          if (selectedValues === null) {
-              // Already all selected
-          } else {
-               const newValues = Array.from(new Set([...selectedValues, ...filteredOptions]));
-               // If we selected everything, set to null
-               if (newValues.length === options.length) {
-                   onFilterChange(columnId, null);
-               } else {
-                   onFilterChange(columnId, newValues);
-               }
-          }
-      }
-  }
 
   const isFiltered = selectedValues !== null;
+  const isSorted = sortDirection !== null;
 
   return (
-    <div className="inline-block ml-2">
+    <div className="inline-flex items-center gap-0.5 ml-1.5">
+      {onSortChange && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!sortDirection) {
+              onSortChange(columnId, "asc");
+            } else if (sortDirection === "asc") {
+              onSortChange(columnId, "desc");
+            } else {
+              onSortChange(columnId, null);
+            }
+          }}
+          className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${
+            isSorted
+              ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30"
+              : "text-gray-400 hover:text-gray-600 dark:text-gray-500"
+          }`}
+          title={
+            sortDirection === "asc"
+              ? "Sorted Ascending (Click for Descending)"
+              : sortDirection === "desc"
+              ? "Sorted Descending (Click to Clear)"
+              : `Sort ${title} Ascending / Descending`
+          }
+        >
+          {sortDirection === "asc" ? (
+            <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+          ) : sortDirection === "desc" ? (
+            <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+          ) : (
+            <ArrowUpDown className="w-3 h-3" />
+          )}
+        </button>
+      )}
+
       <button
         ref={buttonRef}
+        type="button"
         onClick={(e) => {
-             e.stopPropagation();
-             setIsOpen(!isOpen);
+          e.stopPropagation();
+          setIsOpen(!isOpen);
         }}
-        className={`p-1 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${
-          isFiltered ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30" : "text-gray-400 dark:text-gray-500"
+        className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${
+          isFiltered
+            ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 font-bold"
+            : "text-gray-400 dark:text-gray-500"
         }`}
         title={`Filter ${title}`}
       >
@@ -150,81 +177,140 @@ export default function TableColumnFilter({
       </button>
 
       {isOpen && (
-        <div 
+        <div
           ref={dropdownRef}
-          className="fixed w-64 bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 z-[9999]"
+          className="fixed w-68 bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 z-[9999] overflow-hidden animate-in fade-in zoom-in-95 duration-100"
           style={{
             top: `${dropdownPosition.top}px`,
-            left: `${dropdownPosition.left}px`
+            left: `${dropdownPosition.left}px`,
           }}
         >
-          <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+          {/* Quick Sort Controls inside Filter Modal */}
+          {onSortChange && (
+            <div className="p-2 bg-gray-50 dark:bg-gray-800/80 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-1 text-xs">
+              <span className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                Sort:
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onSortChange(columnId, "asc")}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold border transition-all ${
+                    sortDirection === "asc"
+                      ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                      : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:bg-gray-100"
+                  }`}
+                  title="Sort 1 to 9 / A to Z"
+                >
+                  <ArrowUp className="w-3 h-3" />
+                  <span>Asc</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSortChange(columnId, "desc")}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold border transition-all ${
+                    sortDirection === "desc"
+                      ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                      : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:bg-gray-100"
+                  }`}
+                  title="Sort 9 to 1 / Z to A"
+                >
+                  <ArrowDown className="w-3 h-3" />
+                  <span>Desc</span>
+                </button>
+                {sortDirection && (
+                  <button
+                    type="button"
+                    onClick={() => onSortChange(columnId, null)}
+                    className="px-1.5 py-1 text-[11px] text-gray-400 hover:text-red-500 rounded"
+                    title="Clear sort"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Search Box */}
+          <div className="p-2.5 border-b border-gray-200 dark:border-gray-700">
             <div className="relative">
               <input
                 type="text"
                 placeholder="Search..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                 autoFocus
               />
-              <Search className="w-4 h-4 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             </div>
           </div>
 
-          <div className="max-h-60 overflow-y-auto p-2">
-             <div className="flex items-center px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md cursor-pointer mb-1"
-                onClick={toggleSelectAll}
-             >
-                <input
-                    type="checkbox"
-                    checked={filteredOptions.length > 0 && filteredOptions.every(opt => effectiveSelectedValues.includes(opt))}
-                    readOnly
-                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 pointer-events-none"
-                />
-                <span className="ml-2 text-sm text-gray-700 dark:text-gray-200 font-medium">
-                    (Select All)
-                </span>
-             </div>
+          {/* Options List */}
+          <div className="max-h-56 overflow-y-auto p-1.5 scrollbar-thin">
+            <div
+              className="flex items-center px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md cursor-pointer mb-1"
+              onClick={toggleSelectAll}
+            >
+              <input
+                type="checkbox"
+                checked={
+                  filteredOptions.length > 0 &&
+                  filteredOptions.every((opt) =>
+                    effectiveSelectedValues.includes(opt)
+                  )
+                }
+                readOnly
+                className="w-3.5 h-3.5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 pointer-events-none"
+              />
+              <span className="ml-2 text-xs text-gray-700 dark:text-gray-200 font-bold">
+                (Select All)
+              </span>
+            </div>
 
             {filteredOptions.length > 0 ? (
               filteredOptions.map((option) => (
                 <div
                   key={option}
-                  className="flex items-center px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md cursor-pointer"
+                  className="flex items-center px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer"
                   onClick={() => toggleOption(option)}
                 >
                   <input
                     type="checkbox"
                     checked={effectiveSelectedValues.includes(option)}
-                    onChange={() => {}} 
-                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 pointer-events-none"
+                    onChange={() => {}}
+                    className="w-3.5 h-3.5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 pointer-events-none"
                   />
-                  <span className="ml-2 text-sm text-gray-700 dark:text-gray-300 truncate" title={option}>
+                  <span
+                    className="ml-2 text-xs text-gray-700 dark:text-gray-300 truncate"
+                    title={option}
+                  >
                     {option === "" ? "(Blanks)" : option}
                   </span>
                 </div>
               ))
             ) : (
-              <div className="px-2 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+              <div className="px-2 py-4 text-center text-xs text-gray-500 dark:text-gray-400">
                 No matches found
               </div>
             )}
           </div>
 
-          <div className="p-2 border-t border-gray-200 dark:border-gray-700 flex justify-between">
+          {/* Actions */}
+          <div className="p-2 bg-gray-50 dark:bg-gray-800/80 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
             <button
-                onClick={() => onFilterChange(columnId, null)}
-                disabled={!isFiltered}
-                className="px-3 py-1 text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => onFilterChange(columnId, null)}
+              disabled={!isFiltered}
+              className="px-2.5 py-1 text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-                Clear Filter
+              Clear Filter
             </button>
             <button
-                onClick={() => setIsOpen(false)}
-                className="px-3 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+              onClick={() => setIsOpen(false)}
+              className="px-3 py-1 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded shadow-xs transition-colors"
             >
-                Done
+              Done
             </button>
           </div>
         </div>

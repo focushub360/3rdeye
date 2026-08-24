@@ -46,6 +46,9 @@ import {
   Loader2,
   Maximize,
   RotateCcw,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Pie, Doughnut, Radar } from "react-chartjs-2";
@@ -3293,6 +3296,10 @@ export default function FormAnalyticsDashboard() {
   const [columnFilters, setColumnFilters] = useState<
     Record<string, string[] | null>
   >({});
+  const [tableSort, setTableSort] = useState<{
+    columnId: string;
+    direction: "asc" | "desc";
+  } | null>(null);
   const [selectedResponsesSectionIds, setSelectedResponsesSectionIds] =
     useState<string[]>([]);
   const [showResponsesFilter, setShowResponsesFilter] = useState(false);
@@ -5194,36 +5201,96 @@ export default function FormAnalyticsDashboard() {
 
   useEffect(() => {
     setResponsesPage(1);
-  }, [dateFilter, selectedInspectorForTrend, id, responsesSearchTerm, columnFilters]);
+  }, [dateFilter, selectedInspectorForTrend, id, responsesSearchTerm, columnFilters, tableSort]);
 
-  // Check if any client-side filters (column filters, search term, date, or inspector) are active
-  const hasActiveFilters = useMemo(() => {
+  // Check if any client-side filters (column filters, search term, date, or inspector) or sort are active
+  const hasActiveFiltersOrSort = useMemo(() => {
     return (
       Object.values(columnFilters).some((v) => v && v.length > 0) ||
       responsesSearchTerm.trim() !== "" ||
       dateFilter.type !== "all" ||
-      selectedInspectorForTrend !== "Overall"
+      selectedInspectorForTrend !== "Overall" ||
+      tableSort !== null
     );
-  }, [columnFilters, responsesSearchTerm, dateFilter, selectedInspectorForTrend]);
+  }, [columnFilters, responsesSearchTerm, dateFilter, selectedInspectorForTrend, tableSort]);
 
-  // When filters are active and full dataset `responses` is in memory, total count is `filteredResponses.length`.
+  // Sort helper function that handles natural alphanumeric sorting
+  const sortResponses = (list: Response[]) => {
+    if (!tableSort) return list;
+    const { columnId, direction } = tableSort;
+    const isAsc = direction === "asc";
+
+    return [...list].sort((a, b) => {
+      // Chassis sorting
+      if (
+        columnId === "__chassisNumber" ||
+        columnId === "chassis_number" ||
+        (chassisQuestionId && columnId === chassisQuestionId)
+      ) {
+        const valA = getChassisDisplayValue(
+          a.answers?.chassis_number || (chassisQuestionId ? a.answers?.[chassisQuestionId] : "")
+        );
+        const valB = getChassisDisplayValue(
+          b.answers?.chassis_number || (chassisQuestionId ? b.answers?.[chassisQuestionId] : "")
+        );
+        const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
+        return isAsc ? cmp : -cmp;
+      }
+
+      // Timestamp sorting
+      if (columnId === "timestamp" || columnId === "__timestamp") {
+        const timeA = getResponseTimestamp(a) || 0;
+        const timeB = getResponseTimestamp(b) || 0;
+        return isAsc ? timeA - timeB : timeB - timeA;
+      }
+
+      // Time Taken sorting
+      if (columnId === "__timeSpent" || columnId === "timeSpent") {
+        const timeA = a.timeSpent ?? a.totalTimeSpent ?? 0;
+        const timeB = b.timeSpent ?? b.totalTimeSpent ?? 0;
+        return isAsc ? timeA - timeB : timeB - timeA;
+      }
+
+      // Attempt Rank sorting
+      if (columnId === "__attemptRank") {
+        const rankA = chassisAttemptRanks[a.id] || (a.responseRanks && chassisQuestionId ? a.responseRanks[chassisQuestionId] : 1);
+        const rankB = chassisAttemptRanks[b.id] || (b.responseRanks && chassisQuestionId ? b.responseRanks[chassisQuestionId] : 1);
+        return isAsc ? rankA - rankB : rankB - rankA;
+      }
+
+      // Generic question answer sorting
+      const ansA = a.answers?.[columnId];
+      const ansB = b.answers?.[columnId];
+      const valA = extractAnswerValues(ansA).join(" ");
+      const valB = extractAnswerValues(ansB).join(" ");
+      const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
+      return isAsc ? cmp : -cmp;
+    });
+  };
+
+  // Sorted and filtered responses across the entire dataset
+  const sortedFilteredResponses = useMemo(() => {
+    return sortResponses(filteredResponses);
+  }, [filteredResponses, tableSort, chassisQuestionId, chassisAttemptRanks]);
+
+  // When filters/sort are active and full dataset `responses` is in memory, total count is `sortedFilteredResponses.length`.
   // Otherwise, fallback to server count `totalResponsesCount`.
-  const activeTotalResponsesCount = (hasActiveFilters && responses.length > 0)
-    ? filteredResponses.length
+  const activeTotalResponsesCount = (hasActiveFiltersOrSort && responses.length > 0)
+    ? sortedFilteredResponses.length
     : totalResponsesCount;
 
   const totalResponsesPages = Math.max(1, Math.ceil(activeTotalResponsesCount / responsesPageSize));
   const currentResponsesPage = Math.min(responsesPage, totalResponsesPages);
   const responsesStartIndex = activeTotalResponsesCount > 0 ? (currentResponsesPage - 1) * responsesPageSize : 0;
-  const responsesEndIndex = (hasActiveFilters && responses.length > 0)
+  const responsesEndIndex = (hasActiveFiltersOrSort && responses.length > 0)
     ? Math.min(responsesStartIndex + responsesPageSize, activeTotalResponsesCount)
     : responsesStartIndex + tableResponses.length;
 
-  // Responses displayed in the Responses tab table (supports slicing from filteredResponses when full dataset is loaded)
+  // Responses displayed in the Responses tab table (supports slicing from sortedFilteredResponses when full dataset is loaded)
   const displayedTableResponses = useMemo(() => {
-    if (hasActiveFilters && responses.length > 0) {
+    if (hasActiveFiltersOrSort && responses.length > 0) {
       const startIndex = (currentResponsesPage - 1) * responsesPageSize;
-      return filteredResponses.slice(startIndex, startIndex + responsesPageSize);
+      return sortedFilteredResponses.slice(startIndex, startIndex + responsesPageSize);
     }
 
     let result = tableResponses;
@@ -5276,8 +5343,12 @@ export default function FormAnalyticsDashboard() {
       });
     }
 
+    if (tableSort) {
+      result = sortResponses(result);
+    }
+
     return result;
-  }, [hasActiveFilters, responses, filteredResponses, tableResponses, columnFilters, currentResponsesPage, responsesPageSize, chassisAttemptRanks, tableDisplayStatuses, responseStatuses, chassisQuestionId]);
+  }, [hasActiveFiltersOrSort, responses, sortedFilteredResponses, tableResponses, columnFilters, currentResponsesPage, responsesPageSize, chassisAttemptRanks, tableDisplayStatuses, responseStatuses, chassisQuestionId, tableSort]);
 
   const pageSizesList = useMemo(() => {
     const base = [20, 50, 100];
@@ -5470,7 +5541,7 @@ export default function FormAnalyticsDashboard() {
       const sorted = Array.from(set).sort((a, b) => {
         if (a === "") return 1;
         if (b === "") return -1;
-        return a.localeCompare(b);
+        return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
       });
       map.set(qId, sorted);
     });
@@ -10537,23 +10608,57 @@ export default function FormAnalyticsDashboard() {
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-32 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
                               Status
                             </th>
-                            <th className="text-left px-6 py-3 ... min-w-40 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              <div className="flex items-center gap-1.5">
-                                <span>Selected Chassis</span>
-                                {canBulkSelectResponses && (
-                                  <button
-                                    onClick={handleAutoFillAllChassis}
-                                    disabled={isAutoFillingChassis || !chassisMasterOptions.length}
-                                    title="Auto-fill every response with no chassis number using the first option"
-                                    className="p-1 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed normal-case tracking-normal"
-                                  >
-                                    {isAutoFillingChassis ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                      <CheckCircle className="w-3.5 h-3.5" />
-                                    )}
-                                  </button>
-                                )}
+                            <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <span>Selected Chassis</span>
+                                  {canBulkSelectResponses && (
+                                    <button
+                                      onClick={handleAutoFillAllChassis}
+                                      disabled={isAutoFillingChassis || !chassisMasterOptions.length}
+                                      title="Auto-fill every response with no chassis number using the first option"
+                                      className="p-1 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed normal-case tracking-normal"
+                                    >
+                                      {isAutoFillingChassis ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      ) : (
+                                        <CheckCircle className="w-3.5 h-3.5" />
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTableSort((prev) =>
+                                      prev?.columnId === "__chassisNumber"
+                                        ? prev.direction === "asc"
+                                          ? { columnId: "__chassisNumber", direction: "desc" }
+                                          : null
+                                        : { columnId: "__chassisNumber", direction: "asc" }
+                                    );
+                                  }}
+                                  className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${
+                                    tableSort?.columnId === "__chassisNumber"
+                                      ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30"
+                                      : "text-gray-400 hover:text-gray-600"
+                                  }`}
+                                  title={
+                                    tableSort?.columnId === "__chassisNumber" && tableSort.direction === "asc"
+                                      ? "Chassis Sorted Ascending (Click for Descending)"
+                                      : tableSort?.columnId === "__chassisNumber" && tableSort.direction === "desc"
+                                      ? "Chassis Sorted Descending (Click to Clear)"
+                                      : "Sort Chassis Ascending / Descending"
+                                  }
+                                >
+                                  {tableSort?.columnId === "__chassisNumber" && tableSort.direction === "asc" ? (
+                                    <ArrowUp className="w-3.5 h-3.5" />
+                                  ) : tableSort?.columnId === "__chassisNumber" && tableSort.direction === "desc" ? (
+                                    <ArrowDown className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <ArrowUpDown className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
                               </div>
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
@@ -10642,7 +10747,41 @@ export default function FormAnalyticsDashboard() {
                               </div>
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
-                              Timestamp
+                              <div className="flex items-center justify-between gap-2">
+                                <span>Timestamp</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTableSort((prev) =>
+                                      prev?.columnId === "__timestamp"
+                                        ? prev.direction === "asc"
+                                          ? { columnId: "__timestamp", direction: "desc" }
+                                          : null
+                                        : { columnId: "__timestamp", direction: "asc" }
+                                    );
+                                  }}
+                                  className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${
+                                    tableSort?.columnId === "__timestamp"
+                                      ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30"
+                                      : "text-gray-400 hover:text-gray-600"
+                                  }`}
+                                  title={
+                                    tableSort?.columnId === "__timestamp" && tableSort.direction === "asc"
+                                      ? "Timestamp Sorted Ascending (Click for Descending)"
+                                      : tableSort?.columnId === "__timestamp" && tableSort.direction === "desc"
+                                      ? "Timestamp Sorted Descending (Click to Clear)"
+                                      : "Sort by Timestamp"
+                                  }
+                                >
+                                  {tableSort?.columnId === "__timestamp" && tableSort.direction === "asc" ? (
+                                    <ArrowUp className="w-3.5 h-3.5" />
+                                  ) : tableSort?.columnId === "__timestamp" && tableSort.direction === "desc" ? (
+                                    <ArrowDown className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <ArrowUpDown className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
                             </th>
 
                             <th className="text-center px-4 py-3 font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
@@ -10660,6 +10799,14 @@ export default function FormAnalyticsDashboard() {
                                       ...prev,
                                       [columnId]: values,
                                     }));
+                                  }}
+                                  sortDirection={
+                                    tableSort?.columnId === "__attemptRank" || tableSort?.columnId === "__timeSpent"
+                                      ? tableSort.direction
+                                      : null
+                                  }
+                                  onSortChange={(_, dir) => {
+                                    setTableSort(dir ? { columnId: "__timeSpent", direction: dir } : null);
                                   }}
                                 />
                               </div>
@@ -10698,6 +10845,12 @@ export default function FormAnalyticsDashboard() {
                                               ...prev,
                                               [columnId]: values,
                                             }));
+                                          }}
+                                          sortDirection={
+                                            tableSort?.columnId === q.id ? tableSort.direction : null
+                                          }
+                                          onSortChange={(columnId, dir) => {
+                                            setTableSort(dir ? { columnId, direction: dir } : null);
                                           }}
                                         />
                                       </div>
