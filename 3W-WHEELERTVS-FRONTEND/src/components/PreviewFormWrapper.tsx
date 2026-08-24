@@ -107,25 +107,39 @@ export default function PreviewFormWrapper() {
   // ── Fetch form ─────────────────────────────────────────────────────────────
   const fetchForm = useCallback(async () => {
     if (!id) return;
-    try {
-      setLoading(true);
-      const response = await apiClient.getForm(id);
-      setForm(response.form);
 
-      // Load branching rules
-      try {
-        const branchingResponse = await apiClient.request<{
-          sectionBranching: any[];
-        }>(`/forms/${id}/section-branching`);
-        setBranchingRules(branchingResponse?.sectionBranching ?? []);
-      } catch {
-        setBranchingRules([]);
+    // Check fast cache first for 0ms instant render
+    const cachedForm = apiClient.getFormFromAnyCache(id);
+    if (cachedForm) {
+      setForm(cachedForm);
+      if (Array.isArray(cachedForm.sectionBranching)) {
+        setBranchingRules(cachedForm.sectionBranching);
       }
+      setLoading(false);
+    }
 
+    try {
+      if (!cachedForm) {
+        setLoading(true);
+      }
+      const response = await apiClient.getForm(id);
+      if (response && response.form) {
+        setForm(response.form);
+        if (Array.isArray(response.form.sectionBranching)) {
+          setBranchingRules(response.form.sectionBranching);
+        } else {
+          // Lazy background fallback only if not in form object
+          apiClient.request<{ sectionBranching: any[] }>(`/forms/${id}/section-branching`)
+            .then(bRes => setBranchingRules(bRes?.sectionBranching ?? []))
+            .catch(() => setBranchingRules([]));
+        }
+      }
       setError(null);
     } catch (err) {
       console.error("[PreviewFormWrapper] Error fetching form:", err);
-      setError("Failed to load form");
+      if (!cachedForm) {
+        setError("Failed to load form");
+      }
     } finally {
       setLoading(false);
     }

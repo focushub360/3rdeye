@@ -535,8 +535,17 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
     const fetchForm = async () => {
       if (!id) return;
 
+      // Check cache first for 0ms render
+      const cached = apiClient.getFormFromAnyCache(id);
+      if (cached) {
+        setForm(cached);
+        setLoading(false);
+      }
+
       try {
-        setLoading(true);
+        if (!cached) {
+          setLoading(true);
+        }
         const inviteId = searchParams.get("inviteId");
 
         let response: any;
