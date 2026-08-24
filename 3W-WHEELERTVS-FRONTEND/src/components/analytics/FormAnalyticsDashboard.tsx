@@ -2379,6 +2379,7 @@ export default function FormAnalyticsDashboard() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
 
   // Permission check for analytics tabs
   const hasTabPermission = (tabName: string): boolean => {
@@ -2493,13 +2494,20 @@ export default function FormAnalyticsDashboard() {
   const [tvsReviews, setTvsReviews] = useState<any[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
   const [analyticsView, setAnalyticsView] = useState<"responses" | "dashboard">(() => {
-    const searchParams = new URLSearchParams(window.location.search);
-    const tabParam = searchParams.get("tab");
+    const tabParam = new URLSearchParams(window.location.search).get("tab");
     if (tabParam && ["responses", "dashboard"].includes(tabParam)) {
       return tabParam as any;
     }
     return "dashboard";
   });
+
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam && ["responses", "dashboard"].includes(tabParam)) {
+      setAnalyticsView(tabParam as any);
+      setActiveTab(tabParam as any);
+    }
+  }, [searchParams]);
 
   const fetchedBulkReviewsKeyRef = useRef<string>("");
 
@@ -3178,7 +3186,6 @@ export default function FormAnalyticsDashboard() {
       zoneType: "both" as "with" | "without" | "both",
     };
   });
-  const [searchParams] = useSearchParams();
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isSendingMessage, setIsSendingMessage] = useState(false);
@@ -4060,32 +4067,23 @@ export default function FormAnalyticsDashboard() {
       setError(null); // Clear any previous errors
 
       const formCacheKey = `/forms/${id}`;
-      const isFormFresh = apiClient.isCacheFresh(formCacheKey, 30);
-
-      if (isFormFresh) {
-        console.log("[ANALYTICS DEBUG] Form cache is fresh (<30s). Skipping fetch.");
-        setLoading(false);
-        return;
-      }
-
       console.log("[ANALYTICS DEBUG] Fetching form details:", id);
 
-      // ✅ Only fetch form details on mount now. Responses (full analytics
-      // set, or the paginated Responses-tab set) load lazily, the first
-      // time the user actually visits a tab that needs them — see the
-      // tab-loading effects below.
+      // Fetch form details
       const formData = await apiClient.request<{ form: any }>(formCacheKey, {
         forceNetwork: true,
         timeout: 60000, // 60 seconds for form data
       });
 
-      setForm(formData.form);
-      console.log("[ANALYTICS DEBUG] Form fetched:", formData.form?.title);
+      if (formData && formData.form) {
+        setForm(formData.form);
+        console.log("[ANALYTICS DEBUG] Form fetched:", formData.form?.title);
 
-      if (formData.form?.sections && formData.form.sections.length > 0) {
-        setSelectedResponsesSectionIds(
-          formData.form.sections.map((s: Section) => s.id),
-        );
+        if (formData.form?.sections && formData.form.sections.length > 0) {
+          setSelectedResponsesSectionIds(
+            formData.form.sections.map((s: Section) => s.id),
+          );
+        }
       }
 
       // Reset retry count on success
@@ -4108,7 +4106,17 @@ export default function FormAnalyticsDashboard() {
       setLoading(false);
     }
   };
+
   useEffect(() => {
+    // Reset all form-specific state when switching forms
+    setForm(null);
+    setResponses([]);
+    setTableResponses([]);
+    setTvsReviews([]);
+    setLoadedTabs(new Set());
+    setPerformanceTableData([]);
+    setInspectorSummary([]);
+    fetchedBulkReviewsKeyRef.current = "";
     fetchData();
   }, [id]);
 
@@ -4201,13 +4209,13 @@ export default function FormAnalyticsDashboard() {
   // Dashboard tab: inspector summary + performance table + the full
   // analytics response set, loaded once, the first time this tab is shown.
   useEffect(() => {
-    if (activeTab === "dashboard" && !loadedTabs.has("dashboard")) {
+    if (activeTab === "dashboard" && !loadedTabs.has("dashboard") && id) {
       fetchSummary();
       fetchPerformanceTable();
       fetchFullAnalyticsResponses();
       setLoadedTabs((prev) => new Set(prev).add("dashboard"));
     }
-  }, [activeTab]);
+  }, [activeTab, id, loadedTabs]);
 
   // Question / Section / Overall tabs also derive their charts and stats
   // from the full `responses` array. If the user lands directly on one of
@@ -4222,14 +4230,14 @@ export default function FormAnalyticsDashboard() {
   // would spin on "Loading…" forever. Kick it off here too, the same way
   // the other tabs already do.
   useEffect(() => {
-    if (activeTab === "responses" && !loadedTabs.has("responses")) {
+    if (activeTab === "responses" && !loadedTabs.has("responses") && id) {
       fetchResponsesPage(1);
       if (!loadedTabs.has("dashboard") && responses.length === 0) {
         fetchFullAnalyticsResponses();
       }
       setLoadedTabs((prev) => new Set(prev).add("responses"));
     }
-  }, [activeTab]);
+  }, [activeTab, id, loadedTabs]);
 
   // Page / page-size changes on an already-loaded Responses tab re-fetch
   // from the server instead of re-slicing an in-memory array.
