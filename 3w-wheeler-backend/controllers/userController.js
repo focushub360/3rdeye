@@ -54,7 +54,10 @@ const isValidPermissionKey = (permission) => {
     'analytics:downloadTemplate',
     'analytics:importExcel',
     'analytics:createService',
-    // Customer requests
+    // Customer requests & analytics legacy keys
+    'analytics:view',
+    'requests:view',
+    'requests:manage',
     'requests:dashboard',
     'requests:response',
   ]);
@@ -65,9 +68,10 @@ const isValidPermissionKey = (permission) => {
   }
 
   // Check if it's a dynamic analytics form permission
-  // Pattern: analytics:form:<24-char-hex-formId>:<subType>
-  const analyticsFormPattern = /^analytics:form:[a-fA-F0-9]{24}:(response|dashboard|overall|questions|sections)$/;
-  if (analyticsFormPattern.test(permission)) {
+  // Pattern: analytics:form:<formId>:<subType> or analytics:form:<formId>
+  const analyticsFormPattern = /^analytics:form:[a-zA-Z0-9_-]+:(preview|response|dashboard|overall|questions|sections)$/;
+  const analyticsFormParentPattern = /^analytics:form:[a-zA-Z0-9_-]+$/;
+  if (analyticsFormPattern.test(permission) || analyticsFormParentPattern.test(permission)) {
     return true;
   }
 
@@ -1161,6 +1165,43 @@ export const getReviewsForResponse = async (req, res) => {
     res.json({
       success: true,
       reviews: []
+    });
+  }
+};
+
+export const getBulkReviewsForResponses = async (req, res) => {
+  try {
+    const { responseIds } = req.body;
+
+    if (!Array.isArray(responseIds) || responseIds.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const Review = mongoose.model('Review');
+    const reviews = await Review.find({ responseId: { $in: responseIds } }).sort({ createdAt: -1 }).lean();
+
+    const formattedReviews = reviews.map(review => ({
+      id: review._id,
+      responseId: review.responseId,
+      reviewer: {
+        id: review.reviewerId,
+        name: review.reviewerName || 'Unknown',
+        email: review.reviewerEmail || ''
+      },
+      option: review.reviewOption,
+      scoreChange: review.scoreChange,
+      createdAt: review.createdAt
+    }));
+
+    res.json({
+      success: true,
+      data: formattedReviews
+    });
+  } catch (error) {
+    console.error('[getBulkReviewsForResponses] ERROR:', error);
+    res.json({
+      success: true,
+      data: []
     });
   }
 };

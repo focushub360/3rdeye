@@ -85,68 +85,29 @@ const developmentOrigins = [
   "http://localhost:8080", // Some dev servers
 ];
 
-// Combine production and development origins
-const allAllowedOrigins = [...allowedOrigins, ...developmentOrigins].map(url => url.replace(/\/$/, ""));
+// Explicit CORS & Preflight OPTIONS Middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, X-App-Type');
+  }
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
 
-const corsOptions = {
+// Fallback cors middleware
+app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-
-    const cleanOrigin = origin.replace(/\/$/, "");
-
-    if (
-      allAllowedOrigins.includes(cleanOrigin) ||
-      cleanOrigin.endsWith(".focusengineeringapp.com") ||
-      cleanOrigin.endsWith(".focus3rdeye.com") ||
-      cleanOrigin.endsWith(".netlify.app") ||
-      cleanOrigin.endsWith(".vercel.app") ||
-      cleanOrigin.endsWith(".onrender.com") ||
-      cleanOrigin.endsWith(".cloudfront.net") ||
-      cleanOrigin === "https://focusengineeringapp.com" ||
-      cleanOrigin === "https://focus3rdeye.com"
-    ) {
-      callback(null, true);
-    } else {
-      console.warn(`[CORS Blocked Origin]: ${origin}`);
-      callback(null, false);
-    }
+    callback(null, true);
   },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'X-Requested-With',
-    'Accept',
-    'Origin',
-    'x-tenant-id',
-    'X-Tenant-Id',
-    'x-session-id',
-    'X-Session-Id',
-    'x-app-type',
-    'X-App-Type',
-    'x-user-id',
-    'X-User-Id',
-    'x-tenant',
-    'X-Tenant',
-    'x-client-version',
-    'X-Client-Version',
-    'x-platform',
-    'X-Platform'
-  ],
-  exposedHeaders: [
-    'Content-Type',
-    'Content-Disposition',
-    'Content-Length',
-    'X-Generation-Time',
-    'X-PDF-Format'
-  ],
-  optionsSuccessStatus: 200
-};
-
-// Middleware
-app.use(cors(corsOptions));
+  credentials: true
+}));
 
 // Gzip compression — reduces JSON payloads by ~90% (20MB → ~2MB)
 app.use(compression({

@@ -58,6 +58,26 @@ const canAccessResponseTenant = async (req, response) => {
   return Boolean(isOwnerTenant || isSharedTenant || hasChassisShare || matchesResponseTenant);
 };
 
+const extractAnswerString = (ans) => {
+  if (ans === null || ans === undefined) return '';
+  if (typeof ans === 'object') {
+    if (ans.chassisNumber !== undefined && ans.chassisNumber !== null) {
+      return String(ans.chassisNumber).trim();
+    }
+    if (ans.value !== undefined && ans.value !== null) {
+      return String(ans.value).trim();
+    }
+    if (ans.text !== undefined && ans.text !== null) {
+      return String(ans.text).trim();
+    }
+    if (ans.chassis !== undefined && ans.chassis !== null) {
+      return String(ans.chassis).trim();
+    }
+    return '';
+  }
+  return String(ans).trim();
+};
+
 export const createResponse = async (req, res) => {
   try {
     console.log('[CREATE RESPONSE] === START ===');
@@ -482,14 +502,14 @@ export const createResponse = async (req, res) => {
 
       if (isTrackingEnabled) {
         // If trackResponseQuestion is enabled, we use the value from that field for ranking
-        const trackingQId = question.trackResponseQuestion ? `${qId}_tracking` : qId;
-        const answer = answers[trackingQId];
+        const trackingQId = `${qId}_tracking`;
+        const rawAns = answers[qId] !== undefined ? answers[qId] : answers[trackingQId];
+        const strAnswer = extractAnswerString(rawAns);
         console.log(
-          `[RANK DEBUG] Question "${question.text}" (ID: ${qId}) HAS tracking enabled. TrackingField: ${trackingQId}, Answer: "${answer}"`,
+          `[RANK DEBUG] Question "${question.text}" (ID: ${qId}) HAS tracking enabled. TrackingField: ${trackingQId}, Answer: "${strAnswer}"`,
         );
 
-        if (answer !== undefined && answer !== null && answer !== "") {
-          const strAnswer = String(answer).trim();
+        if (strAnswer !== "") {
           const escapedAnswer = strAnswer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
           const exactRegex = new RegExp(`^${escapedAnswer}$`, "i");
 
@@ -497,13 +517,21 @@ export const createResponse = async (req, res) => {
 
           const orConditions = [
             { [`answers.${trackingQId}`]: exactRegex },
-            { [`answers.${qId}`]: exactRegex }
+            { [`answers.${qId}`]: exactRegex },
+            { [`answers.${trackingQId}.chassisNumber`]: exactRegex },
+            { [`answers.${qId}.chassisNumber`]: exactRegex },
+            { [`answers.${trackingQId}.value`]: exactRegex },
+            { [`answers.${qId}.value`]: exactRegex }
           ];
 
           const numAnswer = Number(strAnswer);
           if (!isNaN(numAnswer)) {
             orConditions.push({ [`answers.${trackingQId}`]: numAnswer });
             orConditions.push({ [`answers.${qId}`]: numAnswer });
+            orConditions.push({ [`answers.${trackingQId}.chassisNumber`]: numAnswer });
+            orConditions.push({ [`answers.${qId}.chassisNumber`]: numAnswer });
+            orConditions.push({ [`answers.${trackingQId}.value`]: numAnswer });
+            orConditions.push({ [`answers.${qId}.value`]: numAnswer });
           }
 
           // Count existing responses with the EXACT SAME answer for this form
@@ -843,31 +871,42 @@ export const batchImportResponses = async (req, res) => {
       collectAllQuestions(form.followUpQuestions, allQuestions);
     }
 
-    const rankTrackedQuestions = allQuestions.filter(q => q.trackResponseRank);
+    const rankTrackedQuestions = allQuestions.filter(q => q.trackResponseRank || q.trackResponseQuestion);
     const rankMaps = {};
     for (const question of rankTrackedQuestions) {
+      const qId = question.id;
+      const trackingQId = `${qId}_tracking`;
       const counts = await Response.aggregate([
         {
           $match: {
             questionId: actualQuestionId,
             isSectionSubmit: { $ne: true },
-            [`answers.${question.id}`]: { $exists: true, $ne: null }
+            $or: [
+              { [`answers.${qId}`]: { $exists: true, $ne: null } },
+              { [`answers.${trackingQId}`]: { $exists: true, $ne: null } }
+            ]
+          }
+        },
+        {
+          $project: {
+            answerVal: { $ifNull: [`$answers.${qId}`, `$answers.${trackingQId}`] }
           }
         },
         {
           $group: {
-            _id: `$answers.${question.id}`,
+            _id: "$answerVal",
             count: { $sum: 1 }
           }
         }
       ]);
       const map = new Map();
       counts.forEach(c => {
-        if (c._id !== undefined && c._id !== null) {
-          map.set(String(c._id).trim().toLowerCase(), c.count);
+        const strVal = extractAnswerString(c._id);
+        if (strVal !== '') {
+          map.set(strVal.toLowerCase(), c.count);
         }
       });
-      rankMaps[question.id] = map;
+      rankMaps[qId] = map;
     }
 
     // STEP 1: Collect ALL Google Drive URLs from ALL responses FIRST
@@ -1023,13 +1062,16 @@ export const batchImportResponses = async (req, res) => {
             // Calculate ranks for specific questions
             const responseRanks = {};
             for (const question of rankTrackedQuestions) {
-              const answer = processedAnswers[question.id];
-              if (answer !== undefined && answer !== null && answer !== '') {
-                const answerKey = String(answer).trim().toLowerCase();
-                const map = rankMaps[question.id];
+              const qId = question.id;
+              const trackingQId = `${qId}_tracking`;
+              const rawAns = processedAnswers[qId] !== undefined ? processedAnswers[qId] : processedAnswers[trackingQId];
+              const answerStr = extractAnswerString(rawAns);
+              if (answerStr !== '') {
+                const answerKey = answerStr.toLowerCase();
+                const map = rankMaps[qId] || new Map();
                 const count = map.get(answerKey) || 0;
                 const newRank = count + 1;
-                responseRanks[question.id] = newRank;
+                responseRanks[qId] = newRank;
                 map.set(answerKey, newRank);
               }
             }
@@ -1183,13 +1225,16 @@ export const batchImportResponses = async (req, res) => {
           // Calculate ranks for specific questions
           const responseRanks = {};
           for (const question of rankTrackedQuestions) {
-            const answer = processedAnswers[question.id];
-            if (answer !== undefined && answer !== null && answer !== '') {
-              const answerKey = String(answer).trim().toLowerCase();
-              const map = rankMaps[question.id];
+            const qId = question.id;
+            const trackingQId = `${qId}_tracking`;
+            const rawAns = processedAnswers[qId] !== undefined ? processedAnswers[qId] : processedAnswers[trackingQId];
+            const answerStr = extractAnswerString(rawAns);
+            if (answerStr !== '') {
+              const answerKey = answerStr.toLowerCase();
+              const map = rankMaps[qId] || new Map();
               const count = map.get(answerKey) || 0;
               const newRank = count + 1;
-              responseRanks[question.id] = newRank;
+              responseRanks[qId] = newRank;
               map.set(answerKey, newRank);
             }
           }
@@ -1328,7 +1373,13 @@ export const getRank = async (req, res) => {
     const formQuery = { id: formId };
     if (tenantId) formQuery.tenantId = tenantId;
 
-    const form = await Form.findOne(formQuery);
+    let form = await Form.findOne(formQuery);
+    if (!form && mongoose.Types.ObjectId.isValid(formId)) {
+      const altQuery = { _id: formId };
+      if (tenantId) altQuery.tenantId = tenantId;
+      form = await Form.findOne(altQuery);
+    }
+
     if (!form) {
       return res.status(404).json({
         success: false,
@@ -1341,7 +1392,7 @@ export const getRank = async (req, res) => {
     const findQuestion = (questions) => {
       if (!questions || !Array.isArray(questions)) return null;
       for (const q of questions) {
-        if (q.id === questionId) return q;
+        if (q.id === questionId || q._id?.toString() === questionId) return q;
         if (q.followUpQuestions && q.followUpQuestions.length > 0) {
           const found = findQuestion(q.followUpQuestions);
           if (found) return found;
@@ -1366,21 +1417,36 @@ export const getRank = async (req, res) => {
       trackingQId = `${questionId}_tracking`;
     }
 
+    const strAnswer = extractAnswerString(answer);
+    if (!strAnswer) {
+      return res.status(200).json({
+        success: true,
+        data: { rank: 1 }
+      });
+    }
+
     // Count existing final responses with the EXACT SAME answer for this form
     const formIds = [form.id, form._id ? form._id.toString() : null, formId].filter(Boolean);
-    const strAnswer = String(answer).trim();
     const escapedAnswer = strAnswer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const exactRegex = new RegExp(`^${escapedAnswer}$`, "i");
 
     const orConditions = [
       { [`answers.${trackingQId}`]: exactRegex },
-      { [`answers.${questionId}`]: exactRegex }
+      { [`answers.${questionId}`]: exactRegex },
+      { [`answers.${trackingQId}.chassisNumber`]: exactRegex },
+      { [`answers.${questionId}.chassisNumber`]: exactRegex },
+      { [`answers.${trackingQId}.value`]: exactRegex },
+      { [`answers.${questionId}.value`]: exactRegex },
     ];
 
     const numAnswer = Number(strAnswer);
     if (!isNaN(numAnswer)) {
       orConditions.push({ [`answers.${trackingQId}`]: numAnswer });
       orConditions.push({ [`answers.${questionId}`]: numAnswer });
+      orConditions.push({ [`answers.${trackingQId}.chassisNumber`]: numAnswer });
+      orConditions.push({ [`answers.${questionId}.chassisNumber`]: numAnswer });
+      orConditions.push({ [`answers.${trackingQId}.value`]: numAnswer });
+      orConditions.push({ [`answers.${questionId}.value`]: numAnswer });
     }
 
     const query = {
@@ -1451,43 +1517,48 @@ export const getSuggestedAnswers = async (req, res) => {
       });
     }
 
-    // Find a previous response with a match in the answers map
-    // For Mongoose Maps, we use dot notation: answers.questionId
+    const strAnswer = extractAnswerString(answer);
+    if (!strAnswer) {
+      return res.status(200).json({
+        success: true,
+        data: { suggestedAnswers: null }
+      });
+    }
+
+    const formIds = [form.id, form._id ? form._id.toString() : null, formId].filter(Boolean);
     const query = {
-      questionId: { $in: [form.id, form._id.toString()] }
+      questionId: { $in: formIds },
+      isSectionSubmit: { $ne: true }
     };
 
     const trackingQuestionId = `${questionId}_tracking`;
+    const escapedAnswer = strAnswer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const exactRegex = {
+      $regex: `^${escapedAnswer}$`,
+      $options: 'i'
+    };
 
-    if (typeof answer === 'string') {
-      // Use case-insensitive prefix match for strings
-      const regex = {
-        $regex: `^${answer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
-        $options: 'i'
-      };
+    query.$or = [
+      { [`answers.${questionId}`]: exactRegex },
+      { [`answers.${trackingQuestionId}`]: exactRegex },
+      { [`answers._${questionId}`]: exactRegex },
+      { [`answers._${trackingQuestionId}`]: exactRegex },
+      { [`answers.${questionId}.chassisNumber`]: exactRegex },
+      { [`answers.${trackingQuestionId}.chassisNumber`]: exactRegex },
+      { [`answers.${questionId}.value`]: exactRegex },
+      { [`answers.${trackingQuestionId}.value`]: exactRegex }
+    ];
 
-      query.$or = [
-        { [`answers.${questionId}`]: regex },
-        { [`answers.${trackingQuestionId}`]: regex },
-        { [`answers._${questionId}`]: regex },
-        { [`answers._${trackingQuestionId}`]: regex }
-      ];
-
-      // If the answer is numeric, also try exact number match
-      const numAnswer = Number(answer);
-      if (!isNaN(numAnswer)) {
-        query.$or.push({ [`answers.${questionId}`]: numAnswer });
-        query.$or.push({ [`answers.${trackingQuestionId}`]: numAnswer });
-        query.$or.push({ [`answers._${questionId}`]: numAnswer });
-        query.$or.push({ [`answers._${trackingQuestionId}`]: numAnswer });
-      }
-    } else {
-      query.$or = [
-        { [`answers.${questionId}`]: answer },
-        { [`answers.${trackingQuestionId}`]: answer },
-        { [`answers._${questionId}`]: answer },
-        { [`answers._${trackingQuestionId}`]: answer }
-      ];
+    const numAnswer = Number(strAnswer);
+    if (!isNaN(numAnswer)) {
+      query.$or.push({ [`answers.${questionId}`]: numAnswer });
+      query.$or.push({ [`answers.${trackingQuestionId}`]: numAnswer });
+      query.$or.push({ [`answers._${questionId}`]: numAnswer });
+      query.$or.push({ [`answers._${trackingQuestionId}`]: numAnswer });
+      query.$or.push({ [`answers.${questionId}.chassisNumber`]: numAnswer });
+      query.$or.push({ [`answers.${trackingQuestionId}.chassisNumber`]: numAnswer });
+      query.$or.push({ [`answers.${questionId}.value`]: numAnswer });
+      query.$or.push({ [`answers.${trackingQuestionId}.value`]: numAnswer });
     }
 
     // Only filter by tenantId if the form is NOT global or if we have a specific tenantSlug
