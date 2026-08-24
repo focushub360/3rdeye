@@ -8,9 +8,44 @@
     <link rel="dns-prefetch" href="https://threew-vu4v.onrender.com" />
     <link rel="preload" as="image" href="/assets/logo.jpeg" />
     <title>Focus Forms</title>
+    <style>
+      #root-skeleton {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background-color: #f3f4f6;
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: .5; }
+      }
+      .skeleton-header {
+        height: 64px;
+        background-color: #ffffff;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .skeleton-body {
+        flex: 1;
+        padding: 24px;
+      }
+      .skeleton-card {
+        height: 200px;
+        background-color: #ffffff;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="root-skeleton">
+        <div class="skeleton-header"></div>
+        <div class="skeleton-body">
+          <div class="skeleton-card"></div>
+        </div>
+      </div>
+    </div>
     <div id="notification-root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -38,6 +38,7 @@ import otpRoutes from './routes/otpRoutes.js';
 import hrRoutes from './routes/hrRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import internalTrackingRoutes from './routes/internalTrackingRoutes.js';
+import { initKeepAlive } from './utils/keepAlive.js';
 
 // Connect to database safely without crashing startup
 try {
@@ -172,6 +173,11 @@ app.use('/api/upload', uploadRoutes);
 
 
 
+// Ultra-fast health check for keep-alive pinging (no auth, no middleware)
+app.get("/api/health", (req, res) => {
+  res.status(200).json({ ok: true, ts: Date.now() });
+});
+
 // Health check route
 app.get("/", (req, res) => {
   res.json({
@@ -181,11 +187,6 @@ app.get("/", (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
-
-// Files are now served through GridFS via /api/files/:id endpoint
-
-// Serve frontend static files
-app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
 // Serve uploaded files (fallback for any local uploads)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -332,10 +333,7 @@ app.get("/api", (req, res) => {
   });
 });
 
-// Catch all handler: send back index.html for client-side routing
-app.get(/^\/(?!api).*/, (req, res) => {
-  res.sendFile(path.join(__dirname, "../frontend/dist/index.html"));
-});
+// Frontend is served by Vercel — no catch-all needed
 
 // Handle upload errors
 app.use(handleUploadError);
@@ -365,4 +363,9 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`🌐 API Base URL: http://localhost:${PORT}/api`);
   console.log(`⏱️  Request timeout: ${requestTimeout}ms (${Math.round(requestTimeout / 1000 / 60)} minutes)`);
   console.log(`🔌 WebSocket server initialized for real-time updates`);
+
+  // Start keep-alive pinger to prevent Render cold starts
+  if (process.env.NODE_ENV === 'production' || process.env.RENDER_EXTERNAL_URL) {
+    initKeepAlive();
+  }
 });

@@ -47,54 +47,54 @@ import { FormWithFollowUpCreator } from "./components/forms/FormWithFollowUpCrea
 
 
 
+// === CRITICAL PATH: Static imports for instant rendering ===
 import LoginPage from "./components/auth/LoginPage";
 import SignupPage from "./components/auth/SignupPage";
-
-
+import DashboardNew from "./components/DashboardNew";
+import FormsAnalytics from "./components/analytics/FormsAnalytics";
+import FormAnalyticsDashboard from "./components/analytics/FormAnalyticsDashboard";
+import FormsList from "./components/FormsList";
+import FormResponses from "./components/FormResponses";
+import AllResponses from "./components/AllResponses";
+import ResponseDetailsPage from "./components/ResponseDetailsPage";
+import Overall from "./components/Overall";
+import FormsManagementNew from "./components/FormsManagementNew";
+import ErrorPage from "./components/ErrorPage";
+import GuestAnalyticsLogin from "./components/auth/GuestAnalyticsLogin";
 import NotificationContainer from "./components/ui/NotificationContainer";
 import Header from "./components/Header";
 import Sidebar from "./components/layout/Sidebar";
 
-import FormsPreview from "./components/FormsPreview";
-import TestAPI from "./components/TestAPI";
-import ResponseForm from "./components/ResponseForm";
-import FollowUpFormDemo from "./components/forms/FollowUpFormDemo";
-import FollowUpFormManager from "./components/forms/FollowUpFormManager";
-import FormWithFollowUpResponderWrapper from "./components/forms/FormWithFollowUpResponderWrapper";
-import FormsAnalytics from "./components/analytics/FormsAnalytics";
-import FormAnalyticsDashboard from "./components/analytics/FormAnalyticsDashboard";
-import FormsManagementNew from "./components/FormsManagementNew";
-import Management from "./components/management/Management";
-import MailTest from "./components/MailTest";
-import WhatsAppTest from "./components/WhatsAppTest";
-import FormsList from "./components/FormsList";
-import FormCreator from "./components/FormCreator";
-import PreviewFormWrapper from "./components/PreviewFormWrapper";
-import FormResponses from "./components/FormResponses";
-import FormUploadsView from "./components/analytics/FormUploadsView";
-import AllResponses from "./components/AllResponses";
-import EditResponsePage from "./components/EditResponsePage";
-import EditResponseFormPage from "./pages/EditResponseFormPage";
-import DashboardNew from "./components/DashboardNew";
-import Overall from "./components/Overall";
-import TenantManagement from "./components/superadmin/TenantManagement";
-import GlobalFormManagement from "./components/superadmin/GlobalFormManagement";
-import AdminManagement from "./components/admin/AdminManagement";
-import UserActivityLogs from "./components/admin/UserActivityLogs";
-import Attendance from "./components/admin/Attendance";
-import HRAttendance from "./components/admin/HRAttendance";
-import ShiftManagement from "./components/admin/ShiftManagement";
-import AttendanceAnalytics from "./components/analytics/AttendanceAnalytics";
-import AttendanceDashboard from "./components/inspectors/AttendanceDashboard";
-import GuestAnalyticsLogin from "./components/auth/GuestAnalyticsLogin";
-import FreeTrialManagement from "./components/superadmin/FreeTrialManagement";
-import ResponseDetailsPage from "./components/ResponseDetailsPage";
-import InviteStatusPage from "./components/InviteStatusPage";
-import ErrorPage from "./components/ErrorPage";
-import LeaveManagement from "./components/hr/LeaveManagement";
-import PermissionManagement from "./components/hr/PermissionManagement";
-import InspectorChat from "./components/inspectors/InspectorChat";
-import InternalTracking from "./pages/InternalTracking";
+// === LAZY-LOADED: Admin, HR, SuperAdmin, and rarely-visited pages ===
+const FormsPreview = React.lazy(() => import("./components/FormsPreview"));
+const TestAPI = React.lazy(() => import("./components/TestAPI"));
+const ResponseForm = React.lazy(() => import("./components/ResponseForm"));
+const FollowUpFormDemo = React.lazy(() => import("./components/forms/FollowUpFormDemo"));
+const FollowUpFormManager = React.lazy(() => import("./components/forms/FollowUpFormManager"));
+const FormWithFollowUpResponderWrapper = React.lazy(() => import("./components/forms/FormWithFollowUpResponderWrapper"));
+const FormCreator = React.lazy(() => import("./components/FormCreator"));
+const PreviewFormWrapper = React.lazy(() => import("./components/PreviewFormWrapper"));
+const FormUploadsView = React.lazy(() => import("./components/analytics/FormUploadsView"));
+const EditResponsePage = React.lazy(() => import("./components/EditResponsePage"));
+const EditResponseFormPage = React.lazy(() => import("./pages/EditResponseFormPage"));
+const Management = React.lazy(() => import("./components/management/Management"));
+const MailTest = React.lazy(() => import("./components/MailTest"));
+const WhatsAppTest = React.lazy(() => import("./components/WhatsAppTest"));
+const TenantManagement = React.lazy(() => import("./components/superadmin/TenantManagement"));
+const GlobalFormManagement = React.lazy(() => import("./components/superadmin/GlobalFormManagement"));
+const AdminManagement = React.lazy(() => import("./components/admin/AdminManagement"));
+const UserActivityLogs = React.lazy(() => import("./components/admin/UserActivityLogs"));
+const Attendance = React.lazy(() => import("./components/admin/Attendance"));
+const HRAttendance = React.lazy(() => import("./components/admin/HRAttendance"));
+const ShiftManagement = React.lazy(() => import("./components/admin/ShiftManagement"));
+const AttendanceAnalytics = React.lazy(() => import("./components/analytics/AttendanceAnalytics"));
+const AttendanceDashboard = React.lazy(() => import("./components/inspectors/AttendanceDashboard"));
+const FreeTrialManagement = React.lazy(() => import("./components/superadmin/FreeTrialManagement"));
+const InviteStatusPage = React.lazy(() => import("./components/InviteStatusPage"));
+const LeaveManagement = React.lazy(() => import("./components/hr/LeaveManagement"));
+const PermissionManagement = React.lazy(() => import("./components/hr/PermissionManagement"));
+const InspectorChat = React.lazy(() => import("./components/inspectors/InspectorChat"));
+const InternalTracking = React.lazy(() => import("./pages/InternalTracking"));
 
 
 
