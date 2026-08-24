@@ -3317,28 +3317,37 @@ class ApiClient {
     });
 
     if (totalPages > 1) {
-      for (let p = 2; p <= totalPages; p++) {
-        try {
-          const res = await this.getFormResponses(formId, {
-            status: options?.status,
-            includePartial: options?.includePartial,
-            analytics: options?.analytics,
-            page: p,
-            limit: pageLimit,
-            forceNetwork: options?.forceNetwork,
-          });
-          const pageResponses = res.responses || [];
-          allResponses = allResponses.concat(pageResponses);
-          options?.onPage?.({
-            responses: pageResponses,
-            pageNumber: p,
-            totalPages,
-            isLast: p === totalPages,
-          });
-        } catch (err) {
-          console.warn(`Failed to fetch page ${p} of form responses:`, err);
-          // If a chunk fails, we just continue with what we have so the UI doesn't crash
-        }
+      // Fetch remaining pages in parallel batches of 4 for fast sub-second loading
+      const batchSize = 4;
+      const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
+
+      for (let i = 0; i < remainingPages.length; i += batchSize) {
+        const batch = remainingPages.slice(i, i + batchSize);
+        const batchResults = await Promise.allSettled(
+          batch.map((p) =>
+            this.getFormResponses(formId, {
+              status: options?.status,
+              includePartial: options?.includePartial,
+              analytics: options?.analytics,
+              page: p,
+              limit: pageLimit,
+              forceNetwork: options?.forceNetwork,
+            }).then((res) => ({ pageNumber: p, responses: res.responses || [] }))
+          )
+        );
+
+        batchResults.forEach((res) => {
+          if (res.status === "fulfilled" && res.value) {
+            const { pageNumber, responses: pageResponses } = res.value;
+            allResponses = allResponses.concat(pageResponses);
+            options?.onPage?.({
+              responses: pageResponses,
+              pageNumber,
+              totalPages,
+              isLast: pageNumber === totalPages,
+            });
+          }
+        });
       }
     }
 

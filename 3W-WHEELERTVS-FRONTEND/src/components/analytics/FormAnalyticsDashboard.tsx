@@ -4187,7 +4187,7 @@ export default function FormAnalyticsDashboard() {
   const fetchFullAnalyticsResponses = async () => {
     if (!id) return;
     setAnalyticsResponsesLoading(true);
-    setResponses([]); // clear any stale set before streaming the fresh one in
+    let accumulator: any[] = [];
     try {
       const responsesData = await apiClient.getAllFormResponses(id, {
         analytics: true,
@@ -4198,17 +4198,14 @@ export default function FormAnalyticsDashboard() {
           totalPages: number;
           isLast: boolean;
         }) => {
-          console.log(
-            `[ANALYTICS DEBUG] Analytics page ${pageNumber}/${totalPages} fetched:`,
-            pageResponses.length,
-          );
-          setResponses((prev) => prev.concat(pageResponses));
+          accumulator = accumulator.concat(pageResponses);
+          setResponses([...accumulator]);
+          setAnalyticsResponsesLoading(false);
         },
       });
-      console.log(
-        "[ANALYTICS DEBUG] Full analytics responses fetched:",
-        responsesData.responses?.length || 0,
-      );
+      if (responsesData.responses && responsesData.responses.length > 0) {
+        setResponses(responsesData.responses);
+      }
     } catch (err) {
       console.error("Error fetching full analytics responses:", err);
       showToast("Failed to load analytics data. Please try again.", "error");
@@ -10007,20 +10004,35 @@ export default function FormAnalyticsDashboard() {
           }
           aria-hidden={analyticsView !== "dashboard"}
         >
-          {isChartLoading && !isExporting ? (
-            // Single loading state for the entire dashboard tab — avoids
-            // each chart/table independently flashing its own "No data"
-            // empty state while the full analytics response set
-            // (analyticsResponsesLoading) is still in flight. Skipped
-            // during PDF export (isExporting), since that render happens
-            // off-screen after data has already loaded and must contain
-            // real content, not a spinner.
-            <div className="flex items-center justify-center min-h-[400px]">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent mx-auto mb-4"></div>
-                <p className="text-gray-500 dark:text-gray-400 font-medium">
-                  Loading dashboard data...
-                </p>
+          {responses.length === 0 && isChartLoading && !isExporting ? (
+            <div className="space-y-6 animate-pulse">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full">
+                <div className="p-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm min-h-[340px] flex flex-col justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-gray-200 dark:bg-gray-700"></div>
+                    <div className="space-y-1.5">
+                      <div className="w-28 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                      <div className="w-16 h-3 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                    </div>
+                  </div>
+                  <div className="h-44 w-full bg-gray-100 dark:bg-gray-700/50 rounded-lg flex items-end justify-between p-4 gap-2">
+                    <div className="w-full h-1/3 bg-gray-200 dark:bg-gray-600 rounded"></div>
+                    <div className="w-full h-2/3 bg-gray-200 dark:bg-gray-600 rounded"></div>
+                    <div className="w-full h-1/2 bg-gray-200 dark:bg-gray-600 rounded"></div>
+                    <div className="w-full h-4/5 bg-gray-200 dark:bg-gray-600 rounded"></div>
+                    <div className="w-full h-3/5 bg-gray-200 dark:bg-gray-600 rounded"></div>
+                  </div>
+                </div>
+                <div className="p-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm min-h-[340px] flex flex-col justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-gray-200 dark:bg-gray-700"></div>
+                    <div className="space-y-1.5">
+                      <div className="w-28 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                      <div className="w-20 h-3 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                    </div>
+                  </div>
+                  <div className="w-44 h-44 mx-auto rounded-full border-8 border-gray-200 dark:border-gray-600"></div>
+                </div>
               </div>
             </div>
           ) : (
@@ -11606,6 +11618,47 @@ export default function FormAnalyticsDashboard() {
                                 </tr>
                               ),
                             )
+                          ) : loadingTable ? (
+                            Array.from({ length: 6 }).map((_, rIdx) => (
+                              <tr key={`skel-row-${rIdx}`} className="animate-pulse">
+                                <td className="hidden sm:table-cell px-3 py-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="w-4 h-4 bg-gray-200 dark:bg-gray-700 rounded mx-auto"></div>
+                                </td>
+                                <td className="px-4 py-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="w-16 h-4 bg-gray-200 dark:bg-gray-700 rounded mx-auto"></div>
+                                </td>
+                                <td className="px-6 py-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="w-20 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                                </td>
+                                <td className="px-6 py-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="w-16 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                                </td>
+                                <td className="px-6 py-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="w-24 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                                </td>
+                                <td className="px-6 py-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="w-24 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                                </td>
+                                <td className="px-4 py-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="w-20 h-4 bg-gray-200 dark:bg-gray-700 rounded mx-auto"></div>
+                                </td>
+                                <td className="px-6 py-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="w-24 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                                </td>
+                                <td className="px-4 py-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="w-16 h-4 bg-gray-200 dark:bg-gray-700 rounded mx-auto"></div>
+                                </td>
+                                {form?.sections?.map(
+                                  (section: Section) =>
+                                    selectedResponsesSectionIds.includes(section.id) &&
+                                    section.questions?.map((q: any) => (
+                                      <td key={`skel-${q.id}`} className="px-4 py-4 border border-gray-200 dark:border-gray-700">
+                                        <div className="w-20 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                                      </td>
+                                    ))
+                                )}
+                              </tr>
+                            ))
                           ) : (
                             <tr>
                               <td
