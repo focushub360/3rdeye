@@ -133,42 +133,24 @@ export const login = async (req, res) => {
       }
     }
 
-    // Run password verification and data fetching concurrently for faster UX
+    // Run password verification, tenant lookup, and forms fetching concurrently
     const tenantPromise = (user.role !== 'superadmin' && user.tenantId)
       ? (tenantSlug ? Tenant.findOne({ slug: tenantSlug }).lean() : Tenant.findById(user.tenantId).lean())
       : Promise.resolve(null);
       
     const formsPromise = (user.role !== 'superadmin' && user.tenantId)
-      ? Form.find({ tenantId: user.tenantId, isGlobal: false }).sort({ createdAt: -1 }).limit(100).lean().catch(() => [])
+      ? Form.find({ tenantId: user.tenantId, isGlobal: false })
+          .select('id _id title category isGlobal parentFormId childForms tenantId status isActive createdAt')
+          .sort({ createdAt: -1 })
+          .limit(50)
+          .lean()
+          .catch(() => [])
       : Promise.resolve([]);
 
-    const statsPromise = (async () => {
-       try {
-         const userId = user._id;
-         const userEmail = user.email;
-         const userUsername = user.username;
-         const totalResponses = await Response.countDocuments({
-           $or: [ { createdBy: userId }, { submittedBy: userEmail }, { submittedBy: userUsername } ]
-         });
-         const reviews = await Review.find({
-           $or: [ { submitterId: userId.toString() }, { submitterId: userEmail }, { submitterId: userUsername } ]
-         });
-         const total = reviews.length;
-         const accepted = reviews.filter(r => r.reviewOption === 'Accepted').length;
-         const rejected = reviews.filter(r => r.reviewOption === 'Rejected').length;
-         const rework = reviews.filter(r => r.reviewOption === 'Rework').length;
-         const performanceScore = total > 0 ? Math.round((accepted / total) * 100) : 0;
-         return { totalResponses, reviewed: total, accepted, rejected, rework, performanceScore };
-       } catch (e) {
-         return null;
-       }
-    })();
-
-    const [isPasswordValid, tenantResult, formsResult, statsResult] = await Promise.all([
+    const [isPasswordValid, tenantResult, formsResult] = await Promise.all([
       user.comparePassword(password),
       tenantPromise,
-      formsPromise,
-      statsPromise
+      formsPromise
     ]);
 
     if (!isPasswordValid) {
@@ -282,10 +264,11 @@ export const login = async (req, res) => {
     }
 
     // Add prefetched dashboard data for instant frontend rendering
-    responseData.initialData = {
-      forms: formsResult,
-      myReviewStats: statsResult
-    };
+    if (formsResult && formsResult.length > 0) {
+      responseData.initialData = {
+        forms: formsResult
+      };
+    }
 
     res.json({
       success: true,

@@ -93,6 +93,7 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, X-App-Type');
+    res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours to eliminate OPTIONS lag
   }
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -106,7 +107,8 @@ app.use(cors({
     if (!origin) return callback(null, true);
     callback(null, true);
   },
-  credentials: true
+  credentials: true,
+  maxAge: 86400
 }));
 
 // Gzip compression — reduces JSON payloads by ~90% (20MB → ~2MB)
