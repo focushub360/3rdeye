@@ -4775,6 +4775,87 @@ export default function FormAnalyticsDashboard() {
     return ranks;
   }, [responses, tableResponses, chassisQuestionId]);
 
+  // Distinct filter options for Time Taken attempt rank & status color
+  const attemptRankFilterOptions = useMemo(() => {
+    const opts = new Set<string>();
+    const dataset = responses.length > 0 ? responses : tableResponses;
+    dataset.forEach((r) => {
+      const rank = chassisAttemptRanks[r.id] || (r.responseRanks && chassisQuestionId ? r.responseRanks[chassisQuestionId] : 1);
+      const rowStatus = tableDisplayStatuses[r.id] || responseStatuses[r.id] || "Pending Review";
+      let colorLabel = "Green - Accepted";
+      if (rowStatus === "Rejected") {
+        colorLabel = "Red - Rejected";
+      } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
+        colorLabel = "Amber - Rework";
+      } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
+        colorLabel = "Green - Accepted";
+      } else {
+        colorLabel = "Gray - Pending";
+      }
+      opts.add(`Attempt ${rank} (${colorLabel})`);
+    });
+
+    if (opts.size === 0) {
+      return [
+        "Attempt 1 (Green - Accepted)",
+        "Attempt 1 (Amber - Rework)",
+        "Attempt 1 (Red - Rejected)",
+        "Attempt 2 (Green - Accepted)",
+        "Attempt 2 (Amber - Rework)",
+        "Attempt 2 (Red - Rejected)",
+      ];
+    }
+
+    return Array.from(opts).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [responses, tableResponses, chassisAttemptRanks, tableDisplayStatuses, responseStatuses, chassisQuestionId]);
+
+  // Responses displayed in the table, filtered by column filters (including __attemptRank)
+  const displayedTableResponses = useMemo(() => {
+    let result = tableResponses;
+    const activeColumnFilters = Object.entries(columnFilters).filter(
+      ([_, values]) => values && values.length > 0,
+    );
+
+    if (activeColumnFilters.length > 0) {
+      result = result.filter((response) => {
+        return activeColumnFilters.every(([columnId, allowedValues]) => {
+          if (!allowedValues || allowedValues.length === 0) return true;
+
+          // Special Attempt Rank / Status Filter
+          if (columnId === "__attemptRank") {
+            const rank = chassisAttemptRanks[response.id] || (response.responseRanks && chassisQuestionId ? response.responseRanks[chassisQuestionId] : 1);
+            const rowStatus = tableDisplayStatuses[response.id] || responseStatuses[response.id] || "Pending Review";
+            let colorLabel = "Green - Accepted";
+            if (rowStatus === "Rejected") {
+              colorLabel = "Red - Rejected";
+            } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
+              colorLabel = "Amber - Rework";
+            } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
+              colorLabel = "Green - Accepted";
+            } else {
+              colorLabel = "Gray - Pending";
+            }
+            const fullLabel = `Attempt ${rank} (${colorLabel})`;
+            return (
+              allowedValues.includes(fullLabel) ||
+              allowedValues.includes(`Attempt ${rank}`) ||
+              allowedValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
+            );
+          }
+
+          const answer = response.answers?.[columnId];
+          if (answer === null || answer === undefined) {
+            return allowedValues.includes("No Response");
+          }
+          const answerValues = extractAnswerValues(answer);
+          return answerValues.some(v => allowedValues.includes(v));
+        });
+      });
+    }
+
+    return result;
+  }, [tableResponses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, responseStatuses, chassisQuestionId]);
+
   const fetchChatHistory = async (responseId: string) => {
     try {
       console.log(
@@ -10490,7 +10571,23 @@ export default function FormAnalyticsDashboard() {
                             </th>
 
                             <th className="text-center px-4 py-3 font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              Time Taken
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="flex-1 text-center">Time Taken</span>
+                                <TableColumnFilter
+                                  columnId="__attemptRank"
+                                  title="Attempt & Status"
+                                  options={attemptRankFilterOptions}
+                                  selectedValues={
+                                    columnFilters["__attemptRank"] || null
+                                  }
+                                  onFilterChange={(columnId, values) => {
+                                    setColumnFilters((prev) => ({
+                                      ...prev,
+                                      [columnId]: values,
+                                    }));
+                                  }}
+                                />
+                              </div>
                             </th>
                             {form?.sections?.map(
                               (section: Section) =>
@@ -10537,8 +10634,8 @@ export default function FormAnalyticsDashboard() {
                         </thead>
 
                         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                          {tableResponses.length > 0 ? (
-                            tableResponses.map(
+                          {displayedTableResponses.length > 0 ? (
+                            displayedTableResponses.map(
                               (response: Response, idx: number) => (
                                 <tr
                                   key={response.id}
@@ -11103,14 +11200,6 @@ export default function FormAnalyticsDashboard() {
 
                                       return (
                                         <div className="flex items-center justify-center gap-2">
-                                          {/* Chassis Attempt Rank Badge (1, 2, etc.) with status-based color */}
-                                          <span
-                                            title={`Chassis inspection attempt #${rank} (${rowStatus})`}
-                                            className={`text-[11px] font-extrabold min-w-[22px] h-[22px] px-1.5 rounded-full flex items-center justify-center border shadow-xs ${getRankBadgeClass(rowStatus)}`}
-                                          >
-                                            {rank}
-                                          </span>
-
                                           {/* Time Taken duration */}
                                           {timeSpent !== undefined &&
                                           timeSpent !== null &&
@@ -11126,6 +11215,14 @@ export default function FormAnalyticsDashboard() {
                                           ) : (
                                             <span className="text-gray-400 text-xs">-</span>
                                           )}
+
+                                          {/* Chassis Attempt Rank Badge (1, 2, etc.) placed AFTER time taken with status-based color */}
+                                          <span
+                                            title={`Chassis inspection attempt #${rank} (${rowStatus})`}
+                                            className={`text-[11px] font-extrabold min-w-[22px] h-[22px] px-1.5 rounded-full flex items-center justify-center border shadow-xs ${getRankBadgeClass(rowStatus)}`}
+                                          >
+                                            {rank}
+                                          </span>
                                         </div>
                                       );
                                     })()}
