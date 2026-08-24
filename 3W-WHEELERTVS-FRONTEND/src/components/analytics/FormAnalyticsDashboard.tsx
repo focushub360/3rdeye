@@ -2537,20 +2537,13 @@ const formAnalyticsMemoryCache = new Map<string, {
           return;
         }
 
-        const res = await fetch("/api/responses/reviews/bulk", {
+        const data = await apiClient.request<{ success: boolean; data: any[] }>("/responses/reviews/bulk", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
-          },
           body: JSON.stringify({ responseIds }),
         });
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success) {
-            setTvsReviews(data.data || []);
-          }
+        if (data && data.success) {
+          setTvsReviews(data.data || []);
         }
       } catch (err) {
         console.error("Error fetching bulk TVS reviews:", err);
@@ -3953,9 +3946,15 @@ const formAnalyticsMemoryCache = new Map<string, {
         url += `?formId=${id}`;
       }
 
+      const hierarchyPromise = apiClient.getCachedData<any>("/users/hierarchy?role=Inspector")
+        ? Promise.resolve(apiClient.getCachedData<any>("/users/hierarchy?role=Inspector"))
+        : apiClient.getUsersHierarchy({ role: "Inspector" }).then(res => {
+            return res;
+          }).catch(() => ({ users: [] }));
+
       const [summaryRes, hierarchyRes] = await Promise.all([
         apiClient.get<any>(url),
-        apiClient.getUsersHierarchy({ role: "Inspector" }),
+        hierarchyPromise,
       ]);
 
       if (summaryRes.data) {
@@ -3963,7 +3962,7 @@ const formAnalyticsMemoryCache = new Map<string, {
         setSummaryStatuses(summaryRes.data.allStatuses || []);
       }
 
-      if (hierarchyRes.users) {
+      if (hierarchyRes?.users) {
         setAllInspectors(hierarchyRes.users);
       }
     } catch (error) {
@@ -9340,12 +9339,43 @@ const formAnalyticsMemoryCache = new Map<string, {
     );
   };
 
-  if (loading) {
+  if (loading && !form) {
     return (
-      <div className="p-6">
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-primary-600">Loading analytics...</p>
+      <div className="min-h-screen bg-gray-50/50 dark:bg-gray-900 p-4 sm:p-6 md:p-8 space-y-6 animate-pulse">
+        {/* Header Skeleton */}
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
+            <div>
+              <div className="w-64 h-7 bg-gray-200 dark:bg-gray-700 rounded-md mb-2"></div>
+              <div className="w-40 h-4 bg-gray-100 dark:bg-gray-700/60 rounded-md"></div>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <div className="w-28 h-10 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
+            <div className="w-28 h-10 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
+          </div>
+        </div>
+
+        {/* 2-Column Grid Skeletons */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Response Trend Chart Skeleton */}
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm h-[380px] flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <div className="w-40 h-6 bg-gray-200 dark:bg-gray-700 rounded-md"></div>
+              <div className="w-20 h-4 bg-gray-100 dark:bg-gray-700 rounded-md"></div>
+            </div>
+            <div className="w-full h-56 bg-gradient-to-t from-blue-50 to-transparent dark:from-blue-900/10 rounded-xl"></div>
+          </div>
+
+          {/* Overall Inspection Trend Donut Skeleton */}
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm h-[380px] flex flex-col justify-between items-center">
+            <div className="w-full flex items-center justify-between">
+              <div className="w-48 h-6 bg-gray-200 dark:bg-gray-700 rounded-md"></div>
+            </div>
+            <div className="w-48 h-48 rounded-full border-8 border-gray-100 dark:border-gray-700"></div>
+            <div className="w-3/4 h-8 bg-gray-100 dark:bg-gray-700 rounded-md"></div>
+          </div>
         </div>
       </div>
     );

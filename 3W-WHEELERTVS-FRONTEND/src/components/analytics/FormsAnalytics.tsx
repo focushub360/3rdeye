@@ -405,35 +405,16 @@ export default function FormsAnalytics() {
     return filtered;
   }, [forms, userRole, userPermissions]);
   useEffect(() => {
-  const fetchAccurateCounts = async () => {
     if (!visibleForms.length) return;
-    
     const counts: Record<string, number> = {};
-    
     for (const form of visibleForms) {
       const formId = form._id || form.id;
-      if (!formId) continue;
-      
-      try {
-        // Get ALL responses including partial
-        const result = await apiClient.getFormResponses(formId, {
-          page: 1,
-          limit: 1,
-          includePartial: true,  // ✅ This is the key
-          analytics: true
-        });
-        counts[formId] = result.pagination?.totalResponses || 0;
-      } catch {
-        // Fallback to the existing count if API fails
+      if (formId) {
         counts[formId] = form.responseCount || 0;
       }
     }
-    
     setActualResponseCounts(counts);
-  };
-  
-  fetchAccurateCounts();
-}, [visibleForms]);
+  }, [visibleForms]);
 
   const totalForms = visibleForms.filter((form: FormItem) => !form.parentFormId).length;
   const activeFormsCount = visibleForms.filter(
@@ -876,56 +857,7 @@ export default function FormsAnalytics() {
     }
   };
 
-  useEffect(() => {
-    const fetchInviteCounts = async () => {
-      try {
-        const invitePromises = visibleForms.map(async (form) => {
-          const formId = form.id || form._id;
-          if (!formId) return { id: null, count: 0 };
-
-          const ownerTenantId =
-            typeof form.tenantId === "object"
-              ? form.tenantId?._id
-              : form.tenantId;
-          const isOwner =
-            user?.role === "superadmin" ||
-            !form.tenantId ||
-            ownerTenantId === user?.tenantId;
-
-          if (isOwner) {
-            try {
-              const response = await apiClient.getInviteStats(formId);
-              if (response.success) {
-                return { id: formId, count: response.data.invites?.total || 0 };
-              }
-            } catch (error) {
-              console.warn(
-                `Failed to fetch invite stats for form ${formId}:`,
-                error,
-              );
-            }
-          }
-          return { id: formId, count: 0 };
-        });
-
-        const results = await Promise.all(invitePromises);
-        const counts: Record<string, number> = {};
-        results.forEach((r) => {
-          if (r.id) {
-            counts[r.id] = r.count;
-          }
-        });
-
-        setInviteCounts(counts);
-      } catch (error) {
-        console.error("Failed to fetch invite counts:", error);
-      }
-    };
-
-    if (visibleForms.length > 0) {
-      fetchInviteCounts();
-    }
-  }, [visibleForms, user]);
+  // Removed wasteful bulk getInviteStats loop that blocked the network with 20+ parallel requests
 
   const isDataLoading = loading || !formsData;
   const combinedError = error;
