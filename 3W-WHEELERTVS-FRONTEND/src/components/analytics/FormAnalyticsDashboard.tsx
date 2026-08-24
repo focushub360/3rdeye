@@ -10610,25 +10610,7 @@ export default function FormAnalyticsDashboard() {
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
                               <div className="flex items-center justify-between gap-1.5">
-                                <div className="flex items-center gap-1.5">
-                                  <span>Selected Chassis</span>
-                                  {canBulkSelectResponses && (
-                                    <button
-                                      onClick={handleAutoFillAllChassis}
-                                      disabled={isAutoFillingChassis || !chassisMasterOptions.length}
-                                      title="Auto-fill every response with no chassis number using the first option"
-                                      className="p-1 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed normal-case tracking-normal"
-                                    >
-                                      {isAutoFillingChassis ? (
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                      ) : (
-                                        <CheckCircle className="w-3.5 h-3.5" />
-                                      )}
-                                    </button>
-                                  )}
-                                </div>
-                                <button
-                                  type="button"
+                                <div
                                   onClick={() => {
                                     setTableSort((prev) =>
                                       prev?.columnId === "__chassisNumber"
@@ -10638,27 +10620,37 @@ export default function FormAnalyticsDashboard() {
                                         : { columnId: "__chassisNumber", direction: "asc" }
                                     );
                                   }}
-                                  className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${
-                                    tableSort?.columnId === "__chassisNumber"
-                                      ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30"
-                                      : "text-gray-400 hover:text-gray-600"
-                                  }`}
-                                  title={
-                                    tableSort?.columnId === "__chassisNumber" && tableSort.direction === "asc"
-                                      ? "Chassis Sorted Ascending (Click for Descending)"
-                                      : tableSort?.columnId === "__chassisNumber" && tableSort.direction === "desc"
-                                      ? "Chassis Sorted Descending (Click to Clear)"
-                                      : "Sort Chassis Ascending / Descending"
-                                  }
+                                  className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                  title="Click to sort Chassis Ascending / Descending"
                                 >
-                                  {tableSort?.columnId === "__chassisNumber" && tableSort.direction === "asc" ? (
-                                    <ArrowUp className="w-3.5 h-3.5" />
-                                  ) : tableSort?.columnId === "__chassisNumber" && tableSort.direction === "desc" ? (
-                                    <ArrowDown className="w-3.5 h-3.5" />
+                                  <span>Selected Chassis</span>
+                                  {tableSort?.columnId === "__chassisNumber" ? (
+                                    tableSort.direction === "asc" ? (
+                                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    ) : (
+                                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    )
                                   ) : (
-                                    <ArrowUpDown className="w-3.5 h-3.5" />
+                                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
                                   )}
-                                </button>
+                                </div>
+                                {canBulkSelectResponses && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleAutoFillAllChassis();
+                                    }}
+                                    disabled={isAutoFillingChassis || !chassisMasterOptions.length}
+                                    title="Auto-fill every response with no chassis number using the first option"
+                                    className="p-1 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed normal-case tracking-normal"
+                                  >
+                                    {isAutoFillingChassis ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <CheckCircle className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                )}
                               </div>
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
@@ -10747,46 +10739,58 @@ export default function FormAnalyticsDashboard() {
                               </div>
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
-                              <div className="flex items-center justify-between gap-2">
+                              <div
+                                onClick={() => {
+                                  setTableSort((prev) =>
+                                    prev?.columnId === "__timestamp"
+                                      ? prev.direction === "asc"
+                                        ? { columnId: "__timestamp", direction: "desc" }
+                                        : null
+                                      : { columnId: "__timestamp", direction: "asc" }
+                                  );
+                                }}
+                                className="flex items-center justify-between gap-2 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                title="Click to sort by Timestamp"
+                              >
                                 <span>Timestamp</span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setTableSort((prev) =>
-                                      prev?.columnId === "__timestamp"
-                                        ? prev.direction === "asc"
-                                          ? { columnId: "__timestamp", direction: "desc" }
-                                          : null
-                                        : { columnId: "__timestamp", direction: "asc" }
-                                    );
-                                  }}
-                                  className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${
-                                    tableSort?.columnId === "__timestamp"
-                                      ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30"
-                                      : "text-gray-400 hover:text-gray-600"
-                                  }`}
-                                  title={
-                                    tableSort?.columnId === "__timestamp" && tableSort.direction === "asc"
-                                      ? "Timestamp Sorted Ascending (Click for Descending)"
-                                      : tableSort?.columnId === "__timestamp" && tableSort.direction === "desc"
-                                      ? "Timestamp Sorted Descending (Click to Clear)"
-                                      : "Sort by Timestamp"
-                                  }
-                                >
-                                  {tableSort?.columnId === "__timestamp" && tableSort.direction === "asc" ? (
-                                    <ArrowUp className="w-3.5 h-3.5" />
-                                  ) : tableSort?.columnId === "__timestamp" && tableSort.direction === "desc" ? (
-                                    <ArrowDown className="w-3.5 h-3.5" />
+                                {tableSort?.columnId === "__timestamp" ? (
+                                  tableSort.direction === "asc" ? (
+                                    <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                                   ) : (
-                                    <ArrowUpDown className="w-3.5 h-3.5" />
-                                  )}
-                                </button>
+                                    <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                                  )
+                                ) : (
+                                  <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 opacity-40 hover:opacity-100" />
+                                )}
                               </div>
                             </th>
 
                             <th className="text-center px-4 py-3 font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="flex-1 text-center">Time Taken</span>
+                                <span
+                                  onClick={() => {
+                                    setTableSort((prev) =>
+                                      prev?.columnId === "__timeSpent"
+                                        ? prev.direction === "asc"
+                                          ? { columnId: "__timeSpent", direction: "desc" }
+                                          : null
+                                        : { columnId: "__timeSpent", direction: "asc" }
+                                    );
+                                  }}
+                                  className="flex-1 text-center cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center justify-center gap-1"
+                                  title="Click to sort by Time Taken"
+                                >
+                                  <span>Time Taken</span>
+                                  {tableSort?.columnId === "__timeSpent" && (
+                                    <span className="text-indigo-600 dark:text-indigo-400">
+                                      {tableSort.direction === "asc" ? (
+                                        <ArrowUp className="w-3.5 h-3.5" />
+                                      ) : (
+                                        <ArrowDown className="w-3.5 h-3.5" />
+                                      )}
+                                    </span>
+                                  )}
+                                </span>
                                 <TableColumnFilter
                                   columnId="__attemptRank"
                                   title="Attempt & Status"
@@ -10800,14 +10804,6 @@ export default function FormAnalyticsDashboard() {
                                       [columnId]: values,
                                     }));
                                   }}
-                                  sortDirection={
-                                    tableSort?.columnId === "__attemptRank" || tableSort?.columnId === "__timeSpent"
-                                      ? tableSort.direction
-                                      : null
-                                  }
-                                  onSortChange={(_, dir) => {
-                                    setTableSort(dir ? { columnId: "__timeSpent", direction: dir } : null);
-                                  }}
                                 />
                               </div>
                             </th>
@@ -10820,6 +10816,14 @@ export default function FormAnalyticsDashboard() {
                                   const isFollowUp =
                                     q.parentId || q.showWhen?.questionId;
                                   const columnOptions = uniqueColumnValues.get(q.id) || [];
+                                  const isChassisQ =
+                                    q.id === chassisQuestionId ||
+                                    q.type === "chassis" ||
+                                    q.type === "chassisWithZone" ||
+                                    q.type === "chassisWithoutZone" ||
+                                    q.type === "zone-in" ||
+                                    q.type === "zone-out" ||
+                                    q.text?.toLowerCase().includes("chassis");
 
                                   return (
                                     <th
@@ -10827,8 +10831,30 @@ export default function FormAnalyticsDashboard() {
                                       className={`text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider border border-gray-200 dark:border-gray-700 max-w-xs ${isFollowUp ? "bg-purple-100 dark:bg-purple-900/30" : "bg-gray-100 dark:bg-gray-800"}`}
                                     >
                                       <div className="flex items-center justify-between gap-2">
-                                        <div className="line-clamp-2 overflow-hidden text-ellipsis flex-1">
-                                          {q.text || "Question"}
+                                        <div
+                                          onClick={() => {
+                                            const sortKey = isChassisQ ? "__chassisNumber" : q.id;
+                                            setTableSort((prev) =>
+                                              prev?.columnId === sortKey || prev?.columnId === q.id
+                                                ? prev.direction === "asc"
+                                                  ? { columnId: sortKey, direction: "desc" }
+                                                  : null
+                                                : { columnId: sortKey, direction: "asc" }
+                                            );
+                                          }}
+                                          className="line-clamp-2 overflow-hidden text-ellipsis flex-1 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center gap-1"
+                                          title={`Click to sort by ${q.text || "Question"}`}
+                                        >
+                                          <span>{q.text || "Question"}</span>
+                                          {(tableSort?.columnId === q.id || (isChassisQ && tableSort?.columnId === "__chassisNumber")) && (
+                                            <span className="text-indigo-600 dark:text-indigo-400 shrink-0">
+                                              {tableSort.direction === "asc" ? (
+                                                <ArrowUp className="w-3.5 h-3.5" />
+                                              ) : (
+                                                <ArrowDown className="w-3.5 h-3.5" />
+                                              )}
+                                            </span>
+                                          )}
                                         </div>
                                         <TableColumnFilter
                                           columnId={q.id}
@@ -10845,12 +10871,6 @@ export default function FormAnalyticsDashboard() {
                                               ...prev,
                                               [columnId]: values,
                                             }));
-                                          }}
-                                          sortDirection={
-                                            tableSort?.columnId === q.id ? tableSort.direction : null
-                                          }
-                                          onSortChange={(columnId, dir) => {
-                                            setTableSort(dir ? { columnId, direction: dir } : null);
                                           }}
                                         />
                                       </div>

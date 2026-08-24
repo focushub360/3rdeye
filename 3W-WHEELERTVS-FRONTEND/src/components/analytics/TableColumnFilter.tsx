@@ -179,59 +179,12 @@ export default function TableColumnFilter({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="fixed w-68 bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 z-[9999] overflow-hidden animate-in fade-in zoom-in-95 duration-100"
+          className="fixed w-64 bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 z-[9999] overflow-hidden animate-in fade-in zoom-in-95 duration-100"
           style={{
             top: `${dropdownPosition.top}px`,
             left: `${dropdownPosition.left}px`,
           }}
         >
-          {/* Quick Sort Controls inside Filter Modal */}
-          {onSortChange && (
-            <div className="p-2 bg-gray-50 dark:bg-gray-800/80 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-1 text-xs">
-              <span className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Sort:
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => onSortChange(columnId, "asc")}
-                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold border transition-all ${
-                    sortDirection === "asc"
-                      ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
-                      : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:bg-gray-100"
-                  }`}
-                  title="Sort 1 to 9 / A to Z"
-                >
-                  <ArrowUp className="w-3 h-3" />
-                  <span>Asc</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onSortChange(columnId, "desc")}
-                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold border transition-all ${
-                    sortDirection === "desc"
-                      ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
-                      : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:bg-gray-100"
-                  }`}
-                  title="Sort 9 to 1 / Z to A"
-                >
-                  <ArrowDown className="w-3 h-3" />
-                  <span>Desc</span>
-                </button>
-                {sortDirection && (
-                  <button
-                    type="button"
-                    onClick={() => onSortChange(columnId, null)}
-                    className="px-1.5 py-1 text-[11px] text-gray-400 hover:text-red-500 rounded"
-                    title="Clear sort"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* Search Box */}
           <div className="p-2.5 border-b border-gray-200 dark:border-gray-700">
             <div className="relative">
