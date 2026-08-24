@@ -190,8 +190,21 @@ export default function AllResponses() {
     return String(value);
   };
 
+// Module-level in-memory cache for instant 0ms Customer Requests rendering
+const allResponsesMemoryCache = {
+  responses: null as any[] | null,
+  forms: null as Form[] | null,
+  formsMap: null as Record<string, Form> | null,
+  timestamp: 0,
+};
+
   const getInitialMappedResponses = () => {
-    const cachedResponses = apiClient.getCachedData<any>("/responses?limit=1000");
+    // 1. Check in-memory cache first (< 3 mins)
+    if (allResponsesMemoryCache.responses && (Date.now() - allResponsesMemoryCache.timestamp < 180000)) {
+      return allResponsesMemoryCache.responses;
+    }
+
+    const cachedResponses = apiClient.getCachedData<any>("/responses?limit=300") || apiClient.getCachedData<any>("/responses?limit=1000");
     const cachedForms = apiClient.getCachedData<any>("/forms");
     if (!cachedResponses?.responses || !cachedForms?.forms) return [];
 
@@ -286,9 +299,10 @@ export default function AllResponses() {
   const [responses, setResponses] = useState<
     (Response & { formTitle: string; dealerName?: string })[]
   >(() => getInitialMappedResponses());
-  const [forms, setForms] = useState<Form[]>(() => apiClient.getCachedData<any>("/forms")?.forms || []);
+  const [forms, setForms] = useState<Form[]>(() => allResponsesMemoryCache.forms || apiClient.getCachedData<any>("/forms")?.forms || []);
   const [loading, setLoading] = useState(() => {
-    const hasResponses = apiClient.getCachedData("/responses?limit=1000") !== null;
+    if (allResponsesMemoryCache.responses && allResponsesMemoryCache.responses.length > 0) return false;
+    const hasResponses = (apiClient.getCachedData("/responses?limit=300") || apiClient.getCachedData("/responses?limit=1000")) !== null;
     const hasForms = apiClient.getCachedData("/forms") !== null;
     return !(hasResponses && hasForms);
   });
@@ -820,50 +834,27 @@ export default function AllResponses() {
 
   const fetchData = async () => {
     try {
-      const responsesKey = "/responses?limit=1000";
+      const responsesKey = "/responses?limit=300";
       const formsKey = "/forms";
 
       let hasCachedData = false;
 
-      // 1. FAST PATH: Zero-load cache retrieval
-      try {
-        const cachedResponsesData = apiClient.getCachedData<any>(responsesKey);
-        const cachedFormsData = apiClient.getCachedData<any>(formsKey);
-  
-        if (cachedResponsesData?.responses && cachedFormsData?.forms) {
-          const cFormsMap = cachedFormsData.forms.reduce(
-            (map: Record<string, Form>, form: any) => {
-              if (form?._id) map[form._id] = form as Form;
-              if (form?.id) map[form.id] = form as Form;
-              return map;
-            },
-            {} as Record<string, Form>
-          );
-          setForms(cachedFormsData.forms);
-          setFormsMap(cFormsMap);
-          setResponses(cachedResponsesData.responses);
-          setFilteredResponses(cachedResponsesData.responses);
-          setLoading(false);
-          hasCachedData = true;
-        }
-      } catch (e) {
-        // ignore cache errors
+      // 1. FAST PATH: In-memory cache retrieval
+      if (allResponsesMemoryCache.responses && allResponsesMemoryCache.forms && (Date.now() - allResponsesMemoryCache.timestamp < 180000)) {
+        setForms(allResponsesMemoryCache.forms);
+        if (allResponsesMemoryCache.formsMap) setFormsMap(allResponsesMemoryCache.formsMap);
+        setResponses(allResponsesMemoryCache.responses);
+        setFilteredResponses(allResponsesMemoryCache.responses);
+        setLoading(false);
+        hasCachedData = true;
       }
 
-      const isResponsesFresh = apiClient.isCacheFresh(responsesKey, 30);
-      const isFormsFresh = apiClient.isCacheFresh(formsKey, 30);
-
-      if (isResponsesFresh && isFormsFresh && hasCachedData) {
-        console.log("[AllResponses] Cache is fresh (<30s). Skipping background API calls.");
-        return;
-      }
-
-      // 2. NETWORK PATH: Revalidate in background
+      // 2. NETWORK PATH: Revalidate
       if (!hasCachedData) {
         setLoading(true);
       }
       const [responsesData, formsData] = await Promise.all([
-        apiClient.getResponses({ limit: 1000, forceNetwork: false }),
+        apiClient.getResponses({ limit: 300, forceNetwork: false }),
         apiClient.getForms({ forceNetwork: false }),
       ]);
 
@@ -973,6 +964,12 @@ export default function AllResponses() {
       );
 
       setResponses(responsesWithTitles);
+
+      // Save in module memory cache
+      allResponsesMemoryCache.responses = responsesWithTitles;
+      allResponsesMemoryCache.forms = formsData.forms;
+      allResponsesMemoryCache.formsMap = formsMap;
+      allResponsesMemoryCache.timestamp = Date.now();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load responses");
     } finally {
@@ -3235,10 +3232,51 @@ export default function AllResponses() {
     }
   };
 
-  if (loading) {
+  if (loading && responses.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-blue-100/50 dark:from-gray-900 dark:to-gray-800 p-4 sm:p-6 md:p-8 animate-pulse">
+        {/* Page Header Skeleton */}
+        <div className="mb-6 sm:mb-8 bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-blue-100 dark:bg-gray-700 rounded-xl"></div>
+            <div>
+              <div className="w-48 h-6 bg-gray-200 dark:bg-gray-700 rounded-md mb-2"></div>
+              <div className="w-64 h-4 bg-gray-100 dark:bg-gray-700/60 rounded-md"></div>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <div className="w-24 h-9 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
+            <div className="w-24 h-9 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
+          </div>
+        </div>
+
+        {/* Search Bar Skeleton */}
+        <div className="w-full h-14 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 mb-6"></div>
+
+        {/* Date Group Skeleton */}
+        <div className="mb-4 w-40 h-6 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
+
+        {/* Response Cards Skeleton (Matches real card height h-[96px]) */}
+        <div className="space-y-3">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div
+              key={i}
+              className="h-[96px] bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700/50 p-4 flex items-center justify-between shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-50 dark:bg-gray-700 rounded-xl"></div>
+                <div>
+                  <div className="w-56 h-5 bg-gray-200 dark:bg-gray-700 rounded-md mb-2"></div>
+                  <div className="w-40 h-3 bg-gray-100 dark:bg-gray-700/60 rounded-md"></div>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <div className="w-8 h-8 bg-gray-100 dark:bg-gray-700 rounded-lg"></div>
+                <div className="w-8 h-8 bg-gray-100 dark:bg-gray-700 rounded-lg"></div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
