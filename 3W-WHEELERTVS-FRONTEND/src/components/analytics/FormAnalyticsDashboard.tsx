@@ -4377,7 +4377,7 @@ export default function FormAnalyticsDashboard() {
   const extractAnswerValues = (answer: any): string[] => {
     if (answer === null || answer === undefined) return [""];
 
-    // Handle objects with status property (inspection answer objects)
+    // Handle objects with status/chassis properties
     if (typeof answer === "object" && !Array.isArray(answer)) {
       const values: string[] = [];
       if (answer.status && typeof answer.status === "string" && answer.status.trim()) {
@@ -4386,9 +4386,35 @@ export default function FormAnalyticsDashboard() {
       if (answer.chassisNumber && typeof answer.chassisNumber === "string" && answer.chassisNumber.trim()) {
         values.push(answer.chassisNumber.trim());
       }
+      if (answer.prefix && typeof answer.prefix === "string" && answer.prefix.trim()) {
+        values.push(answer.prefix.trim());
+      }
+      if (answer.serialNumber && typeof answer.serialNumber === "string" && answer.serialNumber.trim()) {
+        values.push(answer.serialNumber.trim());
+      }
+      if (answer.partDescription && typeof answer.partDescription === "string" && answer.partDescription.trim()) {
+        values.push(answer.partDescription.trim());
+      }
       if (answer.zone && typeof answer.zone === "string" && answer.zone.trim()) {
         values.push(answer.zone.trim());
       }
+      if (answer.value && typeof answer.value === "string" && answer.value.trim()) {
+        values.push(answer.value.trim());
+      }
+      if (answer.label && typeof answer.label === "string" && answer.label.trim()) {
+        values.push(answer.label.trim());
+      }
+      if (answer.name && typeof answer.name === "string" && answer.name.trim()) {
+        values.push(answer.name.trim());
+      }
+      if (answer.prefix && answer.chassisNumber) {
+        values.push(`${answer.prefix}${answer.chassisNumber}`);
+      }
+      const displayVal = getChassisDisplayValue(answer);
+      if (displayVal && displayVal !== "-" && !values.includes(displayVal)) {
+        values.push(displayVal);
+      }
+
       // Fallback: if no specific fields found, use JSON string
       if (values.length === 0) {
         const str = JSON.stringify(answer);
@@ -4402,7 +4428,7 @@ export default function FormAnalyticsDashboard() {
       if (answer.length === 0) return [""];
       return answer.map(item => {
         if (typeof item === "object") {
-          return item.name || item.status || JSON.stringify(item);
+          return item.name || item.status || item.chassisNumber || JSON.stringify(item);
         }
         return String(item).trim();
       }).filter(v => v.length > 0);
@@ -4436,9 +4462,6 @@ export default function FormAnalyticsDashboard() {
       ([_, answers]) => answers.length > 0,
     );
 
-
-
-
     if (cascadingFiltersArray.length > 0) {
       result = result.filter((response) => {
         return cascadingFiltersArray.every(([questionId, selectedAnswers]) => {
@@ -4460,14 +4483,44 @@ export default function FormAnalyticsDashboard() {
     if (activeColumnFilters.length > 0) {
       result = result.filter((response) => {
         return activeColumnFilters.every(([columnId, allowedValues]) => {
-          if (!allowedValues) return true;
+          if (!allowedValues || allowedValues.length === 0) return true;
+
+          // Special Attempt Rank / Status Filter
+          if (columnId === "__attemptRank") {
+            const rank = chassisAttemptRanks[response.id] || (response.responseRanks && chassisQuestionId ? response.responseRanks[chassisQuestionId] : 1);
+            const rowStatus = tableDisplayStatuses[response.id] || responseStatuses[response.id] || "Pending Review";
+            let colorLabel = "Green - Accepted";
+            if (rowStatus === "Rejected") {
+              colorLabel = "Red - Rejected";
+            } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
+              colorLabel = "Amber - Rework";
+            } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
+              colorLabel = "Green - Accepted";
+            } else {
+              colorLabel = "Gray - Pending";
+            }
+            const fullLabel = `Attempt ${rank} (${colorLabel})`;
+            return (
+              allowedValues.includes(fullLabel) ||
+              allowedValues.includes(`Attempt ${rank}`) ||
+              allowedValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
+            );
+          }
+
           const answer = response.answers?.[columnId];
           if (answer === null || answer === undefined) {
             return allowedValues.includes("No Response");
           }
-          // Use extractAnswerValues to get meaningful values from any answer type
           const answerValues = extractAnswerValues(answer);
-          return answerValues.some(v => allowedValues.includes(v));
+          return answerValues.some(v => {
+            if (!v) return false;
+            const vLower = v.toLowerCase();
+            return allowedValues.some(av => {
+              if (!av) return false;
+              const avLower = av.toLowerCase();
+              return vLower === avLower || vLower.includes(avLower) || avLower.includes(vLower);
+            });
+          });
         });
       });
     }
@@ -4809,53 +4862,6 @@ export default function FormAnalyticsDashboard() {
     return Array.from(opts).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   }, [responses, tableResponses, chassisAttemptRanks, tableDisplayStatuses, responseStatuses, chassisQuestionId]);
 
-  // Responses displayed in the table, filtered by column filters (including __attemptRank)
-  const displayedTableResponses = useMemo(() => {
-    let result = tableResponses;
-    const activeColumnFilters = Object.entries(columnFilters).filter(
-      ([_, values]) => values && values.length > 0,
-    );
-
-    if (activeColumnFilters.length > 0) {
-      result = result.filter((response) => {
-        return activeColumnFilters.every(([columnId, allowedValues]) => {
-          if (!allowedValues || allowedValues.length === 0) return true;
-
-          // Special Attempt Rank / Status Filter
-          if (columnId === "__attemptRank") {
-            const rank = chassisAttemptRanks[response.id] || (response.responseRanks && chassisQuestionId ? response.responseRanks[chassisQuestionId] : 1);
-            const rowStatus = tableDisplayStatuses[response.id] || responseStatuses[response.id] || "Pending Review";
-            let colorLabel = "Green - Accepted";
-            if (rowStatus === "Rejected") {
-              colorLabel = "Red - Rejected";
-            } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
-              colorLabel = "Amber - Rework";
-            } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
-              colorLabel = "Green - Accepted";
-            } else {
-              colorLabel = "Gray - Pending";
-            }
-            const fullLabel = `Attempt ${rank} (${colorLabel})`;
-            return (
-              allowedValues.includes(fullLabel) ||
-              allowedValues.includes(`Attempt ${rank}`) ||
-              allowedValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
-            );
-          }
-
-          const answer = response.answers?.[columnId];
-          if (answer === null || answer === undefined) {
-            return allowedValues.includes("No Response");
-          }
-          const answerValues = extractAnswerValues(answer);
-          return answerValues.some(v => allowedValues.includes(v));
-        });
-      });
-    }
-
-    return result;
-  }, [tableResponses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, responseStatuses, chassisQuestionId]);
-
   const fetchChatHistory = async (responseId: string) => {
     try {
       console.log(
@@ -5188,21 +5194,90 @@ export default function FormAnalyticsDashboard() {
 
   useEffect(() => {
     setResponsesPage(1);
-  }, [dateFilter, selectedInspectorForTrend, id, responsesSearchTerm]);
+  }, [dateFilter, selectedInspectorForTrend, id, responsesSearchTerm, columnFilters]);
 
+  // Check if any client-side filters (column filters, search term, date, or inspector) are active
+  const hasActiveFilters = useMemo(() => {
+    return (
+      Object.values(columnFilters).some((v) => v && v.length > 0) ||
+      responsesSearchTerm.trim() !== "" ||
+      dateFilter.type !== "all" ||
+      selectedInspectorForTrend !== "Overall"
+    );
+  }, [columnFilters, responsesSearchTerm, dateFilter, selectedInspectorForTrend]);
 
+  // When filters are active and full dataset `responses` is in memory, total count is `filteredResponses.length`.
+  // Otherwise, fallback to server count `totalResponsesCount`.
+  const activeTotalResponsesCount = (hasActiveFilters && responses.length > 0)
+    ? filteredResponses.length
+    : totalResponsesCount;
 
-  // `totalResponsesCount` and `tableResponses` are now server-driven state
-  // (set by fetchResponsesPage), not derived from the in-memory
-  // `filteredResponses` array — this is the server-side pagination change.
-  // NOTE: the search/date/inspector/column filters above still only affect
-  // `filteredResponses`, which other (non-Responses-tab) analytics use;
-  // they are not yet sent to the backend, so they do not filter the
-  // server-paginated Responses table. Wiring that through is a follow-up.
-  const totalResponsesPages = Math.max(1, Math.ceil(totalResponsesCount / responsesPageSize));
+  const totalResponsesPages = Math.max(1, Math.ceil(activeTotalResponsesCount / responsesPageSize));
   const currentResponsesPage = Math.min(responsesPage, totalResponsesPages);
-  const responsesStartIndex = totalResponsesCount > 0 ? (currentResponsesPage - 1) * responsesPageSize : 0;
-  const responsesEndIndex = responsesStartIndex + tableResponses.length;
+  const responsesStartIndex = activeTotalResponsesCount > 0 ? (currentResponsesPage - 1) * responsesPageSize : 0;
+  const responsesEndIndex = (hasActiveFilters && responses.length > 0)
+    ? Math.min(responsesStartIndex + responsesPageSize, activeTotalResponsesCount)
+    : responsesStartIndex + tableResponses.length;
+
+  // Responses displayed in the Responses tab table (supports slicing from filteredResponses when full dataset is loaded)
+  const displayedTableResponses = useMemo(() => {
+    if (hasActiveFilters && responses.length > 0) {
+      const startIndex = (currentResponsesPage - 1) * responsesPageSize;
+      return filteredResponses.slice(startIndex, startIndex + responsesPageSize);
+    }
+
+    let result = tableResponses;
+    const activeColumnFilters = Object.entries(columnFilters).filter(
+      ([_, values]) => values && values.length > 0,
+    );
+
+    if (activeColumnFilters.length > 0) {
+      result = result.filter((response) => {
+        return activeColumnFilters.every(([columnId, allowedValues]) => {
+          if (!allowedValues || allowedValues.length === 0) return true;
+
+          // Special Attempt Rank / Status Filter
+          if (columnId === "__attemptRank") {
+            const rank = chassisAttemptRanks[response.id] || (response.responseRanks && chassisQuestionId ? response.responseRanks[chassisQuestionId] : 1);
+            const rowStatus = tableDisplayStatuses[response.id] || responseStatuses[response.id] || "Pending Review";
+            let colorLabel = "Green - Accepted";
+            if (rowStatus === "Rejected") {
+              colorLabel = "Red - Rejected";
+            } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
+              colorLabel = "Amber - Rework";
+            } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
+              colorLabel = "Green - Accepted";
+            } else {
+              colorLabel = "Gray - Pending";
+            }
+            const fullLabel = `Attempt ${rank} (${colorLabel})`;
+            return (
+              allowedValues.includes(fullLabel) ||
+              allowedValues.includes(`Attempt ${rank}`) ||
+              allowedValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
+            );
+          }
+
+          const answer = response.answers?.[columnId];
+          if (answer === null || answer === undefined) {
+            return allowedValues.includes("No Response");
+          }
+          const answerValues = extractAnswerValues(answer);
+          return answerValues.some(v => {
+            if (!v) return false;
+            const vLower = v.toLowerCase();
+            return allowedValues.some(av => {
+              if (!av) return false;
+              const avLower = av.toLowerCase();
+              return vLower === avLower || vLower.includes(avLower) || avLower.includes(vLower);
+            });
+          });
+        });
+      });
+    }
+
+    return result;
+  }, [hasActiveFilters, responses, filteredResponses, tableResponses, columnFilters, currentResponsesPage, responsesPageSize, chassisAttemptRanks, tableDisplayStatuses, responseStatuses, chassisQuestionId]);
 
   const pageSizesList = useMemo(() => {
     const base = [20, 50, 100];
@@ -10069,7 +10144,7 @@ export default function FormAnalyticsDashboard() {
                     <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
                       {isLoadingTableResponses
                         ? "Loading…"
-                        : `Showing ${totalResponsesCount > 0 ? responsesStartIndex + 1 : 0}-${Math.min(responsesEndIndex, totalResponsesCount)} of ${totalResponsesCount} responses`}
+                        : `Showing ${activeTotalResponsesCount > 0 ? responsesStartIndex + 1 : 0}-${Math.min(responsesEndIndex, activeTotalResponsesCount)} of ${activeTotalResponsesCount} responses`}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 items-center relative">
