@@ -2377,13 +2377,13 @@ export default function FormAnalyticsDashboard() {
     );
   };
 
-// In-memory cache to enable 0ms instant dashboard switching between forms
-const formAnalyticsMemoryCache = new Map<string, {
-  form: any;
-  responses: any[];
-  tableResponses: any[];
-  timestamp: number;
-}>();
+  // In-memory cache to enable 0ms instant dashboard switching between forms
+  const formAnalyticsMemoryCache = new Map<string, {
+    form: any;
+    responses: any[];
+    tableResponses: any[];
+    timestamp: number;
+  }>();
 
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -3949,8 +3949,8 @@ const formAnalyticsMemoryCache = new Map<string, {
       const hierarchyPromise = apiClient.getCachedData<any>("/users/hierarchy?role=Inspector")
         ? Promise.resolve(apiClient.getCachedData<any>("/users/hierarchy?role=Inspector"))
         : apiClient.getUsersHierarchy({ role: "Inspector" }).then(res => {
-            return res;
-          }).catch(() => ({ users: [] }));
+          return res;
+        }).catch(() => ({ users: [] }));
 
       const [summaryRes, hierarchyRes] = await Promise.all([
         apiClient.get<any>(url),
@@ -4730,6 +4730,50 @@ const formAnalyticsMemoryCache = new Map<string, {
     });
     return map;
   }, [tableResponses, responseStatuses, chassisQuestionId]);
+
+  // Chronological attempt rank per chassis (1st inspection = 1, 2nd inspection = 2, etc.)
+  const chassisAttemptRanks = useMemo(() => {
+    const ranks: Record<string, number> = {};
+    const dataset = responses.length > 0 ? responses : tableResponses;
+    if (!dataset.length) return ranks;
+
+    // Group responses by unique chassis/item
+    const itemGroups: Record<string, typeof dataset> = {};
+
+    // Sort ascending by timestamp (oldest first)
+    const sorted = [...dataset].sort((a, b) => {
+      const tA = new Date(getResponseTimestamp(a) || 0).getTime();
+      const tB = new Date(getResponseTimestamp(b) || 0).getTime();
+      return tA - tB;
+    });
+
+    sorted.forEach((r) => {
+      let itemId = "unknown";
+      if (chassisQuestionId && r.answers) {
+        const ans = r.answers[chassisQuestionId];
+        if (ans) {
+          itemId = typeof ans === "object" ? (ans.chassisNumber || JSON.stringify(ans)) : String(ans);
+        } else {
+          const cVal = r.answers.chassis_number || r.answers.chassisNumber;
+          if (cVal) itemId = String(cVal);
+          else itemId = `untracked-${r.id}`;
+        }
+      } else if (r.answers?.chassis_number || r.answers?.chassisNumber) {
+        itemId = String(r.answers.chassis_number || r.answers.chassisNumber);
+      } else {
+        itemId = `response-${r.id}`;
+      }
+
+      if (!itemGroups[itemId]) {
+        itemGroups[itemId] = [];
+      }
+      itemGroups[itemId].push(r);
+      const attemptNumber = itemGroups[itemId].length;
+      ranks[r.id] = (chassisQuestionId && r.responseRanks?.[chassisQuestionId]) || attemptNumber;
+    });
+
+    return ranks;
+  }, [responses, tableResponses, chassisQuestionId]);
 
   const fetchChatHistory = async (responseId: string) => {
     try {
@@ -9233,10 +9277,10 @@ const formAnalyticsMemoryCache = new Map<string, {
                       <div className="flex flex-col items-center gap-1.5">
                         <span
                           className={`px-3 py-1 rounded-full text-[10px] font-black tabular-nums shadow-sm ${row.performanceScore >= 80
-                              ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
-                              : row.performanceScore >= 50
-                                ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400"
-                                : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
+                            ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
+                            : row.performanceScore >= 50
+                              ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400"
+                              : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
                             }`}
                         >
                           {row.performanceScore}%
@@ -9310,8 +9354,8 @@ const formAnalyticsMemoryCache = new Map<string, {
                         <button
                           onClick={() => setBiwReviewPage(pageNum)}
                           className={`min-w-[32px] h-8 text-[10px] font-black rounded-xl transition-all ${biwReviewPage === pageNum
-                              ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30"
-                              : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-50"
+                            ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30"
+                            : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-50"
                             }`}
                         >
                           {pageNum}
@@ -11022,23 +11066,67 @@ const formAnalyticsMemoryCache = new Map<string, {
                                       : "-"}
                                   </td>
 
-                                  <td className="px-6 py-3 text-sm text-center font-bold text-blue-600 dark:text-blue-400 border border-gray-200 dark:border-gray-700 whitespace-nowrap">
+                                  <td className="px-4 py-3 text-sm text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                     {(() => {
-                                      // Check both timeSpent (backend) and totalTimeSpent (frontend type)
                                       const timeSpent =
                                         response.timeSpent ??
                                         response.totalTimeSpent;
-                                      return timeSpent !== undefined &&
-                                        timeSpent !== null &&
-                                        timeSpent > 0 ? (
-                                        <div className="flex items-center justify-center gap-1">
-                                          <Clock className="w-3.5 h-3.5" />
-                                          {timeSpent > 60
-                                            ? `${Math.floor(timeSpent / 60)}m ${timeSpent % 60}s`
-                                            : `${timeSpent}s`}
+                                      const rank =
+                                        chassisAttemptRanks[response.id] ||
+                                        (response.responseRanks && chassisQuestionId
+                                          ? response.responseRanks[chassisQuestionId]
+                                          : 1);
+                                      const rowStatus =
+                                        tableDisplayStatuses[response.id] ||
+                                        responseStatuses[response.id] ||
+                                        "Pending Review";
+
+                                      const getRankBadgeClass = (status: string) => {
+                                        if (status === "Rejected") {
+                                          return "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700";
+                                        }
+                                        if (
+                                          status?.includes("Rework") &&
+                                          status !== "Rework Accepted"
+                                        ) {
+                                          return "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700";
+                                        }
+                                        if (
+                                          status === "Direct Ok" ||
+                                          status === "Rework Accepted" ||
+                                          status === "Accepted"
+                                        ) {
+                                          return "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700";
+                                        }
+                                        return "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600";
+                                      };
+
+                                      return (
+                                        <div className="flex items-center justify-center gap-2">
+                                          {/* Chassis Attempt Rank Badge (1, 2, etc.) with status-based color */}
+                                          <span
+                                            title={`Chassis inspection attempt #${rank} (${rowStatus})`}
+                                            className={`text-[11px] font-extrabold min-w-[22px] h-[22px] px-1.5 rounded-full flex items-center justify-center border shadow-xs ${getRankBadgeClass(rowStatus)}`}
+                                          >
+                                            {rank}
+                                          </span>
+
+                                          {/* Time Taken duration */}
+                                          {timeSpent !== undefined &&
+                                          timeSpent !== null &&
+                                          timeSpent > 0 ? (
+                                            <div className="flex items-center gap-1 font-bold text-blue-600 dark:text-blue-400">
+                                              <Clock className="w-3.5 h-3.5 text-blue-500" />
+                                              <span>
+                                                {timeSpent > 60
+                                                  ? `${Math.floor(timeSpent / 60)}m ${timeSpent % 60}s`
+                                                  : `${timeSpent}s`}
+                                              </span>
+                                            </div>
+                                          ) : (
+                                            <span className="text-gray-400 text-xs">-</span>
+                                          )}
                                         </div>
-                                      ) : (
-                                        "-"
                                       );
                                     })()}
                                   </td>
@@ -13387,7 +13475,7 @@ const formAnalyticsMemoryCache = new Map<string, {
                       </div>
                     </div>
                   );
-                })()}s
+                })()}
               </div>
             </div>
           </div>
