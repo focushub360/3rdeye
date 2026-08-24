@@ -406,17 +406,21 @@ class ApiClient {
       }
 
       if (isCacheable) {
-        // Always save to memory cache to avoid QuotaExceededError and ensure fast re-renders
+        // Always save to fast memory cache (0ms RAM access with no 5MB size limit)
         this.memoryCache.set(cacheKey, { data: data.data, timestamp: Date.now() });
 
-        try {
-          localStorage.setItem(
-            cacheKey,
-            JSON.stringify({ data: data.data, timestamp: Date.now() })
-          );
-        } catch (err) {
-          console.warn(`Failed to write to localStorage (payload likely too large for ${endpoint}). Kept in fast memory cache.`);
-          // Do NOT purge the entire localStorage cache here. Just ignore the quota error for this large payload.
+        // Only persist lightweight items (e.g. form schemas, user profile, settings) to localStorage.
+        // Skip heavy analytics and bulk response payloads to prevent 5MB quota exhaustion and main-thread serialization lag.
+        const isLargePayload = endpoint.includes("analytics=true") || endpoint.includes("/responses") || endpoint.includes("/bulk");
+        if (!isLargePayload) {
+          try {
+            localStorage.setItem(
+              cacheKey,
+              JSON.stringify({ data: data.data, timestamp: Date.now() })
+            );
+          } catch (err) {
+            // Quota exceeded: safely ignore since data is already in fast memory cache
+          }
         }
       }
 
