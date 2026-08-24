@@ -4245,18 +4245,18 @@ interface PDFOptions {
 async function getLogoAsBase64(): Promise<string> {
   // Try multiple possible paths
   const possiblePaths = [
+    "/assets/logo.png",
+    "./assets/logo.png",
+    "assets/logo.png",
     "/assets/logo.jpeg",
     "./assets/logo.jpeg",
     "assets/logo.jpeg",
+    "/Logo.png",
+    "./Logo.png",
+    "Logo.png",
     "/Logo.jpeg",
     "./Logo.jpeg",
     "Logo.jpeg",
-    "/images/Logo.jpeg",
-    "./images/Logo.jpeg",
-    "images/Logo.jpeg",
-    "/img/Logo.jpeg",
-    "./img/Logo.jpeg",
-    "img/Logo.jpeg",
   ];
 
   for (const logoPath of possiblePaths) {
@@ -4289,7 +4289,7 @@ async function getLogoAsBase64(): Promise<string> {
 
   console.warn("⚠️ No custom logo found, falling back to default logo");
   try {
-    const defaultLogoPath = "/assets/logo.jpeg";
+    const defaultLogoPath = "/assets/logo.png";
     const response = await fetch(defaultLogoPath);
 
     if (response.ok) {

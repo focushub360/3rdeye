@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useAuth } from "./AuthContext";
 
-const DEFAULT_LOGO = "/assets/logo.jpeg";
+const DEFAULT_LOGO = "/assets/logo.png";
 
 interface LogoContextType {
   logo: string;

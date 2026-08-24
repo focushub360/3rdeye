@@ -1443,7 +1443,7 @@ export default function Overall() {
       };
 
       try {
-        const logoRes = await fetch("/assets/roundlogo.jpeg");
+        const logoRes = await fetch("/assets/roundlogo.png");
         if (logoRes.ok) {
           const blob = await logoRes.blob();
           logoBase64 = await new Promise<string>((resolve, reject) => {
