@@ -2376,6 +2376,15 @@ export default function FormAnalyticsDashboard() {
       </div>
     );
   };
+
+// In-memory cache to enable 0ms instant dashboard switching between forms
+const formAnalyticsMemoryCache = new Map<string, {
+  form: any;
+  responses: any[];
+  tableResponses: any[];
+  timestamp: number;
+}>();
+
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -4108,17 +4117,48 @@ export default function FormAnalyticsDashboard() {
   };
 
   useEffect(() => {
-    // Reset all form-specific state when switching forms
-    setForm(null);
-    setResponses([]);
-    setTableResponses([]);
-    setTvsReviews([]);
-    setLoadedTabs(new Set());
-    setPerformanceTableData([]);
-    setInspectorSummary([]);
-    fetchedBulkReviewsKeyRef.current = "";
-    fetchData();
+    if (!id) return;
+
+    // SWR: Check if we have recent analytics data for this form to display instantly
+    const cached = formAnalyticsMemoryCache.get(id);
+    if (cached && Date.now() - cached.timestamp < 180000) {
+      setForm(cached.form);
+      setResponses(cached.responses);
+      setTableResponses(cached.tableResponses);
+      setLoading(false);
+      setAnalyticsResponsesLoading(false);
+      if (cached.form?.sections && cached.form.sections.length > 0) {
+        setSelectedResponsesSectionIds(
+          cached.form.sections.map((s: Section) => s.id),
+        );
+      }
+      // Revalidate in background
+      fetchData();
+    } else {
+      // Reset all form-specific state when switching to a non-cached form
+      setForm(null);
+      setResponses([]);
+      setTableResponses([]);
+      setTvsReviews([]);
+      setLoadedTabs(new Set());
+      setPerformanceTableData([]);
+      setInspectorSummary([]);
+      fetchedBulkReviewsKeyRef.current = "";
+      fetchData();
+    }
   }, [id]);
+
+  // Update memory cache whenever form data or responses finish loading
+  useEffect(() => {
+    if (id && form) {
+      formAnalyticsMemoryCache.set(id, {
+        form,
+        responses,
+        tableResponses,
+        timestamp: Date.now(),
+      });
+    }
+  }, [id, form, responses, tableResponses]);
 
   // ── Lazy loading by tab ──────────────────────────────────────────────
   // Fetches the FULL analytics response set (used by Dashboard/Question/
