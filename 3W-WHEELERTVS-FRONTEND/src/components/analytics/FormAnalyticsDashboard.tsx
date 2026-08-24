@@ -2383,7 +2383,7 @@ export default function FormAnalyticsDashboard() {
   // Permission check for analytics tabs
   const hasTabPermission = (tabName: string): boolean => {
     // Admin bypass - see all tabs
-    if (user?.role === "admin" || user?.role === "superadmin") {
+    if (user?.role === "admin" || user?.role === "superadmin" || user?.role === "tenant_admin") {
       return true;
     }
 
@@ -2399,9 +2399,15 @@ export default function FormAnalyticsDashboard() {
       section: "sections",
       overall: "overall",
       responses: "response",
+      preview: "preview",
     };
     const suffix = suffixMap[tabName];
     if (!suffix) return false;
+
+    // Preview tab is available by default for all users
+    if (suffix === "preview") {
+      return true;
+    }
 
     const perms = user?.permissions;
     if (!perms || !Array.isArray(perms) || perms.length === 0) return false;
@@ -2424,7 +2430,8 @@ export default function FormAnalyticsDashboard() {
       return (
         perms.includes(leafPermission) ||
         perms.includes(parentPermission) ||
-        perms.includes(wildcardPermission)
+        perms.includes(wildcardPermission) ||
+        perms.includes("analytics:view")
       );
     });
   };
@@ -2494,9 +2501,15 @@ export default function FormAnalyticsDashboard() {
     return "dashboard";
   });
 
+  const fetchedBulkReviewsKeyRef = useRef<string>("");
+
   useEffect(() => {
     // Only fetch TVS reviews when in dashboard view or overall view and responses exist
     if (responses.length === 0 || (analyticsView !== "dashboard")) return;
+
+    const currentKey = `${id}-${responses.length}`;
+    if (fetchedBulkReviewsKeyRef.current === currentKey) return;
+    fetchedBulkReviewsKeyRef.current = currentKey;
 
     const fetchBulkReviews = async () => {
       try {
@@ -2507,8 +2520,6 @@ export default function FormAnalyticsDashboard() {
           return;
         }
 
-        // ✅ FIX: Use the correct endpoint
-        // Instead of /api/responses/reviews/bulk, use the existing endpoint
         const res = await fetch("/api/responses/reviews/bulk", {
           method: "POST",
           headers: {
@@ -2518,35 +2529,11 @@ export default function FormAnalyticsDashboard() {
           body: JSON.stringify({ responseIds }),
         });
 
-        // ✅ FIX: If the endpoint doesn't exist, fetch reviews one by one
-        if (!res.ok) {
-          console.warn('Bulk reviews endpoint not found, fetching individually...');
-          const reviews = [];
-          for (const id of responseIds.slice(0, 10)) { // Limit to 10 to avoid rate limiting
-            try {
-              const singleRes = await fetch(`/api/responses/reviews/${id}`, {
-                headers: {
-                  Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
-                },
-              });
-              if (singleRes.ok) {
-                const data = await singleRes.json();
-                if (data.success && data.reviews) {
-                  reviews.push(...data.reviews);
-                }
-              }
-            } catch (e) {
-              console.error(`Failed to fetch reviews for ${id}:`, e);
-            }
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            setTvsReviews(data.data || []);
           }
-          setTvsReviews(reviews);
-          setIsLoadingReviews(false);
-          return;
-        }
-
-        const data = await res.json();
-        if (data.success) {
-          setTvsReviews(data.data || []);
         }
       } catch (err) {
         console.error("Error fetching bulk TVS reviews:", err);
@@ -2556,7 +2543,7 @@ export default function FormAnalyticsDashboard() {
     };
 
     fetchBulkReviews();
-  }, [responses, analyticsView]);
+  }, [responses.length, analyticsView, id]);
 
   const [editingChassisResponseId, setEditingChassisResponseId] = useState<string | null>(null);
   const [chassisEditValue, setChassisEditValue] = useState<string>("");
@@ -3421,7 +3408,7 @@ export default function FormAnalyticsDashboard() {
   // resolves well before the dashboard's own lazy data finishes loading —
   // wiring it to `loading` would let the empty states flash through
   // exactly as before.
-  const isChartLoading = false;
+  const isChartLoading = analyticsResponsesLoading;
 
   // fetchPerformanceTable and fetchSummary are now plain functions (not
   // auto-firing effects) — they're invoked lazily from the tab-loading
@@ -4069,32 +4056,27 @@ export default function FormAnalyticsDashboard() {
     }
 
     try {
-      let hasCachedData = false;
+      setLoading(true);
+      setError(null); // Clear any previous errors
 
       const formCacheKey = `/forms/${id}`;
-      const specificFormCache = apiClient.getCachedData<{ form: any }>(formCacheKey);
-      const cachedForm = specificFormCache?.form || apiClient.getFormFromAnyCache(id);
+      const isFormFresh = apiClient.isCacheFresh(formCacheKey, 30);
 
-      if (cachedForm) {
-        setForm(cachedForm);
-        if (cachedForm?.sections && cachedForm.sections.length > 0) {
-          setSelectedResponsesSectionIds(
-            cachedForm.sections.map((s: Section) => s.id),
-          );
-        }
+      if (isFormFresh) {
+        console.log("[ANALYTICS DEBUG] Form cache is fresh (<30s). Skipping fetch.");
         setLoading(false);
-        hasCachedData = true;
-      }
-
-      if (!hasCachedData) {
-        setLoading(true);
+        return;
       }
 
       console.log("[ANALYTICS DEBUG] Fetching form details:", id);
 
+      // ✅ Only fetch form details on mount now. Responses (full analytics
+      // set, or the paginated Responses-tab set) load lazily, the first
+      // time the user actually visits a tab that needs them — see the
+      // tab-loading effects below.
       const formData = await apiClient.request<{ form: any }>(formCacheKey, {
-        forceNetwork: false,
-        timeout: 30000,
+        forceNetwork: true,
+        timeout: 60000, // 60 seconds for form data
       });
 
       setForm(formData.form);
@@ -4151,34 +4133,28 @@ export default function FormAnalyticsDashboard() {
   const fetchFullAnalyticsResponses = async () => {
     if (!id) return;
     setAnalyticsResponsesLoading(true);
-
-    // Check memory cache first for instant <10ms rendering
-    const cacheKey = `/responses/form/${id}?analytics=true&page=1&limit=200`;
-    const cachedData = apiClient.getCachedData<any>(cacheKey);
-    if (cachedData?.responses?.length) {
-      setResponses(cachedData.responses);
-    }
-
+    setResponses([]); // clear any stale set before streaming the fresh one in
     try {
       const responsesData = await apiClient.getAllFormResponses(id, {
         analytics: true,
-        forceNetwork: false,
-        onPage: ({ responses: pageResponses, pageNumber }: {
+        forceNetwork: true,
+        onPage: ({ responses: pageResponses, pageNumber, totalPages }: {
           responses: any[];
           pageNumber: number;
           totalPages: number;
           isLast: boolean;
         }) => {
-          if (pageNumber === 1) {
-            setResponses(pageResponses);
-          } else {
-            setResponses((prev) => prev.concat(pageResponses));
-          }
+          console.log(
+            `[ANALYTICS DEBUG] Analytics page ${pageNumber}/${totalPages} fetched:`,
+            pageResponses.length,
+          );
+          setResponses((prev) => prev.concat(pageResponses));
         },
       });
-      if (responsesData.responses?.length) {
-        setResponses(responsesData.responses);
-      }
+      console.log(
+        "[ANALYTICS DEBUG] Full analytics responses fetched:",
+        responsesData.responses?.length || 0,
+      );
     } catch (err) {
       console.error("Error fetching full analytics responses:", err);
       showToast("Failed to load analytics data. Please try again.", "error");
@@ -9316,7 +9292,16 @@ export default function FormAnalyticsDashboard() {
     );
   };
 
-
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="text-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+          <p className="mt-4 text-primary-600">Loading analytics...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (error) {
     const isTimeoutError = error.includes('timeout') || error.includes('too long');

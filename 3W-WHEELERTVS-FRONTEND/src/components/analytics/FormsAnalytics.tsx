@@ -96,56 +96,107 @@ export default function FormsAnalytics() {
   const userPermissions = user?.permissions || [];
   const userRole = user?.role;
   
-  // Check if user has a specific permission (only for inspector/subadmin)
+  const isAdminOrTenantAdmin =
+    userRole === 'admin' ||
+    userRole === 'superadmin' ||
+    userRole === 'tenant_admin';
+
+  // Check if user has a specific permission
   const hasPermission = (permissionId: string): boolean => {
-    // Admins and superadmins have full access
-    if (userRole === 'admin' || userRole === 'superadmin') {
+    if (isAdminOrTenantAdmin) {
       return true;
     }
-    // For inspector and subadmin, check permissions
     return userPermissions.includes(permissionId);
   };
 
   // Check if user has any of the given permissions
   const hasAnyPermission = (permissionIds: string[]): boolean => {
-    // Admins and superadmins have full access
-    if (userRole === 'admin' || userRole === 'superadmin') {
+    if (isAdminOrTenantAdmin) {
       return true;
     }
-    // For inspector and subadmin, check permissions
     return permissionIds.some(id => userPermissions.includes(id));
   };
 
   // Check if user has analytics form permission for a specific form
-  const hasFormAnalyticsPermission = (formId: string, subType: string = 'response'): boolean => {
-    // Admins and superadmins have full access
-    if (userRole === 'admin' || userRole === 'superadmin') {
+  const hasFormAnalyticsPermission = (formIdOrObj: string | FormItem, subType: string = 'response'): boolean => {
+    if (isAdminOrTenantAdmin) {
       return true;
     }
-    // For inspector and subadmin, check specific permission
-    return userPermissions.includes(`analytics:form:${formId}:${subType}`);
-  };
 
-  // Check if user can view a specific form
-  const canViewForm = (formId: string): boolean => {
-    // If no formId, can't view
-    if (!formId) return false;
-    
-    // Admins and superadmins can view all forms
-    if (userRole === 'admin' || userRole === 'superadmin') {
+    const idsToCheck: string[] = [];
+    if (typeof formIdOrObj === 'string') {
+      if (formIdOrObj) idsToCheck.push(formIdOrObj);
+    } else if (formIdOrObj) {
+      if (formIdOrObj._id) idsToCheck.push(formIdOrObj._id);
+      if (formIdOrObj.id) idsToCheck.push(formIdOrObj.id);
+    }
+
+    // SPECIAL RULE: Preview is AVAILABLE BY DEFAULT for all users!
+    if (subType === 'preview') {
+      for (const fId of idsToCheck) {
+        if (
+          userPermissions.includes(`analytics:form:${fId}:no_preview`) ||
+          userPermissions.includes(`analytics:form:${fId}:deny_preview`)
+        ) {
+          return false;
+        }
+      }
+      return true; // Default available for all users!
+    }
+
+    if (userPermissions.includes('analytics:view') || userPermissions.includes('analytics:*')) {
       return true;
     }
-    
-    // For inspector/subadmin, check if they have ANY analytics permission for this form
-    // Check each sub-type
-    const subTypes = ['preview', 'response', 'dashboard', 'overall', 'questions', 'sections'];
-    for (const subType of subTypes) {
-      if (userPermissions.includes(`analytics:form:${formId}:${subType}`)) {
+
+    for (const fId of idsToCheck) {
+      if (
+        userPermissions.includes(`analytics:form:${fId}:${subType}`) ||
+        userPermissions.includes(`analytics:form:${fId}`)
+      ) {
         return true;
       }
     }
-    
+
     return false;
+  };
+
+  // Check if user can view a specific form
+  const canViewForm = (formItem: FormItem | string): boolean => {
+    if (!formItem) return false;
+    if (isAdminOrTenantAdmin) {
+      return true;
+    }
+
+    if (userPermissions.includes('analytics:view') || userPermissions.includes('analytics:*')) {
+      return true;
+    }
+
+    const idsToCheck: string[] = [];
+    if (typeof formItem === 'string') {
+      idsToCheck.push(formItem);
+    } else {
+      if (formItem._id) idsToCheck.push(formItem._id);
+      if (formItem.id) idsToCheck.push(formItem.id);
+    }
+
+    for (const fId of idsToCheck) {
+      if (
+        userPermissions.includes(`analytics:form:${fId}:no_preview`) ||
+        userPermissions.includes(`analytics:form:${fId}:deny_preview`)
+      ) {
+        const subTypes = ['response', 'dashboard', 'overall', 'questions', 'sections'];
+        if (userPermissions.includes(`analytics:form:${fId}`)) return true;
+        for (const subType of subTypes) {
+          if (userPermissions.includes(`analytics:form:${fId}:${subType}`)) {
+            return true;
+          }
+        }
+        return false;
+      }
+    }
+
+    // Default: all forms can be viewed/previewed by all users
+    return true;
   };
 
   // Check if user has specific analytics global permissions
@@ -248,6 +299,11 @@ export default function FormsAnalytics() {
     execute: refetchForms,
   } = useForms(!isAnswerTemplateOpen);
 
+  const {
+    data: responsesData,
+    refetch: refetchResponses,
+  } = useResponses();
+
   const deleteMutation = useMutation((id: string) => apiClient.deleteForm(id), {
     onSuccess: () => {
       refetchForms();
@@ -349,16 +405,35 @@ export default function FormsAnalytics() {
     return filtered;
   }, [forms, userRole, userPermissions]);
   useEffect(() => {
+  const fetchAccurateCounts = async () => {
     if (!visibleForms.length) return;
+    
     const counts: Record<string, number> = {};
+    
     for (const form of visibleForms) {
       const formId = form._id || form.id;
-      if (formId) {
+      if (!formId) continue;
+      
+      try {
+        // Get ALL responses including partial
+        const result = await apiClient.getFormResponses(formId, {
+          page: 1,
+          limit: 1,
+          includePartial: true,  // ✅ This is the key
+          analytics: true
+        });
+        counts[formId] = result.pagination?.totalResponses || 0;
+      } catch {
+        // Fallback to the existing count if API fails
         counts[formId] = form.responseCount || 0;
       }
     }
+    
     setActualResponseCounts(counts);
-  }, [visibleForms]);
+  };
+  
+  fetchAccurateCounts();
+}, [visibleForms]);
 
   const totalForms = visibleForms.filter((form: FormItem) => !form.parentFormId).length;
   const activeFormsCount = visibleForms.filter(
@@ -804,10 +879,9 @@ export default function FormsAnalytics() {
   useEffect(() => {
     const fetchInviteCounts = async () => {
       try {
-        const counts: Record<string, number> = {};
-        for (const form of visibleForms) {
+        const invitePromises = visibleForms.map(async (form) => {
           const formId = form.id || form._id;
-          if (!formId) continue;
+          if (!formId) return { id: null, count: 0 };
 
           const ownerTenantId =
             typeof form.tenantId === "object"
@@ -822,7 +896,7 @@ export default function FormsAnalytics() {
             try {
               const response = await apiClient.getInviteStats(formId);
               if (response.success) {
-                counts[formId] = response.data.invites?.total || 0;
+                return { id: formId, count: response.data.invites?.total || 0 };
               }
             } catch (error) {
               console.warn(
@@ -831,7 +905,16 @@ export default function FormsAnalytics() {
               );
             }
           }
-        }
+          return { id: formId, count: 0 };
+        });
+
+        const results = await Promise.all(invitePromises);
+        const counts: Record<string, number> = {};
+        results.forEach((r) => {
+          if (r.id) {
+            counts[r.id] = r.count;
+          }
+        });
 
         setInviteCounts(counts);
       } catch (error) {
@@ -1100,18 +1183,18 @@ export default function FormsAnalytics() {
             const isLocationEnabled = parent.locationEnabled !== false;
 
             // Check if user can view this specific form
-            const canViewThisForm = canViewForm(formId);
+            const canViewThisForm = canViewForm(parent);
             
             // If user can't view this form, skip rendering it
             if (!canViewThisForm) return null;
 
             // Check if user has specific analytics permissions for this form
-            const hasPreviewPermission = hasFormAnalyticsPermission(formId, 'preview');
-            const hasResponsePermission = hasFormAnalyticsPermission(formId, 'response');
-            const hasDashboardPermission = hasFormAnalyticsPermission(formId, 'dashboard');
-            const hasOverallPermission = hasFormAnalyticsPermission(formId, 'overall');
-            const hasQuestionsPermission = hasFormAnalyticsPermission(formId, 'questions');
-            const hasSectionsPermission = hasFormAnalyticsPermission(formId, 'sections');
+            const hasPreviewPermission = hasFormAnalyticsPermission(parent, 'preview');
+            const hasResponsePermission = hasFormAnalyticsPermission(parent, 'response');
+            const hasDashboardPermission = hasFormAnalyticsPermission(parent, 'dashboard');
+            const hasOverallPermission = hasFormAnalyticsPermission(parent, 'overall');
+            const hasQuestionsPermission = hasFormAnalyticsPermission(parent, 'questions');
+            const hasSectionsPermission = hasFormAnalyticsPermission(parent, 'sections');
 
             const ownerTenantId =
               typeof parent.tenantId === "object"
@@ -1645,6 +1728,7 @@ export default function FormsAnalytics() {
                         const canViewChild = canViewForm(childId);
                         if (!canViewChild) return null;
 
+                        const childHasPreviewPermission = hasFormAnalyticsPermission(childId, 'preview');
                         const childHasResponsePermission = hasFormAnalyticsPermission(childId, 'response');
                         const childHasDashboardPermission = hasFormAnalyticsPermission(childId, 'dashboard');
                         const childHasOverallPermission = hasFormAnalyticsPermission(childId, 'overall');
@@ -1710,32 +1794,28 @@ export default function FormsAnalytics() {
                               </div>
 
                               <div className="flex flex-wrap items-center justify-between gap-2 mt-auto pt-3 border-t border-primary-100">
-                                {isOwner && (
-                                  <>
-                                    {childHasResponsePermission && (
-                                      <button
-                                        onClick={() =>
-                                          navigate(`/forms/${childId}/preview`)
-                                        }
-                                        className="flex-1 min-w-[60px] px-2 py-1.5 text-[10px] sm:text-xs font-medium rounded-lg bg-gradient-to-r from-primary-500 to-primary-600 text-white hover:from-primary-600 hover:to-primary-700 transition-all duration-200 shadow-sm hover:shadow-md flex items-center justify-center gap-1"
-                                        title="View form"
-                                      >
-                                        <Eye className="w-3 h-3" />
-                                        View
-                                      </button>
-                                    )}
-                                    {canEdit && childHasResponsePermission && (
-                                      <button
-                                        onClick={() =>
-                                          navigate(`/forms/${childId}/edit`)
-                                        }
-                                        className="p-1.5 rounded-lg border border-primary-200 text-primary-600 hover:bg-primary-50 transition-colors flex items-center justify-center"
-                                        title="Edit form"
-                                      >
-                                        <Edit2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    )}
-                                  </>
+                                {childHasPreviewPermission && (
+                                  <button
+                                    onClick={() =>
+                                      navigate(`/forms/${childId}/preview`)
+                                    }
+                                    className="flex-1 min-w-[60px] px-2 py-1.5 text-[10px] sm:text-xs font-medium rounded-lg bg-gradient-to-r from-primary-500 to-primary-600 text-white hover:from-primary-600 hover:to-primary-700 transition-all duration-200 shadow-sm hover:shadow-md flex items-center justify-center gap-1"
+                                    title="View form"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    View
+                                  </button>
+                                )}
+                                {isOwner && canEdit && childHasResponsePermission && (
+                                  <button
+                                    onClick={() =>
+                                      navigate(`/forms/${childId}/edit`)
+                                    }
+                                    className="p-1.5 rounded-lg border border-primary-200 text-primary-600 hover:bg-primary-50 transition-colors flex items-center justify-center"
+                                    title="Edit form"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
                                 )}
                                 {(childHasResponsePermission || childHasDashboardPermission || childHasOverallPermission || childHasQuestionsPermission || childHasSectionsPermission) && (
                                   <button
@@ -1794,6 +1874,7 @@ export default function FormsAnalytics() {
         onClose={() => setIsAnswerTemplateOpen(false)}
         onSuccess={() => {
           refetchForms();
+          refetchResponses();
         }}
       />
 

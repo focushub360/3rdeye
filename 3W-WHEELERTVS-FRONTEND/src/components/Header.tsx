@@ -108,11 +108,15 @@ export default function Header() {
       if (!formId) return false;
 
       // Admins and superadmins see all forms
-      if (user.role === 'admin' || user.role === 'superadmin') {
+      if (user.role === 'admin' || user.role === 'superadmin' || user.role === 'tenant_admin') {
+        return true;
+      }
+      if (permissionSet.has('analytics:view') || permissionSet.has('analytics:*')) {
         return true;
       }
 
       // For inspector/subadmin, check if they have ANY analytics permission for this form
+      if (permissionSet.has(`analytics:form:${formId}`)) return true;
       const subTypes = ['preview', 'response', 'dashboard', 'overall', 'questions', 'sections'];
       for (const subType of subTypes) {
         if (permissionSet.has(`analytics:form:${formId}:${subType}`)) {
@@ -130,12 +134,15 @@ export default function Header() {
       { name: "Responses", key: "responses", subType: "response" },
     ];
 
-    if (user?.role === "admin" || user?.role === "superadmin") {
+    if (user?.role === "admin" || user?.role === "superadmin" || user?.role === "tenant_admin") {
       return tabs;
     }
 
     return tabs.filter(tab =>
-      permissionSet.has(`analytics:form:${formId}:${tab.subType}`)
+      permissionSet.has(`analytics:form:${formId}:${tab.subType}`) ||
+      permissionSet.has(`analytics:form:${formId}`) ||
+      permissionSet.has('analytics:view') ||
+      permissionSet.has('analytics:*')
     );
   }, [user, permissionSet]);
 
@@ -484,12 +491,7 @@ export default function Header() {
                 alt="Logo"
                 className="h-8 w-auto object-contain max-w-[150px]"
                 onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  if (!target.src.endsWith('/assets/logo.jpeg')) {
-                    target.src = '/assets/logo.jpeg';
-                  } else {
-                    target.style.display = 'none';
-                  }
+                  (e.target as HTMLImageElement).style.display = 'none';
                 }}
               />
             </div>

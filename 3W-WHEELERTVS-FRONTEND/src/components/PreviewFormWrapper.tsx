@@ -18,17 +18,36 @@ export default function PreviewFormWrapper() {
     console.log("[PreviewFormWrapper] Tenant:", tenant?.slug);
   }, [user, tenant]);
 
-  // Permission check for previewing form
-  const hasPreviewAccess = React.useMemo(() => {
-    if (!user) return true;
-    if (user.role === "admin" || user.role === "superadmin") return true;
-    const permissions = user.permissions || [];
-    return (
-      permissions.includes(`analytics:form:${id}:preview`) ||
-      permissions.includes(`analytics:form:${id}:response`)
-    );
-  }, [user, id]);
   const [form, setForm] = useState<any>(null);
+
+  // Permission check for previewing form
+  // Requirement: Preview is available by default for all users.
+  // It is only disabled if an admin explicitly denies/unchecks preview permission for the form.
+  const hasPreviewAccess = React.useMemo(() => {
+    if (!user) return true; // Unauthenticated / guest access allowed for public preview
+    if (user.role === "admin" || user.role === "superadmin" || user.role === "tenant_admin") return true;
+
+    const permissions = user.permissions || [];
+
+    const idsToCheck = [id].filter(Boolean) as string[];
+    if (form) {
+      if (form._id && !idsToCheck.includes(form._id)) idsToCheck.push(form._id);
+      if (form.id && !idsToCheck.includes(form.id)) idsToCheck.push(form.id);
+    }
+
+    // Check if preview is explicitly disabled/denied for any of the form IDs
+    for (const formId of idsToCheck) {
+      if (
+        permissions.includes(`analytics:form:${formId}:no_preview`) ||
+        permissions.includes(`analytics:form:${formId}:deny_preview`)
+      ) {
+        return false;
+      }
+    }
+
+    // Otherwise, preview is available BY DEFAULT for all users!
+    return true;
+  }, [user, id, form]);
   const [branchingRules, setBranchingRules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,42 +107,8 @@ export default function PreviewFormWrapper() {
   // ── Fetch form ─────────────────────────────────────────────────────────────
   const fetchForm = useCallback(async () => {
     if (!id) return;
-    
-    let hasCachedData = false;
-
-    // 1. FAST PATH: Zero-load time cache retrieval
     try {
-      // First try to get the specific form cache
-      const specificFormCache = apiClient.getCachedData<any>(`/forms/${id}`);
-      if (specificFormCache?.form) {
-        setForm(specificFormCache.form);
-        setLoading(false);
-        hasCachedData = true;
-      } else {
-        // Otherwise try to find it in the global forms list cache
-        const foundForm = apiClient.getFormFromAnyCache(id);
-        if (foundForm) {
-          setForm(foundForm);
-          setLoading(false);
-          hasCachedData = true;
-        }
-      }
-
-      // Also try to get cached branching rules
-      const branchingCache = apiClient.getCachedData<any>(`/forms/${id}/section-branching`);
-      if (branchingCache?.sectionBranching) {
-        setBranchingRules(branchingCache.sectionBranching);
-      }
-    } catch (e) {
-      // Ignore cache read errors
-    }
-
-    // 2. NETWORK PATH: Revalidate in background
-    try {
-      if (!hasCachedData) {
-        setLoading(true); // Only show loader if we have NO cached data at all
-      }
-      
+      setLoading(true);
       const response = await apiClient.getForm(id);
       setForm(response.form);
 
@@ -134,16 +119,13 @@ export default function PreviewFormWrapper() {
         }>(`/forms/${id}/section-branching`);
         setBranchingRules(branchingResponse?.sectionBranching ?? []);
       } catch {
-        // Fallback to existing or empty
-        setBranchingRules((prev) => prev.length ? prev : []);
+        setBranchingRules([]);
       }
 
       setError(null);
     } catch (err) {
       console.error("[PreviewFormWrapper] Error fetching form:", err);
-      if (!hasCachedData) { // Only show error if we also have no cached data
-        setError("Failed to load form");
-      }
+      setError("Failed to load form");
     } finally {
       setLoading(false);
     }
@@ -403,6 +385,17 @@ export default function PreviewFormWrapper() {
 };
 
   // ── Render states ──────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="max-w-4xl mx-auto p-6">
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+          <p className="mt-4 text-primary-600">Loading form...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (user && !hasPreviewAccess) {
     return (
       <div className="max-w-4xl mx-auto p-6">
@@ -421,17 +414,6 @@ export default function PreviewFormWrapper() {
               Back to Analytics
             </button>
           </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-          <p className="mt-4 text-primary-600">Loading form...</p>
         </div>
       </div>
     );
