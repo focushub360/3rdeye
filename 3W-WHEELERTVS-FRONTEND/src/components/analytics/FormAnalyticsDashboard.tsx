@@ -4479,7 +4479,7 @@ export default function FormAnalyticsDashboard() {
       });
     }
 
-    // 4. Column Filters
+    // 4. Column Filters (skip __attemptRank here – resolved in filteredResponses to avoid TDZ on chassisAttemptRanks/tableDisplayStatuses/responseStatuses)
     const activeColumnFilters = Object.entries(columnFilters).filter(
       ([_, values]) => values && values.length > 0,
     );
@@ -4489,27 +4489,7 @@ export default function FormAnalyticsDashboard() {
         return activeColumnFilters.every(([columnId, allowedValues]) => {
           if (!allowedValues || allowedValues.length === 0) return true;
 
-          // Special Attempt Rank / Status Filter
-          if (columnId === "__attemptRank") {
-            const rank = chassisAttemptRanks[response.id] || (response.responseRanks && chassisQuestionId ? response.responseRanks[chassisQuestionId] : 1);
-            const rowStatus = tableDisplayStatuses[response.id] || responseStatuses[response.id] || "Pending Review";
-            let colorLabel = "Green - Accepted";
-            if (rowStatus === "Rejected") {
-              colorLabel = "Red - Rejected";
-            } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
-              colorLabel = "Amber - Rework";
-            } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
-              colorLabel = "Green - Accepted";
-            } else {
-              colorLabel = "Gray - Pending";
-            }
-            const fullLabel = `Attempt ${rank} (${colorLabel})`;
-            return (
-              allowedValues.includes(fullLabel) ||
-              allowedValues.includes(`Attempt ${rank}`) ||
-              allowedValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
-            );
-          }
+          if (columnId === "__attemptRank") return true;
 
           const answer = response.answers?.[columnId];
           if (answer === null || answer === undefined) {
@@ -5193,8 +5173,33 @@ export default function FormAnalyticsDashboard() {
       });
     }
 
+    // 4. __attemptRank column filter (moved here from baseFilteredResponses to avoid TDZ)
+    const attemptRankFilterValues = columnFilters["__attemptRank"];
+    if (attemptRankFilterValues && attemptRankFilterValues.length > 0) {
+      result = result.filter((response) => {
+        const rank = chassisAttemptRanks[response.id] || (response.responseRanks && chassisQuestionId ? response.responseRanks[chassisQuestionId] : 1);
+        const rowStatus = tableDisplayStatuses[response.id] || responseStatuses[response.id] || "Pending Review";
+        let colorLabel = "Green - Accepted";
+        if (rowStatus === "Rejected") {
+          colorLabel = "Red - Rejected";
+        } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
+          colorLabel = "Amber - Rework";
+        } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
+          colorLabel = "Green - Accepted";
+        } else {
+          colorLabel = "Gray - Pending";
+        }
+        const fullLabel = `Attempt ${rank} (${colorLabel})`;
+        return (
+          attemptRankFilterValues.includes(fullLabel) ||
+          attemptRankFilterValues.includes(`Attempt ${rank}`) ||
+          attemptRankFilterValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
+        );
+      });
+    }
+
     return result;
-  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, responsesSearchTerm, responseStatuses]);
+  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, responsesSearchTerm, responseStatuses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, chassisQuestionId]);
 
   useEffect(() => {
     setResponsesPage(1);
