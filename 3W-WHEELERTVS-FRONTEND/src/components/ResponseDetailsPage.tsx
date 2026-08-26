@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import {
+  Send,
   Calendar,
   FileText,
   User,
@@ -210,6 +211,30 @@ export default function ResponseDetailsPage() {
     }
   }, [searchParams]);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
+
+  const handleDirectDispatch = async () => {
+    if (!response) return;
+    try {
+      setDispatching(true);
+      const dispatchedAt = new Date().toISOString();
+      const dispatchPayload = {
+        isDispatched: true,
+        dispatchedAt,
+        dispatchedBy: (user as any)?._id || user?.id,
+        dispatchedByName: user?.name || (user as any)?.username || "User",
+      };
+
+      await apiClient.updateResponse(response.id || (response as any)._id, dispatchPayload);
+      setResponse(prev => prev ? { ...prev, ...dispatchPayload } : prev);
+      showSuccess("Response successfully dispatched!");
+    } catch (err: any) {
+      console.error("Failed to dispatch response:", err);
+      showError(err.message || "Failed to dispatch response");
+    } finally {
+      setDispatching(false);
+    }
+  };
   const [showStatusUpdate, setShowStatusUpdate] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [generatingPDF, setGeneratingPDF] = useState(false);
@@ -2165,6 +2190,31 @@ export default function ResponseDetailsPage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Dispatch Status / Direct Dispatch Action */}
+            {response.isDispatched ? (
+              <div 
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-bold text-emerald-700 bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-lg border border-emerald-300 dark:border-emerald-700 shadow-xs"
+                title={`Dispatched${response.dispatchedByName ? ` by ${response.dispatchedByName}` : ""}${response.dispatchedAt ? ` at ${new Date(response.dispatchedAt).toLocaleString()}` : ""}`}
+              >
+                <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Dispatched</span>
+              </div>
+            ) : (
+              <button
+                onClick={handleDirectDispatch}
+                disabled={dispatching}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-sm font-bold text-white rounded-lg transition-all duration-200 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed shadow-xs bg-emerald-600 hover:bg-emerald-700 cursor-pointer"
+                title="Dispatch this response directly"
+              >
+                {dispatching ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+                <span>{dispatching ? "Dispatching..." : "Dispatch"}</span>
+              </button>
+            )}
+
             <button
               onClick={handleEditResponse}
               className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white rounded-lg transition-all duration-200 hover:opacity-90"

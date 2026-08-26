@@ -1282,36 +1282,14 @@ export default function QuestionRenderer({
               labelText = `Attempt #${rank}`;
             }
 
-            // Only show Eye icon and redirect if status is Accepted / Green
-            const showEyeRedirect = isAccepted && !!lastResponseId;
-
-            const badgeElement = (
-              <span
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-extrabold shadow-xs transition-all ${badgeStyle} ${showEyeRedirect ? "cursor-pointer hover:opacity-90" : ""}`}
-                title={`Inspection Attempt #${rank}${previousStatus ? ` - Previous Status: ${previousStatus}` : ""}${showEyeRedirect ? " (Click to view response)" : ""}`}
-              >
-                <span>{labelText}</span>
-                {showEyeRedirect && (
-                  <Eye className="w-3 h-3 opacity-80 hover:opacity-100" />
-                )}
-              </span>
-            );
-
             return (
               <div className="flex items-center gap-1.5 ml-2">
-                {showEyeRedirect ? (
-                  <a
-                    href={`/responses/${lastResponseId}?tab=responses`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="View accepted response details (opens in new tab)"
-                    className="inline-flex items-center no-underline"
-                  >
-                    {badgeElement}
-                  </a>
-                ) : (
-                  badgeElement
-                )}
+                <span
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full border text-[11px] font-extrabold shadow-xs transition-all ${badgeStyle}`}
+                  title={`Inspection Attempt #${rank}${previousStatus ? ` - Previous Status: ${previousStatus}` : ""}`}
+                >
+                  {labelText}
+                </span>
               </div>
             );
           })()}
@@ -1444,10 +1422,10 @@ export default function QuestionRenderer({
                                           target="_blank"
                                           rel="noopener noreferrer"
                                           title={`View accepted response #${item.rank} (opens responses tab in new tab)`}
-                                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-xs ${getRankColor(item.rank, item.status)}`}
+                                          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-tight hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-xs ${getRankColor(item.rank, item.status)}`}
                                         >
                                           <span>#{item.rank}</span>
-                                          <Eye className="w-2.5 h-2.5 opacity-90 hover:opacity-100" />
+                                          <Eye className="w-3.5 h-3.5 text-white" />
                                         </a>
                                       ) : (
                                         <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight shadow-xs ${getRankColor(item.rank, item.status)}`}>
