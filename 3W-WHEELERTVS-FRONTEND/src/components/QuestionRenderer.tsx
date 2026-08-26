@@ -1282,24 +1282,32 @@ export default function QuestionRenderer({
               labelText = `Attempt #${rank}`;
             }
 
+            const badgeElement = (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-extrabold shadow-xs transition-all ${badgeStyle} ${lastResponseId ? "cursor-pointer hover:opacity-90" : ""}`}
+                title={`Inspection Attempt #${rank}${previousStatus ? ` - Previous Status: ${previousStatus}` : ""}${lastResponseId ? " (Click to view response)" : ""}`}
+              >
+                <span>{labelText}</span>
+                {lastResponseId && (
+                  <Eye className="w-3 h-3 opacity-80 hover:opacity-100" />
+                )}
+              </span>
+            );
+
             return (
               <div className="flex items-center gap-1.5 ml-2">
-                <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full border text-[11px] font-extrabold shadow-xs transition-all ${badgeStyle}`}
-                  title={`Inspection Attempt #${rank}${previousStatus ? ` - Previous Status: ${previousStatus}` : ""}`}
-                >
-                  {labelText}
-                </span>
-                {lastResponseId && (
+                {lastResponseId ? (
                   <a
                     href={`/responses/${lastResponseId}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     title="View accepted response details (opens in new tab)"
-                    className="inline-flex items-center justify-center p-1 rounded-full text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors"
+                    className="inline-flex items-center no-underline"
                   >
-                    <Eye className="w-3.5 h-3.5" />
+                    {badgeElement}
                   </a>
+                ) : (
+                  badgeElement
                 )}
               </div>
             );
