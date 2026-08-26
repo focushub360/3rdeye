@@ -1257,26 +1257,30 @@ export default function QuestionRenderer({
             </span>
           )}
           {typeof rank === "number" && rank > 0 && (() => {
-            const statusLower = (previousStatus || "").toLowerCase();
+            const statusLower = (previousStatus || "").toLowerCase().trim();
             const isReject = statusLower.includes("reject");
-            const isRework = statusLower.includes("rework") || rank > 1;
+            const isAccepted = statusLower.includes("accept") || statusLower.includes("direct ok") || statusLower.includes("ok") || statusLower === "verified";
+            const isRework = statusLower.includes("rework") || (rank > 1 && !isAccepted && !isReject);
 
             let badgeStyle = "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700";
-            let labelText = `Attempt #${rank} (1st Inspection)`;
+            let labelText = rank === 1 ? `Attempt #1 (1st Inspection)` : `Attempt #${rank} (${previousStatus || "Accepted"})`;
 
             if (isReject) {
               badgeStyle = "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700";
-              labelText = `Attempt #${rank} (Rejected)`;
+              labelText = `Attempt #${rank} (${previousStatus || "Rejected"})`;
             } else if (isRework) {
               badgeStyle = "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700";
               labelText = `Attempt #${rank} (${previousStatus || "Rework"})`;
+            } else if (isAccepted) {
+              badgeStyle = "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700";
+              labelText = `Attempt #${rank} (${previousStatus || "Direct Ok"})`;
             }
 
             return (
               <div className="flex items-center gap-1.5 ml-2">
                 <span
                   className={`inline-flex items-center px-2.5 py-0.5 rounded-full border text-[11px] font-extrabold shadow-xs transition-all ${badgeStyle}`}
-                  title={`Inspection Attempt #${rank} - Previous Status: ${previousStatus || "None"}`}
+                  title={`Inspection Attempt #${rank} - Previous Status: ${previousStatus || (rank === 1 ? "1st Inspection" : "None")}`}
                 >
                   {labelText}
                 </span>
