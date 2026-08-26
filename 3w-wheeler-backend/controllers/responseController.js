@@ -1370,16 +1370,14 @@ export const getRank = async (req, res) => {
     }
 
     // Find the form to verify it exists and if tracking is enabled
-    const formQuery = { id: formId };
-    if (tenantId) formQuery.tenantId = tenantId;
-
-    let form = await Form.findOne(formQuery);
+    // Find the form to verify it exists and if tracking is enabled
+    let form = await Form.findOne({ id: formId });
     if (!form && mongoose.Types.ObjectId.isValid(formId)) {
-      const altQuery = { _id: formId };
-      if (tenantId) altQuery.tenantId = tenantId;
-      form = await Form.findOne(altQuery);
+      form = await Form.findById(formId);
     }
-
+    if (!form) {
+      form = await Form.findOne({ _id: formId });
+    }
     if (!form) {
       return res.status(404).json({
         success: false,
@@ -1505,10 +1503,14 @@ export const getSuggestedAnswers = async (req, res) => {
     }
 
     // Find the form to verify it exists
-    const formQuery = { id: formId };
-    if (tenantId) formQuery.tenantId = tenantId;
-
-    const form = await Form.findOne(formQuery);
+    // Find the form to verify it exists
+    let form = await Form.findOne({ id: formId });
+    if (!form && mongoose.Types.ObjectId.isValid(formId)) {
+      form = await Form.findById(formId);
+    }
+    if (!form) {
+      form = await Form.findOne({ _id: formId });
+    }
     if (!form) {
       console.warn(`[SUGGESTIONS] Form not found: ${formId}`);
       return res.status(404).json({
@@ -1664,10 +1666,14 @@ export const getQuestionPreviousAnswers = async (req, res) => {
     }
 
     // Find the form to verify it exists
-    const formQuery = { id: formId };
-    if (tenantId) formQuery.tenantId = tenantId;
-
-    const form = await Form.findOne(formQuery);
+    // Find the form to verify it exists
+    let form = await Form.findOne({ id: formId });
+    if (!form && mongoose.Types.ObjectId.isValid(formId)) {
+      form = await Form.findById(formId);
+    }
+    if (!form) {
+      form = await Form.findOne({ _id: formId });
+    }
     if (!form) {
       return res.status(404).json({
         success: false,
