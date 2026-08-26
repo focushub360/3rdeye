@@ -4517,6 +4517,22 @@ export default function FormAnalyticsDashboard() {
     if (!form?.sections) {
       return null;
     }
+    // Priority 1: Explicit tracking flag
+    for (const section of form.sections) {
+      if (section.questions) {
+        for (const q of section.questions) {
+          if (
+            q.trackResponseRank === true ||
+            q.trackResponseRank === "true" ||
+            q.trackResponseQuestion === true ||
+            q.trackResponseQuestion === "true"
+          ) {
+            return q.id;
+          }
+        }
+      }
+    }
+    // Priority 2: Specific chassis question types
     for (const section of form.sections) {
       if (section.questions) {
         for (const q of section.questions) {
@@ -4525,13 +4541,41 @@ export default function FormAnalyticsDashboard() {
             q.type === "chassisWithZone" ||
             q.type === "chassisWithoutZone" ||
             q.type === "zone-in" ||
-            q.type === "zone-out" ||
-            q.text?.toLowerCase().includes("chassis") ||
-            q.trackResponseRank === true ||
-            q.trackResponseRank === "true" ||
-            q.trackResponseQuestion === true ||
-            q.trackResponseQuestion === "true"
+            q.type === "zone-out"
           ) {
+            return q.id;
+          }
+        }
+      }
+    }
+    // Priority 3: Specifically Chassis Number / Chassis No (NOT 'Selected Chassis')
+    for (const section of form.sections) {
+      if (section.questions) {
+        for (const q of section.questions) {
+          const t = q.text?.toLowerCase() || "";
+          if (t.includes("chassis number") || t.includes("chassis no") || t.includes("chassis_number")) {
+            return q.id;
+          }
+        }
+      }
+    }
+    // Priority 4: Other chassis questions excluding 'selected'
+    for (const section of form.sections) {
+      if (section.questions) {
+        for (const q of section.questions) {
+          const t = q.text?.toLowerCase() || "";
+          if (t.includes("chassis") && !t.includes("selected")) {
+            return q.id;
+          }
+        }
+      }
+    }
+    // Priority 5: Any question mentioning chassis
+    for (const section of form.sections) {
+      if (section.questions) {
+        for (const q of section.questions) {
+          const t = q.text?.toLowerCase() || "";
+          if (t.includes("chassis")) {
             return q.id;
           }
         }
@@ -4806,7 +4850,8 @@ export default function FormAnalyticsDashboard() {
       }
       itemGroups[itemId].push(r);
       const attemptNumber = itemGroups[itemId].length;
-      ranks[r.id] = (chassisQuestionId && r.responseRanks?.[chassisQuestionId]) || attemptNumber;
+      const persistedRank = (chassisQuestionId && r.responseRanks?.[chassisQuestionId]) || (r.responseRanks && typeof r.responseRanks === 'object' ? Object.values(r.responseRanks).find(v => typeof v === 'number' && v > 0) : null);
+        ranks[r.id] = (typeof persistedRank === 'number' && persistedRank > 0) ? persistedRank : attemptNumber;
     });
 
     return ranks;
@@ -4823,7 +4868,7 @@ export default function FormAnalyticsDashboard() {
       if (rowStatus === "Rejected") {
         colorLabel = "Red - Rejected";
       } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
-        colorLabel = "Amber - Rework";
+        colorLabel = "Yellow - Rework";
       } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
         colorLabel = "Green - Accepted";
       } else {
@@ -5183,17 +5228,18 @@ export default function FormAnalyticsDashboard() {
         if (rowStatus === "Rejected") {
           colorLabel = "Red - Rejected";
         } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
-          colorLabel = "Amber - Rework";
+          colorLabel = "Yellow - Rework";
         } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
           colorLabel = "Green - Accepted";
         } else {
           colorLabel = "Gray - Pending";
         }
         const fullLabel = `Attempt ${rank} (${colorLabel})`;
+        const legacyAmberLabel = `Attempt ${rank} (Amber - Rework)`;
         return (
           attemptRankFilterValues.includes(fullLabel) ||
-          attemptRankFilterValues.includes(`Attempt ${rank}`) ||
-          attemptRankFilterValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
+          (colorLabel === "Yellow - Rework" && attemptRankFilterValues.includes(legacyAmberLabel)) ||
+          attemptRankFilterValues.includes(`Attempt ${rank}`)
         );
       });
     }
@@ -5313,17 +5359,18 @@ export default function FormAnalyticsDashboard() {
             if (rowStatus === "Rejected") {
               colorLabel = "Red - Rejected";
             } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
-              colorLabel = "Amber - Rework";
+              colorLabel = "Yellow - Rework";
             } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
               colorLabel = "Green - Accepted";
             } else {
               colorLabel = "Gray - Pending";
             }
             const fullLabel = `Attempt ${rank} (${colorLabel})`;
+            const legacyAmberLabel = `Attempt ${rank} (Amber - Rework)`;
             return (
               allowedValues.includes(fullLabel) ||
-              allowedValues.includes(`Attempt ${rank}`) ||
-              allowedValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
+              (colorLabel === "Yellow - Rework" && allowedValues.includes(legacyAmberLabel)) ||
+              allowedValues.includes(`Attempt ${rank}`)
             );
           }
 
@@ -9666,7 +9713,7 @@ export default function FormAnalyticsDashboard() {
             ) : (
               <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
             )}
-            <p className={`font-medium ${isTimeoutError ? 'text-amber-700 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
+            <p className={`font-medium ${isTimeoutError ? 'text-yellow-800 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
               {error}
             </p>
             {isTimeoutError && (
@@ -10550,15 +10597,15 @@ export default function FormAnalyticsDashboard() {
                           </div>
                         </div>
 
-                        <div className="flex flex-col p-2 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-100 dark:border-amber-900/20">
-                          <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase">
+                        <div className="flex flex-col p-2 bg-yellow-50 dark:bg-yellow-900/10 rounded-lg border border-yellow-200 dark:border-yellow-900/20">
+                          <span className="text-[10px] text-yellow-800 dark:text-yellow-400 font-bold uppercase">
                             {complianceLabels.na}
                           </span>
                           <div className="flex items-baseline justify-between">
-                            <span className="text-lg font-black text-amber-500 dark:text-amber-400">
+                            <span className="text-lg font-black text-yellow-600 dark:text-yellow-400">
                               {inspectionStats.reworked}
                             </span>
-                            <span className="text-amber-500 text-sm font-bold">
+                            <span className="text-yellow-600 text-sm font-bold">
                               ⚠
                             </span>
                           </div>
@@ -11147,18 +11194,18 @@ export default function FormAnalyticsDashboard() {
                                       const rowStatus = tableDisplayStatuses[response.id];
                                       return (
                                         <span
-                                          className={`px-2 py-1 rounded-full text-xs ${rowStatus === "Rejected"
-                                            ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300"
+                                          className={`px-2.5 py-1 rounded-full text-xs font-semibold ${rowStatus === "Rejected"
+                                            ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800"
                                             : rowStatus?.includes("Rework") &&
                                               rowStatus !== "Rework Accepted"
-                                              ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                                              ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-800"
                                               : rowStatus === "Direct Ok" ||
                                                 rowStatus === "Rework Accepted" ||
-                                                rowStatus === "Accepted"
-                                                ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
-                                                : rowStatus === "Pending Review"
-                                                  ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
-                                                  : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                                                rowStatus === "Accepted" ||
+                                                rowStatus === "Rework Completed" ||
+                                                rowStatus === "Verified"
+                                                ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-800"
+                                                : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-700"
                                             }`}
                                         >
                                           {rowStatus || "Pending Review"}
@@ -11451,12 +11498,14 @@ export default function FormAnalyticsDashboard() {
                                           status?.includes("Rework") &&
                                           status !== "Rework Accepted"
                                         ) {
-                                          return "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700";
+                                          return "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700";
                                         }
                                         if (
                                           status === "Direct Ok" ||
                                           status === "Rework Accepted" ||
-                                          status === "Accepted"
+                                          status === "Accepted" ||
+                                          status === "Rework Completed" ||
+                                          status === "Verified"
                                         ) {
                                           return "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700";
                                         }
