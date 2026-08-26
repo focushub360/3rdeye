@@ -629,7 +629,7 @@ export default function PreviewForm({
   };
 
   const performSubmission = async () => {
-    if (formSessionId && chassisNumbers.length > 0) {
+    if (chassisNumbers.length > 0) {
       if (!answers['chassis_number']) {
         showNotifyError("Please select a Chassis Number before submitting");
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1392,7 +1392,7 @@ export default function PreviewForm({
     }
 
     setSectionStartTime(new Date());
-    if (currentSectionIndex === 0 && formSessionId && chassisNumbers.length > 0) {
+    if (currentSectionIndex === 0 && chassisNumbers.length > 0) {
       if (!answers['chassis_number']) {
         showNotifyError("Please select a Chassis Number to continue");
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2095,7 +2095,7 @@ export default function PreviewForm({
             {/* Form Column */}
             <div className="flex-1 w-full min-w-0 space-y-4 max-w-5xl mx-auto">
               {/* Chassis Number Selection (If enabled and at first section) */}
-              {formSessionId && chassisNumbers.length > 0 && currentSectionIndex === 0 && (
+              {chassisNumbers.length > 0 && currentSectionIndex === 0 && (
                 <div className={`p-8 rounded-2xl border-2 ${darkMode ? "bg-purple-500/5 border-purple-500/20" : "bg-purple-50 border-purple-100"} shadow-sm relative overflow-hidden group`}>
                   <div className="absolute top-0 right-0 p-4 opacity-10 font-bold">
                     <Clipboard className={`w-16 h-16 ${darkMode ? "text-purple-400" : "text-purple-600"}`} />

@@ -1457,7 +1457,26 @@ export const getRank = async (req, res) => {
 
     const count = await Response.countDocuments(query);
     const lastResponse = await Response.findOne(query).sort({ createdAt: -1 }).lean();
-    const previousStatus = lastResponse ? (lastResponse.status || (lastResponse.answers && lastResponse.answers.status) || null) : null;
+    let previousStatus = lastResponse ? (lastResponse.status || null) : null;
+    if (lastResponse && lastResponse.answers) {
+      const answersMap = lastResponse.answers instanceof Map ? Object.fromEntries(lastResponse.answers) : lastResponse.answers;
+      let hasRework = false;
+      let hasReject = false;
+      for (const val of Object.values(answersMap)) {
+        if (val && typeof val === 'object' && val.status) {
+          const s = String(val.status).toLowerCase().trim();
+          if (s === 'rework' || s.includes('rework')) hasRework = true;
+          if (s === 'rejected' || s === 'reject') hasReject = true;
+        } else if (typeof val === 'string') {
+          const s = val.toLowerCase().trim();
+          if (s === 'rework' || s.includes('rework')) hasRework = true;
+          if (s === 'rejected' || s === 'reject') hasReject = true;
+        }
+      }
+      if (hasReject) previousStatus = 'Rejected';
+      else if (hasRework) previousStatus = 'Rework 1';
+      else if (previousStatus === 'pending' || !previousStatus) previousStatus = 'Direct Ok';
+    }
 
     return res.status(200).json({
       success: true,
