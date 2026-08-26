@@ -149,9 +149,40 @@ interface Response {
   };
 }
 
-// Helper function to get the timestamp from response (handles both timestamp and createdAt)
+export const parseResponseDate = (raw: any): Date | null => {
+  if (!raw) return null;
+  if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw;
+  if (typeof raw === 'string') {
+    const yearMatch = raw.match(/^\+?0*(\d{4,6})/);
+    if (yearMatch) {
+      const num = parseInt(yearMatch[1], 10);
+      if (num > 3000 && num < 60000) {
+        return new Date((num - 25569) * 86400 * 1000);
+      }
+    }
+    const num = Number(raw);
+    if (!isNaN(num) && num > 30000 && num < 60000) {
+      return new Date((num - 25569) * 86400 * 1000);
+    }
+  }
+  if (typeof raw === 'number' && raw > 30000 && raw < 60000) {
+    return new Date((raw - 25569) * 86400 * 1000);
+  }
+  const d = new Date(raw);
+  if (!isNaN(d.getTime())) {
+    if (d.getFullYear() > 3000 && d.getFullYear() < 60000) {
+      return new Date((d.getFullYear() - 25569) * 86400 * 1000);
+    }
+    return d;
+  }
+  return null;
+};
+
+// Helper function to get the timestamp from response (handles both timestamp and createdAt, with Excel serial date fix)
 const getResponseTimestamp = (response: Response): string | undefined => {
-  return response.timestamp || response.createdAt;
+  const raw = response.timestamp || response.createdAt;
+  const d = parseResponseDate(raw);
+  return d ? d.toISOString() : (raw ? String(raw) : undefined);
 };
 
 interface Section {
