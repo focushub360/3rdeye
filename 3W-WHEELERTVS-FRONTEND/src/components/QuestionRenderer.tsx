@@ -256,17 +256,20 @@ export default function QuestionRenderer({
       ) {
         try {
           setLoadingRank(true);
-          const response = await apiClient.getResponseRank(
+          const response: any = await apiClient.getResponseRank(
             formId,
             question.id || (question as any)._id,
             effectiveTrackingValue,
             tenantSlug,
           );
-          if (response && typeof response.rank === "number") {
-            setRank(response.rank);
-          } else {
-            setRank(null);
-          }
+          const rankVal = (response && typeof response.rank === "number")
+            ? response.rank
+            : (response && response.data && typeof response.data.rank === "number")
+              ? response.data.rank
+              : (typeof response === "number")
+                ? response
+                : null;
+          setRank(rankVal);
         } catch (err) {
           console.error("Failed to fetch rank:", err);
           setRank(null);
