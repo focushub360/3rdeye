@@ -1227,14 +1227,19 @@ class ApiClient {
 
   async submitResponse(
     formId: string,
-    responseData: any & {
-      startedAt?: Date | string;
-      completedAt?: Date | string;
-      sessionId?: string;
-      isSectionSubmit?: boolean;
-      sectionIndex?: number;
-    },
+    arg2: any,
+    arg3?: any,
   ) {
+    let tenantSlug: string | undefined;
+    let responseData: any;
+
+    if (typeof arg2 === "string" && arg3 !== undefined) {
+      tenantSlug = arg2;
+      responseData = arg3;
+    } else {
+      responseData = arg2;
+    }
+
     return this.request<{ response: any }>(`/responses/${formId}`, {
       method: "POST",
       body: JSON.stringify(responseData),
