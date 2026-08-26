@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { apiClient } from "../api/client";
 import SectionContent from "./preview/SectionContent";
 import ThankYouMessage from "./ThankYouMessage";
@@ -1546,13 +1547,32 @@ export default function PreviewForm({
           </div>
 
           <div className="space-y-4">
-            <div className="flex flex-col gap-1">
-              <span className={`text-[10px] font-black uppercase tracking-[0.1em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                Selected Rank:
-              </span>
-              <div className={`text-[14px] font-black ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>
-                #{selectedRank || 1} Record Applied
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-col gap-1">
+                <span className={`text-[10px] font-black uppercase tracking-[0.1em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                  Selected Rank:
+                </span>
+                <div className={`text-[14px] font-black ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>
+                  #{selectedRank || 1} Record Applied
+                </div>
               </div>
+              {(() => {
+                const cur = Array.isArray(suggestedAnswers) && suggestedAnswers.find((s: any) => s.rank === (selectedRank || 1));
+                const respId = cur?.id || cur?.responseId;
+                if (!respId) return null;
+                return (
+                  <a
+                    href={`/responses/${respId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Open response details in new tab"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-white transition-all shadow-xs"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>View Record</span>
+                  </a>
+                );
+              })()}
             </div>
 
             <div className="space-y-3">

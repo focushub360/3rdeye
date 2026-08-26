@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
+  Eye,
   RefreshCw,
   CheckCircle2,
   AlertTriangle,
@@ -207,6 +208,7 @@ export default function QuestionRenderer({
   const [validationError, setValidationError] = useState<string | null>(null);
   const [rank, setRank] = useState<number | null>(null);
   const [previousStatus, setPreviousStatus] = useState<string | null>(null);
+  const [lastResponseId, setLastResponseId] = useState<string | null>(null);
   const [loadingRank, setLoadingRank] = useState(false);
   const [previousAnswers, setPreviousAnswers] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -259,6 +261,7 @@ export default function QuestionRenderer({
     ) {
       setRank(null);
       setPreviousStatus(null);
+      setLastResponseId(null);
       setLoadingRank(false);
       return;
     }
@@ -288,8 +291,10 @@ export default function QuestionRenderer({
         const prevStat = (response && response.previousStatus) || (response && response.data && response.data.previousStatus) || null;
 
         console.log(`[RANK LIVE] Chassis: "${currentTarget}" -> Rank: ${rankVal}, PreviousStatus: "${prevStat}"`);
+        const lastId = (response && response.lastResponseId) || (response && response.data && response.data.lastResponseId) || null;
         setRank(rankVal);
         setPreviousStatus(prevStat);
+        setLastResponseId(lastId);
       } catch (err) {
         if (!isCancelled) {
           console.error("Failed to fetch rank:", err);
@@ -1285,6 +1290,17 @@ export default function QuestionRenderer({
                 >
                   {labelText}
                 </span>
+                {lastResponseId && (
+                  <a
+                    href={`/responses/${lastResponseId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="View accepted response details (opens in new tab)"
+                    className="inline-flex items-center justify-center p-1 rounded-full text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </a>
+                )}
               </div>
             );
           })()}
@@ -1402,8 +1418,23 @@ export default function QuestionRenderer({
                             <div key={`grouped-rec-${idx}`} className="flex flex-col gap-1.5 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40">
                               <div className="flex flex-wrap gap-1 items-center">
                                 {data.rankItems.sort((a,b) => a.rank - b.rank).map(item => (
-                                  <span key={`rank-tag-${item.rank}`} className={`flex items-center justify-center px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter ${getRankColor(item.rank, item.status)}`}>
-                                    #{item.rank}
+                                  <span key={`rank-tag-${item.rank}`} className="inline-flex items-center">
+                                    {item.responseId ? (
+                                      <a
+                                        href={`/responses/${item.responseId}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        title={`View accepted response #${item.rank} (opens in new tab)`}
+                                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter hover:opacity-85 transition-opacity cursor-pointer ${getRankColor(item.rank, item.status)}`}
+                                      >
+                                        <span>#{item.rank}</span>
+                                        <Eye className="w-2.5 h-2.5" />
+                                      </a>
+                                    ) : (
+                                      <span className={`flex items-center justify-center px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter ${getRankColor(item.rank, item.status)}`}>
+                                        #{item.rank}
+                                      </span>
+                                    )}
                                   </span>
                                 ))}
                                 <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 ml-1">
