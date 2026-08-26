@@ -1,15 +1,18 @@
-import multer from 'multer';
-import { uploadToCloudinary } from '../services/cloudinaryService.js';
 // routes/upload.js
 import express from 'express';
+import multer from 'multer';
+import mongoose from 'mongoose';
+import { Readable } from 'stream';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
-import { authenticate,  hasPermission } from '../middleware/auth.js';
+import { uploadToCloudinary } from '../services/cloudinaryService.js';
+import File from '../models/File.js';
+import { authenticate, hasPermission } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Direct Cloudinary upload handler (used when S3 is not configured or for mobile/direct uploads)
+// Direct upload handler supporting both Cloudinary and MongoDB GridFS fallback
 const uploadMiddleware = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 }
@@ -24,19 +27,78 @@ const handleDirectUpload = async (req, res) => {
     }
 
     const { category = 'forms' } = req.body || {};
-    const filename = file.originalname || file.name || `upload_${Date.now()}`;
+    const originalFilename = file.originalname || file.name || `upload_${Date.now()}`;
     const buffer = file.buffer || file.data;
+    const mimetype = file.mimetype || 'image/jpeg';
     
-    console.log(`[DIRECT UPLOAD] Uploading ${filename} to Cloudinary folder focus_forms/${category}`);
-    const result = await uploadToCloudinary(buffer, filename, `focus_forms/${category}`);
+    // 1. First try Cloudinary if credentials are configured
+    if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+      try {
+        console.log(`[DIRECT UPLOAD] Attempting Cloudinary upload for ${originalFilename}...`);
+        const result = await uploadToCloudinary(buffer, originalFilename, `focus_forms/${category}`);
+        if (result && result.secure_url) {
+          console.log(`[DIRECT UPLOAD] Cloudinary upload successful:`, result.secure_url);
+          return res.json({
+            success: true,
+            publicUrl: result.secure_url,
+            url: result.secure_url,
+            key: result.public_id,
+            format: result.format,
+            bytes: result.bytes
+          });
+        }
+      } catch (cloudErr) {
+        console.warn(`[DIRECT UPLOAD] Cloudinary upload failed (${cloudErr.message}), falling back to MongoDB GridFS storage...`);
+      }
+    }
+
+    // 2. Fallback: Save directly to MongoDB GridFS
+    console.log(`[DIRECT UPLOAD] Storing file ${originalFilename} in MongoDB GridFS...`);
+    const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: 'uploads' });
+    const uniqueFilename = `${Date.now()}_${originalFilename.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
     
+    const uploadStream = bucket.openUploadStream(uniqueFilename, {
+      contentType: mimetype,
+      metadata: { originalName: originalFilename, category }
+    });
+
+    const readable = new Readable();
+    readable.push(buffer);
+    readable.push(null);
+
+    await new Promise((resolve, reject) => {
+      readable.pipe(uploadStream)
+        .on('error', reject)
+        .on('finish', resolve);
+    });
+
+    // Save File record in DB
+    const host = req.get('host');
+    const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+    const baseUrl = `${protocol}://${host}/api`;
+
+    const fileRecord = new File({
+      filename: uniqueFilename,
+      originalName: originalFilename,
+      mimetype: mimetype,
+      size: buffer.length,
+      gridfsId: uploadStream.id,
+      url: `${baseUrl}/files/${uploadStream.id}`,
+      associatedWith: { type: 'form', id: category },
+      isPublic: true
+    });
+    await fileRecord.save();
+
+    const fileUrl = `${baseUrl}/files/${fileRecord._id}`;
+    console.log(`[DIRECT UPLOAD] Stored in MongoDB GridFS successfully. Access URL: ${fileUrl}`);
+
     return res.json({
       success: true,
-      publicUrl: result.secure_url,
-      url: result.secure_url,
-      key: result.public_id,
-      format: result.format,
-      bytes: result.bytes
+      publicUrl: fileUrl,
+      url: fileUrl,
+      key: fileRecord._id.toString(),
+      format: mimetype.split('/')[1] || 'jpeg',
+      bytes: buffer.length
     });
   } catch (error) {
     console.error('[DIRECT UPLOAD] Error:', error);
@@ -50,35 +112,6 @@ const handleDirectUpload = async (req, res) => {
 
 router.post('/direct', uploadMiddleware.single('file'), handleDirectUpload);
 router.put('/direct', uploadMiddleware.single('file'), handleDirectUpload);
-  try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, error: 'No file provided' });
-    }
-
-    const { category = 'forms' } = req.body;
-    const filename = req.file.originalname || `upload_${Date.now()}`;
-    
-    console.log(`[DIRECT UPLOAD] Uploading ${filename} to Cloudinary folder focus_forms/${category}`);
-    const result = await uploadToCloudinary(req.file.buffer, filename, `focus_forms/${category}`);
-    
-    return res.json({
-      success: true,
-      publicUrl: result.secure_url,
-      url: result.secure_url,
-      key: result.public_id,
-      format: result.format,
-      bytes: result.bytes
-    });
-  } catch (error) {
-    console.error('[DIRECT UPLOAD] Error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to upload file',
-      details: error.message
-    });
-  }
-});
-
 
 // File type validation
 const ALLOWED_FILE_TYPES = {
@@ -92,240 +125,92 @@ const ALLOWED_FILE_TYPES = {
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
   'application/vnd.ms-excel': 'xls',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-  'application/vnd.ms-powerpoint': 'ppt',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
   'text/csv': 'csv',
-  'text/plain': 'txt',
-  'application/zip': 'zip',
-  'application/step': 'stp',
-  'application/x-step': 'stp',
-  'application/octet-stream': 'pvz',
-
-  'audio/mpeg': 'mp3',
-  'video/mp4': 'mp4'
+  'text/plain': 'txt'
 };
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_CATEGORIES = [
-  'form','forms', 'submissions', 'profile', 'documents', 
-  'templates', 'general', 'attachments', 'logo'
-];
-
-// Add a mapping for common variations
-const CATEGORY_MAPPING = {
-  'form': 'forms',
-  'submission': 'submissions',
-  'document': 'documents',
-  'template': 'templates',
-  'attachment': 'attachments'
+const CATEGORIES = {
+  avatars: { maxSize: 5 * 1024 * 1024, path: 'avatars/' },
+  forms: { maxSize: 25 * 1024 * 1024, path: 'forms/' },
+  templates: { maxSize: 10 * 1024 * 1024, path: 'templates/' },
+  exports: { maxSize: 50 * 1024 * 1024, path: 'exports/' },
+  evidence: { maxSize: 25 * 1024 * 1024, path: 'evidence/' },
+  chat: { maxSize: 25 * 1024 * 1024, path: 'chat/' }
 };
 
-router.post('/presigned-url', authenticate, async (req, res) => {
+const s3Client = (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY && process.env.S3_BUCKET_NAME) 
+  ? new S3Client({
+      region: process.env.AWS_REGION || 'us-east-1',
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+      }
+    })
+  : null;
+
+router.post('/presigned-url', async (req, res) => {
   try {
-    // Check if AWS credentials are configured - if not, route to Cloudinary direct upload seamlessly
-    if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
-      console.log('[Presigned URL] AWS credentials not configured, routing to direct Cloudinary upload');
+    if (!s3Client) {
       return res.json({
         success: true,
         useDirectUpload: true,
-        uploadUrl: null
+        message: 'Direct upload mode enabled'
       });
     }
 
-    let { filename, fileType, category = 'general', associatedId } = req.body;
-    const user = req.user;
-    
-    // Validation
-    if (!filename || !fileType) {
-      return res.status(400).json({ 
+    const { fileName, fileType, fileSize, category = 'forms' } = req.body;
+
+    if (!fileName || !fileType || !fileSize) {
+      return res.status(400).json({
         success: false,
-        error: 'Missing required fields',
-        details: 'filename and fileType are required' 
+        error: 'fileName, fileType, and fileSize are required'
       });
     }
 
-    // Normalize category
-    if (CATEGORY_MAPPING[category]) {
-      console.log(`Normalizing category from "${category}" to "${CATEGORY_MAPPING[category]}"`);
-      category = CATEGORY_MAPPING[category];
-    }
-
-    // Validate file type
     if (!ALLOWED_FILE_TYPES[fileType]) {
       return res.status(400).json({
         success: false,
-        error: 'Unsupported file type',
-        details: `File type ${fileType} is not allowed`
+        error: 'File type not allowed'
       });
     }
 
-    // Validate category
-    if (!ALLOWED_CATEGORIES.includes(category)) {
+    const categoryConfig = CATEGORIES[category] || CATEGORIES.forms;
+    if (fileSize > categoryConfig.maxSize) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid category',
-        details: `Category must be one of: ${ALLOWED_CATEGORIES.join(', ')}`
+        error: `File size exceeds limit of ${categoryConfig.maxSize / (1024 * 1024)}MB`
       });
     }
 
+    const extension = ALLOWED_FILE_TYPES[fileType];
+    const uniqueId = uuidv4();
+    const key = `${categoryConfig.path}${uniqueId}.${extension}`;
 
-    // Create S3 client
-    const s3Client = new S3Client({
-      region: process.env.AWS_S3_REGION || 'ap-south-1',
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-      },
+    const command = new PutObjectCommand({
+      Bucket: process.env.S3_BUCKET_NAME,
+      Key: key,
+      ContentType: fileType
     });
 
-    // Generate unique S3 key (path)
-    const fileExtension = ALLOWED_FILE_TYPES[fileType] || 
-                         filename.split('.').pop()?.toLowerCase() || 'bin';
-    const timestamp = Date.now();
-    const uniqueId = uuidv4().substring(0, 8);
-    const safeFilename = filename.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9-_]/g, '_');
-    
-    // Include user ID in path for organization
-    const userId = user._id.toString();
-    const s3Key = `focus_forms/${category}/${userId}/${safeFilename}_${timestamp}_${uniqueId}.${fileExtension}`;
-    
-    console.log(`[Presigned URL] Generating for user ${user.email}: ${s3Key}`);
-
-    // Parameters for S3 upload
-    const putObjectParams = {
-      Bucket: process.env.AWS_S3_BUCKET || 'ib-project',
-      Key: s3Key,
-      ContentType: fileType,
-      Metadata: {
-        originalFilename: filename,
-        uploadedBy: user._id.toString(),
-        userEmail: user.email,
-        userRole: user.role,
-        uploadedAt: new Date().toISOString(),
-        ...(user.tenantId && { tenantId: user.tenantId.toString() }),
-        ...(associatedId && { associatedId: associatedId.toString() })
-      }
-    };
-
-    // Generate presigned URL (valid for 15 minutes)
-    const command = new PutObjectCommand(putObjectParams);
-    const uploadUrl = await getSignedUrl(s3Client, command, { 
-      expiresIn: 900 // 15 minutes
-    });
-
-    // Public URL via CloudFront
-    const cloudfrontDomain = process.env.AWS_CLOUDFRONT_DOMAIN || 'd196xvstj956a9.cloudfront.net';
-    const publicUrl = `https://${cloudfrontDomain}/${s3Key}`;
-
-    console.log(`[Presigned URL] Generated for ${filename} by ${user.email}`);
+    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    const publicUrl = process.env.CLOUDFRONT_URL 
+      ? `${process.env.CLOUDFRONT_URL}/${key}`
+      : `https://${process.env.S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${key}`;
 
     res.json({
       success: true,
-      uploadUrl,     // For direct S3 upload
-      key: s3Key,    // S3 path
-      publicUrl,     // For accessing via CloudFront
-      expiresAt: new Date(Date.now() + 900000).toISOString(), // 15 min from now
-      metadata: {
-        filename,
-        fileType,
-        category,
-        uploadedBy: {
-          id: user._id,
-          email: user.email,
-          role: user.role
-        },
-        ...(associatedId && { associatedId })
-      }
+      uploadUrl,
+      publicUrl,
+      key
     });
-
   } catch (error) {
-    console.error('[Presigned URL] Error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to generate upload URL',
-      details: error.message 
-    });
-  }
-});
-
-/**
- * Get upload history for current user
- * GET /api/upload/history
- */
-router.get('/history', authenticate, async (req, res) => {
-  try {
-    const { limit = 50, offset = 0, category } = req.query;
-    const user = req.user;
-    
-    // In a real implementation, you'd query a database
-    // For now, return a placeholder response
+    console.error('Presigned URL error:', error);
     res.json({
       success: true,
-      data: {
-        uploads: [],
-        total: 0,
-        limit: parseInt(limit),
-        offset: parseInt(offset)
-      },
-      message: 'Upload history endpoint - implement database query'
-    });
-    
-  } catch (error) {
-    console.error('[Upload History] Error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to fetch upload history'
+      useDirectUpload: true,
+      message: 'Falling back to direct upload'
     });
   }
-});
-
-/**
- * Delete file (mark as deleted in DB - actual S3 cleanup via lifecycle policy)
- * DELETE /api/upload/:fileId
- */
-router.delete('/:fileId', authenticate, hasPermission('upload:delete'), async (req, res) => {
-  try {
-    const { fileId } = req.params;
-    const user = req.user;
-    
-    // In real implementation, you'd update DB record
-    // S3 files can be deleted via lifecycle policies after DB marking
-    
-    res.json({
-      success: true,
-      message: 'File marked for deletion',
-      fileId,
-      deletedBy: user.email,
-      deletedAt: new Date().toISOString()
-    });
-    
-  } catch (error) {
-    console.error('[Delete File] Error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to delete file'
-    });
-  }
-});
-
-/**
- * Test endpoint - no auth required
- */
-router.get('/test', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'Upload service is running',
-    timestamp: new Date().toISOString(),
-    endpoints: {
-      presignedUrl: 'POST /api/upload/presigned-url',
-      history: 'GET /api/upload/history',
-      delete: 'DELETE /api/upload/:fileId'
-    },
-    limits: {
-      maxFileSize: '10MB',
-      allowedTypes: Object.keys(ALLOWED_FILE_TYPES)
-    }
-  });
 });
 
 export default router;
