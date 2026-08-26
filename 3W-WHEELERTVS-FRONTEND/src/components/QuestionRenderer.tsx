@@ -215,7 +215,15 @@ export default function QuestionRenderer({
 
   const isRankTrackingEnabled =
     question.trackResponseRank === true ||
-    String(question.trackResponseRank) === "true";
+    String(question.trackResponseRank) === "true" ||
+    question.type === "chassis" ||
+    question.type === "chassisWithZone" ||
+    question.type === "chassisWithoutZone" ||
+    question.type === "chassis-with-zone" ||
+    question.type === "chassis-without-zone" ||
+    question.type === "zone-in" ||
+    question.type === "zone-out" ||
+    Boolean(question.text && question.text.toLowerCase().includes("chassis"));
 
   const isQuestionTrackingEnabled =
     question.trackResponseQuestion === true ||
@@ -1221,23 +1229,17 @@ export default function QuestionRenderer({
             </span>
           )}
           {typeof rank === "number" && rank > 0 && (
-            <div className="flex flex-col gap-1 ml-2">
-              {(question.trackResponseRankLabel ||
-                question.trackResponseQuestionLabel) && (
-                <span
-                  className={`text-[9px] font-bold uppercase tracking-wider ${isApplied ? (darkMode ? "text-emerald-400" : "text-emerald-600") : darkMode ? "text-blue-400" : "text-blue-600"}`}
-                >
-                  {question.trackResponseRankLabel ||
-                    question.trackResponseQuestionLabel}
-                </span>
-              )}
-              <div className="flex items-center gap-1.5">
-                <span
-                  className={`inline-flex items-center px-1.5 min-w-[22px] h-5 rounded-full border text-[10px] justify-center font-bold ${isApplied ? (darkMode ? "bg-emerald-900/30 text-emerald-300 border-emerald-800" : "bg-emerald-50 text-emerald-700 border-emerald-200") : getRankStyle(effectiveTrackingValue, darkMode)}`}
-                >
-                  #{rank}
-                </span>
-              </div>
+            <div className="flex items-center gap-1.5 ml-2">
+              <span
+                className={`inline-flex items-center px-2.5 py-0.5 rounded-full border text-[11px] font-extrabold shadow-xs transition-all ${
+                  rank === 1
+                    ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700"
+                    : "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700"
+                }`}
+                title={`Inspection Attempt #${rank}`}
+              >
+                Attempt #${rank} {rank > 1 ? "(Rework)" : "(1st Inspection)"}
+              </span>
             </div>
           )}
 

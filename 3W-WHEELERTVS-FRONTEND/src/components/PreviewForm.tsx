@@ -821,7 +821,17 @@ export default function PreviewForm({
       question.trackResponseRank === true ||
       String(question.trackResponseRank) === "true"
     );
-    const isAnyTrackingEnabled = isTrackQuestionEnabled || isTrackRankEnabled;
+    const isChassisQuestion = question && (
+      question.type === "chassis" ||
+      question.type === "chassisWithZone" ||
+      question.type === "chassisWithoutZone" ||
+      question.type === "chassis-with-zone" ||
+      question.type === "chassis-without-zone" ||
+      question.type === "zone-in" ||
+      question.type === "zone-out" ||
+      Boolean(question.text && question.text.toLowerCase().includes("chassis"))
+    );
+    const isAnyTrackingEnabled = isTrackQuestionEnabled || isTrackRankEnabled || isChassisQuestion;
 
     if (fetchingSuggestionsForId !== questionId) {
       setPreviousUniqueAnswers([]);
@@ -1003,9 +1013,18 @@ export default function PreviewForm({
     if (!qId) return null;
 
     const question = allFormQuestions.find(q => (q.id || (q as any)._id) === qId);
-    if (!question || !(question.trackResponseQuestion === true || String(question.trackResponseQuestion) === "true")) {
-      return null;
-    }
+    if (!question) return null;
+    const isTrackEnabled = question.trackResponseQuestion === true ||
+      String(question.trackResponseQuestion) === "true" ||
+      question.trackResponseRank === true ||
+      String(question.trackResponseRank) === "true" ||
+      question.type === "chassis" ||
+      question.type === "chassisWithZone" ||
+      question.type === "chassisWithoutZone" ||
+      question.type === "chassis-with-zone" ||
+      question.type === "chassis-without-zone" ||
+      Boolean(question.text && question.text.toLowerCase().includes("chassis"));
+    if (!isTrackEnabled) return null;
     return question;
   }, [triggeringQuestionId, lastSuggestionSource, allFormQuestions]);
 
