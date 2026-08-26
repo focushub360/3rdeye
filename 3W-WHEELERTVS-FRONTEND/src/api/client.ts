@@ -1828,8 +1828,14 @@ class ApiClient {
         console.warn("[ApiClient] Presigned URL fetch failed, falling back to direct upload:", pErr);
       }
 
-      // If backend asks for direct upload or presigned failed, use direct upload
-      if (!presignedData || presignedData.useDirectUpload || !presignedData.uploadUrl) {
+      // If backend asks for direct upload, presigned failed, or uploadUrl is relative/missing, use direct upload
+      if (
+        !presignedData ||
+        presignedData.useDirectUpload ||
+        !presignedData.uploadUrl ||
+        !presignedData.uploadUrl.startsWith("http") ||
+        presignedData.uploadUrl.includes("/upload/direct")
+      ) {
         return await performDirectUpload();
       }
 

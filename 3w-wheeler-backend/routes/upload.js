@@ -15,7 +15,41 @@ const uploadMiddleware = multer({
   limits: { fileSize: 25 * 1024 * 1024 }
 });
 
-router.post('/direct', uploadMiddleware.single('file'), async (req, res) => {
+const handleDirectUpload = async (req, res) => {
+  try {
+    const file = req.file || (req.files && (req.files.file || req.files.image || Object.values(req.files)[0]));
+    if (!file) {
+      console.warn('[DIRECT UPLOAD] No file in request');
+      return res.status(400).json({ success: false, error: 'No file provided' });
+    }
+
+    const { category = 'forms' } = req.body || {};
+    const filename = file.originalname || file.name || `upload_${Date.now()}`;
+    const buffer = file.buffer || file.data;
+    
+    console.log(`[DIRECT UPLOAD] Uploading ${filename} to Cloudinary folder focus_forms/${category}`);
+    const result = await uploadToCloudinary(buffer, filename, `focus_forms/${category}`);
+    
+    return res.json({
+      success: true,
+      publicUrl: result.secure_url,
+      url: result.secure_url,
+      key: result.public_id,
+      format: result.format,
+      bytes: result.bytes
+    });
+  } catch (error) {
+    console.error('[DIRECT UPLOAD] Error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to upload file',
+      details: error.message
+    });
+  }
+};
+
+router.post('/direct', uploadMiddleware.single('file'), handleDirectUpload);
+router.put('/direct', uploadMiddleware.single('file'), handleDirectUpload);
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No file provided' });
@@ -94,7 +128,7 @@ router.post('/presigned-url', authenticate, async (req, res) => {
       return res.json({
         success: true,
         useDirectUpload: true,
-        uploadUrl: '/upload/direct'
+        uploadUrl: null
       });
     }
 
