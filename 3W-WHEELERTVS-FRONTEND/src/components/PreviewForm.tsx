@@ -5,6 +5,7 @@ import { apiClient } from "../api/client";
 import SectionContent from "./preview/SectionContent";
 import ThankYouMessage from "./ThankYouMessage";
 import {
+  Eye,
   MapPin,
   RefreshCw,
   CheckCircle2,
