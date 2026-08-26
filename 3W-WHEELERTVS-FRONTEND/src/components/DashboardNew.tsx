@@ -312,7 +312,7 @@ export default function DashboardNew() {
   const [myReviewStatsLoading, setMyReviewStatsLoading] = useState(() => {
     return !apiClient.getCachedData("/analytics/my-review-stats");
   });
-  const [showSummaryTable, setShowSummaryTable] = useState(false);
+  const [showSummaryTable, setShowSummaryTable] = useState(true);
   const [allUsers, setAllUsers] = useState<any[]>([]);
 
 
@@ -367,7 +367,7 @@ export default function DashboardNew() {
   );
 
 
-  const [showBiwTable, setShowBiwTable] = useState(false);
+  const [showBiwTable, setShowBiwTable] = useState(true);
   const [biwResponses, setBiwResponses] = useState<any[]>([]);
   const [biwLoading, setBiwLoading] = useState(false);
   const [biwPage, setBiwPage] = useState(1);

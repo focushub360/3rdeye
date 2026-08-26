@@ -32,7 +32,7 @@ const PerformanceTable = ({
     new Set(),
   );
 
-  const [showPerformanceTable, setShowPerformanceTable] = useState(false);
+  const [showPerformanceTable, setShowPerformanceTable] = useState(true);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   // Pagination states
