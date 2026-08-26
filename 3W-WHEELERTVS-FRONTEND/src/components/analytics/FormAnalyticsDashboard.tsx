@@ -2623,7 +2623,7 @@ export default function FormAnalyticsDashboard() {
       }
     });
 
-    return opts.sort((a, b) => a.label.localeCompare(b.label));
+    return opts.sort((a, b) => String(a?.label ?? "").localeCompare(String(b?.label ?? "")));
   }, [form, responses]);
 
   const handleStartChassisEdit = (response: Response) => {
@@ -4919,7 +4919,7 @@ export default function FormAnalyticsDashboard() {
       ];
     }
 
-    return Array.from(opts).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return Array.from(opts).sort((a, b) => String(a ?? "").localeCompare(String(b ?? ""), undefined, { numeric: true }));
   }, [responses, tableResponses, chassisAttemptRanks, tableDisplayStatuses, responseStatuses, chassisQuestionId]);
 
   const fetchChatHistory = async (responseId: string) => {
@@ -5619,9 +5619,11 @@ export default function FormAnalyticsDashboard() {
 
     sets.forEach((set, qId) => {
       const sorted = Array.from(set).sort((a, b) => {
-        if (a === "") return 1;
-        if (b === "") return -1;
-        return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+        const strA = String(a ?? "");
+        const strB = String(b ?? "");
+        if (strA === "") return 1;
+        if (strB === "") return -1;
+        return strA.localeCompare(strB, undefined, { numeric: true, sensitivity: "base" });
       });
       map.set(qId, sorted);
     });
@@ -5651,9 +5653,11 @@ export default function FormAnalyticsDashboard() {
       }
     });
     return Array.from(values).sort((a, b) => {
-      if (a === "") return 1;
-      if (b === "") return -1;
-      return a.localeCompare(b);
+      const strA = String(a ?? "");
+      const strB = String(b ?? "");
+      if (strA === "") return 1;
+      if (strB === "") return -1;
+      return strA.localeCompare(strB, undefined, { numeric: true, sensitivity: "base" });
     });
   };
 
