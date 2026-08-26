@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import {
   Calendar,
@@ -197,9 +197,18 @@ export default function ResponseDetailsPage() {
   const [form, setForm] = useState<Form | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
   const [viewMode, setViewMode] = useState<"dashboard" | "responses">(
-    "dashboard"
+    requestedTab === "responses" ? "responses" : (requestedTab === "dashboard" ? "dashboard" : "responses")
   );
+
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam === "responses" || tabParam === "dashboard") {
+      setViewMode(tabParam);
+    }
+  }, [searchParams]);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [showStatusUpdate, setShowStatusUpdate] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);

@@ -1563,7 +1563,7 @@ export default function PreviewForm({
                 if (!respId) return null;
                 return (
                   <a
-                    href={`/responses/${respId}`}
+                    href={`/responses/${respId}?tab=responses`}
                     target="_blank"
                     rel="noopener noreferrer"
                     title="Open response details in new tab"

@@ -1282,13 +1282,16 @@ export default function QuestionRenderer({
               labelText = `Attempt #${rank}`;
             }
 
+            // Only show Eye icon and redirect if status is Accepted / Green
+            const showEyeRedirect = isAccepted && !!lastResponseId;
+
             const badgeElement = (
               <span
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-extrabold shadow-xs transition-all ${badgeStyle} ${lastResponseId ? "cursor-pointer hover:opacity-90" : ""}`}
-                title={`Inspection Attempt #${rank}${previousStatus ? ` - Previous Status: ${previousStatus}` : ""}${lastResponseId ? " (Click to view response)" : ""}`}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-extrabold shadow-xs transition-all ${badgeStyle} ${showEyeRedirect ? "cursor-pointer hover:opacity-90" : ""}`}
+                title={`Inspection Attempt #${rank}${previousStatus ? ` - Previous Status: ${previousStatus}` : ""}${showEyeRedirect ? " (Click to view response)" : ""}`}
               >
                 <span>{labelText}</span>
-                {lastResponseId && (
+                {showEyeRedirect && (
                   <Eye className="w-3 h-3 opacity-80 hover:opacity-100" />
                 )}
               </span>
@@ -1296,9 +1299,9 @@ export default function QuestionRenderer({
 
             return (
               <div className="flex items-center gap-1.5 ml-2">
-                {lastResponseId ? (
+                {showEyeRedirect ? (
                   <a
-                    href={`/responses/${lastResponseId}`}
+                    href={`/responses/${lastResponseId}?tab=responses`}
                     target="_blank"
                     rel="noopener noreferrer"
                     title="View accepted response details (opens in new tab)"
@@ -1429,27 +1432,31 @@ export default function QuestionRenderer({
                           return (
                             <div key={`grouped-rec-${idx}`} className="flex flex-col gap-1.5 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40">
                               <div className="flex flex-wrap gap-1 items-center">
-                                {data.rankItems.sort((a,b) => a.rank - b.rank).map(item => (
-                                  <span key={`rank-tag-${item.rank}`} className="inline-flex items-center">
-                                    {item.responseId ? (
-                                      <a
-                                        href={`/responses/${item.responseId}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        title={`View response #${item.rank} details (opens in new tab)`}
-                                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-xs ${getRankColor(item.rank, item.status)}`}
-                                      >
-                                        <span>#{item.rank}</span>
-                                        <Eye className="w-2.5 h-2.5 opacity-90 hover:opacity-100" />
-                                      </a>
-                                    ) : (
-                                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight shadow-xs ${getRankColor(item.rank, item.status)}`}>
-                                        <span>#{item.rank}</span>
-                                        <Eye className="w-2.5 h-2.5 opacity-80" />
-                                      </span>
-                                    )}
-                                  </span>
-                                ))}
+                                {data.rankItems.sort((a,b) => a.rank - b.rank).map(item => {
+                                  const statusStr = String(item.status || "").toLowerCase().trim();
+                                  const isAcceptedTag = statusStr.includes("accept") || statusStr.includes("direct ok") || statusStr.includes("ok") || statusStr === "verified" || (!statusStr && item.rank === 1);
+                                  
+                                  return (
+                                    <span key={`rank-tag-${item.rank}`} className="inline-flex items-center">
+                                      {isAcceptedTag && item.responseId ? (
+                                        <a
+                                          href={`/responses/${item.responseId}?tab=responses`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          title={`View accepted response #${item.rank} (opens responses tab in new tab)`}
+                                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-xs ${getRankColor(item.rank, item.status)}`}
+                                        >
+                                          <span>#{item.rank}</span>
+                                          <Eye className="w-2.5 h-2.5 opacity-90 hover:opacity-100" />
+                                        </a>
+                                      ) : (
+                                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight shadow-xs ${getRankColor(item.rank, item.status)}`}>
+                                          #{item.rank}
+                                        </span>
+                                      )}
+                                    </span>
+                                  );
+                                })}
                                 <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 ml-1">
                                   Historical Record
                                 </span>
