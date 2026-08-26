@@ -511,7 +511,7 @@ export const createResponse = async (req, res) => {
 
         if (strAnswer !== "") {
           const escapedAnswer = strAnswer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          const exactRegex = new RegExp(`^${escapedAnswer}$`, "i");
+          const exactRegex = new RegExp(`^\\s*${escapedAnswer}\\s*$`, "i");
 
           const formIds = [form.id, form._id ? form._id.toString() : null, questionId].filter(Boolean);
 
@@ -1426,7 +1426,7 @@ export const getRank = async (req, res) => {
     // Count existing final responses with the EXACT SAME answer for this form
     const formIds = [form.id, form._id ? form._id.toString() : null, formId].filter(Boolean);
     const escapedAnswer = strAnswer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const exactRegex = new RegExp(`^${escapedAnswer}$`, "i");
+    const exactRegex = new RegExp(`^\\s*${escapedAnswer}\\s*$`, "i");
 
     const orConditions = [
       { [`answers.${trackingQId}`]: exactRegex },

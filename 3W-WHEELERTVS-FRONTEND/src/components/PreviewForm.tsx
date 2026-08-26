@@ -852,7 +852,7 @@ export default function PreviewForm({
       return matchKey ? suggestedAnswers[matchKey] : null;
     };
 
-    const searchValue = (typeof value === 'object' && value?.chassisNumber) ? value.chassisNumber : value;
+    const searchValue = (typeof value === 'object' && value?.chassisNumber) ? String(value.chassisNumber).trim() : (typeof value === 'string' ? value.trim() : value);
     const currentMatchingSuggestion = getExistingSuggestion(questionId);
     const isAlreadySuggested = currentMatchingSuggestion !== null &&
       String(currentMatchingSuggestion).trim().toLowerCase() === String(searchValue).trim().toLowerCase();
@@ -877,7 +877,7 @@ export default function PreviewForm({
   const fetchSuggestions = async (questionId: string, value: any) => {
     if (!formId) return;
 
-    const searchValue = (typeof value === 'object' && value?.chassisNumber) ? value.chassisNumber : value;
+    const searchValue = (typeof value === 'object' && value?.chassisNumber) ? String(value.chassisNumber).trim() : (typeof value === 'string' ? value.trim() : value);
 
     const getExistingSuggestion = (qId: string) => {
       if (!suggestedAnswers) return null;
