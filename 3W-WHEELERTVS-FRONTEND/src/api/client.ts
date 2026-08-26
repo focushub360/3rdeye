@@ -1740,81 +1740,102 @@ class ApiClient {
       speed?: number;
     }) => void,
   ) {
-    // Validate file size (10MB limit)
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    // Validate file size (25MB limit)
+    const maxSize = 25 * 1024 * 1024;
     if (file.size > maxSize) {
       throw new ApiError(
         400,
         null,
-        `File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds maximum limit of 10MB`,
+        `File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds maximum limit of 25MB`,
       );
     }
 
+    // Normalize category
+    const normalizedCategory = category === "form" ? "forms" : category;
+
+    // Helper for direct Cloudinary upload via backend
+    const performDirectUpload = async () => {
+      console.log("[ApiClient] Uploading directly to Cloudinary via /upload/direct...");
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("category", normalizedCategory);
+      if (associatedId) formData.append("associatedId", associatedId);
+
+      const uploadHeaders: Record<string, string> = {};
+      if (this.token) {
+        uploadHeaders["Authorization"] = `Bearer ${this.token}`;
+      }
+
+      const res = await fetch(`${this.baseUrl}/upload/direct`, {
+        method: "POST",
+        headers: uploadHeaders,
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("[ApiClient] Direct upload failed:", res.status, errText);
+        throw new ApiError(res.status, null, "Failed to upload file");
+      }
+
+      const data = await res.json();
+      const directUrl = data.publicUrl || data.url;
+      console.log("[ApiClient] Direct upload successful:", directUrl);
+
+      if (onProgress) {
+        onProgress({ percentage: 100, loaded: file.size, total: file.size });
+      }
+
+      return {
+        key: data.key || file.name,
+        publicUrl: directUrl,
+        url: directUrl,
+        size: file.size,
+        type: file.type,
+        name: file.name,
+      };
+    };
+
     try {
-      // STEP 1: Get presigned URL from your backend
-      console.log("Requesting presigned URL for:", file.name);
-
-      // Normalize category (fix for 'form' vs 'forms' issue)
-      const normalizedCategory = category === "form" ? "forms" : category;
-
-      console.log("Original category:", category);
-      console.log("Normalized category:", normalizedCategory);
-
-      // Use the baseUrl from ApiClient
+      // STEP 1: Request presigned URL or direct upload directive from backend
       const presignedEndpoint = "/upload/presigned-url";
-
-      // ✅ FIX: Define uploadApiUrl here where it's accessible
       const uploadApiUrl = `${this.baseUrl}${presignedEndpoint}`;
-      console.log("Upload API URL:", uploadApiUrl);
 
-      // Prepare headers
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
-
       if (this.token) {
         headers["Authorization"] = `Bearer ${this.token}`;
       }
 
-      const presignedResponse = await fetch(uploadApiUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          filename: file.name,
-          fileType: file.type,
-          category: normalizedCategory,
-          ...(associatedId && { associatedId }),
-        }),
-      });
+      let presignedData: any = null;
+      try {
+        const presignedResponse = await fetch(uploadApiUrl, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            filename: file.name,
+            fileType: file.type,
+            category: normalizedCategory,
+            ...(associatedId && { associatedId }),
+          }),
+        });
 
-      if (!presignedResponse.ok) {
-        const errorText = await presignedResponse.text();
-        console.error(
-          "Presigned URL request failed:",
-          presignedResponse.status,
-          errorText,
-        );
-        throw new ApiError(
-          presignedResponse.status,
-          null,
-          "Failed to get upload URL",
-        );
+        if (presignedResponse.ok) {
+          presignedData = await presignedResponse.json();
+        }
+      } catch (pErr) {
+        console.warn("[ApiClient] Presigned URL fetch failed, falling back to direct upload:", pErr);
       }
 
-      const presignedData = await presignedResponse.json();
-
-      if (!presignedData.success) {
-        throw new ApiError(
-          500,
-          presignedData,
-          presignedData.error || "Invalid response from server",
-        );
+      // If backend asks for direct upload or presigned failed, use direct upload
+      if (!presignedData || presignedData.useDirectUpload || !presignedData.uploadUrl) {
+        return await performDirectUpload();
       }
 
       const { uploadUrl, key, publicUrl } = presignedData;
-      console.log("Received presigned URL for S3 upload");
 
-      // STEP 2: Upload directly to S3 using XMLHttpRequest
+      // STEP 2: Direct S3 upload if presigned URL is valid
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         const startTime = Date.now();
@@ -1833,62 +1854,45 @@ class ApiClient {
               percentage,
               loaded: event.loaded,
               total: event.total,
-              timeRemaining,
               speed,
+              timeRemaining,
             });
           }
         });
 
         xhr.addEventListener("load", () => {
-          console.log("S3 upload response status:", xhr.status);
-
-          if (xhr.status === 200) {
-            // Success! Return the CloudFront URL
+          if (xhr.status >= 200 && xhr.status < 300) {
+            console.log("Upload successful:", publicUrl);
             resolve({
+              key,
+              publicUrl,
               url: publicUrl,
-              file: {
-                url: publicUrl,
-                filename: key,
-                originalName: file.name,
-                size: file.size,
-                s3Key: key,
-                uploadedAt: new Date().toISOString(),
-              },
+              size: file.size,
+              type: file.type,
+              name: file.name,
             });
           } else {
-            console.error("S3 upload failed:", xhr.status, xhr.responseText);
-            reject(
-              new ApiError(
-                xhr.status,
-                null,
-                `S3 upload failed with status ${xhr.status}`,
-              ),
-            );
+            console.warn("S3 upload failed, falling back to direct upload...");
+            performDirectUpload().then(resolve).catch(reject);
           }
         });
 
         xhr.addEventListener("error", () => {
-          reject(new ApiError(0, null, "Network error during S3 upload"));
+          console.warn("S3 upload network error, falling back to direct upload...");
+          performDirectUpload().then(resolve).catch(reject);
         });
 
         xhr.addEventListener("abort", () => {
-          reject(new ApiError(0, null, "Upload was cancelled"));
+          reject(new ApiError(0, null, "Upload aborted by user"));
         });
 
-        // Upload directly to S3
         xhr.open("PUT", uploadUrl);
         xhr.setRequestHeader("Content-Type", file.type);
         xhr.send(file);
       });
-    } catch (error) {
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(
-        500,
-        null,
-        `Upload failed: ${(error as Error).message}`,
-      );
+    } catch (error: any) {
+      console.warn("Standard upload flow failed, attempting direct upload fallback:", error);
+      return await performDirectUpload();
     }
   }
 

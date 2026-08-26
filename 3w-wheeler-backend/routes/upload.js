@@ -1,3 +1,5 @@
+import multer from 'multer';
+import { uploadToCloudinary } from '../services/cloudinaryService.js';
 // routes/upload.js
 import express from 'express';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
@@ -6,6 +8,43 @@ import { v4 as uuidv4 } from 'uuid';
 import { authenticate,  hasPermission } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// Direct Cloudinary upload handler (used when S3 is not configured or for mobile/direct uploads)
+const uploadMiddleware = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 }
+});
+
+router.post('/direct', uploadMiddleware.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No file provided' });
+    }
+
+    const { category = 'forms' } = req.body;
+    const filename = req.file.originalname || `upload_${Date.now()}`;
+    
+    console.log(`[DIRECT UPLOAD] Uploading ${filename} to Cloudinary folder focus_forms/${category}`);
+    const result = await uploadToCloudinary(req.file.buffer, filename, `focus_forms/${category}`);
+    
+    return res.json({
+      success: true,
+      publicUrl: result.secure_url,
+      url: result.secure_url,
+      key: result.public_id,
+      format: result.format,
+      bytes: result.bytes
+    });
+  } catch (error) {
+    console.error('[DIRECT UPLOAD] Error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to upload file',
+      details: error.message
+    });
+  }
+});
+
 
 // File type validation
 const ALLOWED_FILE_TYPES = {
@@ -49,13 +88,13 @@ const CATEGORY_MAPPING = {
 
 router.post('/presigned-url', authenticate, async (req, res) => {
   try {
-    // Check if AWS credentials are configured
+    // Check if AWS credentials are configured - if not, route to Cloudinary direct upload seamlessly
     if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
-      console.error('[Presigned URL] AWS credentials are not configured in .env');
-      return res.status(500).json({
-        success: false,
-        error: 'Upload service misconfigured',
-        details: 'AWS credentials missing on server'
+      console.log('[Presigned URL] AWS credentials not configured, routing to direct Cloudinary upload');
+      return res.json({
+        success: true,
+        useDirectUpload: true,
+        uploadUrl: '/upload/direct'
       });
     }
 
