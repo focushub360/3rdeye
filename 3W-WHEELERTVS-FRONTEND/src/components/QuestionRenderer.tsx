@@ -1392,7 +1392,11 @@ export default function QuestionRenderer({
                           const displayVal = formatVal(matchVal);
                           if (displayVal && displayVal.trim() !== "") {
                             const existing = groupedRecords.get(displayVal);
-                            const item = { rank: s.rank || 0, status: s.status || "" };
+                            const item = { 
+                              rank: s.rank || 0, 
+                              status: s.status || "", 
+                              responseId: s.id || s._id || s.responseId || "" 
+                            };
                             if (existing) {
                               existing.rankItems.push(item);
                             } else {
@@ -1432,15 +1436,16 @@ export default function QuestionRenderer({
                                         href={`/responses/${item.responseId}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        title={`View accepted response #${item.rank} (opens in new tab)`}
-                                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter hover:opacity-85 transition-opacity cursor-pointer ${getRankColor(item.rank, item.status)}`}
+                                        title={`View response #${item.rank} details (opens in new tab)`}
+                                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-xs ${getRankColor(item.rank, item.status)}`}
                                       >
                                         <span>#{item.rank}</span>
-                                        <Eye className="w-2.5 h-2.5" />
+                                        <Eye className="w-2.5 h-2.5 opacity-90 hover:opacity-100" />
                                       </a>
                                     ) : (
-                                      <span className={`flex items-center justify-center px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter ${getRankColor(item.rank, item.status)}`}>
-                                        #{item.rank}
+                                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight shadow-xs ${getRankColor(item.rank, item.status)}`}>
+                                        <span>#{item.rank}</span>
+                                        <Eye className="w-2.5 h-2.5 opacity-80" />
                                       </span>
                                     )}
                                   </span>
