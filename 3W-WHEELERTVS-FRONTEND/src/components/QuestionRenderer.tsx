@@ -1355,7 +1355,7 @@ export default function QuestionRenderer({
                     };
 
                     const targetKey = normalize(question.id || (question as any)._id);
-                    const groupedRecords = new Map<string, { ranks: number[], rawValue: any }>();
+                    const groupedRecords = new Map<string, { rankItems: Array<{ rank: number; status?: string }>, rawValue: any }>();
 
                     // Collect and group records by formatted value to avoid repetition
                     if (Array.isArray(suggestedAnswers)) {
@@ -1368,10 +1368,11 @@ export default function QuestionRenderer({
                           const displayVal = formatVal(matchVal);
                           if (displayVal && displayVal.trim() !== "") {
                             const existing = groupedRecords.get(displayVal);
+                            const item = { rank: s.rank || 0, status: s.status || "" };
                             if (existing) {
-                              existing.ranks.push(s.rank || 0);
+                              existing.rankItems.push(item);
                             } else {
-                              groupedRecords.set(displayVal, { ranks: [s.rank || 0], rawValue: matchVal });
+                              groupedRecords.set(displayVal, { rankItems: [item], rawValue: matchVal });
                             }
                           }
                         }
@@ -1380,24 +1381,29 @@ export default function QuestionRenderer({
 
                     if (groupedRecords.size === 0) return null;
 
-                    const getRankColor = (rank: number) => {
-                      switch (rank) {
-                        case 1: return "bg-emerald-500 text-white";
-                        case 2: return "bg-blue-500 text-white";
-                        case 3: return "bg-amber-500 text-white";
-                        default: return "bg-slate-500 text-white";
+                    const getRankColor = (rank: number, status?: string) => {
+                      const s = String(status || "").toLowerCase().trim();
+                      if (s.includes("reject")) {
+                        return "bg-red-500 text-white";
                       }
+                      if (s.includes("rework")) {
+                        return "bg-amber-500 text-white";
+                      }
+                      if (s.includes("accept") || s.includes("direct ok") || s.includes("ok") || s === "verified") {
+                        return "bg-emerald-500 text-white";
+                      }
+                      return rank > 1 ? "bg-amber-500 text-white" : "bg-emerald-500 text-white";
                     };
 
                     return (
                       <div className="flex flex-col gap-2 w-full mt-2">
                         {Array.from(groupedRecords.entries()).map(([displayVal, data], idx) => {
                           return (
-                            <div key={`grouped-rec-${idx}`} className="flex flex-col gap-1.5 p-2 rounded-lg border border-blue-100/50 dark:border-blue-800/20 bg-blue-50/50 dark:bg-blue-900/10">
+                            <div key={`grouped-rec-${idx}`} className="flex flex-col gap-1.5 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40">
                               <div className="flex flex-wrap gap-1 items-center">
-                                {data.ranks.sort((a,b) => a-b).map(r => (
-                                  <span key={`rank-tag-${r}`} className={`flex items-center justify-center px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter ${getRankColor(r)}`}>
-                                    #{r}
+                                {data.rankItems.sort((a,b) => a.rank - b.rank).map(item => (
+                                  <span key={`rank-tag-${item.rank}`} className={`flex items-center justify-center px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter ${getRankColor(item.rank, item.status)}`}>
+                                    #{item.rank}
                                   </span>
                                 ))}
                                 <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 ml-1">

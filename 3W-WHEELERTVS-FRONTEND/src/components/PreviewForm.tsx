@@ -1560,21 +1560,32 @@ export default function PreviewForm({
                 Switch Record:
               </span>
               <div className="flex flex-wrap gap-2">
-                {suggestedAnswers.map((suggestion: any) => (
-                  <button
-                    key={suggestion.rank}
-                    type="button"
-                    onClick={() => setSelectedRank(suggestion.rank)}
-                    className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-[12px] font-black transition-all hover:scale-105 active:scale-95 ${selectedRank === suggestion.rank
-                        ? "bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-500/20"
-                        : darkMode
-                          ? "bg-slate-900 border-slate-800 text-slate-400 hover:border-emerald-500/50 hover:text-emerald-400"
-                          : "bg-white border-slate-100 text-slate-400 hover:border-emerald-500/50 hover:text-emerald-600 shadow-sm"
-                      }`}
-                  >
-                    {suggestion.rank}
-                  </button>
-                ))}
+                {suggestedAnswers.map((suggestion: any) => {
+                  const statusStr = String(suggestion.status || "").toLowerCase();
+                  const isRej = statusStr.includes("reject");
+                  const isRew = statusStr.includes("rework");
+                  const activeColorClass = isRej
+                    ? "bg-red-500 border-red-500 text-white shadow-lg shadow-red-500/20"
+                    : isRew
+                      ? "bg-amber-500 border-amber-500 text-white shadow-lg shadow-amber-500/20"
+                      : "bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-500/20";
+
+                  return (
+                    <button
+                      key={suggestion.rank}
+                      type="button"
+                      onClick={() => setSelectedRank(suggestion.rank)}
+                      className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-[12px] font-black transition-all hover:scale-105 active:scale-95 ${selectedRank === suggestion.rank
+                          ? activeColorClass
+                          : darkMode
+                            ? "bg-slate-900 border-slate-800 text-slate-400 hover:border-emerald-500/50 hover:text-emerald-400"
+                            : "bg-white border-slate-100 text-slate-400 hover:border-emerald-500/50 hover:text-emerald-600 shadow-sm"
+                        }`}
+                    >
+                      {suggestion.rank}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
