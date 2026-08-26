@@ -1456,10 +1456,17 @@ export const getRank = async (req, res) => {
     if (tenantId) query.tenantId = tenantId;
 
     const count = await Response.countDocuments(query);
+    const lastResponse = await Response.findOne(query).sort({ createdAt: -1 }).lean();
+    const previousStatus = lastResponse ? (lastResponse.status || (lastResponse.answers && lastResponse.answers.status) || null) : null;
 
     return res.status(200).json({
       success: true,
-      data: { rank: count + 1 }
+      data: {
+        rank: count + 1,
+        count: count,
+        previousStatus: previousStatus,
+        lastResponseId: lastResponse ? (lastResponse.id || lastResponse._id) : null
+      }
     });
 
   } catch (error) {
