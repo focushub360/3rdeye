@@ -230,71 +230,25 @@ export const createResponse = async (req, res) => {
     console.log(`[CREATE RESPONSE DEBUG] Step 1: Starting form lookup`);
 
 
-    if (tenantSlug) {
+    const searchConditions = [{ id: questionId }];
+    if (mongoose.Types.ObjectId.isValid(questionId)) {
+      searchConditions.push({ _id: new mongoose.Types.ObjectId(String(questionId)) }, { _id: questionId });
+    }
+
+    form = await Form.findOne({ $or: searchConditions });
+
+    if (!form && tenantSlug) {
       const tenant = await Tenant.findOne({ slug: tenantSlug, isActive: true });
-      console.log(`[CREATE RESPONSE DEBUG] Step 2: Tenant lookup done, found: ${!!tenant}`);
-
-      if (!tenant) {
-        return res.status(404).json({
-          success: false,
-          message: 'Business not found or inactive'
-        });
+      if (tenant) {
+        form = await Form.findOne({ $or: searchConditions, tenantId: tenant._id });
       }
+    }
 
-      // 🔧 FIX: Search by BOTH id (string) AND _id (ObjectId)
-      const searchConditions = [];
-
-      // Search by the string 'id' field
-      searchConditions.push({ id: questionId });
-
-      // Search by MongoDB _id if it's a valid ObjectId
-      if (mongoose.Types.ObjectId.isValid(questionId)) {
-        searchConditions.push({ _id: questionId });
-      }
-
-      form = await Form.findOne({
-        $or: searchConditions,
-        tenantId: tenant._id,
-        isVisible: true
+    if (!form) {
+      return res.status(404).json({
+        success: false,
+        message: `Form not found with ID: ${questionId}`
       });
-
-      console.log(`[CREATE RESPONSE DEBUG] Step 3: Form lookup done, found: ${!!form}`);
-      console.log(`[CREATE RESPONSE DEBUG] Search conditions:`, JSON.stringify(searchConditions));
-
-      if (!form) {
-        return res.status(404).json({
-          success: false,
-          message: `Form not found with ID: ${questionId}`
-        });
-      }
-    } else {
-      // For the else branch (no tenantSlug)
-      const searchConditions = [];
-      searchConditions.push({ id: questionId });
-      if (mongoose.Types.ObjectId.isValid(questionId)) {
-        searchConditions.push({ _id: questionId });
-      }
-
-      form = await Form.findOne({
-        $or: searchConditions,
-        ...req.tenantFilter
-      });
-
-      console.log(`[CREATE RESPONSE DEBUG] Step 2: Form lookup done (no tenant), found: ${!!form}`);
-
-      if (!form) {
-        return res.status(404).json({
-          success: false,
-          message: `Form not found with ID: ${questionId}`
-        });
-      }
-
-      if (!form.isVisible && (!req.user || !req.user._id)) {
-        return res.status(403).json({
-          success: false,
-          message: 'Form is not publicly available'
-        });
-      }
     }
 
     // ========== INVITE HANDLING (Keep your existing code) ==========
@@ -309,25 +263,22 @@ export const createResponse = async (req, res) => {
         inviteId: inviteId
       });
 
-      if (!inviteObj) {
-        return res.status(403).json({
-          success: false,
-          message: 'Invalid or expired invite link'
-        });
-      }
+      inviteObj = invite;
 
-      if (inviteObj.status === 'responded' && !isSectionSubmit) {
-        console.log(`[INVITE] Invite ${inviteId} was already responded.`);
-      }
+      if (inviteObj) {
+        if (inviteObj.status === 'responded' && !isSectionSubmit) {
+          console.log(`[INVITE] Invite ${inviteId} was already responded.`);
+        }
 
-      if (!isSectionSubmit) {
-        inviteObj.status = 'responded';
-        inviteObj.respondedAt = new Date();
-        await inviteObj.save();
-        inviteStatus = 'responded';
-        console.log(`[INVITE] Updated invite ${inviteId} to responded status`);
-      } else {
-        console.log(`[INVITE] Partial submission for invite ${inviteId}`);
+        if (!isSectionSubmit) {
+          inviteObj.status = 'responded';
+          inviteObj.respondedAt = new Date();
+          await inviteObj.save().catch(e => console.error('[INVITE] Error saving:', e));
+          inviteStatus = 'responded';
+          console.log(`[INVITE] Updated invite ${inviteId} to responded status`);
+        } else {
+          console.log(`[INVITE] Partial submission for invite ${inviteId}`);
+        }
       }
     }
 
