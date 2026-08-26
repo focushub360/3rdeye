@@ -165,8 +165,8 @@ export const authorize = (...roles) => {
 export const superAdminOnly = authorize('superadmin');
 export const adminOnly = authorize('admin', 'superadmin', 'subadmin');
 export const teacherOrAdmin = authorize('teacher', 'admin', 'superadmin');
-export const staffOrAdmin = authorize('staff', 'admin', 'superadmin');
-export const inspectorOrAdmin = authorize('inspector', 'admin', 'superadmin');
+export const staffOrAdmin = authorize('staff', 'admin', 'superadmin', 'subadmin', 'tenant_admin', 'manager');
+export const inspectorOrAdmin = authorize('inspector', 'admin', 'superadmin', 'subadmin', 'tenant_admin', 'manager');
 
 export const generateToken = (userId) => {
   return jwt.sign({ userId }, getJwtSecret(), { 

@@ -1974,19 +1974,43 @@ export const processBulkImages = async (req, res) => {
 };
 export const getBiwSummary = async (req, res) => {
   try {
-    // Get all forms the user has access to
+    const userRole = req.user?.role || 'admin';
+    const userTenantId = req.user?.tenantId;
+
     let formQuery = {};
-    if (req.user.role !== 'superadmin') {
-      formQuery.tenantId = req.user.tenantId;
+    if (userRole !== 'superadmin' && userTenantId) {
+      const isValid = mongoose.Types.ObjectId.isValid(userTenantId);
+      const oid = isValid ? new mongoose.Types.ObjectId(String(userTenantId)) : null;
+      const tenantCondition = oid ? { $in: [userTenantId, String(userTenantId), oid] } : userTenantId;
+      formQuery = {
+        $or: [{ tenantId: tenantCondition }, { isGlobal: true }]
+      };
     }
 
     const forms = await Form.find(formQuery).select('id _id').lean();
-    const formIds = forms.flatMap(f => [f.id, f._id.toString()]);
+    const formIds = forms.flatMap(f => [f.id, f._id ? f._id.toString() : null]).filter(Boolean);
 
-    // Get ALL responses for these forms (no pagination limit)
-    const responses = await Response.find({
-      questionId: { $in: formIds }
-    }).select('submittedBy createdBy isDispatched biwReview');
+    let respQuery = {};
+    if (userRole !== 'superadmin' && userTenantId) {
+      const isValid = mongoose.Types.ObjectId.isValid(userTenantId);
+      const oid = isValid ? new mongoose.Types.ObjectId(String(userTenantId)) : null;
+      const tenantCondition = oid ? { $in: [userTenantId, String(userTenantId), oid] } : userTenantId;
+      
+      respQuery = {
+        $or: [
+          { tenantId: tenantCondition },
+          ...(formIds.length > 0 ? [{ questionId: { $in: formIds } }] : [])
+        ]
+      };
+    } else if (formIds.length > 0) {
+      respQuery.questionId = { $in: formIds };
+    }
+
+    // Fast query returning lean response docs
+    const responses = await Response.find(respQuery)
+      .select('submittedBy createdBy isDispatched biwReview status answers')
+      .sort({ createdAt: -1 })
+      .lean();
 
     console.log(`[BIW] Total responses found: ${responses.length}`);
 
@@ -1994,9 +2018,9 @@ export const getBiwSummary = async (req, res) => {
     const byUser = new Map();
 
     responses.forEach(response => {
-      const name = response.submittedBy || response.createdBy || 'Anonymous';
+      const name = (response.submittedBy || response.createdBy || 'Anonymous').trim();
 
-      if (name === 'Excel Import' || name === 'System' || name === 'Admin Import') {
+      if (!name || name === 'Excel Import' || name === 'System' || name === 'Admin Import' || name === '-') {
         return;
       }
 
@@ -2015,10 +2039,18 @@ export const getBiwSummary = async (req, res) => {
       stats.totalSubmitted += 1;
       if (response.isDispatched) stats.dispatched += 1;
 
-      const status = response.biwReview?.status;
-      if (status === 'Accepted') stats.accepted += 1;
-      else if (status === 'Rejected') stats.rejected += 1;
-      else if (status === 'Reworked') stats.rework += 1;
+      // Extract review status from biwReview first, or fallback to response.status
+      const biwStatus = response.biwReview?.status;
+      const rawStatus = biwStatus || response.status;
+      const statusStr = String(rawStatus || '').toLowerCase().trim();
+
+      if (statusStr.includes('accept') || statusStr.includes('direct ok') || statusStr.includes('ok') || statusStr === 'verified') {
+        stats.accepted += 1;
+      } else if (statusStr.includes('reject')) {
+        stats.rejected += 1;
+      } else if (statusStr.includes('rework')) {
+        stats.rework += 1;
+      }
     });
 
     const result = Array.from(byUser.values()).map(stats => {
@@ -2039,7 +2071,8 @@ export const getBiwSummary = async (req, res) => {
     console.error('BIW summary error:', error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: 'Failed to fetch BIW summary',
+      error: error.message
     });
   }
 };

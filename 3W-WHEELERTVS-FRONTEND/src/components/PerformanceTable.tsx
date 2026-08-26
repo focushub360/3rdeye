@@ -50,8 +50,9 @@ const PerformanceTable = ({
   const loadPerformanceData = useCallback(async () => {
     if (!showPerformanceTable || !user) return;
 
-    // Block non-admin/inspector users
-    if (!useInternalTrackingEndpoint && user.role !== "admin" && user.role !== "superadmin") {
+    // Allow admins, superadmins, subadmins, tenant admins, managers, and inspectors
+    const allowedRoles = ["admin", "superadmin", "subadmin", "tenant_admin", "manager", "staff", "inspector"];
+    if (!useInternalTrackingEndpoint && !allowedRoles.includes(user.role)) {
       return;
     }
 

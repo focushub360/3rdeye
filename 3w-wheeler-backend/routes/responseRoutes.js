@@ -198,7 +198,7 @@ router.delete('/', deleteMultipleResponses);
 router.get('/unassigned', getUnassignedResponses);
 router.post('/assign-multiple', assignResponses);
 router.post('/:responseId/auto-assign', autoAssignResponse);
-router.get('/biw-summary', getBiwSummary);
+router.get('/biw-summary', authenticate, getBiwSummary);
 router.patch('/bulk-biw-review', bulkUpdateBiwReview);
 
 
