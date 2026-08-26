@@ -2441,7 +2441,7 @@ export default function Overall() {
       if (key && !map.has(key)) map.set(key, { id: key, title: r.formTitle });
     });
     return Array.from(map.values()).sort((a, b) =>
-      a.title.localeCompare(b.title),
+      String(a?.title || "").localeCompare(String(b?.title || "")),
     );
   }, [responses]);
 
@@ -5077,7 +5077,7 @@ export default function Overall() {
       {activeTab === "requests" && (
         <div className="space-y-6">
           {Object.keys(groupedResponses)
-            .sort((a, b) => a.localeCompare(b))
+            .sort((a, b) => String(a || "").localeCompare(String(b || "")))
             .map((formTitle) => {
               const formGroups = groupedResponses[formTitle];
               const isExpanded = expandedForms.includes(formTitle);

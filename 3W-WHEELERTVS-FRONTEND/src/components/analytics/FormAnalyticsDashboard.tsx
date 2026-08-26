@@ -5312,7 +5312,7 @@ export default function FormAnalyticsDashboard() {
         const valB = getChassisDisplayValue(
           b.answers?.chassis_number || (chassisQuestionId ? b.answers?.[chassisQuestionId] : "")
         );
-        const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
+        const cmp = String(valA || "").localeCompare(String(valB || ""), undefined, { numeric: true, sensitivity: "base" });
         return isAsc ? cmp : -cmp;
       }
 
@@ -5342,7 +5342,7 @@ export default function FormAnalyticsDashboard() {
       const ansB = b.answers?.[columnId];
       const valA = extractAnswerValues(ansA).join(" ");
       const valB = extractAnswerValues(ansB).join(" ");
-      const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
+      const cmp = String(valA || "").localeCompare(String(valB || ""), undefined, { numeric: true, sensitivity: "base" });
       return isAsc ? cmp : -cmp;
     });
   };

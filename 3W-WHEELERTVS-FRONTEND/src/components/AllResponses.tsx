@@ -1003,7 +1003,7 @@ const allResponsesMemoryCache = {
       }
     });
     return Array.from(formMap.values()).sort((a, b) =>
-      a.title.localeCompare(b.title),
+      String(a?.title || "").localeCompare(String(b?.title || "")),
     );
   }, [forms]);
 
