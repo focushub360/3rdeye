@@ -248,44 +248,65 @@ export default function QuestionRenderer({
   }, [isQuestionTrackingEnabled, trackingValue, value]);
 
   useEffect(() => {
-    const fetchRank = async () => {
-      if (
-        (isRankTrackingEnabled || isQuestionTrackingEnabled) &&
-        effectiveTrackingValue !== undefined &&
-        effectiveTrackingValue !== null &&
-        effectiveTrackingValue !== "" &&
-        formId
-      ) {
-        try {
-          setLoadingRank(true);
-          const response: any = await apiClient.getResponseRank(
-            formId,
-            question.id || (question as any)._id,
-            effectiveTrackingValue,
-            tenantSlug,
-          );
-          const rankVal = (response && typeof response.rank === "number")
-            ? response.rank
-            : (response && response.data && typeof response.data.rank === "number")
-              ? response.data.rank
-              : (typeof response === "number")
-                ? response
-                : null;
-          const prevStat = (response && response.previousStatus) || (response && response.data && response.data.previousStatus) || null;
-          setRank(rankVal);
-          setPreviousStatus(prevStat);
-        } catch (err) {
+    let isCancelled = false;
+
+    if (
+      !(isRankTrackingEnabled || isQuestionTrackingEnabled) ||
+      !effectiveTrackingValue ||
+      typeof effectiveTrackingValue !== "string" ||
+      effectiveTrackingValue.trim().length === 0 ||
+      !formId
+    ) {
+      setRank(null);
+      setPreviousStatus(null);
+      setLoadingRank(false);
+      return;
+    }
+
+    const currentTarget = effectiveTrackingValue.trim();
+    setLoadingRank(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const response: any = await apiClient.getResponseRank(
+          formId,
+          question.id || (question as any)._id,
+          currentTarget,
+          tenantSlug,
+        );
+
+        if (isCancelled) return;
+
+        const rankVal = (response && typeof response.rank === "number")
+          ? response.rank
+          : (response && response.data && typeof response.data.rank === "number")
+            ? response.data.rank
+            : (typeof response === "number")
+              ? response
+              : null;
+
+        const prevStat = (response && response.previousStatus) || (response && response.data && response.data.previousStatus) || null;
+
+        console.log(`[RANK LIVE] Chassis: "${currentTarget}" -> Rank: ${rankVal}, PreviousStatus: "${prevStat}"`);
+        setRank(rankVal);
+        setPreviousStatus(prevStat);
+      } catch (err) {
+        if (!isCancelled) {
           console.error("Failed to fetch rank:", err);
           setRank(null);
-        } finally {
+          setPreviousStatus(null);
+        }
+      } finally {
+        if (!isCancelled) {
           setLoadingRank(false);
         }
-      } else {
-        setRank(null);
       }
-    };
+    }, 300);
 
-    fetchRank();
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
   }, [
     isRankTrackingEnabled,
     isQuestionTrackingEnabled,
