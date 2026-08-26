@@ -977,7 +977,7 @@ export default function ResponseDetailsPage() {
                         if (zoneVal.trim()) {
                           // If multiple zones, show each with its own color and sort alphabetically
                           if (zoneVal.includes(',')) {
-                            const zones = zoneVal.split(',').map(z => z.trim()).sort((a, b) => a.localeCompare(b));
+                            const zones = zoneVal.split(',').map(z => z.trim()).sort((a, b) => String(a || "").localeCompare(String(b || "")));
                             zones.forEach(z => {
                               parts.push({ label: 'Zone', value: z, zoneColor: getZoneColor(z) });
                             });

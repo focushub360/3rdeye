@@ -60,17 +60,19 @@ export default function TableColumnFilter({
   // Orderly natural sort of options (numeric-aware: 1031 < 1032 < 1103)
   const sortedOptions = useMemo(() => {
     return [...options].sort((a, b) => {
-      if (a === "") return 1;
-      if (b === "") return -1;
-      return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+      const strA = String(a ?? "");
+      const strB = String(b ?? "");
+      if (strA === "") return 1;
+      if (strB === "") return -1;
+      return strA.localeCompare(strB, undefined, { numeric: true, sensitivity: "base" });
     });
   }, [options]);
 
   const filteredOptions = useMemo(() => {
     if (!searchTerm) return sortedOptions;
-    const term = searchTerm.toLowerCase();
+    const term = String(searchTerm ?? "").toLowerCase();
     return sortedOptions.filter((option) =>
-      option.toLowerCase().includes(term)
+      String(option ?? "").toLowerCase().includes(term)
     );
   }, [sortedOptions, searchTerm]);
 

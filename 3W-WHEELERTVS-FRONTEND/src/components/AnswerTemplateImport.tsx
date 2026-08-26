@@ -94,7 +94,7 @@ export default function AnswerTemplateImport({
         .filter((form) => !form.parentFormId)
         .map((form) => [form.id || form._id, form])
     ).values()
-  ).sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+  ).sort((a, b) => String(a?.title || "").localeCompare(String(b?.title || "")));
 
   // Derive child/follow-up forms for the selected parent
   const childForms: Question[] = selectedForm
