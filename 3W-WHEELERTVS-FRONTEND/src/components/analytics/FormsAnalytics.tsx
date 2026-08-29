@@ -1581,7 +1581,7 @@ export default function FormsAnalytics() {
                             title="View / Preview Form"
                           >
                             <Eye className="w-3.5 h-3.5" />
-                            <span>View</span>
+                            <span>Review</span>
                           </button>
                         )}
                         {(hasPreviewPermission || hasResponsePermission || hasDashboardPermission || hasOverallPermission || hasQuestionsPermission || hasSectionsPermission) && (

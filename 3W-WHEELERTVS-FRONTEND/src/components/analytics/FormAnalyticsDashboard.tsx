@@ -79,6 +79,8 @@ import FilePreview from "../FilePreview";
 import TableColumnFilter from "./TableColumnFilter";
 import ShareAnalyticsModal from "./ShareAnalyticsModal";
 import AutoSendModal from "../forms/AutoSendModal";
+import LocationCell from "../LocationCell";
+import HeatmapCalendar from "./HeatmapCalendar";
 
 import { useTheme } from "../../context/ThemeContext";
 
@@ -3327,6 +3329,12 @@ export default function FormAnalyticsDashboard() {
   const [columnFilters, setColumnFilters] = useState<
     Record<string, string[] | null>
   >({});
+  const [headerFilters, setHeaderFilters] = useState({
+    submittedBy: "",
+    status: "",
+    chassis: "",
+    timestamp: ""
+  });
   const [tableSort, setTableSort] = useState<{
     columnId: string;
     direction: "asc" | "desc";
@@ -5175,6 +5183,18 @@ export default function FormAnalyticsDashboard() {
     }
   };
 
+  const responseCountsByDate = useMemo(() => {
+    const counts: Record<string, number> = {};
+    baseFilteredResponses.forEach((response) => {
+      const timestamp = getResponseTimestamp(response);
+      if (timestamp) {
+        const dateStr = new Date(timestamp).toISOString().split("T")[0];
+        counts[dateStr] = (counts[dateStr] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [baseFilteredResponses]);
+
   const filteredResponses = useMemo(() => {
     let result = baseFilteredResponses;
 
@@ -5275,8 +5295,39 @@ export default function FormAnalyticsDashboard() {
       });
     }
 
+    // 5. Header Search Bars Filters
+    if (headerFilters.submittedBy) {
+      const term = headerFilters.submittedBy.toLowerCase().trim();
+      result = result.filter(r => (r.submittedBy || r.createdBy || "Anonymous").toLowerCase().includes(term));
+    }
+    if (headerFilters.status) {
+      const term = headerFilters.status.toLowerCase().trim();
+      result = result.filter(r => {
+         const rowStatus = tableDisplayStatuses[r.id] || responseStatuses[r.id] || "Pending Review";
+         return rowStatus.toLowerCase().includes(term);
+      });
+    }
+    if (headerFilters.chassis) {
+      const term = headerFilters.chassis.toLowerCase().trim();
+      result = result.filter(r => {
+        const val = getChassisDisplayValue(
+          r.answers?.chassis_number || (chassisQuestionId ? r.answers?.[chassisQuestionId] : "")
+        );
+        return val.toLowerCase().includes(term);
+      });
+    }
+    if (headerFilters.timestamp) {
+       const selectedDate = headerFilters.timestamp; // "YYYY-MM-DD"
+       result = result.filter(r => {
+          const timestamp = getResponseTimestamp(r);
+          if (!timestamp) return false;
+          const rDate = new Date(timestamp).toISOString().split("T")[0];
+          return rDate === selectedDate;
+       });
+    }
+
     return result;
-  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, responsesSearchTerm, responseStatuses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, chassisQuestionId]);
+  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, responsesSearchTerm, responseStatuses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, chassisQuestionId, headerFilters]);
 
   useEffect(() => {
     setResponsesPage(1);
@@ -5289,9 +5340,13 @@ export default function FormAnalyticsDashboard() {
       responsesSearchTerm.trim() !== "" ||
       dateFilter.type !== "all" ||
       selectedInspectorForTrend !== "Overall" ||
-      tableSort !== null
+      tableSort !== null ||
+      headerFilters.submittedBy !== "" ||
+      headerFilters.status !== "" ||
+      headerFilters.chassis !== "" ||
+      headerFilters.timestamp !== ""
     );
-  }, [columnFilters, responsesSearchTerm, dateFilter, selectedInspectorForTrend, tableSort]);
+  }, [columnFilters, responsesSearchTerm, dateFilter, selectedInspectorForTrend, tableSort, headerFilters]);
 
   // Sort helper function that handles natural alphanumeric sorting
   const sortResponses = (list: Response[]) => {
@@ -10702,54 +10757,84 @@ export default function FormAnalyticsDashboard() {
                               </div>
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              Submitted by
+                              <div className="flex flex-col gap-2">
+                                <span>Submitted by</span>
+                                <input
+                                  type="text"
+                                  placeholder="Search name..."
+                                  value={headerFilters.submittedBy}
+                                  onChange={(e) => setHeaderFilters(prev => ({ ...prev, submittedBy: e.target.value }))}
+                                  className="w-full px-2 py-1 text-xs font-normal border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                />
+                              </div>
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-32 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              Status
+                              <div className="flex flex-col gap-2">
+                                <span>Status</span>
+                                <select
+                                  value={headerFilters.status}
+                                  onChange={(e) => setHeaderFilters(prev => ({ ...prev, status: e.target.value }))}
+                                  className="w-full px-2 py-1 text-xs font-normal border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                >
+                                  <option value="">All</option>
+                                  <option value="accepted">Accepted</option>
+                                  <option value="rejected">Rejected</option>
+                                  <option value="rework">Rework</option>
+                                </select>
+                              </div>
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <div
-                                  onClick={() => {
-                                    setTableSort((prev) =>
-                                      prev?.columnId === "__chassisNumber"
-                                        ? prev.direction === "asc"
-                                          ? { columnId: "__chassisNumber", direction: "desc" }
-                                          : null
-                                        : { columnId: "__chassisNumber", direction: "asc" }
-                                    );
-                                  }}
-                                  className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                                  title="Click to sort Chassis Ascending / Descending"
-                                >
-                                  <span>Selected Chassis</span>
-                                  {tableSort?.columnId === "__chassisNumber" ? (
-                                    tableSort.direction === "asc" ? (
-                                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                              <div className="flex flex-col gap-2">
+                                <div className="flex items-center justify-between gap-1.5">
+                                  <div
+                                    onClick={() => {
+                                      setTableSort((prev) =>
+                                        prev?.columnId === "__chassisNumber"
+                                          ? prev.direction === "asc"
+                                            ? { columnId: "__chassisNumber", direction: "desc" }
+                                            : null
+                                          : { columnId: "__chassisNumber", direction: "asc" }
+                                      );
+                                    }}
+                                    className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                    title="Click to sort Chassis Ascending / Descending"
+                                  >
+                                    <span>Selected Chassis</span>
+                                    {tableSort?.columnId === "__chassisNumber" ? (
+                                      tableSort.direction === "asc" ? (
+                                        <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                      ) : (
+                                        <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                      )
                                     ) : (
-                                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                                    )
-                                  ) : (
-                                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
+                                      <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
+                                    )}
+                                  </div>
+                                  {canBulkSelectResponses && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleAutoFillAllChassis();
+                                      }}
+                                      disabled={isAutoFillingChassis || !chassisMasterOptions.length}
+                                      title="Auto-fill every response with no chassis number using the first option"
+                                      className="p-1 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed normal-case tracking-normal"
+                                    >
+                                      {isAutoFillingChassis ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      ) : (
+                                        <CheckCircle className="w-3.5 h-3.5" />
+                                      )}
+                                    </button>
                                   )}
                                 </div>
-                                {canBulkSelectResponses && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleAutoFillAllChassis();
-                                    }}
-                                    disabled={isAutoFillingChassis || !chassisMasterOptions.length}
-                                    title="Auto-fill every response with no chassis number using the first option"
-                                    className="p-1 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed normal-case tracking-normal"
-                                  >
-                                    {isAutoFillingChassis ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                      <CheckCircle className="w-3.5 h-3.5" />
-                                    )}
-                                  </button>
-                                )}
+                                <input
+                                  type="text"
+                                  placeholder="Search chassis..."
+                                  value={headerFilters.chassis}
+                                  onChange={(e) => setHeaderFilters(prev => ({ ...prev, chassis: e.target.value }))}
+                                  className="w-full px-2 py-1 text-xs font-normal border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                />
                               </div>
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
@@ -10837,30 +10922,37 @@ export default function FormAnalyticsDashboard() {
                                 </select>
                               </div>
                             </th>
-                            <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
-                              <div
-                                onClick={() => {
-                                  setTableSort((prev) =>
-                                    prev?.columnId === "__timestamp"
-                                      ? prev.direction === "asc"
-                                        ? { columnId: "__timestamp", direction: "desc" }
-                                        : null
-                                      : { columnId: "__timestamp", direction: "asc" }
-                                  );
-                                }}
-                                className="flex items-center justify-between gap-2 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                                title="Click to sort by Timestamp"
-                              >
-                                <span>Timestamp</span>
-                                {tableSort?.columnId === "__timestamp" ? (
-                                  tableSort.direction === "asc" ? (
-                                    <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                            <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
+                              <div className="flex flex-col gap-2">
+                                <div
+                                  onClick={() => {
+                                    setTableSort((prev) =>
+                                      prev?.columnId === "__timestamp"
+                                        ? prev.direction === "asc"
+                                          ? { columnId: "__timestamp", direction: "desc" }
+                                          : null
+                                        : { columnId: "__timestamp", direction: "asc" }
+                                    );
+                                  }}
+                                  className="flex items-center justify-between gap-2 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                  title="Click to sort by Timestamp"
+                                >
+                                  <span>Timestamp</span>
+                                  {tableSort?.columnId === "__timestamp" ? (
+                                    tableSort.direction === "asc" ? (
+                                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                                    ) : (
+                                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                                    )
                                   ) : (
-                                    <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                                  )
-                                ) : (
-                                  <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 opacity-40 hover:opacity-100" />
-                                )}
+                                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 opacity-40 hover:opacity-100" />
+                                  )}
+                                </div>
+                                <HeatmapCalendar
+                                  selectedDate={headerFilters.timestamp}
+                                  onSelectDate={(date) => setHeaderFilters(prev => ({ ...prev, timestamp: date }))}
+                                  responseCountsByDate={responseCountsByDate}
+                                />
                               </div>
                             </th>
 

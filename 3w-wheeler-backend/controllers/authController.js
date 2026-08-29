@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import Tenant from '../models/Tenant.js';
+import Shift from '../models/Shift.js';
 import LoginLog from '../models/LoginLog.js';
 import Otp from '../models/Otp.js';
 import Form from '../models/Form.js';
@@ -204,6 +205,69 @@ export const login = async (req, res) => {
         await user.save();
       } catch (e) {
         console.error('Failed to update lastLogin:', e);
+      }
+
+      // Auto-assign shift based on login time
+      try {
+        if (user.role !== 'superadmin' && user.tenantId) {
+          const toMins = (t) => {
+            if (!t) return null;
+            const [h, m] = t.split(':').map(Number);
+            return h * 60 + m;
+          };
+          
+          const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+          const currentMins = now.getHours() * 60 + now.getMinutes();
+          
+          const allShifts = await Shift.find({ tenantId: user.tenantId, isActive: true });
+          
+          const currentShift = allShifts.find(s => {
+            const startMins = toMins(s.startTime);
+            const endMins = toMins(s.endTime);
+            const isNight = s.isNightShift || startMins > endMins;
+            const bufferMins = 15;
+            const bufferedStart = (startMins - bufferMins + 1440) % 1440;
+
+            let isMatch = false;
+            if (isNight) {
+              if (bufferedStart > endMins) {
+                isMatch = currentMins >= bufferedStart || currentMins < endMins;
+              } else {
+                isMatch = currentMins >= bufferedStart && currentMins < endMins;
+              }
+            } else {
+              if (bufferedStart > endMins) {
+                isMatch = currentMins >= bufferedStart || currentMins < endMins;
+              } else {
+                isMatch = currentMins >= bufferedStart && currentMins < endMins;
+              }
+            }
+            return isMatch;
+          });
+
+          if (currentShift) {
+            // Check if user is already in this shift
+            const alreadyInShift = currentShift.assignedInspectors.some(
+              id => id.toString() === user._id.toString()
+            );
+            
+            if (!alreadyInShift) {
+              // Remove user from all other shifts for this tenant
+              await Shift.updateMany(
+                { tenantId: user.tenantId },
+                { $pull: { assignedInspectors: user._id } }
+              );
+              // Add user to the current active shift
+              await Shift.updateOne(
+                { _id: currentShift._id },
+                { $addToSet: { assignedInspectors: user._id } }
+              );
+              console.log(`[Auto-Assign Shift] User ${user.username} assigned to ${currentShift.name}`);
+            }
+          }
+        }
+      } catch (shiftErr) {
+        console.error('Failed to auto-assign shift:', shiftErr);
       }
 
       try {
