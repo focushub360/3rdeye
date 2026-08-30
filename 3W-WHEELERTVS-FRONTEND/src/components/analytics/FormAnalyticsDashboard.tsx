@@ -3556,13 +3556,15 @@ export default function FormAnalyticsDashboard() {
 
   // Initialize performance score for current user if not exists
   useEffect(() => {
-    if (user?._id && !performanceScores[user._id]) {
-      setPerformanceScores((prev) => ({
-        ...prev,
-        [user._id]: 100, // Start with 100%
-      }));
+    if (user?._id) {
+      setPerformanceScores((prev) => {
+        if (!prev[user._id]) {
+          return { ...prev, [user._id]: 100 };
+        }
+        return prev;
+      });
     }
-  }, [user?._id, performanceScores]);
+  }, [user?._id]);
 
   // Review system for peer evaluation
   const [selectedReviewOptions, setSelectedReviewOptions] = useState<
