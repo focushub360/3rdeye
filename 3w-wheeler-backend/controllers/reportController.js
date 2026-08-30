@@ -46,27 +46,18 @@ export const getAttendanceReport = async (req, res) => {
 
     console.log('Final query:', JSON.stringify(query));
 
-    // 2. Fetch Data
-    const logs = await Attendance.find(query)
-      .populate('inspector', 'firstName lastName username email tenantId')
-      .populate('tenantId', 'name companyName')
-      .populate('shift', 'name displayName startTime endTime')
-      .sort({ date: -1 });
-
-    console.log('Found logs:', logs.length);
-    if (logs.length > 0) {
-      console.log('Sample log inspector:', logs[0].inspector);
-      console.log('Sample log tenantId:', logs[0].tenantId);
-    }
-
-    // Get inspectors based on role
-    let inspectors;
-    if (userRole === 'superadmin') {
-      inspectors = await User.find({ role: 'inspector', isActive: true });
-    } else {
-      inspectors = await User.find({ tenantId, role: 'inspector', isActive: true });
-    }
-    console.log('Found inspectors:', inspectors.length);
+    // 2. Fetch Data in parallel using lean() for maximum query speed
+    const [logs, inspectors] = await Promise.all([
+      Attendance.find(query)
+        .populate('inspector', 'firstName lastName username email tenantId')
+        .populate('tenantId', 'name companyName')
+        .populate('shift', 'name displayName startTime endTime')
+        .sort({ date: -1 })
+        .lean(),
+      userRole === 'superadmin'
+        ? User.find({ role: 'inspector', isActive: true }).select('firstName lastName username email').lean()
+        : User.find({ tenantId, role: 'inspector', isActive: true }).select('firstName lastName username email').lean()
+    ]);
 
     // 3. Process Report
     const diffTime = Math.abs(end.getTime() - start.getTime());

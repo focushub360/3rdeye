@@ -196,7 +196,7 @@ export default function Attendance() {
     const end = new Date(y, m + 1, 0);
     const sDate = start.toISOString().split("T")[0];
     const eDate = end.toISOString().split("T")[0];
-    const cacheKey = `/attendance/report?startDate=${sDate}&endDate=${eDate}`;
+    const cacheKey = `/hr/attendance/report?startDate=${sDate}&endDate=${eDate}`;
 
     const cached = apiClient.getCachedData<any>(cacheKey);
     const logs = cached?.detailedLogs || cached?.data?.detailedLogs || [];
@@ -275,7 +275,7 @@ export default function Attendance() {
   const end = new Date(y, m + 1, 0);
   const sDate = start.toISOString().split("T")[0];
   const eDate = end.toISOString().split("T")[0];
-  const initialCacheKey = `/attendance/report?startDate=${sDate}&endDate=${eDate}`;
+  const initialCacheKey = `/hr/attendance/report?startDate=${sDate}&endDate=${eDate}`;
 
   const [loading, setLoading] = useState(() => !apiClient.getCachedData(initialCacheKey));
   const [userAttendance, setUserAttendance] = useState<UserAttendance[]>(() => getInitialAttendance());
@@ -832,10 +832,15 @@ export default function Attendance() {
   // Fetch attendance data using HR report endpoint
   useEffect(() => {
     const fetchAttendance = async () => {
-      const cacheKey = `/attendance/report?startDate=${startDate}&endDate=${endDate}`;
-      if (apiClient.isCacheFresh(cacheKey, 30)) {
-        setLoading(false);
-        return;
+      const cacheKey = `/hr/attendance/report?startDate=${startDate}&endDate=${endDate}`;
+      if (apiClient.isCacheFresh(cacheKey, 60)) {
+        const cached = apiClient.getCachedData<any>(cacheKey);
+        const logs = cached?.detailedLogs || cached?.data?.detailedLogs || [];
+        if (logs.length > 0) {
+          processAttendanceData(logs);
+          setLoading(false);
+          return;
+        }
       }
 
       const hasCache = apiClient.getCachedData(cacheKey) !== null;
@@ -852,7 +857,6 @@ export default function Attendance() {
         const response = await apiClient.getHRAttendanceReport({
           startDate,
           endDate,
-          forceNetwork: true,
         });
 
         console.log("HR Report full response:", response);

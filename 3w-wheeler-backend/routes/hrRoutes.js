@@ -7,6 +7,7 @@ import * as reportController from '../controllers/reportController.js';
 import * as leaveController from '../controllers/leaveController.js';
 import * as permissionController from '../controllers/permissionController.js';
 import * as notificationController from '../controllers/notificationController.js';
+import { cacheMiddleware } from '../utils/cache.js';
 
 const router = express.Router();
 
@@ -59,9 +60,9 @@ router.delete('/notifications', authenticate, notificationController.deleteAllNo
 /**
  * REPORTS & STATS (Admin only)
  */
-router.get('/attendance/report', authenticate, adminOnly, reportController.getAttendanceReport);
+router.get('/attendance/report', authenticate, adminOnly, cacheMiddleware(30), reportController.getAttendanceReport);
 router.get('/attendance/export', authenticate, adminOnly, reportController.exportAttendanceReport);
-router.get('/attendance/summary', authenticate, adminOnly, reportController.getTenantStats);
+router.get('/attendance/summary', authenticate, adminOnly, cacheMiddleware(30), reportController.getTenantStats);
 
 /**
  * CREATE ATTENDANCE (Admin with canEditAttendanceTime permission or SuperAdmin)
