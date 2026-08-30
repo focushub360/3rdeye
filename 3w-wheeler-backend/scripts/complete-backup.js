@@ -6,10 +6,14 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PROD_URI = 'mongodb+srv://focushub360db:Priya%40123@focusforms.8im0otd.mongodb.net/3wheelertvs?retryWrites=true&w=majority';
+const PROD_URI = process.env.PROD_MONGODB_URI || process.env.MONGO_URI;
 const backupDir = path.join(__dirname, '..', 'backups', 'backup_3wheelertvs_2026-08-07T12-16-59-234Z');
 
 async function completeBackup() {
+  if (!PROD_URI) {
+    console.error("❌ Error: PROD_MONGODB_URI environment variable is required.");
+    process.exit(1);
+  }
   console.log('🚀 Connecting to complete and verify production backup...');
   await mongoose.connect(PROD_URI);
   const db = mongoose.connection.db;

@@ -1,8 +1,10 @@
-import mongoose from 'mongoose';
-
-const uri = 'mongodb+srv://focushub360db:Priya%40123@focusforms.8im0otd.mongodb.net/3wheelertvs?retryWrites=true&w=majority';
+const uri = process.env.PROD_MONGODB_URI || process.env.MONGO_URI;
 
 async function testFastExport() {
+  if (!uri) {
+    console.error("❌ Error: MONGO_URI environment variable is required.");
+    process.exit(1);
+  }
   await mongoose.connect(uri);
   const db = mongoose.connection.db;
   const col = db.collection('formsessions');

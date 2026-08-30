@@ -3,9 +3,13 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const mongoUri = process.env.MONGODB_URI || "mongodb+srv://littleflowerschool:Focus123engineering@cluster0.gmxndg9.mongodb.net/form?retryWrites=true&w=majority";
+const mongoUri = process.env.MONGODB_URI;
 
 async function run() {
+  if (!mongoUri) {
+    console.error("❌ Error: MONGODB_URI environment variable is required.");
+    process.exit(1);
+  }
   console.log('Connecting to MongoDB...');
   await mongoose.connect(mongoUri);
   console.log('Connected to database.');

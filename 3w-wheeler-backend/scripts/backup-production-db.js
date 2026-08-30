@@ -6,10 +6,13 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PROD_URI = process.env.PROD_MONGODB_URI || 
-  'mongodb+srv://focushub360db:Priya%40123@focusforms.8im0otd.mongodb.net/3wheelertvs?retryWrites=true&w=majority';
+const PROD_URI = process.env.PROD_MONGODB_URI || process.env.MONGO_URI;
 
 async function performBackup() {
+  if (!PROD_URI) {
+    console.error("❌ Error: PROD_MONGODB_URI environment variable is required.");
+    process.exit(1);
+  }
   console.log('🚀 Starting Ultra-Fast Indexed MongoDB Backup...');
   console.log(`📡 Connecting to: ${PROD_URI.replace(/:([^:@]+)@/, ':****@')}`);
 

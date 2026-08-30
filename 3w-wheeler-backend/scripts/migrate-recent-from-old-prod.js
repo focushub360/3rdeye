@@ -1,7 +1,5 @@
-import mongoose from 'mongoose';
-
-const OLD_PROD_URI = 'mongodb+srv://focushub360db:Priya%40123@focusforms.8im0otd.mongodb.net/3wheelertvs?retryWrites=true&w=majority';
-const RUNNING_DEV_URI = 'mongodb+srv://focusengg123_db_user:XGm7JcV29XOBLOyz@cluster0.drsohth.mongodb.net/3wheelertvs_dev?retryWrites=true&w=majority';
+const OLD_PROD_URI = process.env.OLD_PROD_URI || process.env.PROD_MONGO_URI;
+const RUNNING_DEV_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 
 // August 17, 2026 00:00:00 UTC
 const CUTOFF_DATE = new Date('2026-08-17T00:00:00.000Z');
@@ -11,6 +9,10 @@ const CUTOFF_OBJECT_ID = new mongoose.Types.ObjectId(
 );
 
 async function migrateRecentData() {
+  if (!OLD_PROD_URI || !RUNNING_DEV_URI) {
+    console.error("❌ Error: Both OLD_PROD_URI and MONGO_URI environment variables are required.");
+    process.exit(1);
+  }
   console.log('🚀 Starting Data Migration from Old Production DB to Running DB...');
   console.log(`📅 Cutoff Date: ${CUTOFF_DATE.toISOString()} (After Aug 17, 2026)`);
   console.log(`📡 Old Production DB: ${OLD_PROD_URI.replace(/:([^:@]+)@/, ':****@')}`);

@@ -38,4 +38,6 @@ backups/
 3w-wheeler-backend/backups/
 3w-wheeler-backend/uploads/
 uploads/
-test.txt
+test.txt
+test-*.cjs
+*.test.cjs

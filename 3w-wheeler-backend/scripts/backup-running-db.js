@@ -6,10 +6,14 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const RUNNING_DEV_URI = 'mongodb+srv://focusengg123_db_user:XGm7JcV29XOBLOyz@cluster0.drsohth.mongodb.net/3wheelertvs_dev?retryWrites=true&w=majority';
+const RUNNING_DEV_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 
 async function performBackup() {
-  console.log('🚀 Starting Complete Backup of Current Running DB (3wheelertvs_dev)...');
+  if (!RUNNING_DEV_URI) {
+    console.error("❌ Error: MONGO_URI environment variable is required.");
+    process.exit(1);
+  }
+  console.log('🚀 Starting Complete Backup of Current Running DB...');
   console.log(`📡 Connecting to: ${RUNNING_DEV_URI.replace(/:([^:@]+)@/, ':****@')}`);
 
   const startTime = Date.now();
