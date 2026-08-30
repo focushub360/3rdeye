@@ -673,6 +673,7 @@ export const getFormById = async (req, res) => {
         });
       }
 
+      const userTenantId = req.user.tenantId.toString();
       const isGlobal = form.isGlobal === true;
       const isOwnedByTenant = form.tenantId && form.tenantId.toString() === userTenantId;
       const isSharedWithTenant = form.sharedWithTenants && form.sharedWithTenants.some(tId => tId && tId.toString() === userTenantId);
