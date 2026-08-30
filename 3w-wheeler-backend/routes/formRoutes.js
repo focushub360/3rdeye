@@ -108,7 +108,7 @@ router.use(addTenantFilter);
 // Form CRUD operations
 router.post('/', createForm);
 router.post('/import/csv', upload.single('file'), importFormFromCSV);
-router.get('/', cacheMiddleware(60), getAllForms);
+router.get('/', getAllForms);
 router.get('/public', cacheMiddleware(120), getPublicForms);  // Moved here for tenant isolation
 // router.get('/:id', getFormById); // Moved above
 router.put('/:id', updateForm);

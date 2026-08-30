@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   Eye,
   RefreshCw,
@@ -6,6 +7,15 @@ import {
   AlertTriangle,
   FileText,
   Sparkles,
+  Truck,
+  ShieldCheck,
+  MessageCircle,
+  X,
+  Send,
+  Calendar,
+  User,
+  Clock,
+  Loader2,
 } from "lucide-react";
 import type { FollowUpQuestion } from "../types";
 import { useTheme } from "../context/ThemeContext";
@@ -209,9 +219,109 @@ export default function QuestionRenderer({
   const [rank, setRank] = useState<number | null>(null);
   const [previousStatus, setPreviousStatus] = useState<string | null>(null);
   const [lastResponseId, setLastResponseId] = useState<string | null>(null);
+  const [rankHistory, setRankHistory] = useState<any[]>([]);
+  const [dispatchInfo, setDispatchInfo] = useState<{ isDispatched: boolean; dispatchedAt?: string | null; dispatchedByName?: string | null } | null>(null);
+  const [biwInfo, setBiwInfo] = useState<{ status: string; reviewedByName?: string; reviewedAt?: string; notes?: string } | null>(null);
+  const [chatCount, setChatCount] = useState<number>(0);
+  const [showChatModal, setShowChatModal] = useState(false);
+  const [showBiwModal, setShowBiwModal] = useState(false);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [loadingChatMessages, setLoadingChatMessages] = useState(false);
+  const [newChatMessage, setNewChatMessage] = useState("");
+  const [sendingChat, setSendingChat] = useState(false);
+  const [updatingBiw, setUpdatingBiw] = useState(false);
   const [loadingRank, setLoadingRank] = useState(false);
   const [previousAnswers, setPreviousAnswers] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+
+  const handleUpdateBiwStatus = async (status: "Accepted" | "Rejected" | "Reworked") => {
+    const targetId = lastResponseId || (rankHistory.length > 0 ? rankHistory[rankHistory.length - 1].id : null);
+    if (!targetId) return;
+
+    setUpdatingBiw(true);
+    try {
+      await apiClient.updateResponse(targetId, {
+        biwReview: { status }
+      });
+
+      setBiwInfo((prev) => ({
+        ...(prev || {}),
+        status,
+        reviewedAt: new Date().toISOString(),
+        reviewedByName: "You"
+      }));
+
+      // Automatically post a status message to the discussion thread
+      try {
+        await apiClient.request("/messages/send", {
+          method: "POST",
+          body: JSON.stringify({
+            message: `[BIW Review] Status marked as ${status}`,
+            responseId: targetId,
+            formId: formId || null,
+            toEmail: "inspector"
+          })
+        });
+        await fetchChatHistory();
+        setChatCount((prev) => prev + 1);
+      } catch (err) {
+        console.warn("Could not post review chat message", err);
+      }
+    } catch (error: any) {
+      console.error("Failed to update BIW Review status:", error);
+      alert(error?.message || "Failed to update review status. Note: You cannot review your own submission.");
+    } finally {
+      setUpdatingBiw(false);
+    }
+  };
+
+  const fetchChatHistory = async () => {
+    const targetId = lastResponseId || (rankHistory.length > 0 ? rankHistory[rankHistory.length - 1].id : null);
+    if (!targetId) return;
+    setLoadingChatMessages(true);
+    try {
+      const res: any = await apiClient.request(`/messages/response/${targetId}`);
+      if (res && res.data) {
+        setChatMessages(res.data);
+      } else if (Array.isArray(res)) {
+        setChatMessages(res);
+      }
+    } catch (e) {
+      console.warn("Failed to load chat messages for response:", e);
+    } finally {
+      setLoadingChatMessages(false);
+    }
+  };
+
+  const handleSendChatMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const text = newChatMessage.trim();
+    const targetId = lastResponseId || (rankHistory.length > 0 ? rankHistory[rankHistory.length - 1].id : null);
+    if (!text || !targetId) return;
+
+    setSendingChat(true);
+    try {
+      const payload = {
+        message: text,
+        responseId: targetId,
+        formId: formId || null,
+        toEmail: "inspector",
+      };
+      const res: any = await apiClient.request("/messages/send", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      if (res && (res.success || res.data)) {
+        setNewChatMessage("");
+        await fetchChatHistory();
+        setChatCount((prev) => prev + 1);
+      }
+    } catch (err) {
+      console.error("Failed to send chat message:", err);
+    } finally {
+      setSendingChat(false);
+    }
+  };
 
   const imageUrl = getGoogleDriveDirectLink(question.imageUrl || "");
   const isImage = isImageUrl(imageUrl);
@@ -226,7 +336,14 @@ export default function QuestionRenderer({
     question.type === "chassis-without-zone" ||
     question.type === "zone-in" ||
     question.type === "zone-out" ||
-    Boolean(question.text && question.text.toLowerCase().includes("chassis"));
+    Boolean(
+      question.text && (
+        question.text.toLowerCase().includes("chassis") ||
+        question.text.toLowerCase().includes("id number") ||
+        question.text.toLowerCase().includes("id_number") ||
+        question.text.toLowerCase().includes("identification")
+      )
+    );
 
   const isQuestionTrackingEnabled =
     question.trackResponseQuestion === true ||
@@ -262,6 +379,10 @@ export default function QuestionRenderer({
       setRank(null);
       setPreviousStatus(null);
       setLastResponseId(null);
+      setRankHistory([]);
+      setDispatchInfo(null);
+      setBiwInfo(null);
+      setChatCount(0);
       setLoadingRank(false);
       return;
     }
@@ -289,17 +410,36 @@ export default function QuestionRenderer({
               : null;
 
         const prevStat = (response && response.previousStatus) || (response && response.data && response.data.previousStatus) || null;
+        const hist = (response && response.history) || (response && response.data && response.data.history) || [];
 
-        console.log(`[RANK LIVE] Chassis: "${currentTarget}" -> Rank: ${rankVal}, PreviousStatus: "${prevStat}"`);
+        console.log(`[RANK LIVE] Chassis: "${currentTarget}" -> Rank: ${rankVal}, PreviousStatus: "${prevStat}", History: ${hist.length}`);
         const lastId = (response && response.lastResponseId) || (response && response.data && response.data.lastResponseId) || null;
+        const isDisp = Boolean((response && response.isDispatched) || (response && response.data && response.data.isDispatched));
+        const dispAt = (response && response.dispatchedAt) || (response && response.data && response.data.dispatchedAt) || null;
+        const dispBy = (response && response.dispatchedByName) || (response && response.data && response.data.dispatchedByName) || null;
+        const biw = (response && response.biwReview) || (response && response.data && response.data.biwReview) || null;
+        const chatCnt = (response && typeof response.chatCount === "number")
+          ? response.chatCount
+          : (response && response.data && typeof response.data.chatCount === "number")
+            ? response.data.chatCount
+            : 0;
+
         setRank(rankVal);
         setPreviousStatus(prevStat);
         setLastResponseId(lastId);
+        setRankHistory(hist);
+        setDispatchInfo(isDisp ? { isDispatched: true, dispatchedAt: dispAt, dispatchedByName: dispBy } : null);
+        setBiwInfo(biw);
+        setChatCount(chatCnt);
       } catch (err) {
         if (!isCancelled) {
           console.error("Failed to fetch rank:", err);
           setRank(null);
           setPreviousStatus(null);
+          setRankHistory([]);
+          setDispatchInfo(null);
+          setBiwInfo(null);
+          setChatCount(0);
         }
       } finally {
         if (!isCancelled) {
@@ -1265,31 +1405,200 @@ export default function QuestionRenderer({
             const statusLower = (previousStatus || "").toLowerCase().trim();
             const isReject = statusLower.includes("reject");
             const isRework = statusLower.includes("rework");
-            const isAccepted = statusLower.includes("accept") || statusLower.includes("direct ok") || statusLower.includes("ok") || statusLower === "verified";
 
-            let badgeStyle = "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700";
-            let labelText = `Attempt #${rank}`;
+            // If we have rankHistory from live check or suggestedAnswers:
+            const historyItems = (rankHistory && rankHistory.length > 0)
+              ? rankHistory
+              : (Array.isArray(suggestedAnswers) ? suggestedAnswers : []);
 
-            if (isReject) {
-              badgeStyle = "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700";
-              labelText = `Attempt #${rank} (${previousStatus || "Rejected"})`;
-            } else if (isRework) {
-              badgeStyle = "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700";
-              labelText = `Attempt #${rank} (${previousStatus || "Rework"})`;
-            } else {
-              // Accepted / Direct Ok / New inspection
-              badgeStyle = "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700";
-              labelText = `Attempt #${rank}`;
+            if (rank === 1 && historyItems.length === 0) {
+              return (
+                <div className="flex items-center ml-2">
+                  <div
+                    className="flex flex-col items-center justify-center gap-1.5 w-20 h-24 p-2 rounded-xl border text-center bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700 shadow-sm"
+                    title="Inspection Attempt #1 (Initial inspection)"
+                  >
+                    <span className="text-[11px] font-black tracking-tight leading-tight">
+                      Attempt #1
+                    </span>
+                    <span className="text-[10px] font-bold bg-green-200/60 dark:bg-green-800/60 text-green-800 dark:text-green-200 px-1.5 py-0.5 rounded leading-none">
+                      Initial
+                    </span>
+                  </div>
+                </div>
+              );
             }
 
             return (
-              <div className="flex items-center gap-1.5 ml-2">
-                <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full border text-[11px] font-extrabold shadow-xs transition-all ${badgeStyle}`}
-                  title={`Inspection Attempt #${rank}${previousStatus ? ` - Previous Status: ${previousStatus}` : ""}`}
+              <div className="flex flex-wrap items-center gap-2.5 ml-2 mt-1 sm:mt-0">
+                {/* Historical attempts in vertical rectangle boxes */}
+                {historyItems.map((hist: any) => {
+                  const sStr = String(hist.status || "").toLowerCase().trim();
+                  const isHistRej = sStr.includes("reject");
+                  const isHistAccepted = sStr.includes("accept") || sStr.includes("direct ok") || sStr.includes("ok") || sStr === "verified";
+
+                  const colorClass = isHistRej
+                    ? "bg-red-600 text-white border-red-700 shadow-sm shadow-red-600/30"
+                    : isHistAccepted
+                      ? "bg-emerald-600 text-white border-emerald-700 shadow-sm shadow-emerald-600/30"
+                      : "bg-amber-500 text-white border-amber-600 shadow-sm shadow-amber-500/30";
+
+                  const respId = hist.id || hist.responseId || hist._id;
+                  const canViewRecord = isHistAccepted && Boolean(respId);
+
+                  return (
+                    <div key={`prev-attempt-${hist.rank}`} className="inline-flex">
+                      {canViewRecord ? (
+                        <a
+                          href={`/responses/${respId}?tab=responses`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Attempt #${hist.rank} (${hist.status || "Accepted Record"}) - Click to view response`}
+                          className={`flex flex-col items-center justify-between w-20 h-24 p-2 rounded-xl border text-center transition-all hover:scale-105 hover:brightness-110 active:scale-95 cursor-pointer ${colorClass}`}
+                        >
+                          <span className="text-[11px] font-black tracking-tight leading-tight">
+                            Attempt #{hist.rank}
+                          </span>
+                          {hist.status && (
+                            <span className="text-[9.5px] font-bold bg-black/25 px-1 py-0.5 rounded leading-none text-center max-w-full truncate">
+                              {hist.status}
+                            </span>
+                          )}
+                          <span className="flex items-center justify-center gap-1 text-[9.5px] font-bold bg-white/25 hover:bg-white/40 px-2 py-1 rounded-md transition-colors w-full">
+                            <Eye className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <span>View</span>
+                          </span>
+                        </a>
+                      ) : (
+                        <div
+                          className={`flex flex-col items-center justify-center gap-2 w-20 h-24 p-2 rounded-xl border text-center shadow-sm ${colorClass}`}
+                        >
+                          <span className="text-[11px] font-black tracking-tight leading-tight">
+                            Attempt #{hist.rank}
+                          </span>
+                          {hist.status && (
+                            <span className="text-[9.5px] font-bold bg-black/25 px-1.5 py-0.5 rounded leading-none text-center max-w-full truncate">
+                              {hist.status}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* If no history items array yet, but rank > 1, show previous attempt vertical box */}
+                {historyItems.length === 0 && rank > 1 && (() => {
+                  const isPrevAccepted = statusLower.includes("accept") || statusLower.includes("direct ok") || statusLower.includes("ok") || statusLower === "verified";
+                  const isPrevRej = statusLower.includes("reject");
+                  const colorClass = isPrevRej
+                    ? "bg-red-600 text-white border-red-700 shadow-sm shadow-red-600/30"
+                    : isPrevAccepted
+                      ? "bg-emerald-600 text-white border-emerald-700 shadow-sm shadow-emerald-600/30"
+                      : "bg-amber-500 text-white border-amber-600 shadow-sm shadow-amber-500/30";
+
+                  return (
+                    <div
+                      className={`flex flex-col items-center justify-center gap-2 w-20 h-24 p-2 rounded-xl border text-center shadow-sm ${colorClass}`}
+                    >
+                      <span className="text-[11px] font-black tracking-tight leading-tight">
+                        Attempt #{rank - 1}
+                      </span>
+                      {previousStatus && (
+                        <span className="text-[9.5px] font-bold bg-black/25 px-1.5 py-0.5 rounded leading-none text-center max-w-full truncate">
+                          {previousStatus}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Current Active Attempt in vertical rectangle */}
+                <div
+                  className="flex flex-col items-center justify-center gap-2 w-20 h-24 p-2 rounded-xl border text-center bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 shadow-sm"
+                  title={`Current inspection attempt #${rank}`}
                 >
-                  {labelText}
-                </span>
+                  <span className="text-[11px] font-black tracking-tight leading-tight">
+                    Attempt #{rank}
+                  </span>
+                  <span className="text-[9.5px] font-bold bg-blue-200/60 dark:bg-blue-800/60 text-blue-800 dark:text-blue-200 px-1.5 py-0.5 rounded leading-none">
+                    Current
+                  </span>
+                </div>
+
+                {/* BIW Review & Overall Chat Icon Buttons placed aside */}
+                <div className="flex items-center gap-2 ml-1 self-center">
+                  {/* BIW Review Icon */}
+                  {(dispatchInfo?.isDispatched || historyItems.length > 0 || lastResponseId || biwInfo?.status) && (() => {
+                    const bStr = String(biwInfo?.status || "").toLowerCase();
+                    const isBiwRej = bStr.includes("reject");
+                    const isBiwAccepted = bStr.includes("accept") || bStr.includes("ok");
+                    const isBiwRework = bStr.includes("rework");
+                    const biwIconColor = isBiwRej
+                      ? "text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 border-red-200 dark:border-red-800"
+                      : isBiwAccepted
+                        ? "text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800"
+                        : isBiwRework
+                          ? "text-purple-600 bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/30 border-purple-200 dark:border-purple-800"
+                          : "text-amber-600 bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800";
+
+                    return (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowBiwModal(true);
+                        }}
+                        className={`relative p-2.5 rounded-xl border flex items-center justify-center transition-all cursor-pointer shadow-xs hover:scale-105 ${biwIconColor}`}
+                        title={`BIW Review: ${biwInfo?.status || "Pending Review"}${biwInfo?.reviewedByName ? ` (by ${biwInfo.reviewedByName})` : ""}`}
+                      >
+                        <ShieldCheck className="w-5 h-5" />
+                        <span
+                          className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-gray-900 ${
+                            isBiwRej
+                              ? "bg-red-500"
+                              : isBiwAccepted
+                                ? "bg-emerald-500"
+                                : isBiwRework
+                                  ? "bg-purple-500"
+                                  : "bg-amber-400"
+                          }`}
+                        />
+                      </button>
+                    );
+                  })()}
+
+                  {/* Overall Chat Icon for this Chassis (Opens In-Screen Modal) */}
+                  {(dispatchInfo?.isDispatched || chatCount > 0 || (historyItems.length > 0 && lastResponseId)) && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowChatModal(true);
+                        fetchChatHistory();
+                      }}
+                      title={`Chassis Discussion / Chat (${chatCount} messages) - Click to open discussion in screen`}
+                      className="relative p-2.5 rounded-xl border text-indigo-600 dark:text-indigo-400 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 hover:scale-105 active:scale-95 border-indigo-200 dark:border-indigo-800 flex items-center justify-center transition-all cursor-pointer shadow-xs"
+                    >
+                      <MessageCircle className="w-5 h-5" />
+                      {chatCount > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-4 px-1 rounded-full text-[10px] font-black bg-indigo-600 text-white flex items-center justify-center ring-2 ring-white dark:ring-gray-900 leading-none">
+                          {chatCount}
+                        </span>
+                      )}
+                    </button>
+                  )}
+
+                  {/* Dispatch Icon (if dispatched) */}
+                  {dispatchInfo?.isDispatched && (
+                    <div
+                      className="p-2.5 rounded-xl border text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 flex items-center justify-center shadow-xs"
+                      title={`Dispatched${dispatchInfo.dispatchedByName ? ` by ${dispatchInfo.dispatchedByName}` : ""}${dispatchInfo.dispatchedAt ? ` on ${new Date(dispatchInfo.dispatchedAt).toLocaleDateString()}` : ""}`}
+                    >
+                      <Truck className="w-5 h-5" />
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })()}
@@ -1483,6 +1792,369 @@ export default function QuestionRenderer({
         <p className="text-[10px] font-bold text-red-500 mt-1 animate-in fade-in slide-in-from-top-1">
           {activeError}
         </p>
+      )}
+
+      {/* ======================================================== */}
+      {/* ON-SCREEN CHAT & DISCUSSION MODAL (PORTALED)             */}
+      {/* ======================================================== */}
+      {showChatModal && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setShowChatModal(false)}
+        >
+          <div
+            className="w-full max-w-xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col max-h-[88vh] animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-white/10">
+                  <MessageCircle className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base leading-tight">
+                    Chassis Discussion & Review
+                  </h3>
+                  <p className="text-xs text-indigo-100 opacity-90">
+                    Chassis ID: {effectiveTrackingValue || "N/A"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowChatModal(false)}
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* BIW Review Action Bar inside Overall Chat */}
+            <div className="px-4 py-2.5 bg-indigo-50/70 dark:bg-gray-800/80 border-b border-indigo-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                <ShieldCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <span>B&W Review:</span>
+                <span
+                  className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                    biwInfo?.status === "Accepted"
+                      ? "bg-green-100 text-green-800 border border-green-300"
+                      : biwInfo?.status === "Rejected"
+                        ? "bg-red-100 text-red-800 border border-red-300"
+                        : biwInfo?.status === "Reworked"
+                          ? "bg-purple-100 text-purple-800 border border-purple-300"
+                          : "bg-amber-100 text-amber-800 border border-amber-300"
+                  }`}
+                >
+                  {biwInfo?.status || "Pending"}
+                </span>
+                {biwInfo?.reviewedByName && (
+                  <span className="text-[10px] text-gray-400 font-normal">
+                    (by {biwInfo.reviewedByName})
+                  </span>
+                )}
+              </div>
+
+              {/* Review Buttons */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={updatingBiw}
+                  onClick={() => handleUpdateBiwStatus("Accepted")}
+                  className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center gap-1 ${
+                    biwInfo?.status === "Accepted"
+                      ? "bg-green-600 text-white border-green-600 shadow-xs"
+                      : "bg-green-50 hover:bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800"
+                  }`}
+                >
+                  <span>✅</span> Accepted
+                </button>
+                <button
+                  type="button"
+                  disabled={updatingBiw}
+                  onClick={() => handleUpdateBiwStatus("Rejected")}
+                  className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center gap-1 ${
+                    biwInfo?.status === "Rejected"
+                      ? "bg-red-600 text-white border-red-600 shadow-xs"
+                      : "bg-red-50 hover:bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
+                  }`}
+                >
+                  <span>❌</span> Rejected
+                </button>
+                <button
+                  type="button"
+                  disabled={updatingBiw}
+                  onClick={() => handleUpdateBiwStatus("Reworked")}
+                  className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center gap-1 ${
+                    biwInfo?.status === "Reworked"
+                      ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                      : "bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800"
+                  }`}
+                >
+                  <span>🔄</span> Rework
+                </button>
+              </div>
+            </div>
+
+            {/* Chat Messages Body */}
+            <div className="flex-1 p-4 overflow-y-auto space-y-3 min-h-[220px] max-h-[360px] bg-gray-50 dark:bg-gray-950/50">
+              {loadingChatMessages ? (
+                <div className="flex flex-col items-center justify-center h-40 text-gray-400">
+                  <Loader2 className="w-6 h-6 animate-spin mb-2 text-indigo-600" />
+                  <span className="text-xs">Loading conversation history...</span>
+                </div>
+              ) : chatMessages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-40 text-gray-400 text-center px-4">
+                  <MessageCircle className="w-8 h-8 stroke-1 text-gray-300 dark:text-gray-600 mb-2" />
+                  <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">
+                    No discussion messages yet
+                  </p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    Send a message below or mark a review status above.
+                  </p>
+                </div>
+              ) : (
+                chatMessages.map((msg: any, idx: number) => {
+                  const senderName =
+                    msg.from?.name || msg.from?.username || msg.from?.email || "User";
+                  const timeStr = msg.createdAt
+                    ? new Date(msg.createdAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "";
+                  return (
+                    <div
+                      key={msg._id || idx}
+                      className="flex flex-col p-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-xs"
+                    >
+                      <div className="flex items-center justify-between text-[11px] font-bold text-gray-700 dark:text-gray-300 mb-1">
+                        <span className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
+                          <User className="w-3.5 h-3.5" />
+                          {senderName}
+                        </span>
+                        {timeStr && (
+                          <span className="text-[10px] text-gray-400 font-normal">
+                            {timeStr}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
+                        {msg.message}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Input Bar (No nested <form> tag) */}
+            <div
+              className="p-3 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex items-center gap-2"
+            >
+              <input
+                type="text"
+                placeholder="Type a message or note for this chassis..."
+                value={newChatMessage}
+                onChange={(e) => setNewChatMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendChatMessage();
+                  }
+                }}
+                disabled={sendingChat}
+                className="flex-1 px-3 py-2 text-xs rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+              />
+              <button
+                type="button"
+                onClick={() => handleSendChatMessage()}
+                disabled={sendingChat || !newChatMessage.trim()}
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                {sendingChat ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+                <span>Send</span>
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ======================================================== */}
+      {/* ON-SCREEN BIW REVIEW DETAILS MODAL (PORTALED)            */}
+      {/* ======================================================== */}
+      {showBiwModal && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setShowBiwModal(false)}
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-white/10">
+                  <ShieldCheck className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base leading-tight">
+                    BIW Quality Review
+                  </h3>
+                  <p className="text-xs text-purple-100 opacity-90">
+                    Chassis: {effectiveTrackingValue || "N/A"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBiwModal(false)}
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-5 space-y-4 bg-white dark:bg-gray-900 text-xs">
+              {/* Status Banner */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                <span className="font-bold text-gray-500 uppercase tracking-wider text-[10px]">
+                  Review Status
+                </span>
+                <span
+                  className={`px-3 py-1 rounded-lg font-black text-xs ${
+                    String(biwInfo?.status).toLowerCase().includes("reject")
+                      ? "bg-red-500 text-white"
+                      : String(biwInfo?.status).toLowerCase().includes("accept")
+                        ? "bg-emerald-600 text-white"
+                        : "bg-purple-600 text-white"
+                  }`}
+                >
+                  {biwInfo?.status || "Pending Review"}
+                </span>
+              </div>
+
+              {/* Interactive Review Action Buttons */}
+              <div className="p-3 rounded-xl bg-purple-50/60 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+                <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase block mb-2">
+                  Update Quality Review Status
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    disabled={updatingBiw}
+                    onClick={() => handleUpdateBiwStatus("Accepted")}
+                    className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                      biwInfo?.status === "Accepted"
+                        ? "bg-green-600 text-white border-green-600 shadow-xs"
+                        : "bg-white dark:bg-gray-800 text-green-700 border-green-300 hover:bg-green-50"
+                    }`}
+                  >
+                    <span>✅</span> Accepted
+                  </button>
+                  <button
+                    type="button"
+                    disabled={updatingBiw}
+                    onClick={() => handleUpdateBiwStatus("Rejected")}
+                    className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                      biwInfo?.status === "Rejected"
+                        ? "bg-red-600 text-white border-red-600 shadow-xs"
+                        : "bg-white dark:bg-gray-800 text-red-700 border-red-300 hover:bg-red-50"
+                    }`}
+                  >
+                    <span>❌</span> Rejected
+                  </button>
+                  <button
+                    type="button"
+                    disabled={updatingBiw}
+                    onClick={() => handleUpdateBiwStatus("Reworked")}
+                    className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                      biwInfo?.status === "Reworked"
+                        ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                        : "bg-white dark:bg-gray-800 text-purple-700 border-purple-300 hover:bg-purple-50"
+                    }`}
+                  >
+                    <span>🔄</span> Rework
+                  </button>
+                </div>
+              </div>
+
+              {/* Reviewer Details */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase block mb-1">
+                    Reviewed By
+                  </span>
+                  <span className="font-bold text-gray-800 dark:text-gray-200">
+                    {biwInfo?.reviewedByName || "Quality Lead"}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase block mb-1">
+                    Date & Time
+                  </span>
+                  <span className="font-bold text-gray-800 dark:text-gray-200">
+                    {biwInfo?.reviewedAt
+                      ? new Date(biwInfo.reviewedAt).toLocaleDateString()
+                      : "Recent"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Remarks/Notes */}
+              {biwInfo?.notes && (
+                <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+                  <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase block mb-1">
+                    Review Remarks
+                  </span>
+                  <p className="text-gray-700 dark:text-gray-300 italic">
+                    "{biwInfo.notes}"
+                  </p>
+                </div>
+              )}
+
+              {/* Dispatch clearance check */}
+              <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Truck className="w-4 h-4 text-gray-500" />
+                  <span className="font-semibold text-gray-700 dark:text-gray-300">
+                    Dispatch Status:
+                  </span>
+                </div>
+                <span
+                  className={`font-bold px-2 py-0.5 rounded text-[11px] ${
+                    dispatchInfo?.isDispatched
+                      ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
+                      : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400"
+                  }`}
+                >
+                  {dispatchInfo?.isDispatched ? "✓ Dispatched" : "Pending Dispatch"}
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3 bg-gray-50 dark:bg-gray-800/60 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowBiwModal(false)}
+                className="px-4 py-1.5 rounded-xl bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

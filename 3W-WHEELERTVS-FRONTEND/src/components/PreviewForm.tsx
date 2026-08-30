@@ -38,6 +38,7 @@ import {
 
 interface Form {
   id: string;
+  tenantId?: any;
   title: string;
   description: string;
   sections: any[];
@@ -69,6 +70,7 @@ interface PreviewFormProps {
   formSessionId?: string | null;
   chassisNumbers?: Array<{ chassisNumber: string; partDescription: string }> | string[];
   chassisTenantAssignments?: Record<string, string[]>;
+  tenantId?: any;
 }
 
 export default function PreviewForm({
@@ -81,6 +83,7 @@ export default function PreviewForm({
   formSessionId,
   chassisNumbers: propChassisNumbers,
   chassisTenantAssignments: propChassisTenantAssignments,
+  tenantId: propTenantId,
 }: PreviewFormProps) {
   const { id: formId } = useParams<{ id: string }>();
   const { tenant, user } = useAuth();
@@ -192,17 +195,25 @@ export default function PreviewForm({
   const { showSuccess, showConfirm, showError: showNotifyError } = useNotification();
   const { getOrderedVisibleQuestions } = useQuestionLogic();
 
-  // Normalize chassis numbers for display
+  const isSharedForm = useMemo(() => {
+    const curTenant = String(tenant?._id || user?.tenantId || "");
+    const fTenant = String(propTenantId || form?.tenantId?._id || form?.tenantId || "");
+    return Boolean(fTenant && curTenant && fTenant !== curTenant);
+  }, [tenant, user, propTenantId, form?.tenantId]);
+
+  // Normalize chassis numbers for display (omit completely for shared forms)
   const chassisNumbers = useMemo(() => {
+    if (isSharedForm) return [];
     const rawChassis = propChassisNumbers || form?.chassisNumbers || [];
     return rawChassis.map((cn: any) =>
       typeof cn === 'string' ? { chassisNumber: cn, partDescription: '' } : cn
     );
-  }, [propChassisNumbers, form?.chassisNumbers]);
+  }, [propChassisNumbers, form?.chassisNumbers, isSharedForm]);
 
   const chassisTenantAssignments = useMemo(() => {
+    if (isSharedForm) return {};
     return propChassisTenantAssignments || form?.chassisTenantAssignments || {};
-  }, [propChassisTenantAssignments, form?.chassisTenantAssignments]);
+  }, [propChassisTenantAssignments, form?.chassisTenantAssignments, isSharedForm]);
 
   const isValidFileInput = (value: any): boolean => {
     if (!value) return false;
@@ -831,7 +842,14 @@ export default function PreviewForm({
       question.type === "chassis-without-zone" ||
       question.type === "zone-in" ||
       question.type === "zone-out" ||
-      Boolean(question.text && question.text.toLowerCase().includes("chassis"))
+      Boolean(
+        question.text && (
+          question.text.toLowerCase().includes("chassis") ||
+          question.text.toLowerCase().includes("id number") ||
+          question.text.toLowerCase().includes("id_number") ||
+          question.text.toLowerCase().includes("identification")
+        )
+      )
     );
     const isAnyTrackingEnabled = isTrackQuestionEnabled || isTrackRankEnabled || isChassisQuestion;
 
@@ -927,7 +945,15 @@ export default function PreviewForm({
         const searchValNormalized = normalize(searchValue);
 
         const suggestions = rawSuggestions.filter(s => {
-          const val = s.answers?.[questionId];
+          const val = s.answers?.[questionId] ??
+            s.answers?.[`${questionId}_tracking`] ??
+            s.answers?.['chassis_number'] ??
+            s.answers?.['ID number'] ??
+            s.answers?.['ID Number'] ??
+            s.answers?.['ID NUMBER'] ??
+            s.answers?.id_number ??
+            s.answers?.idNumber;
+
           if (typeof val === 'object' && val?.chassisNumber) {
             return normalize(val.chassisNumber) === searchValNormalized;
           }
@@ -2033,22 +2059,22 @@ export default function PreviewForm({
       <div
         className={`sticky top-0 z-40 border-b ${darkMode ? "border-slate-800 bg-slate-950/80" : "border-slate-200 bg-white/80"} backdrop-blur-xl transition-colors duration-300`}
       >
-        <div className="mx-auto max-w-[90%] px-4 py-3">
+        <div className="mx-auto max-w-7xl px-4 sm:px-8 py-3.5">
           <div className="flex items-center justify-between gap-6">
             <div className="flex flex-col flex-1 min-w-0">
               <div className="flex items-center gap-3">
                 <h1
-                  className={`text-base font-black tracking-tight ${darkMode ? "text-white" : "text-slate-900"} truncate`}
+                  className={`text-lg sm:text-xl font-bold tracking-tight ${darkMode ? "text-white" : "text-slate-900"} truncate`}
                 >
                   {form.title}
                 </h1>
-                <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[9px] font-black uppercase tracking-[0.2em] whitespace-nowrap animate-pulse">
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-xs font-bold uppercase tracking-wider whitespace-nowrap animate-pulse">
                   Preview Mode
                 </span>
               </div>
               {form.description && (
                 <p
-                  className={`text-[10px] font-medium leading-relaxed ${darkMode ? "text-slate-500" : "text-slate-400"}`}
+                  className={`text-xs font-medium leading-relaxed mt-0.5 ${darkMode ? "text-slate-400" : "text-slate-500"}`}
                 >
                   {form.description}
                 </p>
@@ -2058,7 +2084,7 @@ export default function PreviewForm({
             {form.sections && (
               <div className="flex items-center gap-4 flex-1 max-w-md">
                 <div
-                  className={`flex-1 h-1 overflow-hidden rounded-full ${darkMode ? "bg-slate-800" : "bg-slate-200"}`}
+                  className={`flex-1 h-2 overflow-hidden rounded-full ${darkMode ? "bg-slate-800" : "bg-slate-200"}`}
                 >
                   <div
                     className="h-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)] transition-all duration-700 ease-out"
@@ -2066,17 +2092,17 @@ export default function PreviewForm({
                   />
                 </div>
                 <div className="flex items-center gap-2 whitespace-nowrap">
-                  <span className={`text-[10px] font-black ${darkMode ? "text-blue-400" : "text-blue-600"}`}>
+                  <span className={`text-xs font-bold ${darkMode ? "text-blue-400" : "text-blue-600"}`}>
                     {Math.round(progressPercentage)}%
                   </span>
-                  <span className={`text-[9px] font-bold uppercase tracking-widest ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
+                  <span className={`text-xs font-semibold uppercase tracking-wider ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                     {progressLabel}
                   </span>
                 </div>
               </div>
             )}
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               {suggestedAnswers && !suggestedAnswers._no_match && (
                 <button
                   type="button"
@@ -2085,35 +2111,35 @@ export default function PreviewForm({
                     setLastSuggestionSource(null);
                     setSelectedRank(null);
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all border ${darkMode
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all border ${darkMode
                       ? "bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20"
                       : "bg-amber-50 text-amber-600 border-amber-100 hover:bg-amber-100"
                     }`}
                 >
-                  <Sparkles className="h-3.5 w-3.5" />
+                  <Sparkles className="h-4 w-4" />
                   Clear Suggestions
                 </button>
               )}
 
               <button
                 onClick={handleLoadSampleData}
-                className={`p-1.5 rounded-full transition-all duration-300 ${darkMode
+                className={`p-2 rounded-xl transition-all duration-300 ${darkMode
                     ? "bg-blue-500/10 text-blue-400 hover:text-white hover:bg-blue-500/20"
                     : "bg-blue-50 text-blue-600 hover:text-blue-700 hover:bg-blue-100"
                   }`}
                 title="Load Sample Data"
               >
-                <Database className="h-3.5 w-3.5" />
+                <Database className="h-4 w-4" />
               </button>
 
               <button
                 onClick={toggleDarkMode}
-                className={`p-1.5 rounded-full transition-all duration-300 ${darkMode
+                className={`p-2 rounded-xl transition-all duration-300 ${darkMode
                     ? "bg-slate-800/50 text-slate-400 hover:text-white hover:bg-slate-700/50"
                     : "bg-slate-100 text-slate-500 hover:text-slate-900 hover:bg-slate-200"
                   }`}
               >
-                {darkMode ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+                {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               </button>
             </div>
           </div>
@@ -2122,13 +2148,13 @@ export default function PreviewForm({
 
       {/* Main Content */}
       <div className="relative py-8">
-        <div className="mx-auto max-w-[98%] px-4">
+        <div className="mx-auto max-w-7xl px-4 sm:px-8">
           <div className="flex flex-col lg:flex-row gap-6 items-start">
             {/* Form Column */}
-            <div className="flex-1 w-full min-w-0 space-y-4 max-w-5xl mx-auto">
-              {/* Chassis Number Selection (If enabled and at first section) */}
+            <div className="flex-1 w-full min-w-0 space-y-6">
+              {/* Chassis Number Selection (If enabled and at first section and not a shared form) */}
               {chassisNumbers.length > 0 && currentSectionIndex === 0 && (
-                <div className={`p-8 rounded-2xl border-2 ${darkMode ? "bg-purple-500/5 border-purple-500/20" : "bg-purple-50 border-purple-100"} shadow-sm relative overflow-hidden group`}>
+                <div className={`p-6 sm:p-8 rounded-2xl border-2 ${darkMode ? "bg-purple-500/5 border-purple-500/20" : "bg-purple-50 border-purple-100"} shadow-sm relative overflow-hidden group`}>
                   <div className="absolute top-0 right-0 p-4 opacity-10 font-bold">
                     <Clipboard className={`w-16 h-16 ${darkMode ? "text-purple-400" : "text-purple-600"}`} />
                   </div>
@@ -2177,7 +2203,7 @@ export default function PreviewForm({
                               </div>
                             )}
                           </div>
-                          <div className={`mt-1 text-[10px] uppercase tracking-wider font-bold ${answers['chassis_number'] === cn.chassisNumber ? "text-purple-400 dark:text-purple-500" : "text-gray-400"}`}>
+                          <div className={`mt-1 text-xs uppercase tracking-wider font-bold ${answers['chassis_number'] === cn.chassisNumber ? "text-purple-400 dark:text-purple-500" : "text-gray-400"}`}>
                             {answers['chassis_number'] === cn.chassisNumber ? 'Selected Chassis' : 'Available'}
                           </div>
                         </button>
@@ -2190,39 +2216,39 @@ export default function PreviewForm({
               <form id="customer-form" onSubmit={handleSubmit} className="space-y-0">
                 <div className="space-y-4">
                   <div
-                    className={`rounded-xl border ${darkMode ? "border-slate-800 bg-slate-900/40" : "border-slate-200 bg-white shadow-sm shadow-slate-200/50"} overflow-hidden backdrop-blur-sm`}
+                    className={`rounded-2xl border ${darkMode ? "border-slate-800 bg-slate-900/60 shadow-xl shadow-black/20" : "border-slate-200/80 bg-white shadow-lg shadow-slate-200/50"} overflow-hidden backdrop-blur-sm`}
                   >
                     <div
-                      className={`border-b ${darkMode ? "border-slate-800 bg-slate-900/40" : "border-slate-100 bg-slate-50/50"} px-6 py-6`}
+                      className={`border-b ${darkMode ? "border-slate-800 bg-slate-900/80" : "border-slate-100 bg-slate-50/70"} px-6 py-6 sm:px-8 sm:py-7`}
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1">
-                          <div className={`inline-flex items-center gap-2.5 ${(currentSection.title || (currentSection.description && currentSection.description !== form.description)) ? 'mb-3' : ''}`}>
-                            <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-blue-600 text-white font-black text-[11px] shadow-lg shadow-blue-500/20">
+                          <div className="inline-flex items-center gap-3 mb-3">
+                            <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-blue-600 text-white font-bold text-sm shadow-md shadow-blue-500/20">
                               {currentSectionIndex + 1}
                             </div>
                             <div className="flex flex-col">
-                              <span className={`text-[8px] font-black uppercase tracking-[0.25em] ${darkMode ? "text-slate-600" : "text-slate-400"}`}>
+                              <span className={`text-xs font-bold uppercase tracking-wider ${darkMode ? "text-slate-400" : "text-slate-400"}`}>
                                 {effectiveViewType === "question-wise" && currentSection.isVirtual
                                   ? `Section ${currentSection.originalSectionIndex + 1}`
                                   : "Current Phase"}
                               </span>
-                              <span className={`text-[10px] font-bold ${darkMode ? "text-blue-400" : "text-blue-600"}`}>
+                              <span className={`text-xs font-bold ${darkMode ? "text-blue-400" : "text-blue-600"}`}>
                                 {effectiveViewType === "question-wise" && currentSection.isVirtual ? (
                                   <>Question {currentSection.questionIndex + 1} of {currentSection.totalQuestionsInSection}</>
                                 ) : (
-                                  <>0{currentSectionIndex + 1} of 0{mainSections.length}</>
+                                  <>Section {currentSectionIndex + 1} of {mainSections.length}</>
                                 )}
                               </span>
                             </div>
                           </div>
-                          {currentSection.title && currentSection.title !== form.title && (
-                            <h2 className={`text-lg font-black tracking-tight ${darkMode ? "text-white" : "text-slate-900"}`}>
+                          {currentSection.title && (
+                            <h2 className={`text-xl sm:text-2xl font-bold tracking-tight ${darkMode ? "text-white" : "text-slate-900"}`}>
                               {currentSection.title || currentSection.name}
                             </h2>
                           )}
                           {currentSection.description && currentSection.description !== form.description && (
-                            <p className={`mt-1 text-xs ${darkMode ? "text-slate-500" : "text-slate-500"}`}>
+                            <p className={`mt-1.5 text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                               {currentSection.description}
                             </p>
                           )}
@@ -2230,16 +2256,16 @@ export default function PreviewForm({
                       </div>
                     </div>
 
-                    <div className="px-6 py-8 space-y-6">
+                    <div className="px-6 py-8 sm:px-8 sm:py-10 space-y-8">
                       {allSectionsToDisplay.map((section) => (
                         <div key={section.id}>
                           {section.isSubsection && (
                             <div className={`mb-4 pb-2 border-b ${darkMode ? "border-emerald-500/10" : "border-emerald-100/50"}`}>
-                              <h3 className={`text-sm font-bold ${darkMode ? "text-emerald-400" : "text-emerald-700"}`}>
+                              <h3 className={`text-base font-bold ${darkMode ? "text-emerald-400" : "text-emerald-700"}`}>
                                 {section.title}
                               </h3>
                               {section.description && (
-                                <p className={`text-[11px] ${darkMode ? "text-emerald-500/60" : "text-emerald-600/80"}`}>
+                                <p className={`text-xs ${darkMode ? "text-emerald-500/60" : "text-emerald-600/80"}`}>
                                   {section.description}
                                 </p>
                               )}
@@ -2260,6 +2286,7 @@ export default function PreviewForm({
                             rankMatchedAnswers={globalRankAnswers}
                             currentRank={globalRank}
                             onPreviousAnswersChange={setPreviousAnswers}
+                            hideSectionHeader={true}
                           />
                         </div>
                       ))}
@@ -2279,8 +2306,8 @@ export default function PreviewForm({
                         <Sparkles className="h-4 w-4 text-blue-500" />
                       </div>
                       <div>
-                        <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Assistant</span>
-                        <h3 className={`text-sm font-black ${darkMode ? "text-white" : "text-slate-900"}`}>Found Records!</h3>
+                        <span className={`text-xs font-bold uppercase tracking-wider ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Assistant</span>
+                        <h3 className={`text-sm font-bold ${darkMode ? "text-white" : "text-slate-900"}`}>Found Records!</h3>
                       </div>
                     </div>
                   </div>
@@ -2296,22 +2323,19 @@ export default function PreviewForm({
       <div
         className={`sticky bottom-0 z-40 border-t ${darkMode ? "border-slate-800 bg-slate-950/90" : "border-slate-200 bg-white/90"} backdrop-blur-xl transition-colors duration-300`}
       >
-        <div className="mx-auto max-w-[90%] px-4 py-3">
+        <div className="mx-auto max-w-7xl px-4 sm:px-8 py-3.5">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <button
                 type="button"
                 onClick={() => navigate("/forms/analytics")}
-                className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-[10px] font-bold uppercase tracking-widest transition-all duration-200 ${darkMode
-                    ? "bg-slate-800/50 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
-                    : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900"
+                className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all duration-200 ${darkMode
+                    ? "bg-slate-800/60 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900"
                   }`}
               >
                 Back to Portal
               </button>
-
-              {/* Location Status Badge */}
-
             </div>
 
             <div className="flex items-center gap-3">
@@ -2319,12 +2343,12 @@ export default function PreviewForm({
                 <button
                   type="button"
                   onClick={handlePrevSection}
-                  className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-[9.5px] font-bold uppercase tracking-wider transition-all duration-200 ${darkMode
-                      ? "bg-slate-800/50 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
-                      : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900"
+                  className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all duration-200 ${darkMode
+                      ? "bg-slate-800/60 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900"
                     }`}
                 >
-                  <ChevronUp className="h-3 w-3" />
+                  <ChevronUp className="h-4 w-4" />
                   <span>Previous</span>
                 </button>
               )}
@@ -2334,16 +2358,16 @@ export default function PreviewForm({
                   type="button"
                   onClick={handleSectionSubmit}
                   disabled={sectionSubmitting}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2 text-[9.5px] font-bold uppercase tracking-wider text-white hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50 transition-all duration-200 shadow-lg shadow-blue-500/20"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50 transition-all duration-200 shadow-lg shadow-blue-500/25"
                 >
                   {sectionSubmitting ? (
                     <>
-                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin" />
                       <span>Saving...</span>
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 className="h-3 w-3" />
+                      <CheckCircle2 className="h-4 w-4" />
                       <span>Next Section</span>
                     </>
                   )}
@@ -2354,16 +2378,16 @@ export default function PreviewForm({
                   form="customer-form"
                   onClick={handleSubmit}
                   disabled={submitting}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-5 py-2 text-[9.5px] font-bold uppercase tracking-wider text-white hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50 transition-all duration-200 shadow-lg shadow-emerald-500/20"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50 transition-all duration-200 shadow-lg shadow-emerald-500/25"
                 >
                   {submitting ? (
                     <>
-                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin" />
                       <span>Submitting...</span>
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 className="h-3 w-3" />
+                      <CheckCircle2 className="h-4 w-4" />
                       <span>Submit Response</span>
                     </>
                   )}

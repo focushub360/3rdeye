@@ -299,6 +299,10 @@ export default function FormsAnalytics() {
     execute: refetchForms,
   } = useForms(!isAnswerTemplateOpen);
 
+  useEffect(() => {
+    refetchForms({ forceNetwork: true });
+  }, [user?.tenantId]);
+
   const {
     data: responsesData,
     refetch: refetchResponses,
@@ -1130,12 +1134,20 @@ export default function FormsAnalytics() {
 
             const ownerTenantId =
               typeof parent.tenantId === "object"
-                ? parent.tenantId?._id
+                ? (parent.tenantId?._id || parent.tenantId?.id)
                 : parent.tenantId;
+            const userTenantId =
+              typeof user?.tenantId === "object"
+                ? (user?.tenantId?._id || user?.tenantId?.id)
+                : user?.tenantId;
+
+            const ownerTenantIdStr = ownerTenantId ? String(ownerTenantId) : "";
+            const userTenantIdStr = userTenantId ? String(userTenantId) : "";
+
             const isOwner =
               userRole === "superadmin" ||
               !parent.tenantId ||
-              ownerTenantId === user?.tenantId;
+              (ownerTenantIdStr && userTenantIdStr && ownerTenantIdStr === userTenantIdStr);
 
             const tenantName =
               typeof parent.tenantId === "object"
@@ -1153,7 +1165,7 @@ export default function FormsAnalytics() {
                       <h3 className="font-medium text-primary-800 line-clamp-2 mb-0">
                         {parent.title}
                       </h3>
-                      {tenantName && ownerTenantId !== user?.tenantId && (
+                      {tenantName && !isOwner && userRole !== "superadmin" && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100 uppercase tracking-wider">
                           {tenantName}
                         </span>

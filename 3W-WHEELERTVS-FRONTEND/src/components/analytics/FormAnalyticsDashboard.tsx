@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import CameraCapture from "../forms/CameraCapture";
+import StatusMultiSelect from "./StatusMultiSelect";
 import {
   exportDashboardToPDF,
   exportFormAnalyticsToPDF,
@@ -49,6 +50,7 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  FileSpreadsheet,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Pie, Doughnut, Radar } from "react-chartjs-2";
@@ -2243,6 +2245,25 @@ export default function FormAnalyticsDashboard() {
   const [selectedQuestionIndex, setSelectedQuestionIndex] = useState<
     number | null
   >(null);
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
+  const exportDropdownRef = useRef<HTMLDivElement>(null);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        exportDropdownRef.current &&
+        !exportDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowExportDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
   const { darkMode } = useTheme();
   const { user } = useAuth();
   const isInspector = user?.role === "inspector";
@@ -3338,7 +3359,7 @@ export default function FormAnalyticsDashboard() {
   const [tableSort, setTableSort] = useState<{
     columnId: string;
     direction: "asc" | "desc";
-  } | null>(null);
+  } | null>({ columnId: "__timestamp", direction: "desc" });
   const [selectedResponsesSectionIds, setSelectedResponsesSectionIds] =
     useState<string[]>([]);
   const [showResponsesFilter, setShowResponsesFilter] = useState(false);
@@ -3782,7 +3803,12 @@ export default function FormAnalyticsDashboard() {
       }
     } catch (error: any) {
       console.error("❌ Review submission error:", error);
-      showToast(error.message || "Failed to submit review", "error");
+      if (error?.message?.includes("already reviewed")) {
+        showToast("Review already recorded for this response", "info");
+        await fetchChatHistory(responseId);
+      } else {
+        showToast(error.message || "Failed to submit review", "error");
+      }
     }
   };
 
@@ -4532,17 +4558,13 @@ export default function FormAnalyticsDashboard() {
 
           const answer = response.answers?.[columnId];
           if (answer === null || answer === undefined) {
-            return allowedValues.includes("No Response");
+            return allowedValues.includes("No Response") || allowedValues.includes("");
           }
           const answerValues = extractAnswerValues(answer);
-          return answerValues.some(v => {
-            if (!v) return false;
-            const vLower = v.toLowerCase();
-            return allowedValues.some(av => {
-              if (!av) return false;
-              const avLower = av.toLowerCase();
-              return vLower === avLower || vLower.includes(avLower) || avLower.includes(vLower);
-            });
+          const allowedLowerSet = new Set(allowedValues.map((av) => String(av ?? "").trim().toLowerCase()));
+          return answerValues.some((v) => {
+            const vLower = String(v ?? "").trim().toLowerCase();
+            return allowedLowerSet.has(vLower);
           });
         });
       });
@@ -4808,29 +4830,31 @@ export default function FormAnalyticsDashboard() {
           ? r.responseRanks?.[chassisQuestionId]
           : null;
 
+        let calculatedStatus = "-";
         if (isRejected) {
-          statuses[r.id] = "Rejected";
+          calculatedStatus = "Rejected";
         } else if (isRework) {
-          if (chassisQuestionId && groupId !== `untracked-${r.id}`) {
+          if (chassisQuestionId && groupId !== `untracked-${r.id}` && groupId !== `untracked-${r._id}`) {
             reworkCount++;
             hasBeenReworked = true;
-            statuses[r.id] = `Rework ${reworkCount}`;
+            calculatedStatus = `Rework ${reworkCount}`;
           } else {
-            statuses[r.id] = "Rework";
+            calculatedStatus = "Rework 1";
           }
         } else if (isAccepted) {
           // If rank is 1, it's definitely the first time this item is seen
           // If no rank but index 0, assume it's the first time in the current view
           if (rank === 1 || (index === 0 && !hasBeenReworked)) {
-            statuses[r.id] = "Direct Ok";
+            calculatedStatus = "Direct Ok";
           } else if ((rank && rank > 1) || hasBeenReworked) {
-            statuses[r.id] = "Rework Accepted";
+            calculatedStatus = "Rework Accepted";
           } else {
-            statuses[r.id] = "Accepted";
+            calculatedStatus = "Direct Ok";
           }
-        } else {
-          statuses[r.id] = "-";
         }
+
+        if (r.id) statuses[r.id] = calculatedStatus;
+        if (r._id) statuses[r._id] = calculatedStatus;
       });
     });
 
@@ -4840,13 +4864,14 @@ export default function FormAnalyticsDashboard() {
   // Status for the Responses tab table only: instant estimate from each
   // row's own persisted rank (computeFastRowStatus, defined above), upgraded
   // to the fully-accurate group-computed value from `responseStatuses` the
-  // moment that's ready. Depends only on `tableResponses` (the fast
-  // paginated 20-row fetch), so it's available immediately instead of
-  // waiting on the full analytics response set.
+  // moment that's ready.
   const tableDisplayStatuses = useMemo(() => {
     const map: Record<string, string> = {};
     tableResponses.forEach((r) => {
-      map[r.id] = responseStatuses[r.id] || computeFastRowStatus(r, chassisQuestionId);
+      const respId = r.id || r._id;
+      const status = responseStatuses[r.id] || responseStatuses[r._id] || (respId ? responseStatuses[respId] : null) || computeFastRowStatus(r, chassisQuestionId);
+      if (r.id) map[r.id] = status;
+      if (r._id) map[r._id] = status;
     });
     return map;
   }, [tableResponses, responseStatuses, chassisQuestionId]);
@@ -4887,6 +4912,15 @@ export default function FormAnalyticsDashboard() {
       if (!itemGroups[itemId]) {
         itemGroups[itemId] = [];
       }
+      
+      // Keep only previous responses that are within 10 days of the current response
+      const rTime = new Date(getResponseTimestamp(r) || 0).getTime();
+      const tenDaysMs = 10 * 24 * 60 * 60 * 1000;
+      itemGroups[itemId] = itemGroups[itemId].filter(prevR => {
+        const prevTime = new Date(getResponseTimestamp(prevR) || 0).getTime();
+        return (rTime - prevTime) <= tenDaysMs;
+      });
+
       itemGroups[itemId].push(r);
       const attemptNumber = itemGroups[itemId].length;
       const persistedRank = (chassisQuestionId && r.responseRanks?.[chassisQuestionId]) || (r.responseRanks && typeof r.responseRanks === 'object' ? Object.values(r.responseRanks).find(v => typeof v === 'number' && v > 0) : null);
@@ -5195,6 +5229,15 @@ export default function FormAnalyticsDashboard() {
     return counts;
   }, [baseFilteredResponses]);
 
+  const availableStatuses = useMemo(() => {
+    const statuses = new Set<string>();
+    baseFilteredResponses.forEach((r) => {
+      const s = tableDisplayStatuses[r.id] || responseStatuses[r.id] || "Pending Review";
+      statuses.add(s);
+    });
+    return Array.from(statuses).sort();
+  }, [baseFilteredResponses, tableDisplayStatuses, responseStatuses]);
+
   const filteredResponses = useMemo(() => {
     let result = baseFilteredResponses;
 
@@ -5301,10 +5344,10 @@ export default function FormAnalyticsDashboard() {
       result = result.filter(r => (r.submittedBy || r.createdBy || "Anonymous").toLowerCase().includes(term));
     }
     if (headerFilters.status) {
-      const term = headerFilters.status.toLowerCase().trim();
+      const selectedStatuses = headerFilters.status.split(',').map(s => s.toLowerCase().trim());
       result = result.filter(r => {
-         const rowStatus = tableDisplayStatuses[r.id] || responseStatuses[r.id] || "Pending Review";
-         return rowStatus.toLowerCase().includes(term);
+         const rowStatus = (tableDisplayStatuses[r.id] || responseStatuses[r.id] || "Pending Review").toLowerCase();
+         return selectedStatuses.some(s => rowStatus.includes(s) || rowStatus === s);
       });
     }
     if (headerFilters.chassis) {
@@ -5317,11 +5360,15 @@ export default function FormAnalyticsDashboard() {
       });
     }
     if (headerFilters.timestamp) {
-       const selectedDate = headerFilters.timestamp; // "YYYY-MM-DD"
+       const selectedDate = headerFilters.timestamp; // "YYYY-MM-DD" or "YYYY-MM-DD,YYYY-MM-DD"
        result = result.filter(r => {
           const timestamp = getResponseTimestamp(r);
           if (!timestamp) return false;
           const rDate = new Date(timestamp).toISOString().split("T")[0];
+          if (selectedDate.includes(',')) {
+            const [start, end] = selectedDate.split(',');
+            return rDate >= start && rDate <= end;
+          }
           return rDate === selectedDate;
        });
     }
@@ -5373,9 +5420,11 @@ export default function FormAnalyticsDashboard() {
 
       // Timestamp sorting
       if (columnId === "timestamp" || columnId === "__timestamp") {
-        const timeA = getResponseTimestamp(a) || 0;
-        const timeB = getResponseTimestamp(b) || 0;
-        return isAsc ? timeA - timeB : timeB - timeA;
+        const timeA = getResponseTimestamp(a);
+        const timeB = getResponseTimestamp(b);
+        const tA = timeA ? new Date(timeA).getTime() : 0;
+        const tB = timeB ? new Date(timeB).getTime() : 0;
+        return isAsc ? tA - tB : tB - tA;
       }
 
       // Time Taken sorting
@@ -5462,17 +5511,13 @@ export default function FormAnalyticsDashboard() {
 
           const answer = response.answers?.[columnId];
           if (answer === null || answer === undefined) {
-            return allowedValues.includes("No Response");
+            return allowedValues.includes("No Response") || allowedValues.includes("");
           }
           const answerValues = extractAnswerValues(answer);
-          return answerValues.some(v => {
-            if (!v) return false;
-            const vLower = v.toLowerCase();
-            return allowedValues.some(av => {
-              if (!av) return false;
-              const avLower = av.toLowerCase();
-              return vLower === avLower || vLower.includes(avLower) || avLower.includes(vLower);
-            });
+          const allowedLowerSet = new Set(allowedValues.map((av) => String(av ?? "").trim().toLowerCase()));
+          return answerValues.some((v) => {
+            const vLower = String(v ?? "").trim().toLowerCase();
+            return allowedLowerSet.has(vLower);
           });
         });
       });
@@ -8244,9 +8289,61 @@ export default function FormAnalyticsDashboard() {
     }
   };
 
-  const handleExportToExcel = () => {
+  const handleExportToExcel = async (
+    mode: "full" | "consolidated" | "standard" = "full",
+  ) => {
+    setIsExportingExcel(true);
+    setShowExportDropdown(false);
     try {
-      const headerRow: any[] = ["Timestamp", "Submitted By", "Status", "Chassis Number", "Dispatched", "Dispatched At"];
+      showToast("Generating Excel report...", "info");
+
+      // 1. Fetch all tenant messages to match up with chassis
+      let tenantMessages: any[] = [];
+      try {
+        const msgRes: any = await apiClient.request<any[]>("/messages/tenant-messages");
+        tenantMessages = Array.isArray(msgRes)
+          ? msgRes
+          : Array.isArray(msgRes?.data)
+            ? msgRes.data
+            : [];
+      } catch (e) {
+        console.warn("Could not fetch tenant messages for export:", e);
+      }
+
+      // Map messages by Response ID and by Chassis Number
+      const messagesByResponseId: Record<string, any[]> = {};
+      const messagesByChassis: Record<string, any[]> = {};
+
+      tenantMessages.forEach((msg) => {
+        const respId =
+          typeof msg.responseId === "object"
+            ? msg.responseId?.id || msg.responseId?._id
+            : msg.responseId;
+        if (respId) {
+          if (!messagesByResponseId[respId]) messagesByResponseId[respId] = [];
+          messagesByResponseId[respId].push(msg);
+        }
+
+        // Try extracting chassis number
+        let chassisNo = "";
+        if (typeof msg.responseId === "object" && msg.responseId?.answers?.chassis_number) {
+          chassisNo = getChassisDisplayValue(msg.responseId.answers.chassis_number);
+        }
+        if (!chassisNo && respId) {
+          const matchedResp = responses.find((r) => r.id === respId || (r as any)._id === respId);
+          if (matchedResp?.answers?.chassis_number) {
+            chassisNo = getChassisDisplayValue(matchedResp.answers.chassis_number);
+          }
+        }
+        if (chassisNo) {
+          const cleanChassis = String(chassisNo).trim().toUpperCase();
+          if (!messagesByChassis[cleanChassis]) messagesByChassis[cleanChassis] = [];
+          messagesByChassis[cleanChassis].push(msg);
+        }
+      });
+
+      // Prepare question headers
+      const questionHeaders: string[] = [];
       const columnInfo: Array<{
         questionId: string;
         isFollowUp: boolean;
@@ -8257,7 +8354,7 @@ export default function FormAnalyticsDashboard() {
         if (selectedResponsesSectionIds.includes(section.id)) {
           section.questions?.forEach((q: any) => {
             const isFollowUp = q.parentId || q.showWhen?.questionId;
-            headerRow.push(q.text || "Question");
+            questionHeaders.push(q.text || "Question");
             columnInfo.push({
               questionId: q.id,
               isFollowUp: !!isFollowUp,
@@ -8267,32 +8364,114 @@ export default function FormAnalyticsDashboard() {
         }
       });
 
-      const wsData: any[][] = [headerRow];
+      // Create Workbook
+      const wb = XLSX.utils.book_new();
+
+      // ==========================================
+      // SHEET 1: RESPONSES SHEET
+      // ==========================================
+      const respBaseHeaders = [
+        "Timestamp",
+        "Submitted By",
+        "Status",
+        "Chassis Number",
+        "BIW Review",
+        "Reviewed By",
+        "Rework Reason / Remark",
+        "Dispatched",
+        "Dispatched By",
+        "Dispatched At",
+      ];
+
+      // If consolidated mode, also add Chat History column
+      const respHeaderRow = mode === "consolidated"
+        ? [...respBaseHeaders, "Matched Chat / Discussion", ...questionHeaders]
+        : [...respBaseHeaders, ...questionHeaders];
+
+      const respWsData: any[][] = [respHeaderRow];
 
       responses.forEach((response: Response) => {
+        const chassisVal = getChassisDisplayValue(response.answers?.chassis_number) || "-";
+        const cleanChassisKey = String(chassisVal).trim().toUpperCase();
+
+        // Get review details
+        const localReview = reviewedBy[response.id];
+        const legacyServerReview = (response as any).review;
+        let reviewStatus = "No review yet";
+        let reviewerName = "-";
+        let reasonStr = "";
+
+        if (localReview) {
+          reviewStatus = localReview.option || localReview.status || "No review yet";
+          reviewerName = localReview.reviewer || localReview.name || "-";
+          reasonStr = (localReview as any).reason || (localReview as any).remark || (localReview as any).reworkReason || (localReview as any).note || "";
+        } else if (legacyServerReview) {
+          reviewStatus = legacyServerReview.status || "No review yet";
+          reviewerName = legacyServerReview.reviewer || legacyServerReview.name || "-";
+          reasonStr = legacyServerReview.reason || legacyServerReview.remark || legacyServerReview.reworkReason || legacyServerReview.note || "";
+        }
+
+        const reworkOrReviewReason =
+          reasonStr ||
+          (response as any).reworkReason ||
+          (response as any).reworkNote ||
+          (response as any).review?.remark ||
+          (response as any).review?.reason ||
+          (response as any).biwReview?.remark ||
+          (response as any).biwReview?.reason ||
+          "-";
+
+        const respMsgs = messagesByResponseId[response.id] || (cleanChassisKey ? messagesByChassis[cleanChassisKey] : []) || [];
+        const chatTranscriptStr = respMsgs.length > 0
+          ? respMsgs
+              .map(
+                (m: any) =>
+                  `[${m.createdAt ? new Date(m.createdAt).toLocaleDateString("en-US") : ""}] ${m.from?.name || m.from?.username || "Reviewer"}: ${m.message || ""}`,
+              )
+              .join("\n")
+          : "-";
+
         const rowData: any[] = [
           getResponseTimestamp(response)
             ? new Date(getResponseTimestamp(response)!).toLocaleDateString("en-US")
             : "-",
           response.submittedBy || response.createdBy || "Anonymous",
           responseStatuses[response.id] || "-",
-          getChassisDisplayValue(response.answers?.chassis_number),
+          chassisVal,
+          reviewStatus,
+          reviewerName,
+          reworkOrReviewReason,
           response.isDispatched ? "Yes" : "No",
+          response.dispatchedByName || "-",
           response.dispatchedAt
             ? new Date(response.dispatchedAt).toLocaleString("en-US")
             : "-",
         ];
 
+        if (mode === "consolidated") {
+          rowData.push(chatTranscriptStr);
+        }
+
         columnInfo.forEach(({ questionId }) => {
           const answer = response.answers?.[questionId];
-          // For complex objects like chassis, stringify appropriately using JSON.stringify for now
-          // or just standard string if it's simpler
           let answerStr = "-";
           if (answer !== undefined && answer !== null) {
             if (typeof answer === "object") {
-              // Special handling for objects to make them readable in Excel
               if (answer.status) {
-                answerStr = answer.status; // just show the status for inspection fields
+                answerStr = answer.status;
+                if (answer.remark) answerStr += ` (${answer.remark})`;
+              } else if (answer.zonesData) {
+                const defectList: string[] = [];
+                Object.entries(answer.zonesData).forEach(([zName, zData]: [string, any]) => {
+                  if (zData?.categories) {
+                    zData.categories.forEach((cat: any) => {
+                      (cat.defects || []).forEach((d: any) => {
+                        defectList.push(`${zName} > ${cat.name}: ${d.name} ${d.details?.remark ? `(${d.details.remark})` : ''}`);
+                      });
+                    });
+                  }
+                });
+                answerStr = defectList.length > 0 ? defectList.join("; ") : "Inspection OK";
               } else {
                 answerStr = JSON.stringify(answer);
               }
@@ -8303,221 +8482,274 @@ export default function FormAnalyticsDashboard() {
           rowData.push(answerStr);
         });
 
-        wsData.push(rowData);
+        respWsData.push(rowData);
       });
 
-      // Add Overall Inspection Statistics Summary Rows
-      const statsHeaderRow: any[] = [
-        "Overall Inspection Statistics",
-        "",
-        "",
-        "",
-      ];
-      const statsDataRow: any[] = [
-        `Total Accepted: ${inspectionStats.accepted}`,
-        `Total Rejected: ${inspectionStats.rejected}`,
-        `Total Reworked: ${inspectionStats.reworked}`,
-        ``,
-      ];
-
-      wsData.push([]); // Empty spacing row
-      const statsHeaderIdx = wsData.length;
-      wsData.push(statsHeaderRow);
-      const statsDataIdx = wsData.length;
-      wsData.push(statsDataRow);
-
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-      const headerFill = { fgColor: { rgb: "FF4F46E5" } };
-      const headerFont = { color: { rgb: "FFFFFFFF" }, bold: true };
-
-      // Style Header Row
-      for (let i = 0; i < headerRow.length; i++) {
-        const cellRef = XLSX.utils.encode_cell({ r: 0, c: i });
-        ws[cellRef].s = {
-          fill: headerFill,
-          font: headerFont,
-          alignment: {
-            horizontal: "center",
-            vertical: "center",
-            wrapText: true,
-          },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
-      }
-
-      // Style Common Answer Row
-      for (let i = 0; i < headerRow.length; i++) {
-        const cellRef = XLSX.utils.encode_cell({ r: 1, c: i });
-        ws[cellRef].s = {
-          fill: { fgColor: { rgb: "FFF3F4F6" } }, // Light gray background
-          font: { italic: true, bold: i === 0 },
-          alignment: {
-            horizontal: i === 0 ? "left" : "center",
-            vertical: "center",
-            wrapText: true,
-          },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
-      }
-
-      // Style response rows
-      const lastResponseRowIdx = responses.length + 1;
-      for (let rowIdx = 1; rowIdx < lastResponseRowIdx; rowIdx++) {
-        const response = responses[rowIdx - 1];
-
-        // Style Timestamp column
-        const timeCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 0 });
-        ws[timeCellRef].s = {
-          fill: { fgColor: { rgb: "FFF9FAFB" } },
-          font: { bold: false },
-          alignment: { horizontal: "center", vertical: "center" },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
-
-        // Style Submitted By column
-        const submittedByCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 1 });
-        ws[submittedByCellRef].s = {
-          fill: { fgColor: { rgb: "FFF9FAFB" } },
-          font: { bold: false },
-          alignment: { horizontal: "left", vertical: "center" },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
-
-        // Style Status column
-        const statusCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 2 });
-        const currentStatus = responseStatuses[response.id] || "-";
-        let statusBgColor = "FFF9FAFB"; // Default
-
-        if (
-          currentStatus === "Direct Ok" ||
-          currentStatus === "Rework Accepted" ||
-          currentStatus === "Accepted"
-        ) {
-          statusBgColor = "FFDCFCE7"; // green-100
-        } else if (currentStatus.includes("Rework")) {
-          statusBgColor = "FFFEF3C7"; // amber-100
-        } else if (currentStatus === "Rejected") {
-          statusBgColor = "FFFEE2E2"; // red-100
-        }
-
-        ws[statusCellRef].s = {
-          fill: { fgColor: { rgb: statusBgColor } },
-          font: { bold: true },
-          alignment: { horizontal: "center", vertical: "center" },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
-
-        // Style Chassis Number column
-        const chassisCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 3 });
-        ws[chassisCellRef].s = {
-          fill: { fgColor: { rgb: "FFF9FAFB" } },
-          font: { bold: false },
-          alignment: { horizontal: "left", vertical: "center" },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
-
-        // Style Question columns
-        for (let colIdx = 0; colIdx < columnInfo.length; colIdx++) {
-          const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx + 4 });
-          const info = columnInfo[colIdx];
-          const answer = response.answers?.[info.questionId];
-
-          const bgColor = info.isFollowUp ? "FFE9D5FF" : "FFFFFFFF";
-
-          ws[cellRef].s = {
-            fill: { fgColor: { rgb: bgColor } },
-            alignment: { vertical: "center", wrapText: true },
-            border: {
-              top: { style: "thin" },
-              left: { style: "thin" },
-              bottom: { style: "thin" },
-              right: { style: "thin" },
-            },
-          };
-        }
-      }
-
-      // Style Stats Header Row
-      for (let i = 0; i < 4; i++) {
-        const cellRef = XLSX.utils.encode_cell({ r: statsHeaderIdx, c: i });
-        ws[cellRef].s = {
-          fill: { fgColor: { rgb: "FF4F46E5" } },
-          font: { color: { rgb: "FFFFFFFF" }, bold: true },
-          alignment: { horizontal: "center", vertical: "center" },
-          border: {
-            top: { style: "medium" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
-      }
-
-      // Style Stats Data Row
-      for (let i = 0; i < 4; i++) {
-        const cellRef = XLSX.utils.encode_cell({ r: statsDataIdx, c: i });
-        ws[cellRef].s = {
-          fill: { fgColor: { rgb: "FFE0E7FF" } }, // Indigo 100
-          font: { bold: true, color: { rgb: "FF3730A3" } }, // Indigo 800
-          alignment: { horizontal: "center", vertical: "center" },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "medium" },
-            right: { style: "thin" },
-          },
-        };
-      }
-
-      ws["!cols"] = [
-        { wch: 22 }, // Timestamp
-        { wch: 25 }, // Submitted By
-        { wch: 15 }, // Status
+      const respWs = XLSX.utils.aoa_to_sheet(respWsData);
+      respWs["!cols"] = [
+        { wch: 16 }, // Timestamp
+        { wch: 22 }, // Submitted By
+        { wch: 18 }, // Status
         { wch: 18 }, // Chassis Number
-        ...columnInfo.map(() => ({ wch: 35 })),
+        { wch: 16 }, // BIW Review
+        { wch: 20 }, // Reviewed By
+        { wch: 30 }, // Rework Reason
+        { wch: 14 }, // Dispatched
+        { wch: 20 }, // Dispatched By
+        { wch: 22 }, // Dispatched At
+        ...(mode === "consolidated" ? [{ wch: 45 }] : []),
+        ...columnInfo.map(() => ({ wch: 30 })),
       ];
 
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Responses");
-      XLSX.writeFile(
-        wb,
-        `${form?.title || "responses"}-${new Date().toLocaleDateString("en-CA")}.xlsx`,
-      );
-      showToast("Excel report generated successfully!", "success");
+      XLSX.utils.book_append_sheet(wb, respWs, "Responses");
+
+      // ==========================================
+      // SHEET 2: REWORK & DEFECTS SHEET (For 'full' mode)
+      // ==========================================
+      if (mode === "full") {
+        const reworkHeaders = [
+          "Chassis Number",
+          "Attempt / Status",
+          "Inspector",
+          "Timestamp",
+          "BIW Review Status",
+          "Reviewed By",
+          "Rework Reason / Remarks",
+          "Defects & Zones Identified",
+          "Is Dispatched",
+        ];
+
+        const reworkRows: any[][] = [reworkHeaders];
+
+        responses.forEach((response) => {
+          const status = responseStatuses[response.id] || "";
+          const localReview = reviewedBy[response.id];
+          const legacyServerReview = (response as any).review;
+          const reviewStatus = localReview?.option || localReview?.status || legacyServerReview?.status || "";
+          const reviewerName = localReview?.reviewer || localReview?.name || legacyServerReview?.reviewer || legacyServerReview?.name || "-";
+          const reworkReason =
+            (localReview as any)?.reason ||
+            (localReview as any)?.remark ||
+            (localReview as any)?.reworkReason ||
+            (legacyServerReview as any)?.reason ||
+            (legacyServerReview as any)?.remark ||
+            (response as any).reworkReason ||
+            (response as any).reworkNote ||
+            (response as any).biwReview?.remark ||
+            "-";
+
+          // Extract all structured defects across questions
+          const defectDetails: string[] = [];
+          if (response.answers) {
+            Object.entries(response.answers).forEach(([qId, ans]: [string, any]) => {
+              if (ans && typeof ans === "object") {
+                if (ans.zonesData) {
+                  Object.entries(ans.zonesData).forEach(([zName, zData]: [string, any]) => {
+                    if (zData?.categories) {
+                      zData.categories.forEach((cat: any) => {
+                        (cat.defects || []).forEach((d: any) => {
+                          defectDetails.push(`[${zName}] ${cat.name}: ${d.name} ${d.details?.remark ? `(${d.details.remark})` : ''}`);
+                        });
+                      });
+                    }
+                  });
+                } else if (ans.categories) {
+                  ans.categories.forEach((cat: any) => {
+                    (cat.defects || []).forEach((d: any) => {
+                      defectDetails.push(`${cat.name}: ${d.name} ${d.details?.remark ? `(${d.details.remark})` : ''}`);
+                    });
+                  });
+                } else if (ans.status === "NG" || ans.status === "Rework" || ans.status === "Rejected") {
+                  defectDetails.push(`Status: ${ans.status} ${ans.remark ? `(${ans.remark})` : ''}`);
+                }
+              }
+            });
+          }
+
+          const isReworkOrRejected =
+            status.toLowerCase().includes("rework") ||
+            status.toLowerCase().includes("rejected") ||
+            reviewStatus.toLowerCase().includes("rework") ||
+            reviewStatus.toLowerCase().includes("rejected") ||
+            reworkReason !== "-";
+
+          if (isReworkOrRejected || defectDetails.length > 0) {
+            reworkRows.push([
+              getChassisDisplayValue(response.answers?.chassis_number) || "-",
+              status || "-",
+              response.submittedBy || response.createdBy || "Anonymous",
+              getResponseTimestamp(response)
+                ? new Date(getResponseTimestamp(response)!).toLocaleString("en-US")
+                : "-",
+              reviewStatus || "Pending Review",
+              reviewerName,
+              reworkReason,
+              defectDetails.length > 0 ? defectDetails.join("\n") : "No specific zone defect logged",
+              response.isDispatched ? "Yes" : "No",
+            ]);
+          }
+        });
+
+        const reworkWs = XLSX.utils.aoa_to_sheet(reworkRows);
+        reworkWs["!cols"] = [
+          { wch: 18 }, // Chassis Number
+          { wch: 18 }, // Status
+          { wch: 22 }, // Inspector
+          { wch: 22 }, // Timestamp
+          { wch: 18 }, // BIW Review
+          { wch: 20 }, // Reviewed By
+          { wch: 35 }, // Rework Reason
+          { wch: 45 }, // Defects
+          { wch: 14 }, // Dispatched
+        ];
+        XLSX.utils.book_append_sheet(wb, reworkWs, "Rework & Defects");
+
+        // ==========================================
+        // SHEET 3: CHAT & FEEDBACK LOG SHEET
+        // ==========================================
+        const chatHeaders = [
+          "Chassis Number",
+          "Sender Name",
+          "Sender Email",
+          "Date & Time",
+          "Message Content",
+          "Referenced Defect / Question Context",
+        ];
+
+        const chatRows: any[][] = [chatHeaders];
+
+        tenantMessages.forEach((msg: any) => {
+          let chassisNo = "";
+          if (typeof msg.responseId === "object" && msg.responseId?.answers?.chassis_number) {
+            chassisNo = getChassisDisplayValue(msg.responseId.answers.chassis_number);
+          }
+          if (!chassisNo) {
+            const respId = typeof msg.responseId === "object" ? msg.responseId?.id || msg.responseId?._id : msg.responseId;
+            const matchedResp = responses.find((r) => r.id === respId || (r as any)._id === respId);
+            if (matchedResp?.answers?.chassis_number) {
+              chassisNo = getChassisDisplayValue(matchedResp.answers.chassis_number);
+            }
+          }
+
+          let contextStr = "-";
+          if (msg.questionTitles && msg.questionTitles.length > 0) {
+            contextStr = msg.questionTitles.join(", ");
+          } else if (msg.questionContexts && msg.questionContexts.length > 0) {
+            contextStr = msg.questionContexts.map((c: any) => c.title || c.questionId).join(", ");
+          }
+
+          chatRows.push([
+            chassisNo || "General / Unassigned",
+            msg.from?.name || msg.from?.username || msg.from?.email || "Inspector",
+            msg.from?.email || "-",
+            msg.createdAt ? new Date(msg.createdAt).toLocaleString("en-US") : "-",
+            msg.message || "-",
+            contextStr,
+          ]);
+        });
+
+        const chatWs = XLSX.utils.aoa_to_sheet(chatRows);
+        chatWs["!cols"] = [
+          { wch: 20 }, // Chassis Number
+          { wch: 22 }, // Sender Name
+          { wch: 25 }, // Sender Email
+          { wch: 22 }, // Date & Time
+          { wch: 50 }, // Message Content
+          { wch: 35 }, // Defect Context
+        ];
+        XLSX.utils.book_append_sheet(wb, chatWs, "Chat & Feedback Log");
+
+        // ==========================================
+        // SHEET 4: CHASSIS SUMMARY SHEET
+        // ==========================================
+        const chassisSummaryHeaders = [
+          "Chassis Number",
+          "Total Attempts",
+          "Initial Status",
+          "Latest Status",
+          "Latest BIW Review",
+          "Reviewed By",
+          "Rework Remarks / Reason",
+          "Matched Chat Messages",
+          "Dispatched",
+          "Dispatched At",
+        ];
+
+        // Group responses by chassis
+        const chassisMap = new Map<string, Response[]>();
+        responses.forEach((r) => {
+          const cNum = getChassisDisplayValue(r.answers?.chassis_number) || "Unknown Chassis";
+          if (!chassisMap.has(cNum)) chassisMap.set(cNum, []);
+          chassisMap.get(cNum)!.push(r);
+        });
+
+        const summaryRows: any[][] = [chassisSummaryHeaders];
+
+        chassisMap.forEach((rList, cNum) => {
+          const sortedList = [...rList].sort((a, b) => {
+            const tA = new Date(getResponseTimestamp(a) || 0).getTime();
+            const tB = new Date(getResponseTimestamp(b) || 0).getTime();
+            return tA - tB;
+          });
+
+          const firstResp = sortedList[0];
+          const latestResp = sortedList[sortedList.length - 1];
+
+          const cleanKey = String(cNum).trim().toUpperCase();
+          const relatedMsgs = messagesByChassis[cleanKey] || [];
+
+          const latestLocalReview = reviewedBy[latestResp.id];
+          const latestServerReview = (latestResp as any).review;
+          const latestReviewStatus = latestLocalReview?.option || latestLocalReview?.status || latestServerReview?.status || "No review yet";
+          const latestReviewer = latestLocalReview?.reviewer || latestLocalReview?.name || latestServerReview?.reviewer || latestServerReview?.name || "-";
+          const latestReworkReason =
+            (latestLocalReview as any)?.reason ||
+            (latestLocalReview as any)?.remark ||
+            (latestServerReview as any)?.reason ||
+            (latestServerReview as any)?.remark ||
+            (latestResp as any).reworkReason ||
+            (latestResp as any).biwReview?.remark ||
+            "-";
+
+          summaryRows.push([
+            cNum,
+            sortedList.length,
+            responseStatuses[firstResp.id] || firstResp.status || "-",
+            responseStatuses[latestResp.id] || latestResp.status || "-",
+            latestReviewStatus,
+            latestReviewer,
+            latestReworkReason,
+            relatedMsgs.length > 0 ? `${relatedMsgs.length} message(s)` : "No chat",
+            latestResp.isDispatched ? "Yes" : "No",
+            latestResp.dispatchedAt ? new Date(latestResp.dispatchedAt).toLocaleString("en-US") : "-",
+          ]);
+        });
+
+        const summaryWs = XLSX.utils.aoa_to_sheet(summaryRows);
+        summaryWs["!cols"] = [
+          { wch: 20 }, // Chassis Number
+          { wch: 15 }, // Total Attempts
+          { wch: 18 }, // Initial Status
+          { wch: 18 }, // Latest Status
+          { wch: 18 }, // BIW Review
+          { wch: 20 }, // Reviewed By
+          { wch: 35 }, // Rework Remarks
+          { wch: 22 }, // Chat Messages
+          { wch: 14 }, // Dispatched
+          { wch: 22 }, // Dispatched At
+        ];
+        XLSX.utils.book_append_sheet(wb, summaryWs, "Chassis Summary");
+      }
+
+      // Write file
+      const fileName = `${form?.title || "inspection"}-${mode === "full" ? "Complete-Report" : mode === "consolidated" ? "Consolidated" : "Responses"}-${new Date().toLocaleDateString("en-CA")}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      showToast("Excel workbook downloaded successfully!", "success");
     } catch (error) {
       console.error("Error exporting to Excel:", error);
       showToast("Failed to export to Excel. Please try again.", "error");
+    } finally {
+      setIsExportingExcel(false);
     }
   };
 
@@ -10469,14 +10701,91 @@ export default function FormAnalyticsDashboard() {
                       <span className="hidden xs:inline">Filter Sections</span>
                       <span className="xs:hidden">Filter</span>
                     </button>
-                    <button
-                      onClick={() => handleExportToExcel()}
-                      disabled={selectedResponsesSectionIds.length === 0}
-                      className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span className="hidden xs:inline">Export</span>
-                    </button>
+                    <div className="relative" ref={exportDropdownRef}>
+                      <button
+                        onClick={() => setShowExportDropdown((prev) => !prev)}
+                        disabled={selectedResponsesSectionIds.length === 0 || isExportingExcel}
+                        className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm"
+                        title="Download Excel Report"
+                      >
+                        {isExportingExcel ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Download className="w-4 h-4" />
+                        )}
+                        <span className="hidden xs:inline">Export</span>
+                        <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+                      </button>
+
+                      {showExportDropdown && (
+                        <div className="absolute right-0 mt-2 w-72 sm:w-80 rounded-xl shadow-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                          <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                              Excel Export Presets
+                            </span>
+                          </div>
+
+                          {/* Option 1: Complete Multi-Tab Workbook */}
+                          <button
+                            onClick={() => handleExportToExcel("full")}
+                            className="w-full px-3.5 py-2.5 text-left hover:bg-emerald-50 dark:hover:bg-emerald-950/30 flex items-start gap-3 transition-colors group"
+                          >
+                            <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 mt-0.5">
+                              <FileSpreadsheet className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
+                                  Complete Multi-Tab Report
+                                </span>
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300">
+                                  Recommended
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                Separate tabs: Responses, Rework & Defects, Chassis Chat Log, and Summary.
+                              </p>
+                            </div>
+                          </button>
+
+                          {/* Option 2: Consolidated Sheet */}
+                          <button
+                            onClick={() => handleExportToExcel("consolidated")}
+                            className="w-full px-3.5 py-2.5 text-left hover:bg-blue-50 dark:hover:bg-blue-950/30 flex items-start gap-3 transition-colors group"
+                          >
+                            <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 mt-0.5">
+                              <Table className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                                Consolidated (Single Sheet)
+                              </span>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                Form answers plus matched Rework reasons and Chat discussions per row.
+                              </p>
+                            </div>
+                          </button>
+
+                          {/* Option 3: Standard Export */}
+                          <button
+                            onClick={() => handleExportToExcel("standard")}
+                            className="w-full px-3.5 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/50 flex items-start gap-3 transition-colors group"
+                          >
+                            <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 mt-0.5">
+                              <Download className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white">
+                                Standard Responses Export
+                              </span>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                Clean export of current filtered table columns.
+                              </p>
+                            </div>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     {selectedResponseIds.length > 0 && !isGuest && (
                       <>
                         <button
@@ -10771,16 +11080,11 @@ export default function FormAnalyticsDashboard() {
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-32 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
                               <div className="flex flex-col gap-2">
                                 <span>Status</span>
-                                <select
-                                  value={headerFilters.status}
-                                  onChange={(e) => setHeaderFilters(prev => ({ ...prev, status: e.target.value }))}
-                                  className="w-full px-2 py-1 text-xs font-normal border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                                >
-                                  <option value="">All</option>
-                                  <option value="accepted">Accepted</option>
-                                  <option value="rejected">Rejected</option>
-                                  <option value="rework">Rework</option>
-                                </select>
+                                <StatusMultiSelect
+                                  options={availableStatuses}
+                                  selectedValues={headerFilters.status}
+                                  onChange={(newValues) => setHeaderFilters(prev => ({ ...prev, status: newValues }))}
+                                />
                               </div>
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
@@ -11260,13 +11564,13 @@ export default function FormAnalyticsDashboard() {
                                         const dispatchDate = response.dispatchedAt ? new Date(response.dispatchedAt) : null;
                                         return (
                                           <div className="flex flex-col items-center justify-center text-xs text-center gap-0.5">
-                                            <div className="flex items-center text-green-600 font-medium">
-                                              <CheckCircle className="w-3.5 h-3.5 mr-1" />
-                                              <span>Enabled</span>
+                                            <div className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-800 rounded-full font-bold text-[11px]">
+                                              <CheckCircle className="w-3 h-3" />
+                                              <span>Dispatched</span>
                                             </div>
                                             {response.dispatchedByName ? (
                                               <span className="text-gray-600 dark:text-gray-300 text-[10px] font-semibold whitespace-nowrap">
-                                                {response.dispatchedByName}
+                                                by {response.dispatchedByName}
                                               </span>
                                             ) : (
                                               <span className="text-gray-400 text-[10px] italic">Unknown user</span>
@@ -11318,24 +11622,27 @@ export default function FormAnalyticsDashboard() {
                                         It self-upgrades to the fully-accurate value once the
                                         full set finishes loading in the background. */}
                                     {(() => {
-                                      const rowStatus = tableDisplayStatuses[response.id];
+                                      const rawStatus = tableDisplayStatuses[response.id] || tableDisplayStatuses[response._id] || responseStatuses[response.id] || responseStatuses[response._id];
+                                      const rowStatus = (rawStatus && rawStatus !== "-" && rawStatus !== "Pending Review") ? rawStatus : computeFastRowStatus(response, chassisQuestionId);
+                                      const displayLabel = (rowStatus && rowStatus !== "-") ? rowStatus : (response.status === "pending" || !response.status ? "Direct Ok" : response.status);
+
                                       return (
                                         <span
-                                          className={`px-2.5 py-1 rounded-full text-xs font-semibold ${rowStatus === "Rejected"
+                                          className={`px-2.5 py-1 rounded-full text-xs font-semibold ${displayLabel === "Rejected"
                                             ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800"
-                                            : rowStatus?.includes("Rework") &&
-                                              rowStatus !== "Rework Accepted"
+                                            : displayLabel?.includes("Rework") &&
+                                              displayLabel !== "Rework Accepted"
                                               ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-800"
-                                              : rowStatus === "Direct Ok" ||
-                                                rowStatus === "Rework Accepted" ||
-                                                rowStatus === "Accepted" ||
-                                                rowStatus === "Rework Completed" ||
-                                                rowStatus === "Verified"
+                                              : displayLabel === "Direct Ok" ||
+                                                displayLabel === "Rework Accepted" ||
+                                                displayLabel === "Accepted" ||
+                                                displayLabel === "Rework Completed" ||
+                                                displayLabel === "Verified"
                                                 ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-800"
                                                 : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-700"
                                             }`}
                                         >
-                                          {rowStatus || "Pending Review"}
+                                          {displayLabel}
                                         </span>
                                       );
                                     })()}
@@ -11401,6 +11708,7 @@ export default function FormAnalyticsDashboard() {
                                         status: any;
                                         reviewer: any;
                                         flaggedQuestions: any[];
+                                        reason?: string;
                                       } | null = null;
 
                                       if (localReview) {
@@ -11408,12 +11716,14 @@ export default function FormAnalyticsDashboard() {
                                           status: localReview.option || localReview.status,
                                           reviewer: localReview.reviewer || localReview.name,
                                           flaggedQuestions: localReview.flaggedQuestions || [],
+                                          reason: (localReview as any).reason || (localReview as any).remark || (localReview as any).reworkReason || (localReview as any).note,
                                         };
                                       } else if (legacyServerReview) {
                                         reviewObj = {
                                           status: legacyServerReview.status,
                                           reviewer: legacyServerReview.reviewer || legacyServerReview.name,
                                           flaggedQuestions: legacyServerReview.flaggedQuestions || [],
+                                          reason: legacyServerReview.reason || legacyServerReview.remark || legacyServerReview.reworkReason || legacyServerReview.note,
                                         };
                                       }
 
@@ -11421,9 +11731,17 @@ export default function FormAnalyticsDashboard() {
                                         reviewObj.reviewer = "Reviewer";
                                       }
 
-                                      return reviewObj ? (
+                                      const reworkOrReviewReason =
+                                        reviewObj?.reason ||
+                                        (response as any).reworkReason ||
+                                        (response as any).reworkNote ||
+                                        (response as any).review?.remark ||
+                                        (response as any).review?.reason ||
+                                        (response as any).biwReview?.remark ||
+                                        (response as any).biwReview?.reason;
 
-                                        <div className="flex flex-col gap-1">
+                                      return reviewObj ? (
+                                        <div className="flex flex-col gap-1.5">
                                           <div className="flex items-center gap-2">
                                             <span
                                               className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${String(reviewObj.status)
@@ -11446,6 +11764,17 @@ export default function FormAnalyticsDashboard() {
                                               </span>
                                             </span>
                                           </div>
+
+                                          {/* Rework / Review Reason */}
+                                          {reworkOrReviewReason && (
+                                            <div className="mt-0.5 px-2 py-1 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded text-xs text-amber-900 dark:text-amber-200">
+                                              <span className="font-bold text-[10px] uppercase text-amber-700 dark:text-amber-400 block mb-0.5">
+                                                {String(reviewObj.status).toLowerCase().includes("rework") ? "Rework Reason:" : "Reason / Remark:"}
+                                              </span>
+                                              <span className="italic break-words">{reworkOrReviewReason}</span>
+                                            </div>
+                                          )}
+
                                           {reviewObj.flaggedQuestions &&
                                             reviewObj.flaggedQuestions.length >
                                             0 && (
@@ -11465,9 +11794,19 @@ export default function FormAnalyticsDashboard() {
                                             )}
                                         </div>
                                       ) : (
-                                        <span className="text-gray-400 italic text-xs">
-                                          No review yet
-                                        </span>
+                                        <div className="flex flex-col gap-1">
+                                          <span className="text-gray-400 italic text-xs">
+                                            No review yet
+                                          </span>
+                                          {reworkOrReviewReason && (
+                                            <div className="mt-0.5 px-2 py-1 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded text-xs text-amber-900 dark:text-amber-200">
+                                              <span className="font-bold text-[10px] uppercase text-amber-700 dark:text-amber-400 block mb-0.5">
+                                                Rework Reason:
+                                              </span>
+                                              <span className="italic break-words">{reworkOrReviewReason}</span>
+                                            </div>
+                                          )}
+                                        </div>
                                       );
                                     })()}
                                   </td>

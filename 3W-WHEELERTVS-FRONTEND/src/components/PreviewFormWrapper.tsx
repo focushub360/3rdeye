@@ -501,15 +501,27 @@ export default function PreviewFormWrapper() {
   const finalBranchingRules =
     branchingRules.length > 0 ? branchingRules : extractedBranchingRules;
 
+  const currentTenantId = String(tenant?._id || user?.tenantId || "");
+  const formTenantId = String(form?.tenantId?._id || form?.tenantId || "");
+  const isSharedForm = Boolean(formTenantId && currentTenantId && formTenantId !== currentTenantId);
+
+  const effectiveChassisNumbers = isSharedForm
+    ? []
+    : (form.chassisNumbers || []).map((cn: any) =>
+        typeof cn === "string"
+          ? { chassisNumber: cn, partDescription: "" }
+          : cn,
+      );
+
   const formData = {
     id: form.id,
+    tenantId: form.tenantId,
     title: form.title,
     description: form.description,
     sections: flattenedSections,
     followUpQuestions: form.followUpQuestions || [],
-    // ✅ CRITICAL FIX: Include chassis numbers and tenant assignments
-    chassisNumbers: form.chassisNumbers || [],
-    chassisTenantAssignments: form.chassisTenantAssignments || {},
+    chassisNumbers: isSharedForm ? [] : form.chassisNumbers || [],
+    chassisTenantAssignments: isSharedForm ? {} : form.chassisTenantAssignments || {},
   };
 
   return (
@@ -521,13 +533,9 @@ export default function PreviewFormWrapper() {
       onQuestionChange={handleQuestionChange}
       onSectionComplete={handleSectionComplete}
       formSessionId={formSessionIdRef.current}
-      // ✅ Pass chassis data to PreviewForm
-      chassisNumbers={(form.chassisNumbers || []).map((cn: any) =>
-        typeof cn === "string"
-          ? { chassisNumber: cn, partDescription: "" }
-          : cn,
-      )}
-      chassisTenantAssignments={form.chassisTenantAssignments || {}}
+      chassisNumbers={effectiveChassisNumbers}
+      chassisTenantAssignments={isSharedForm ? {} : form.chassisTenantAssignments || {}}
+      tenantId={form.tenantId}
     />
   );
 }

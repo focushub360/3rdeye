@@ -487,11 +487,15 @@ export const createResponse = async (req, res) => {
 
           // Count existing responses with the EXACT SAME answer for this form
           // We filter by tenantId to avoid cross-business rank contamination
+          // We also limit to the last 10 days to ignore old historical attempts
+          const tenDaysAgo = new Date();
+          tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
           const query = {
             questionId: { $in: formIds },
             $or: orConditions,
             isSectionSubmit: { $ne: true },
             tenantId: form.tenantId,
+            createdAt: { $gte: tenDaysAgo }
           };
 
           try {
@@ -823,6 +827,8 @@ export const batchImportResponses = async (req, res) => {
     }
 
     const rankTrackedQuestions = allQuestions.filter(q => q.trackResponseRank || q.trackResponseQuestion);
+    const tenDaysAgo = new Date();
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
     const rankMaps = {};
     for (const question of rankTrackedQuestions) {
       const qId = question.id;
@@ -832,6 +838,7 @@ export const batchImportResponses = async (req, res) => {
           $match: {
             questionId: actualQuestionId,
             isSectionSubmit: { $ne: true },
+            createdAt: { $gte: tenDaysAgo },
             $or: [
               { [`answers.${qId}`]: { $exists: true, $ne: null } },
               { [`answers.${trackingQId}`]: { $exists: true, $ne: null } }
@@ -1376,19 +1383,33 @@ export const getRank = async (req, res) => {
 
     // Count existing final responses with the EXACT SAME answer for this form
     const formIds = [form.id, form._id ? form._id.toString() : null, formId].filter(Boolean);
-    const escapedAnswer = strAnswer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const exactRegex = new RegExp(`^\\s*${escapedAnswer}\\s*$`, "i");
+    const trimmed = strAnswer.trim();
+    const possibleStrings = Array.from(new Set([
+      trimmed,
+      trimmed.toLowerCase(),
+      trimmed.toUpperCase(),
+      trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase()
+    ]));
 
     const orConditions = [
-      { [`answers.${trackingQId}`]: exactRegex },
-      { [`answers.${questionId}`]: exactRegex },
-      { [`answers.${trackingQId}.chassisNumber`]: exactRegex },
-      { [`answers.${questionId}.chassisNumber`]: exactRegex },
-      { [`answers.${trackingQId}.value`]: exactRegex },
-      { [`answers.${questionId}.value`]: exactRegex },
+      { [`answers.${trackingQId}`]: { $in: possibleStrings } },
+      { [`answers.${questionId}`]: { $in: possibleStrings } },
+      { [`answers.${trackingQId}.chassisNumber`]: { $in: possibleStrings } },
+      { [`answers.${questionId}.chassisNumber`]: { $in: possibleStrings } },
+      { [`answers.${trackingQId}.value`]: { $in: possibleStrings } },
+      { [`answers.${questionId}.value`]: { $in: possibleStrings } },
+      { 'answers.chassis_number': { $in: possibleStrings } },
+      { 'answers.chassis_number.chassisNumber': { $in: possibleStrings } },
+      { 'answers.chassisNumber': { $in: possibleStrings } },
+      { 'answers.id_number': { $in: possibleStrings } },
+      { 'answers.idNumber': { $in: possibleStrings } },
+      { 'answers.ID number': { $in: possibleStrings } },
+      { 'answers.ID Number': { $in: possibleStrings } },
+      { 'answers.ID NUMBER': { $in: possibleStrings } },
+      { 'answers.ID_NUMBER': { $in: possibleStrings } },
     ];
 
-    const numAnswer = Number(strAnswer);
+    const numAnswer = Number(trimmed);
     if (!isNaN(numAnswer)) {
       orConditions.push({ [`answers.${trackingQId}`]: numAnswer });
       orConditions.push({ [`answers.${questionId}`]: numAnswer });
@@ -1396,21 +1417,52 @@ export const getRank = async (req, res) => {
       orConditions.push({ [`answers.${questionId}.chassisNumber`]: numAnswer });
       orConditions.push({ [`answers.${trackingQId}.value`]: numAnswer });
       orConditions.push({ [`answers.${questionId}.value`]: numAnswer });
+      orConditions.push({ 'answers.chassis_number': numAnswer });
+      orConditions.push({ 'answers.chassisNumber': numAnswer });
+      orConditions.push({ 'answers.id_number': numAnswer });
+      orConditions.push({ 'answers.idNumber': numAnswer });
     }
+
+    const tenDaysAgo = new Date();
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
 
     const query = {
       questionId: { $in: formIds },
       $or: orConditions,
       isSectionSubmit: { $ne: true },
+      createdAt: { $gte: tenDaysAgo }
     };
 
-    if (tenantId) query.tenantId = tenantId;
+    const tenantValues = [];
+    if (form.tenantId) {
+      const fStr = form.tenantId.toString();
+      tenantValues.push(fStr);
+      if (mongoose.Types.ObjectId.isValid(fStr)) {
+        tenantValues.push(new mongoose.Types.ObjectId(fStr));
+      }
+    }
+    if (tenantId) {
+      const tStr = tenantId.toString();
+      tenantValues.push(tStr);
+      if (mongoose.Types.ObjectId.isValid(tStr)) {
+        tenantValues.push(new mongoose.Types.ObjectId(tStr));
+      }
+    }
 
-    const count = await Response.countDocuments(query);
-    const lastResponse = await Response.findOne(query).sort({ createdAt: -1 }).lean();
-    let previousStatus = lastResponse ? (lastResponse.status || null) : null;
-    if (lastResponse && lastResponse.answers) {
-      const answersMap = lastResponse.answers instanceof Map ? Object.fromEntries(lastResponse.answers) : lastResponse.answers;
+    if (tenantValues.length > 0) {
+      query.tenantId = { $in: tenantValues };
+    }
+
+    const matchingResponses = await Response.find(query)
+      .select('id _id status answers createdAt isDispatched dispatchedAt dispatchedByName biwReview')
+      .lean();
+
+    const sortedResponses = matchingResponses.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    let reworkCount = 0;
+    let hasBeenReworked = false;
+
+    const history = sortedResponses.map((resp, index) => {
+      const answersMap = resp.answers instanceof Map ? Object.fromEntries(resp.answers) : (resp.answers || {});
       let hasRework = false;
       let hasReject = false;
       for (const val of Object.values(answersMap)) {
@@ -1424,18 +1476,65 @@ export const getRank = async (req, res) => {
           if (s === 'rejected' || s === 'reject') hasReject = true;
         }
       }
-      if (hasReject) previousStatus = 'Rejected';
-      else if (hasRework) previousStatus = 'Rework 1';
-      else if (previousStatus === 'pending' || !previousStatus) previousStatus = 'Direct Ok';
+
+      let status = 'Direct Ok';
+      if (hasReject) {
+        status = 'Rejected';
+      } else if (hasRework) {
+        reworkCount++;
+        hasBeenReworked = true;
+        status = `Rework ${reworkCount}`;
+      } else if (index > 0 || hasBeenReworked) {
+        status = 'Rework Accepted';
+      } else {
+        status = 'Direct Ok';
+      }
+
+      return {
+        rank: index + 1,
+        status: resp.status && resp.status !== 'pending' ? resp.status : status,
+        id: resp.id || resp._id,
+        createdAt: resp.createdAt,
+        isDispatched: resp.isDispatched || false,
+        dispatchedAt: resp.dispatchedAt || null,
+        dispatchedByName: resp.dispatchedByName || null,
+        biwReview: resp.biwReview || null
+      };
+    });
+
+    const count = sortedResponses.length;
+    const lastResponse = count > 0 ? sortedResponses[count - 1] : null;
+    const previousStatus = history.length > 0 ? history[history.length - 1].status : (lastResponse ? lastResponse.status : null);
+
+    const responseIds = sortedResponses.map(r => String(r.id || r._id));
+    let chatCount = 0;
+    try {
+      if (responseIds.length > 0) {
+        chatCount = await ChatMessage.countDocuments({
+          responseId: { $in: responseIds }
+        });
+      }
+    } catch (e) {
+      console.warn('Chat count query skipped:', e.message);
     }
+
+    const isAnyDispatched = sortedResponses.some(r => r.isDispatched);
+    const lastDispatched = [...sortedResponses].reverse().find(r => r.isDispatched);
+    const lastBiwReviewed = [...sortedResponses].reverse().find(r => r.biwReview && r.biwReview.status);
 
     return res.status(200).json({
       success: true,
       data: {
         rank: count + 1,
         count: count,
+        history: history,
         previousStatus: previousStatus,
-        lastResponseId: lastResponse ? (lastResponse.id || lastResponse._id) : null
+        lastResponseId: lastResponse ? (lastResponse.id || lastResponse._id) : null,
+        isDispatched: isAnyDispatched,
+        dispatchedAt: lastDispatched ? lastDispatched.dispatchedAt : null,
+        dispatchedByName: lastDispatched ? lastDispatched.dispatchedByName : null,
+        biwReview: lastBiwReviewed ? lastBiwReviewed.biwReview : null,
+        chatCount: chatCount
       }
     });
 
@@ -1505,74 +1604,86 @@ export const getSuggestedAnswers = async (req, res) => {
     }
 
     const formIds = [form.id, form._id ? form._id.toString() : null, formId].filter(Boolean);
+    const tenDaysAgo = new Date();
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
     const query = {
       questionId: { $in: formIds },
-      isSectionSubmit: { $ne: true }
+      isSectionSubmit: { $ne: true },
+      createdAt: { $gte: tenDaysAgo }
     };
 
-    const trackingQuestionId = `${questionId}_tracking`;
-    const escapedAnswer = strAnswer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const exactRegex = {
-      $regex: `^${escapedAnswer}$`,
-      $options: 'i'
-    };
+    const trimmed = strAnswer.trim();
+    const possibleStrings = Array.from(new Set([
+      trimmed,
+      trimmed.toLowerCase(),
+      trimmed.toUpperCase(),
+      trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase()
+    ]));
 
-    query.$or = [
-      { [`answers.${questionId}`]: exactRegex },
-      { [`answers.${trackingQuestionId}`]: exactRegex },
-      { [`answers._${questionId}`]: exactRegex },
-      { [`answers._${trackingQuestionId}`]: exactRegex },
-      { [`answers.${questionId}.chassisNumber`]: exactRegex },
-      { [`answers.${trackingQuestionId}.chassisNumber`]: exactRegex },
-      { [`answers.${questionId}.value`]: exactRegex },
-      { [`answers.${trackingQuestionId}.value`]: exactRegex }
+    const orConditions = [
+      { [`answers.${questionId}`]: { $in: possibleStrings } },
+      { [`answers.${trackingQuestionId}`]: { $in: possibleStrings } },
+      { [`answers._${questionId}`]: { $in: possibleStrings } },
+      { [`answers._${trackingQuestionId}`]: { $in: possibleStrings } },
+      { [`answers.${questionId}.chassisNumber`]: { $in: possibleStrings } },
+      { [`answers.${trackingQuestionId}.chassisNumber`]: { $in: possibleStrings } },
+      { [`answers.${questionId}.value`]: { $in: possibleStrings } },
+      { [`answers.${trackingQuestionId}.value`]: { $in: possibleStrings } },
+      { 'answers.chassis_number': { $in: possibleStrings } },
+      { 'answers.chassis_number.chassisNumber': { $in: possibleStrings } },
+      { 'answers.chassisNumber': { $in: possibleStrings } },
+      { 'answers.id_number': { $in: possibleStrings } },
+      { 'answers.idNumber': { $in: possibleStrings } },
+      { 'answers.ID number': { $in: possibleStrings } },
+      { 'answers.ID Number': { $in: possibleStrings } },
+      { 'answers.ID NUMBER': { $in: possibleStrings } },
+      { 'answers.ID_NUMBER': { $in: possibleStrings } },
     ];
 
-    const numAnswer = Number(strAnswer);
+    const numAnswer = Number(trimmed);
     if (!isNaN(numAnswer)) {
-      query.$or.push({ [`answers.${questionId}`]: numAnswer });
-      query.$or.push({ [`answers.${trackingQuestionId}`]: numAnswer });
-      query.$or.push({ [`answers._${questionId}`]: numAnswer });
-      query.$or.push({ [`answers._${trackingQuestionId}`]: numAnswer });
-      query.$or.push({ [`answers.${questionId}.chassisNumber`]: numAnswer });
-      query.$or.push({ [`answers.${trackingQuestionId}.chassisNumber`]: numAnswer });
-      query.$or.push({ [`answers.${questionId}.value`]: numAnswer });
-      query.$or.push({ [`answers.${trackingQuestionId}.value`]: numAnswer });
+      orConditions.push({ [`answers.${questionId}`]: numAnswer });
+      orConditions.push({ [`answers.${trackingQuestionId}`]: numAnswer });
+      orConditions.push({ [`answers._${questionId}`]: numAnswer });
+      orConditions.push({ [`answers._${trackingQuestionId}`]: numAnswer });
+      orConditions.push({ [`answers.${questionId}.chassisNumber`]: numAnswer });
+      orConditions.push({ [`answers.${trackingQuestionId}.chassisNumber`]: numAnswer });
+      orConditions.push({ [`answers.${questionId}.value`]: numAnswer });
+      orConditions.push({ [`answers.${trackingQuestionId}.value`]: numAnswer });
+      orConditions.push({ 'answers.chassis_number': numAnswer });
+      orConditions.push({ 'answers.chassisNumber': numAnswer });
+      orConditions.push({ 'answers.id_number': numAnswer });
+      orConditions.push({ 'answers.idNumber': numAnswer });
     }
 
-    // Only filter by tenantId if the form is NOT global or if we have a specific tenantSlug
+    query.$or = orConditions;
+
+    const tenantValues = [];
+    if (form.tenantId) {
+      const fStr = form.tenantId.toString();
+      tenantValues.push(fStr);
+      if (mongoose.Types.ObjectId.isValid(fStr)) {
+        tenantValues.push(new mongoose.Types.ObjectId(fStr));
+      }
+    }
     if (tenantId) {
-      const isValid = mongoose.Types.ObjectId.isValid(tenantId);
-      const oid = isValid ? new mongoose.Types.ObjectId(String(tenantId)) : null;
-      query.tenantId = oid ? { $in: [tenantId, oid] } : tenantId;
-      console.log(`[SUGGESTIONS] Using specific tenantId filter: ${tenantId}`);
-    } else if (form.tenantId && !form.isGlobal) {
-      const isValid = mongoose.Types.ObjectId.isValid(form.tenantId);
-      const oid = isValid ? new mongoose.Types.ObjectId(String(form.tenantId)) : null;
-      query.tenantId = oid ? { $in: [form.tenantId, oid] } : form.tenantId;
-      console.log(`[SUGGESTIONS] Falling back to form owner tenantId filter: ${form.tenantId}`);
-    } else {
-      console.log(`[SUGGESTIONS] No tenantId filter applied (Global form or no slug)`);
+      const tStr = tenantId.toString();
+      tenantValues.push(tStr);
+      if (mongoose.Types.ObjectId.isValid(tStr)) {
+        tenantValues.push(new mongoose.Types.ObjectId(tStr));
+      }
     }
 
-    console.log(`[SUGGESTIONS] DB Query: ${JSON.stringify(query)}`);
+    if (tenantValues.length > 0) {
+      query.tenantId = { $in: tenantValues };
+    }
 
-    const queryStartTime = Date.now();
-    // Fetch top 5 matching responses to find the one with the most data
     const matchingResponses = await Response.find(query)
-      .sort({ isSectionSubmit: 1, createdAt: -1 })
-      .limit(5)
+      .sort({ isSectionSubmit: 1, createdAt: 1 })
+      .limit(10)
       .lean();
 
-    const queryDuration = Date.now() - queryStartTime;
-
-    console.log(`[SUGGESTIONS] DB Query took ${queryDuration}ms. Found ${matchingResponses.length} matches.`);
-
     if (matchingResponses.length === 0) {
-      // Log why it might have failed
-      const anyRespCount = await Response.countDocuments({ questionId: formId });
-      console.log(`[SUGGESTIONS] No match for "${answer}". Total responses for form ${formId}: ${anyRespCount}`);
-
       return res.status(200).json({
         success: true,
         data: { suggestedAnswers: null }
@@ -1587,15 +1698,45 @@ export const getSuggestedAnswers = async (req, res) => {
       return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     });
 
-    console.log(`[SUGGESTIONS] Found ${sortedResponses.length} matches.`);
+    let reworkCount = 0;
+    let hasBeenReworked = false;
 
     const suggestions = sortedResponses.map((resp, index) => {
       let answersObj = resp.answers || {};
       if (answersObj instanceof Map) {
         answersObj = Object.fromEntries(answersObj);
       }
+
+      let hasRework = false;
+      let hasReject = false;
+      for (const val of Object.values(answersObj)) {
+        if (val && typeof val === 'object' && val.status) {
+          const s = String(val.status).toLowerCase().trim();
+          if (s === 'rework' || s.includes('rework')) hasRework = true;
+          if (s === 'rejected' || s === 'reject') hasReject = true;
+        } else if (typeof val === 'string') {
+          const s = val.toLowerCase().trim();
+          if (s === 'rework' || s.includes('rework')) hasRework = true;
+          if (s === 'rejected' || s === 'reject') hasReject = true;
+        }
+      }
+
+      let status = 'Direct Ok';
+      if (hasReject) {
+        status = 'Rejected';
+      } else if (hasRework) {
+        reworkCount++;
+        hasBeenReworked = true;
+        status = `Rework ${reworkCount}`;
+      } else if (index > 0 || hasBeenReworked) {
+        status = 'Rework Accepted';
+      } else {
+        status = 'Direct Ok';
+      }
+
       return {
         rank: index + 1,
+        status: resp.status && resp.status !== 'pending' ? resp.status : status,
         answers: answersObj,
         timestamp: resp.createdAt,
         id: resp.id || resp._id

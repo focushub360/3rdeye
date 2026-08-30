@@ -19,6 +19,7 @@ interface SectionContentProps {
   rankMatchedAnswers?: Record<string, any> | null;
   currentRank?: number | null;
   onPreviousAnswersChange?: (answers: string[]) => void;
+  hideSectionHeader?: boolean;
 }
 
 export default function SectionContent({
@@ -37,6 +38,7 @@ export default function SectionContent({
   rankMatchedAnswers,
   currentRank,
   onPreviousAnswersChange,
+  hideSectionHeader = false,
 }: SectionContentProps) {
   const { getOrderedVisibleQuestions } = useQuestionLogic();
   const visibleQuestions = getOrderedVisibleQuestions(
@@ -50,14 +52,14 @@ export default function SectionContent({
   });
 
   return (
-    <div className="w-full space-y-8">
-      {section.title !== formTitle && !section.isVirtual && (
-        <div className="mb-8">
-          <h2 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
+    <div className="w-full space-y-6">
+      {!hideSectionHeader && section.title !== formTitle && !section.isVirtual && (
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-1">
             {section.title}
           </h2>
           {section.description && (
-            <p className="text-base text-gray-600 dark:text-gray-400">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
               {section.description}
             </p>
           )}

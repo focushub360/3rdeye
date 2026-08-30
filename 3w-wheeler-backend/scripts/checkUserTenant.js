@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import User from '../models/User.js';
 import Tenant from '../models/Tenant.js';
-
+// add tenant to all users except superadmin and  inspector 
 dotenv.config();
 
 async function checkUserTenant() {
@@ -24,7 +24,7 @@ async function checkUserTenant() {
       console.log(`   Username: ${user.username}`);
       console.log(`   Email: ${user.email}`);
       console.log(`   Role: ${user.role}`);
-      
+
       if (user.tenantId) {
         console.log(`   Tenant: ${user.tenantId.name} (${user.tenantId.slug})`);
         console.log(`   TenantId: ${user.tenantId._id}`);
@@ -45,7 +45,13 @@ async function checkUserTenant() {
       console.log(`\n⚠️  WARNING: ${usersWithoutTenant.length} user(s) without tenantId found!`);
       console.log('These users will not be able to create forms.');
     }
-
+    // add tenant to all users
+    //const usersWithoutTenant = users.filter(u => !u.tenantId);
+    //const tenant = await Tenant.findOne({ slug: 'focus' });
+    //usersWithoutTenant.forEach(async (user) => {
+    //  user.tenantId = tenant._id;
+    //  await user.save();
+    //});
   } catch (error) {
     console.error('❌ Error:', error.message);
   } finally {
