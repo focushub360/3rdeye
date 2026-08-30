@@ -123,22 +123,27 @@ export default function PreviewFormWrapper() {
         setLoading(true);
       }
       const response = await apiClient.getForm(id);
-      if (response && response.form) {
-        setForm(response.form);
-        if (Array.isArray(response.form.sectionBranching)) {
-          setBranchingRules(response.form.sectionBranching);
+      const formObj = (response as any)?.form || (response as any)?.data?.form || response;
+      if (formObj && (formObj.title || formObj.sections || formObj.id || formObj._id)) {
+        setForm(formObj);
+        if (Array.isArray(formObj.sectionBranching)) {
+          setBranchingRules(formObj.sectionBranching);
         } else {
           // Lazy background fallback only if not in form object
           apiClient.request<{ sectionBranching: any[] }>(`/forms/${id}/section-branching`)
             .then(bRes => setBranchingRules(bRes?.sectionBranching ?? []))
             .catch(() => setBranchingRules([]));
         }
+        setError(null);
+      } else {
+        if (!cachedForm) {
+          setError("Form not found or could not be loaded");
+        }
       }
-      setError(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error("[PreviewFormWrapper] Error fetching form:", err);
       if (!cachedForm) {
-        setError("Failed to load form");
+        setError(err?.message || "Failed to load form from server");
       }
     } finally {
       setLoading(false);
