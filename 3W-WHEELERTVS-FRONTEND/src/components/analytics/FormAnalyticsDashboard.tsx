@@ -11935,12 +11935,23 @@ export default function FormAnalyticsDashboard() {
                                       );
                                     })()}
                                   </td>
-                                  <td className="px-6 py-3 text-sm text-gray-600 dark:text-gray-400 font-medium border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
-                                    {getResponseTimestamp(response)
-                                      ? new Date(
-                                        getResponseTimestamp(response)!,
-                                      ).toLocaleDateString("en-US")
-                                      : "-"}
+                                  <td className="px-6 py-3 text-sm border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
+                                    {(() => {
+                                      const ts = getResponseTimestamp(response);
+                                      if (!ts) return <span className="text-gray-400">-</span>;
+                                      const d = new Date(ts);
+                                      if (isNaN(d.getTime())) return <span>{String(ts)}</span>;
+                                      const mm = String(d.getMonth() + 1).padStart(2, "0");
+                                      const dd = String(d.getDate()).padStart(2, "0");
+                                      const yyyy = d.getFullYear();
+                                      const timeStr = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+                                      return (
+                                        <div className="flex flex-col">
+                                          <span className="font-semibold text-gray-800 dark:text-gray-200">{`${mm}/${dd}/${yyyy}`}</span>
+                                          <span className="text-[11px] text-gray-400 font-normal">{timeStr}</span>
+                                        </div>
+                                      );
+                                    })()}
                                   </td>
 
                                   <td className="px-4 py-3 text-sm text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap">
