@@ -81,8 +81,8 @@ import FilePreview from "../FilePreview";
 import TableColumnFilter from "./TableColumnFilter";
 import ShareAnalyticsModal from "./ShareAnalyticsModal";
 import AutoSendModal from "../forms/AutoSendModal";
-import LocationCell from "../LocationCell";
 import HeatmapCalendar from "./HeatmapCalendar";
+import { io, Socket } from "socket.io-client";
 
 import { useTheme } from "../../context/ThemeContext";
 
@@ -4285,9 +4285,9 @@ export default function FormAnalyticsDashboard() {
   // Responses tab, instead of slicing an already-loaded full dataset in
   // memory. This is the server-side pagination required for large
   // (2000+) response forms.
-  const fetchResponsesPage = async (page: number) => {
+  const fetchResponsesPage = async (page: number, silent: boolean = false) => {
     if (!id) return;
-    setLoadingTable(true);
+    if (!silent) setLoadingTable(true);
     try {
       const data = await apiClient.getFormResponses(id, {
         page: page,
@@ -4299,11 +4299,118 @@ export default function FormAnalyticsDashboard() {
       setTotalResponsesCount(data.pagination?.totalResponses || 0);
     } catch (err) {
       console.error("Error fetching responses page:", err);
-      showToast("Failed to load responses. Please try again.", "error");
+      if (!silent) showToast("Failed to load responses. Please try again.", "error");
     } finally {
-      setLoadingTable(false);
+      if (!silent) setLoadingTable(false);
     }
   };
+
+  // ── Real-time Socket & Auto-Refresh for Recent Uploads ─────────────
+  useEffect(() => {
+    if (!id) return;
+
+    const getSocketUrl = (): string => {
+      if (import.meta.env.VITE_SOCKET_URL) {
+        return import.meta.env.VITE_SOCKET_URL;
+      }
+      const hostname = window.location.hostname;
+      if (hostname === "localhost" || hostname === "127.0.0.1") {
+        return "http://localhost:5000";
+      }
+      if (hostname.includes("staging") || hostname.includes("render")) {
+        return "https://threew-wheeler-backend.onrender.com";
+      }
+      return "https://3wheelertvsbackend.focusengineeringapp.com";
+    };
+
+    let socket: Socket | null = null;
+    try {
+      socket = io(getSocketUrl(), {
+        reconnection: true,
+        reconnectionDelay: 2000,
+        reconnectionAttempts: 10,
+        transports: ["websocket", "polling"],
+        withCredentials: true,
+      });
+
+      socket.on("connect", () => {
+        console.log("✅ [ANALYTICS] Connected to socket server, joining room for form:", id);
+        socket?.emit("join-form-analytics", id);
+      });
+
+      const handleLiveResponseCreated = (data: any) => {
+        console.log("🔔 [ANALYTICS LIVE] New response received:", data);
+        const newResp = data?.response || data;
+        if (!newResp) return;
+
+        // Auto-refresh table responses silently so recent uploads appear immediately
+        fetchResponsesPage(responsesPage, true);
+
+        // Update full analytics dataset
+        setResponses((prev) => {
+          const respId = newResp.id || newResp._id;
+          if (prev.some((r) => (r.id || r._id) === respId)) return prev;
+          return [newResp, ...prev];
+        });
+
+        // Update dashboard summaries in background if active
+        if (activeTab === "dashboard") {
+          fetchSummary();
+          fetchPerformanceTable();
+        }
+      };
+
+      const handleLiveResponseUpdated = (data: any) => {
+        console.log("🔔 [ANALYTICS LIVE] Response updated:", data);
+        const updatedResp = data?.response || data;
+        if (!updatedResp) return;
+        const targetId = updatedResp.id || updatedResp._id;
+
+        setTableResponses((prev) =>
+          prev.map((r) => ((r.id || r._id) === targetId ? { ...r, ...updatedResp } : r))
+        );
+        setResponses((prev) =>
+          prev.map((r) => ((r.id || r._id) === targetId ? { ...r, ...updatedResp } : r))
+        );
+      };
+
+      const handleLiveResponseDeleted = (data: any) => {
+        console.log("🔔 [ANALYTICS LIVE] Response deleted:", data);
+        const deletedId = data?.responseId || data?.id;
+        if (!deletedId) return;
+
+        setTableResponses((prev) => prev.filter((r) => (r.id || r._id) !== deletedId));
+        setResponses((prev) => prev.filter((r) => (r.id || r._id) !== deletedId));
+        setTotalResponsesCount((prev) => Math.max(0, prev - 1));
+      };
+
+      socket.on("response-created", handleLiveResponseCreated);
+      socket.on("response-updated", handleLiveResponseUpdated);
+      socket.on("response-deleted", handleLiveResponseDeleted);
+      socket.on("batch-imported", () => {
+        fetchResponsesPage(responsesPage, true);
+        if (responses.length > 0) fetchFullAnalyticsResponses();
+      });
+
+    } catch (e) {
+      console.warn("Socket initialization error in Analytics:", e);
+    }
+
+    // Smart background polling fallback every 10 seconds when tab is active
+    const pollInterval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        fetchResponsesPage(responsesPage, true);
+      }
+    }, 10000);
+
+    return () => {
+      clearInterval(pollInterval);
+      if (socket) {
+        socket.emit("leave-form-analytics", id);
+        socket.disconnect();
+      }
+    };
+  }, [id, responsesPage, responsesPageSize, activeTab]);
 
   // Keep activeTab in sync with analyticsView (existing tab buttons already
   // set analyticsView; this propagates that choice into the lazy-loading
@@ -10596,10 +10703,19 @@ export default function FormAnalyticsDashboard() {
               <div className="card p-3 sm:p-6">
                 <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex flex-col">
-                    <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                      <Table className="w-5 h-5 text-indigo-600" />
-                      All Responses
-                    </h3>
+                    <div className="flex items-center gap-2.5">
+                      <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                        <Table className="w-5 h-5 text-indigo-600" />
+                        All Responses
+                      </h3>
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        </span>
+                        Auto-syncing
+                      </span>
+                    </div>
                     <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
                       {isLoadingTableResponses
                         ? "Loading…"
