@@ -5044,34 +5044,31 @@ export default function FormAnalyticsDashboard() {
     const opts = new Set<string>();
     const dataset = responses.length > 0 ? responses : tableResponses;
     dataset.forEach((r) => {
-      const rank = chassisAttemptRanks[r.id] || (r.responseRanks && chassisQuestionId ? r.responseRanks[chassisQuestionId] : 1);
       const rowStatus = tableDisplayStatuses[r.id] || responseStatuses[r.id] || "Pending Review";
-      let colorLabel = "Green - Accepted";
+      
+      let label = "Attempt 1 (Gray - Pending)";
       if (rowStatus === "Rejected") {
-        colorLabel = "Red - Rejected";
-      } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
-        colorLabel = "Yellow - Rework";
-      } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
-        colorLabel = "Green - Accepted";
-      } else {
-        colorLabel = "Gray - Pending";
+        label = "Attempt 1 (Red - Rejected)";
+      } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted" && rowStatus !== "Rework Completed") {
+        const match = rowStatus.match(/\d+/);
+        const num = match ? parseInt(match[0], 10) : 1;
+        label = `Attempt ${num} (Yellow - Rework)`;
+      } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted" || rowStatus === "Rework Completed" || rowStatus === "Verified") {
+        label = "Attempt 1 (Green - Accepted)";
       }
-      opts.add(`Attempt ${rank} (${colorLabel})`);
+      opts.add(label);
     });
 
     if (opts.size === 0) {
       return [
         "Attempt 1 (Green - Accepted)",
-        "Attempt 1 (Amber - Rework)",
-        "Attempt 1 (Red - Rejected)",
-        "Attempt 2 (Green - Accepted)",
-        "Attempt 2 (Amber - Rework)",
-        "Attempt 2 (Red - Rejected)",
+        "Attempt 1 (Yellow - Rework)",
+        "Attempt 1 (Red - Rejected)"
       ];
     }
 
     return Array.from(opts).sort((a, b) => String(a ?? "").localeCompare(String(b ?? ""), undefined, { numeric: true }));
-  }, [responses, tableResponses, chassisAttemptRanks, tableDisplayStatuses, responseStatuses, chassisQuestionId]);
+  }, [responses, tableResponses, tableDisplayStatuses, responseStatuses]);
 
   const fetchChatHistory = async (responseId: string) => {
     try {
@@ -5425,24 +5422,23 @@ export default function FormAnalyticsDashboard() {
     const attemptRankFilterValues = columnFilters["__attemptRank"];
     if (attemptRankFilterValues && attemptRankFilterValues.length > 0) {
       result = result.filter((response) => {
-        const rank = chassisAttemptRanks[response.id] || (response.responseRanks && chassisQuestionId ? response.responseRanks[chassisQuestionId] : 1);
         const rowStatus = tableDisplayStatuses[response.id] || responseStatuses[response.id] || "Pending Review";
-        let colorLabel = "Green - Accepted";
+        let label = "Attempt 1 (Gray - Pending)";
         if (rowStatus === "Rejected") {
-          colorLabel = "Red - Rejected";
-        } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
-          colorLabel = "Yellow - Rework";
-        } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
-          colorLabel = "Green - Accepted";
-        } else {
-          colorLabel = "Gray - Pending";
+          label = "Attempt 1 (Red - Rejected)";
+        } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted" && rowStatus !== "Rework Completed") {
+          const match = rowStatus.match(/\d+/);
+          const num = match ? parseInt(match[0], 10) : 1;
+          label = `Attempt ${num} (Yellow - Rework)`;
+        } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted" || rowStatus === "Rework Completed" || rowStatus === "Verified") {
+          label = "Attempt 1 (Green - Accepted)";
         }
-        const fullLabel = `Attempt ${rank} (${colorLabel})`;
-        const legacyAmberLabel = `Attempt ${rank} (Amber - Rework)`;
+        
+        const legacyAmberLabel = label.replace("Yellow", "Amber");
+        
         return (
-          attemptRankFilterValues.includes(fullLabel) ||
-          (colorLabel === "Yellow - Rework" && attemptRankFilterValues.includes(legacyAmberLabel)) ||
-          attemptRankFilterValues.includes(`Attempt ${rank}`)
+          attemptRankFilterValues.includes(label) ||
+          attemptRankFilterValues.includes(legacyAmberLabel)
         );
       });
     }
