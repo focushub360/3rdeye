@@ -11096,7 +11096,7 @@ export default function FormAnalyticsDashboard() {
                           </span>
                           <div className="flex items-baseline justify-between">
                             <span className="text-lg font-black text-green-600 dark:text-green-400">
-                              {inspectionStats.accepted}
+                              {inspectionStats.accepted + inspectionStats.reworkCompleted}
                             </span>
                             <CheckCircle className="w-4 h-4 text-green-500" />
                           </div>
@@ -11378,31 +11378,47 @@ export default function FormAnalyticsDashboard() {
                               </div>
                             </th>
 
-                            <th className="text-center px-6 py-3 font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              <span
-                                onClick={() => {
-                                  setTableSort((prev) =>
-                                    prev?.columnId === "__timeSpent"
-                                      ? prev.direction === "asc"
-                                        ? { columnId: "__timeSpent", direction: "desc" }
-                                        : null
-                                      : { columnId: "__timeSpent", direction: "asc" }
-                                  );
-                                }}
-                                className="cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center justify-center gap-1"
-                                title="Click to sort by Time Taken"
-                              >
-                                <span>Time Taken</span>
-                                {tableSort?.columnId === "__timeSpent" && (
-                                  <span className="text-indigo-600 dark:text-indigo-400">
-                                    {tableSort.direction === "asc" ? (
-                                      <ArrowUp className="w-3.5 h-3.5" />
-                                    ) : (
-                                      <ArrowDown className="w-3.5 h-3.5" />
-                                    )}
-                                  </span>
-                                )}
-                              </span>
+                            <th className="text-center px-4 py-3 font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
+                              <div className="flex items-center justify-between gap-2">
+                                <span
+                                  onClick={() => {
+                                    setTableSort((prev) =>
+                                      prev?.columnId === "__timeSpent"
+                                        ? prev.direction === "asc"
+                                          ? { columnId: "__timeSpent", direction: "desc" }
+                                          : null
+                                        : { columnId: "__timeSpent", direction: "asc" }
+                                    );
+                                  }}
+                                  className="flex-1 text-center cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center justify-center gap-1"
+                                  title="Click to sort by Time Taken"
+                                >
+                                  <span>Time Taken</span>
+                                  {tableSort?.columnId === "__timeSpent" && (
+                                    <span className="text-indigo-600 dark:text-indigo-400">
+                                      {tableSort.direction === "asc" ? (
+                                        <ArrowUp className="w-3.5 h-3.5" />
+                                      ) : (
+                                        <ArrowDown className="w-3.5 h-3.5" />
+                                      )}
+                                    </span>
+                                  )}
+                                </span>
+                                <TableColumnFilter
+                                  columnId="__attemptRank"
+                                  title="Attempt & Status"
+                                  options={attemptRankFilterOptions}
+                                  selectedValues={
+                                    columnFilters["__attemptRank"] || null
+                                  }
+                                  onFilterChange={(columnId, values) => {
+                                    setColumnFilters((prev) => ({
+                                      ...prev,
+                                      [columnId]: values,
+                                    }));
+                                  }}
+                                />
+                              </div>
                             </th>
                             {form?.sections?.map(
                               (section: Section) =>
