@@ -11378,47 +11378,31 @@ export default function FormAnalyticsDashboard() {
                               </div>
                             </th>
 
-                            <th className="text-center px-4 py-3 font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              <div className="flex items-center justify-between gap-2">
-                                <span
-                                  onClick={() => {
-                                    setTableSort((prev) =>
-                                      prev?.columnId === "__timeSpent"
-                                        ? prev.direction === "asc"
-                                          ? { columnId: "__timeSpent", direction: "desc" }
-                                          : null
-                                        : { columnId: "__timeSpent", direction: "asc" }
-                                    );
-                                  }}
-                                  className="flex-1 text-center cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center justify-center gap-1"
-                                  title="Click to sort by Time Taken"
-                                >
-                                  <span>Time Taken</span>
-                                  {tableSort?.columnId === "__timeSpent" && (
-                                    <span className="text-indigo-600 dark:text-indigo-400">
-                                      {tableSort.direction === "asc" ? (
-                                        <ArrowUp className="w-3.5 h-3.5" />
-                                      ) : (
-                                        <ArrowDown className="w-3.5 h-3.5" />
-                                      )}
-                                    </span>
-                                  )}
-                                </span>
-                                <TableColumnFilter
-                                  columnId="__attemptRank"
-                                  title="Attempt & Status"
-                                  options={attemptRankFilterOptions}
-                                  selectedValues={
-                                    columnFilters["__attemptRank"] || null
-                                  }
-                                  onFilterChange={(columnId, values) => {
-                                    setColumnFilters((prev) => ({
-                                      ...prev,
-                                      [columnId]: values,
-                                    }));
-                                  }}
-                                />
-                              </div>
+                            <th className="text-center px-6 py-3 font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
+                              <span
+                                onClick={() => {
+                                  setTableSort((prev) =>
+                                    prev?.columnId === "__timeSpent"
+                                      ? prev.direction === "asc"
+                                        ? { columnId: "__timeSpent", direction: "desc" }
+                                        : null
+                                      : { columnId: "__timeSpent", direction: "asc" }
+                                  );
+                                }}
+                                className="cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center justify-center gap-1"
+                                title="Click to sort by Time Taken"
+                              >
+                                <span>Time Taken</span>
+                                {tableSort?.columnId === "__timeSpent" && (
+                                  <span className="text-indigo-600 dark:text-indigo-400">
+                                    {tableSort.direction === "asc" ? (
+                                      <ArrowUp className="w-3.5 h-3.5" />
+                                    ) : (
+                                      <ArrowDown className="w-3.5 h-3.5" />
+                                    )}
+                                  </span>
+                                )}
+                              </span>
                             </th>
                             {form?.sections?.map(
                               (section: Section) =>
@@ -12070,69 +12054,28 @@ export default function FormAnalyticsDashboard() {
                                     })()}
                                   </td>
 
-                                  <td className="px-4 py-3 text-sm text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap">
+                                  <td className="px-6 py-3 text-sm text-center font-bold text-blue-600 dark:text-blue-400 border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                     {(() => {
-                                      const timeSpent =
+                                      const rawTime =
                                         response.timeSpent ??
-                                        response.totalTimeSpent;
-                                      const rank =
-                                        chassisAttemptRanks[response.id] ||
-                                        (response.responseRanks && chassisQuestionId
-                                          ? response.responseRanks[chassisQuestionId]
-                                          : 1);
-                                      const rowStatus =
-                                        tableDisplayStatuses[response.id] ||
-                                        responseStatuses[response.id] ||
-                                        "Pending Review";
+                                        response.totalTimeSpent ??
+                                        response.submissionMetadata?.timeSpent;
+                                      const timeSpent =
+                                        rawTime !== undefined && rawTime !== null
+                                          ? Number(rawTime)
+                                          : null;
 
-                                      const getRankBadgeClass = (status: string) => {
-                                        if (status === "Rejected") {
-                                          return "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700";
-                                        }
-                                        if (
-                                          status?.includes("Rework") &&
-                                          status !== "Rework Accepted"
-                                        ) {
-                                          return "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700";
-                                        }
-                                        if (
-                                          status === "Direct Ok" ||
-                                          status === "Rework Accepted" ||
-                                          status === "Accepted" ||
-                                          status === "Rework Completed" ||
-                                          status === "Verified"
-                                        ) {
-                                          return "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700";
-                                        }
-                                        return "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600";
-                                      };
-
-                                      return (
-                                        <div className="flex items-center justify-center gap-2">
-                                          {/* Time Taken duration */}
-                                          {timeSpent !== undefined &&
-                                          timeSpent !== null &&
-                                          timeSpent > 0 ? (
-                                            <div className="flex items-center gap-1 font-bold text-blue-600 dark:text-blue-400">
-                                              <Clock className="w-3.5 h-3.5 text-blue-500" />
-                                              <span>
-                                                {timeSpent > 60
-                                                  ? `${Math.floor(timeSpent / 60)}m ${timeSpent % 60}s`
-                                                  : `${timeSpent}s`}
-                                              </span>
-                                            </div>
-                                          ) : (
-                                            <span className="text-gray-400 text-xs">-</span>
-                                          )}
-
-                                          {/* Chassis Attempt Rank Badge (1, 2, etc.) placed AFTER time taken with status-based color */}
-                                          <span
-                                            title={`Chassis inspection attempt #${rank} (${rowStatus})`}
-                                            className={`text-[11px] font-extrabold min-w-[22px] h-[22px] px-1.5 rounded-full flex items-center justify-center border shadow-xs ${getRankBadgeClass(rowStatus)}`}
-                                          >
-                                            {rank}
+                                      return timeSpent !== null && timeSpent > 0 ? (
+                                        <div className="flex items-center justify-center gap-1 font-bold text-blue-600 dark:text-blue-400">
+                                          <Clock className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                          <span>
+                                            {timeSpent >= 60
+                                              ? `${Math.floor(timeSpent / 60)}m ${timeSpent % 60}s`
+                                              : `${timeSpent}s`}
                                           </span>
                                         </div>
+                                      ) : (
+                                        <span className="text-gray-400 font-normal">-</span>
                                       );
                                     })()}
                                   </td>
