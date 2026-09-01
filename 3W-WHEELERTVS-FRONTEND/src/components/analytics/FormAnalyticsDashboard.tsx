@@ -12065,17 +12065,58 @@ export default function FormAnalyticsDashboard() {
                                           ? Number(rawTime)
                                           : null;
 
-                                      return timeSpent !== null && timeSpent > 0 ? (
-                                        <div className="flex items-center justify-center gap-1 font-bold text-blue-600 dark:text-blue-400">
-                                          <Clock className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                          <span>
-                                            {timeSpent >= 60
-                                              ? `${Math.floor(timeSpent / 60)}m ${timeSpent % 60}s`
-                                              : `${timeSpent}s`}
+                                      const rowStatus =
+                                        tableDisplayStatuses[response.id] ||
+                                        responseStatuses[response.id] ||
+                                        "Pending Review";
+
+                                      const getBadgeInfo = (status: string) => {
+                                        if (status === "Rejected") {
+                                          return { num: 1, classes: "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700" };
+                                        }
+                                        if (status?.includes("Rework") && status !== "Rework Accepted" && status !== "Rework Completed") {
+                                          const match = status.match(/\d+/);
+                                          const num = match ? parseInt(match[0], 10) : 1;
+                                          return { num, classes: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700" };
+                                        }
+                                        if (
+                                          status === "Direct Ok" ||
+                                          status === "Rework Accepted" ||
+                                          status === "Accepted" ||
+                                          status === "Rework Completed" ||
+                                          status === "Verified"
+                                        ) {
+                                          return { num: 1, classes: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700" };
+                                        }
+                                        return { num: 1, classes: "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600" };
+                                      };
+
+                                      const badgeInfo = getBadgeInfo(rowStatus);
+
+                                      return (
+                                        <div className="flex items-center justify-center gap-2">
+                                          {/* Time Taken duration */}
+                                          {timeSpent !== null && timeSpent > 0 ? (
+                                            <div className="flex items-center gap-1 font-bold text-blue-600 dark:text-blue-400">
+                                              <Clock className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                              <span>
+                                                {timeSpent >= 60
+                                                  ? `${Math.floor(timeSpent / 60)}m ${timeSpent % 60}s`
+                                                  : `${timeSpent}s`}
+                                              </span>
+                                            </div>
+                                          ) : (
+                                            <span className="text-gray-400 font-normal">-</span>
+                                          )}
+
+                                          {/* Sequence Badge */}
+                                          <span
+                                            title={`Status: ${rowStatus}`}
+                                            className={`text-[11px] font-extrabold min-w-[22px] h-[22px] px-1.5 rounded-full flex items-center justify-center border shadow-xs ${badgeInfo.classes}`}
+                                          >
+                                            {badgeInfo.num}
                                           </span>
                                         </div>
-                                      ) : (
-                                        <span className="text-gray-400 font-normal">-</span>
                                       );
                                     })()}
                                   </td>
