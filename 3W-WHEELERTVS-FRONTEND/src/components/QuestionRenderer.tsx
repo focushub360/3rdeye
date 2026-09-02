@@ -1681,7 +1681,16 @@ export default function QuestionRenderer({
                         if (matchVal !== null && matchVal !== undefined && String(matchVal).trim() !== "") {
                           const displayVal = formatVal(matchVal);
                           if (displayVal && displayVal.trim() !== "") {
-                            const existing = groupedRecords.get(displayVal);
+                            let groupKey = displayVal;
+                            if (typeof matchVal === 'object' && matchVal !== null && matchVal.evidence) {
+                              groupKey += ` | Evidence: ${JSON.stringify(matchVal.evidence)}`;
+                            } else if (typeof matchVal === 'string' && (matchVal.startsWith('http') || matchVal.startsWith('data:image'))) {
+                              groupKey = matchVal;
+                            } else if (Array.isArray(matchVal)) {
+                              groupKey = JSON.stringify(matchVal);
+                            }
+
+                            const existing = groupedRecords.get(groupKey);
                             const item = { 
                               rank: s.rank || 0, 
                               status: s.status || "", 
@@ -1690,7 +1699,7 @@ export default function QuestionRenderer({
                             if (existing) {
                               existing.rankItems.push(item);
                             } else {
-                              groupedRecords.set(displayVal, { rankItems: [item], rawValue: matchVal });
+                              groupedRecords.set(groupKey, { rankItems: [item], rawValue: matchVal });
                             }
                           }
                         }
@@ -1747,11 +1756,66 @@ export default function QuestionRenderer({
                                 <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 ml-1">
                                   Historical Record
                                 </span>
+                                </div>
+                                {(() => {
+                                  const val = data.rawValue;
+                                  if (!val) return null;
+                                  
+                                  const renderImg = (src: string, i: number) => {
+                                    if (typeof src !== 'string' || (!src.startsWith('http') && !src.startsWith('data:image'))) return null;
+                                    return (
+                                      <a href={src} target="_blank" rel="noopener noreferrer" key={i} className="block cursor-pointer hover:opacity-80 transition-opacity">
+                                        <img src={src} alt="Evidence" className="w-16 h-16 object-cover rounded-md border border-slate-200 dark:border-slate-700 shadow-sm" />
+                                      </a>
+                                    );
+                                  };
+
+                                  // Simple image URL
+                                  if (typeof val === 'string' && (val.startsWith('http') || val.startsWith('data:image')) && val.match(/\.(jpeg|jpg|gif|png|webp)/i)) {
+                                    return <div className="mt-1">{renderImg(val, 0)}</div>;
+                                  }
+
+                                  // Array of images
+                                  if (Array.isArray(val) && val.length > 0 && val.every(v => typeof v === 'string' && (v.startsWith('http') || v.startsWith('data:image')))) {
+                                    return (
+                                      <div className="flex flex-wrap gap-2 mt-1">
+                                        {val.map((v, i) => renderImg(v, i))}
+                                      </div>
+                                    );
+                                  }
+
+                                  // Object (like ZoneIn)
+                                  if (typeof val === 'object' && !Array.isArray(val)) {
+                                    const textPart = formatVal(val);
+                                    let evidenceImgs: any[] = [];
+                                    if (val.evidence) {
+                                      evidenceImgs = Array.isArray(val.evidence) ? val.evidence : [val.evidence];
+                                    }
+                                    
+                                    return (
+                                      <div className="flex flex-col gap-1.5 mt-0.5">
+                                        {textPart && (
+                                          <div className={`text-[10px] font-bold leading-relaxed ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
+                                            {textPart}
+                                          </div>
+                                        )}
+                                        {evidenceImgs.length > 0 && (
+                                          <div className="flex flex-wrap gap-2 mt-1">
+                                            {evidenceImgs.map((img, i) => renderImg(img, i))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  }
+
+                                  // Fallback to text
+                                  return (
+                                    <div className={`text-[10px] font-bold leading-relaxed mt-0.5 ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
+                                      {formatVal(val)}
+                                    </div>
+                                  );
+                                })()}
                               </div>
-                              <div className={`text-[10px] font-bold leading-relaxed ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
-                                {displayVal}
-                              </div>
-                            </div>
                           );
                         })}
                       </div>
