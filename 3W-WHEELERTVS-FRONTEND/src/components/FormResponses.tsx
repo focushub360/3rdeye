@@ -229,21 +229,53 @@ export default function FormResponses() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [responsesData, formData] = await Promise.all([
-        apiClient.getResponses({ formIds: id }),
-        apiClient.getForm(id!),
-      ]);
+      setError(null);
 
-      // Set the form
-      if (!formData.form) {
-        setError("Form not found");
-        return;
+      // Fetch responses first (or in parallel safely)
+      let responsesData: any = { responses: [] };
+      try {
+        responsesData = await apiClient.getResponses({ formIds: id });
+      } catch (respErr) {
+        console.warn("Failed to fetch responses with filter, fetching all:", respErr);
+        try {
+          responsesData = await apiClient.getResponses();
+        } catch (e) {
+          console.error("Failed to load any responses:", e);
+        }
       }
-      setForm(formData.form);
+
+      const formResponses = (responsesData?.responses || []).filter(
+        (response: Response) => response.questionId === id
+      );
+
+      // Fetch form safely without letting a missing template crash responses
+      let fetchedForm: Form | null = null;
+      try {
+        const formData = await apiClient.getForm(id!);
+        if (formData && formData.form) {
+          fetchedForm = formData.form;
+        }
+      } catch (formErr) {
+        console.warn("Form template not found or failed to load:", formErr);
+      }
+
+      // If form template is not in DB, create a synthetic fallback form so responses can still be viewed and edited!
+      if (!fetchedForm) {
+        fetchedForm = {
+          _id: id!,
+          id: id!,
+          title: (formResponses[0] as any)?.formTitle || `Imported Responses (${id?.slice(0, 8)})`,
+          description: `Uploaded responses (${formResponses.length} records)`,
+          sections: [],
+          followUpQuestions: [],
+        };
+      }
+
+      setForm(fetchedForm);
 
       // Recursive helper to collect all questions including nested ones
       const collectAllQuestions = (questions: any[], result: any[] = []) => {
-        questions.forEach(q => {
+        questions.forEach((q) => {
           result.push(q);
           if (q.followUpQuestions && Array.isArray(q.followUpQuestions)) {
             collectAllQuestions(q.followUpQuestions, result);
@@ -254,25 +286,42 @@ export default function FormResponses() {
 
       // Collect all questions from sections and followUpQuestions
       const allQs: any[] = [];
-      if (formData.form.sections) {
-        formData.form.sections.forEach((section) => {
+      if (fetchedForm.sections) {
+        fetchedForm.sections.forEach((section) => {
           if (section.questions) {
             collectAllQuestions(section.questions, allQs);
           }
         });
       }
-      if (formData.form.followUpQuestions) {
-        collectAllQuestions(formData.form.followUpQuestions, allQs);
+      if (fetchedForm.followUpQuestions) {
+        collectAllQuestions(fetchedForm.followUpQuestions, allQs);
       }
+
+      // If form had no questions in sections, infer questions from response answers
+      if (allQs.length === 0 && formResponses.length > 0) {
+        const seenKeys = new Set<string>();
+        for (const resp of formResponses) {
+          if (resp.answers && typeof resp.answers === "object") {
+            for (const key of Object.keys(resp.answers)) {
+              if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                allQs.push({
+                  id: key,
+                  text:
+                    key.charAt(0).toUpperCase() +
+                    key.slice(1).replace(/_/g, " "),
+                  type: "text",
+                });
+              }
+            }
+          }
+        }
+      }
+
       setAllQuestions(allQs);
-
-      // Filter responses for this form
-      const formResponses = responsesData.responses.filter(
-        (response: Response) => response.questionId === id
-      );
-
       setResponses(formResponses);
     } catch (err) {
+      console.error("Error in fetchData:", err);
       setError(err instanceof Error ? err.message : "Failed to load responses");
     } finally {
       setLoading(false);
