@@ -664,8 +664,8 @@ export const getFormById = async (req, res) => {
     }
 
     // Permission check for authenticated users (not public slug access)
-    // Guests are already verified by guestAccessControl middleware
-    if (!tenantSlug && req.user && req.user.role !== 'superadmin' && !req.user.isGuest) {
+    // Superadmins and Admins can view forms across tenants (mutation routes still strictly restrict editing to owning tenant)
+    if (!tenantSlug && req.user && req.user.role !== 'superadmin' && req.user.role !== 'admin' && !req.user.isGuest) {
       if (!req.user.tenantId) {
         return res.status(403).json({
           success: false,

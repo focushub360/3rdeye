@@ -10166,10 +10166,9 @@ export default function FormAnalyticsDashboard() {
     const isTimeoutError = error.includes('timeout') || error.includes('too long');
     const isAuthError =
       error.toLowerCase().includes("no token") ||
-      error.toLowerCase().includes("access denied") ||
-      error.toLowerCase().includes("unauthorized") ||
       error.toLowerCase().includes("no auth token") ||
-      error.toLowerCase().includes("jwt expired");
+      error.toLowerCase().includes("jwt expired") ||
+      (error.toLowerCase().includes("unauthorized") && !error.toLowerCase().includes("organization"));
 
     return (
       <div className="p-6">
