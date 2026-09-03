@@ -65,16 +65,32 @@ class ApiError extends Error {
 
 class ApiClient {
   private baseUrl: string;
-  private token: string | null = null;
+  private _token: string | null = null;
   private memoryCache = new Map<string, { data: any, timestamp: number }>();
+
+  get token(): string | null {
+    if (this._token) return this._token;
+    if (typeof localStorage !== "undefined") {
+      const stored = localStorage.getItem("auth_token");
+      if (stored) {
+        this._token = stored;
+        return stored;
+      }
+    }
+    return null;
+  }
+
+  set token(val: string | null) {
+    this._token = val;
+  }
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
-    this.token = localStorage.getItem("auth_token");
+    this._token = typeof localStorage !== "undefined" ? localStorage.getItem("auth_token") : null;
   }
 
   setToken(token: string) {
-    this.token = token;
+    this._token = token;
     localStorage.setItem("auth_token", token);
     this.memoryCache.clear();
     try {
@@ -87,7 +103,7 @@ class ApiClient {
   }
 
   clearToken() {
-    this.token = null;
+    this._token = null;
     localStorage.removeItem("auth_token");
     this.memoryCache.clear();
     try {
@@ -352,10 +368,11 @@ class ApiClient {
       ...(options.headers as Record<string, string>),
     };
 
-    if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`;
+    const effectiveToken = this.token || (typeof localStorage !== "undefined" ? localStorage.getItem("auth_token") : null);
+    if (effectiveToken) {
+      headers.Authorization = `Bearer ${effectiveToken}`;
     } else {
-      const guestToken = localStorage.getItem("guest_auth_token");
+      const guestToken = typeof localStorage !== "undefined" ? localStorage.getItem("guest_auth_token") : null;
       if (guestToken) {
         headers.Authorization = `Bearer ${guestToken}`;
       }
