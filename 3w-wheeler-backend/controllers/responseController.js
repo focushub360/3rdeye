@@ -12,6 +12,7 @@ import User from '../models/User.js';
 import FormSession from '../models/FormSession.js';
 import Review from '../models/Review.js';
 import ChatMessage from '../models/ChatMessage.js';
+import { recordImportHistory } from './importHistoryController.js';
 
 // ─── Shared/Linked-Tenant Response Access Helper ─────────────────────────────
 // Response documents are always stamped with the FORM OWNER's tenantId (see
@@ -1127,6 +1128,53 @@ export const batchImportResponses = async (req, res) => {
         });
       }
 
+        const extractedChassis = [];
+        for (const resp of responses) {
+          if (resp?.answers) {
+            for (const [k, v] of Object.entries(resp.answers)) {
+              if (
+                typeof v === 'string' &&
+                v.trim() &&
+                (k.toLowerCase().includes('chassis') || k.toLowerCase().includes('vin') || k.toLowerCase().includes('id number') || k === 'chassis_number')
+              ) {
+                if (!extractedChassis.includes(v.trim())) {
+                  extractedChassis.push(v.trim());
+                }
+                if (extractedChassis.length >= 25) break;
+              }
+            }
+          }
+          if (extractedChassis.length >= 25) break;
+        }
+
+        recordImportHistory({
+          tenantId: form.tenantId || req.user?.tenantId,
+          userId: req.user?._id,
+          userName: req.user?.username || req.user?.name || req.user?.email || 'Admin',
+          userEmail: req.user?.email || '',
+          userRole: req.user?.role || 'admin',
+          actionType: 'BULK_RESPONSE_IMPORT',
+          actionTitle: 'Bulk Response Import',
+          formId: actualQuestionId,
+          formTitle: form.title || 'Imported Form',
+          batchId,
+          fileName: req.body.fileName || 'Response_Template.xlsx',
+          templateType: batchId.includes('-t2') ? 'Template 2' : batchId.includes('-fu-') ? 'Follow-up Form' : 'Main Form',
+          dataCount: {
+            total: responses.length,
+            success: createdResponses.length,
+            failed: errors.length
+          },
+          details: {
+            chassisNumbers: extractedChassis,
+            submitters: Array.from(new Set(responses.map(r => r.submittedBy).filter(Boolean))),
+            questionsCount: Object.keys(responses[0]?.answers || {}).length,
+            errors: errors.slice(0, 10),
+            notes: `Imported ${createdResponses.length} of ${responses.length} responses (with images)`
+          },
+          status: errors.length === 0 ? 'success' : createdResponses.length > 0 ? 'partial' : 'failed'
+        }).catch(err => console.error('[IMPORT HISTORY LOG ERROR]', err));
+
       // SEND RESPONSE FOR IMAGES PATH
       console.log(`[BATCH ${batchId}] Sending success response (with images)`);
       return res.status(201).json({
@@ -1277,6 +1325,54 @@ export const batchImportResponses = async (req, res) => {
           }
         }));
       }
+
+      // Extract sample chassis numbers
+      const extractedChassis = [];
+      for (const resp of responses) {
+        if (resp?.answers) {
+          for (const [k, v] of Object.entries(resp.answers)) {
+            if (
+              typeof v === 'string' &&
+              v.trim() &&
+              (k.toLowerCase().includes('chassis') || k.toLowerCase().includes('vin') || k.toLowerCase().includes('id number') || k === 'chassis_number')
+            ) {
+              if (!extractedChassis.includes(v.trim())) {
+                extractedChassis.push(v.trim());
+              }
+              if (extractedChassis.length >= 25) break;
+            }
+          }
+        }
+        if (extractedChassis.length >= 25) break;
+      }
+
+      recordImportHistory({
+        tenantId: form.tenantId || req.user?.tenantId,
+        userId: req.user?._id,
+        userName: req.user?.username || req.user?.name || req.user?.email || 'Admin',
+        userEmail: req.user?.email || '',
+        userRole: req.user?.role || 'admin',
+        actionType: 'BULK_RESPONSE_IMPORT',
+        actionTitle: 'Bulk Response Import',
+        formId: actualQuestionId,
+        formTitle: form.title || 'Imported Form',
+        batchId,
+        fileName: req.body.fileName || 'Response_Template.xlsx',
+        templateType: batchId.includes('-t2') ? 'Template 2' : batchId.includes('-fu-') ? 'Follow-up Form' : 'Main Form',
+        dataCount: {
+          total: responses.length,
+          success: createdResponses.length,
+          failed: errors.length
+        },
+        details: {
+          chassisNumbers: extractedChassis,
+          submitters: Array.from(new Set(responses.map(r => r.submittedBy).filter(Boolean))),
+          questionsCount: Object.keys(responses[0]?.answers || {}).length,
+          errors: errors.slice(0, 10),
+          notes: `Imported ${createdResponses.length} of ${responses.length} responses`
+        },
+        status: errors.length === 0 ? 'success' : createdResponses.length > 0 ? 'partial' : 'failed'
+      }).catch(err => console.error('[IMPORT HISTORY LOG ERROR]', err));
 
       // Send success response
       console.log(`[BATCH ${batchId}] Sending success response (no images)`);
@@ -1534,7 +1630,8 @@ export const getRank = async (req, res) => {
         dispatchedAt: lastDispatched ? lastDispatched.dispatchedAt : null,
         dispatchedByName: lastDispatched ? lastDispatched.dispatchedByName : null,
         biwReview: lastBiwReviewed ? lastBiwReviewed.biwReview : null,
-        chatCount: chatCount
+        chatCount: chatCount,
+        lastSubmittedBy: lastResponse ? (lastResponse.submittedBy || lastResponse.createdBy || null) : null
       }
     });
 
@@ -3534,6 +3631,29 @@ export const bulkUpdateBiwReview = async (req, res) => {
       await response.save();
       updatedCount++;
     }
+
+    // Record in history timeline
+    recordImportHistory({
+      tenantId: req.user?.tenantId,
+      userId: req.user?._id,
+      userName: req.user?.username || req.user?.name || req.user?.email || 'Reviewer',
+      userEmail: req.user?.email || '',
+      userRole: req.user?.role || 'admin',
+      actionType: 'BULK_REVIEW_UPDATE',
+      actionTitle: 'Bulk BIW Review Update',
+      formId: req.body?.formId || '',
+      formTitle: 'BIW Review',
+      batchId: `review-${Date.now()}`,
+      dataCount: {
+        total: responses.length,
+        success: updatedCount,
+        failed: skippedCount
+      },
+      details: {
+        notes: `Updated BIW status to "${status || 'Cleared'}" for ${updatedCount} responses (${skippedCount} skipped)`
+      },
+      status: 'success'
+    }).catch(err => console.error('[IMPORT HISTORY LOG ERROR]', err));
 
     res.json({
       success: true,

@@ -13,15 +13,15 @@ const API_BASE_URL = (() => {
     hostname.includes("netlify.live");
 
   const getBaseUrl = (): string => {
-    if (import.meta.env.VITE_API_URL) {
-      return import.meta.env.VITE_API_URL;
+    const hostname = window.location.hostname;
+    
+    // Development/Local
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith("192.168.") || hostname.startsWith("10.") || hostname.startsWith("172.")) {
+      return "http://127.0.0.1:5000/api";
     }
 
-    const hostname = window.location.hostname;
-
-    // Development/Local
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return "http://127.0.0.1:5000/api";
+    if (import.meta.env.VITE_API_URL) {
+      return import.meta.env.VITE_API_URL;
     }
 
     // Production backend on Render
@@ -1209,6 +1209,46 @@ class ApiClient {
         errors: allErrors.length > 0 ? allErrors : undefined,
       },
     };
+  }
+
+  async getImportHistory(params?: {
+    formId?: string;
+    actionType?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const query = new URLSearchParams();
+    if (params?.formId) query.append("formId", params.formId);
+    if (params?.actionType) query.append("actionType", params.actionType);
+    if (params?.search) query.append("search", params.search);
+    if (params?.page) query.append("page", String(params.page));
+    if (params?.limit) query.append("limit", String(params.limit));
+
+    const queryString = query.toString();
+    const endpoint = queryString ? `/import-history?${queryString}` : "/import-history";
+    return this.request<any>(endpoint);
+  }
+
+  async getImportHistoryStats() {
+    return this.request<any>("/import-history/stats");
+  }
+
+  async deleteImportHistory(id: string, deleteResponses?: boolean) {
+    const query = deleteResponses ? '?deleteResponses=true' : '';
+    return this.request<any>(`/import-history/${id}${query}`, {
+      method: "DELETE",
+    });
+  }
+
+  async getImportHistoryResponses(id: string) {
+    return this.request<any>(`/import-history/${id}/responses`);
+  }
+
+  async deleteResponse(id: string) {
+    return this.request<{ success: boolean; message: string }>(`/responses/${id}`, {
+      method: "DELETE",
+    });
   }
 
   async processImages(answers: any, submissionId?: string) {

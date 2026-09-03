@@ -5418,6 +5418,35 @@ export default function FormAnalyticsDashboard() {
       });
     }
 
+    // 3.5. Ensure all historical attempts for matched chassis are included
+    if (chassisQuestionId) {
+      const matchedChassisIds = new Set<string>();
+      result.forEach((r) => {
+        const ans = r.answers?.[chassisQuestionId];
+        if (ans) {
+          const itemId = typeof ans === "object" ? (ans.chassisNumber || JSON.stringify(ans)) : String(ans);
+          matchedChassisIds.add(itemId.toLowerCase().trim());
+        }
+      });
+
+      if (matchedChassisIds.size > 0) {
+        // Optimization: create a Set of original result IDs for fast lookup
+        const originalResultIds = new Set(result.map(r => r.id));
+        
+        result = baseFilteredResponses.filter((r) => {
+          const ans = r.answers?.[chassisQuestionId];
+          if (ans) {
+            const itemId = typeof ans === "object" ? (ans.chassisNumber || JSON.stringify(ans)) : String(ans);
+            if (matchedChassisIds.has(itemId.toLowerCase().trim())) {
+              return true; // Include this historical attempt
+            }
+          }
+          // If it doesn't have a chassis ID, keep it ONLY if it was originally in the filtered result
+          return originalResultIds.has(r.id);
+        });
+      }
+    }
+
     // 4. __attemptRank column filter (moved here from baseFilteredResponses to avoid TDZ)
     const attemptRankFilterValues = columnFilters["__attemptRank"];
     if (attemptRankFilterValues && attemptRankFilterValues.length > 0) {

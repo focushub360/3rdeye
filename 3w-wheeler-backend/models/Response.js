@@ -194,7 +194,14 @@ const ResponseSchema = new mongoose.Schema({
       ref: 'User'
     },
     reviewedByName: String,
-    reviewedAt: Date
+    reviewedAt: Date,
+    reason: String,
+    remark: String,
+    evidenceUrl: String,
+    flaggedQuestions: [{
+      questionId: String,
+      questionText: String
+    }]
   }
 }, {
   timestamps: true,

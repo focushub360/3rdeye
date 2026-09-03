@@ -33,7 +33,9 @@ import {
   Folder,
   Layout,
   Split,
+  History,
 } from "lucide-react";
+import ImportHistoryModal from "../history/ImportHistoryModal";
 import { useForms, useResponses, useMutation } from "../../hooks/useApi";
 import { apiClient } from "../../api/client";
 import { useNotification } from "../../context/NotificationContext";
@@ -228,6 +230,7 @@ export default function FormsAnalytics() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isAnswerTemplateOpen, setIsAnswerTemplateOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [previewFormData, setPreviewFormData] = useState<FormQuestion | null>(
     null,
   );
@@ -1005,14 +1008,25 @@ export default function FormsAnalytics() {
               )}
 
               {canBulkSelectResponses && (
-                <button
-                  onClick={() => setIsAnswerTemplateOpen(true)}
-                  className="btn-secondary flex items-center justify-center w-full sm:w-auto"
-                  title="Bulk import responses for a form"
-                >
-                  <Upload className="w-4 h-4 mr-2" />
-                  Bulk Import Responses
-                </button>
+                <>
+                  <button
+                    onClick={() => setIsAnswerTemplateOpen(true)}
+                    className="btn-secondary flex items-center justify-center w-full sm:w-auto"
+                    title="Bulk import responses for a form"
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Bulk Import Responses
+                  </button>
+
+                  <button
+                    onClick={() => setIsHistoryModalOpen(true)}
+                    className="btn-secondary flex items-center justify-center w-full sm:w-auto text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                    title="View Bulk Import & Activity Timeline History"
+                  >
+                    <History className="w-4 h-4 mr-2" />
+                    Import History
+                  </button>
+                </>
               )}
 
               {/* Create New Service Form - admins always see this, others need permission */}
@@ -1820,6 +1834,11 @@ export default function FormsAnalytics() {
           refetchForms();
           refetchResponses();
         }}
+      />
+
+      <ImportHistoryModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => setIsHistoryModalOpen(false)}
       />
 
       {isPreviewOpen && previewFormData && (

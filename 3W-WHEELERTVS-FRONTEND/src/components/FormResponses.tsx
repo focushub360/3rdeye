@@ -11,8 +11,13 @@ import {
   Download,
   Table,
   BarChart3,
+  BarChart2,
   PieChart,
   Check,
+  Trash2,
+  Edit2,
+  Hash,
+  ExternalLink,
   X as XIcon,
 } from "lucide-react";
 import { apiClient } from "../api/client";
@@ -274,6 +279,37 @@ export default function FormResponses() {
     }
   };
 
+  const handleDeleteResponse = async (responseId: string) => {
+    if (!window.confirm("Are you sure you want to permanently delete this uploaded response?")) {
+      return;
+    }
+    try {
+      await apiClient.deleteResponse(responseId);
+      setResponses((prev) => prev.filter((r) => r.id !== responseId && r._id !== responseId));
+      if (selectedResponse && (selectedResponse.id === responseId || selectedResponse._id === responseId)) {
+        setSelectedResponse(null);
+      }
+      showSuccess("Response deleted successfully");
+    } catch (err) {
+      console.error("Failed to delete response:", err);
+      showError("Failed to delete response");
+    }
+  };
+
+  const getChassisNumber = (answers: Record<string, any>): string | null => {
+    if (!answers) return null;
+    for (const [k, v] of Object.entries(answers)) {
+      if (
+        typeof v === 'string' &&
+        v.trim() &&
+        (k.toLowerCase().includes('chassis') || k.toLowerCase().includes('vin') || k.toLowerCase().includes('id number') || k === 'chassis_number')
+      ) {
+        return v.trim();
+      }
+    }
+    return null;
+  };
+
   const getQuestionText = (questionId: string): string => {
     if (!form) return questionId;
 
@@ -294,25 +330,44 @@ export default function FormResponses() {
     return questionId;
   };
 
-  const handleStatusUpdate = async () => {
-    if (!selectedResponse || !selectedStatus) return;
+  const openResponseDetails = (response: Response) => {
+    setSelectedResponse(response);
+    setSelectedStatus(response.status || "pending");
+  };
+
+  const handleStatusUpdate = async (newStatus?: string) => {
+    if (!selectedResponse) return;
+    const targetStatus = newStatus || selectedStatus || selectedResponse.status || "pending";
+    const responseId = selectedResponse.id || selectedResponse._id;
+    if (!responseId) {
+      showError("Response ID not found");
+      return;
+    }
 
     try {
       setUpdating(true);
-      await apiClient.updateResponse(selectedResponse.id, {
-        status: selectedStatus,
+      await apiClient.updateResponse(responseId, {
+        status: targetStatus,
       });
 
-      // Update local state
+      // Update local state in responses array
       setResponses((prev) =>
         prev.map((r) =>
-          r.id === selectedResponse.id ? { ...r, status: selectedStatus } : r
+          (r.id === responseId || r._id === responseId) ? { ...r, status: targetStatus } : r
         )
       );
-      setSelectedResponse({ ...selectedResponse, status: selectedStatus });
+      setSelectedResponse((prev) => prev ? { ...prev, status: targetStatus } : null);
+      setSelectedStatus(targetStatus);
 
-      showSuccess("Status updated successfully!");
+      const label =
+        targetStatus === "verified"
+          ? "Completed"
+          : targetStatus === "rejected"
+          ? "Closed"
+          : "Pending";
+      showSuccess(`Status updated to "${label}"`);
     } catch (err) {
+      console.error("Failed to update status:", err);
       showError(err instanceof Error ? err.message : "Failed to update status");
     } finally {
       setUpdating(false);
@@ -410,25 +465,46 @@ export default function FormResponses() {
     <div className="max-w-6xl mx-auto">
       {/* Page Header */}
       <div className="mb-8">
-        <div className="flex items-center mb-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center text-primary-600 hover:text-primary-700 mr-4"
-          >
-            <ArrowLeft className="w-5 h-5 mr-2" />
-            Back
-          </button>
-          <div>
-            <h1 className="text-2xl font-medium text-primary-600 mb-2">
-              Customer Responses
-            </h1>
-            <p className="text-primary-500">Responses for: {form?.title}</p>
-            {form?.description && (
-              <p className="text-sm text-primary-400 mt-1">
-                {form.description}
-              </p>
-            )}
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <div className="flex items-center">
+            <button
+              type="button"
+              onClick={() => {
+                if (window.history.length > 2) {
+                  navigate(-1);
+                } else {
+                  navigate("/forms/analytics");
+                }
+              }}
+              className="flex items-center gap-1.5 text-primary-700 dark:text-primary-300 hover:text-primary-900 bg-white dark:bg-gray-800 border border-primary-200 dark:border-gray-700 px-3.5 py-2 rounded-xl text-xs font-bold shadow-2xs hover:bg-primary-50 dark:hover:bg-gray-700 transition-all cursor-pointer mr-3"
+              title="Return to previous page or Service Analytics"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back</span>
+            </button>
+            <div>
+              <h1 className="text-2xl font-bold text-primary-700 dark:text-primary-400 mb-1">
+                Customer Responses
+              </h1>
+              <p className="text-primary-600 font-medium">Responses for: {form?.title}</p>
+              {form?.description && (
+                <p className="text-sm text-primary-500 mt-0.5">
+                  {form.description}
+                </p>
+              )}
+            </div>
           </div>
+
+          {id && (
+            <button
+              onClick={() => navigate(`/forms/${id}/analytics`)}
+              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer"
+              title="Open Service Analytics Dashboard with Chassis & Attempt Matrix"
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span>Service Analytics (Chassis Matrix)</span>
+            </button>
+          )}
         </div>
 
         {/* Response Summary */}
@@ -444,7 +520,7 @@ export default function FormResponses() {
           <div className="card p-4">
             <div className="text-center">
               <div className="text-2xl font-bold text-primary-600">
-                {responses.filter((r) => r.score).length}
+                {responses.filter((r) => r.score && r.score.total > 0).length}
               </div>
               <div className="text-sm text-primary-500">Scored Responses</div>
             </div>
@@ -472,8 +548,10 @@ export default function FormResponses() {
             <div className="text-center">
               <div className="text-2xl font-bold text-blue-600">
                 {(() => {
-                  const scoredResponses = responses.filter((r) => r.score);
-                  if (scoredResponses.length === 0) return "0%";
+                  const scoredResponses = responses.filter(
+                    (r) => r.score && r.score.total > 0
+                  );
+                  if (scoredResponses.length === 0) return "N/A";
                   const totalScore = scoredResponses.reduce(
                     (sum, r) => sum + r.score.correct / r.score.total,
                     0
@@ -481,7 +559,7 @@ export default function FormResponses() {
                   const average = Math.round(
                     (totalScore / scoredResponses.length) * 100
                   );
-                  return `${average}%`;
+                  return isNaN(average) ? "N/A" : `${average}%`;
                 })()}
               </div>
               <div className="text-sm text-primary-500">Average Score</div>
@@ -644,62 +722,98 @@ export default function FormResponses() {
 
               {/* Responses List */}
               <div className="space-y-3">
-                {groupedResponses[date].map((response) => (
-                  <div
-                    key={response._id}
-                    className="flex items-center justify-between p-4 bg-primary-50 rounded-lg hover:bg-primary-100 transition-colors"
-                  >
-                    <div className="flex items-center space-x-4">
-                      <div className="p-2 bg-white dark:bg-gray-900 rounded-lg">
-                        <FileText className="w-5 h-5 text-primary-600" />
-                      </div>
-                      <div>
-                        <div className="flex items-center text-sm text-primary-500">
-                          <User className="w-4 h-4 mr-1" />
-                          <span>
-                            Submitted {formatTimestamp(response.createdAt)}
-                          </span>
+                {groupedResponses[date].map((response) => {
+                  const chassis = getChassisNumber(response.answers);
+                  const responseId = response.id || response._id;
+
+                  return (
+                    <div
+                      key={response._id}
+                      className="flex items-center justify-between p-4 bg-primary-50 dark:bg-gray-800/60 rounded-xl hover:bg-primary-100/70 dark:hover:bg-gray-800 transition-colors gap-4"
+                    >
+                      <div className="flex items-center space-x-4">
+                        <div className="p-2.5 bg-white dark:bg-gray-900 rounded-xl shadow-2xs">
+                          <FileText className="w-5 h-5 text-primary-600" />
                         </div>
-                        <div className="mt-1">
-                          <span
-                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                              response.status === "verified"
-                                ? "bg-green-500 text-white"
+                        <div>
+                          <div className="flex items-center gap-2 text-sm text-primary-600 font-medium flex-wrap">
+                            <span className="flex items-center">
+                              <User className="w-4 h-4 mr-1 text-primary-500" />
+                              {response.submittedBy || 'Excel Import'}
+                            </span>
+                            <span className="text-gray-400">•</span>
+                            <span className="text-xs text-primary-500">
+                              {formatTimestamp(response.createdAt)}
+                            </span>
+                          </div>
+
+                          <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                            {/* Chassis number badge */}
+                            {chassis && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-mono font-bold bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                {chassis}
+                              </span>
+                            )}
+
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                response.status === "verified"
+                                  ? "bg-green-500 text-white"
+                                  : response.status === "rejected"
+                                  ? "bg-red-500 text-white"
+                                  : "bg-yellow-500 text-white"
+                              }`}
+                            >
+                              {response.status === "verified"
+                                ? "Completed"
                                 : response.status === "rejected"
-                                ? "bg-red-500 text-white"
-                                : "bg-yellow-500 text-white"
-                            }`}
-                          >
-                            {response.status === "verified"
-                              ? "Completed"
-                              : response.status === "rejected"
-                              ? "Closed"
-                              : "Pending"}
-                          </span>
-                          {response.score && (
-                            <div className="mt-1 text-xs text-primary-600">
-                              Score: {response.score.correct}/
-                              {response.score.total} (
-                              {Math.round(
-                                (response.score.correct /
-                                  response.score.total) *
-                                  100
-                              )}
-                              %)
-                            </div>
-                          )}
+                                ? "Closed"
+                                : "Pending"}
+                            </span>
+
+                            {response.score && response.score.total > 0 && (
+                              <div className="text-xs text-primary-600 font-medium">
+                                Score: {response.score.correct}/{response.score.total} (
+                                {Math.round(
+                                  (response.score.correct / response.score.total) * 100
+                                )}%)
+                              </div>
+                            )}
+                          </div>
                         </div>
+                      </div>
+
+                      {/* Action buttons: Edit, View Details, Delete */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/responses/${responseId}/edit`)}
+                          className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                          title="Edit response answers"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openResponseDetails(response)}
+                          className="btn-secondary flex items-center text-xs py-1.5 px-3 rounded-lg cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5 mr-1.5" />
+                          <span>View Details</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteResponse(responseId)}
+                          className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                          title="Delete response"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
-                    <button
-                      onClick={() => setSelectedResponse(response)}
-                      className="btn-secondary flex items-center"
-                    >
-                      <Eye className="w-4 h-4 mr-2" />
-                      View Details
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -721,140 +835,233 @@ export default function FormResponses() {
       </div>
 
       {/* Response Preview Modal */}
-      {selectedResponse && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b border-primary-200 sticky top-0 bg-white dark:bg-gray-900 z-10">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-primary-700">
-                    {form?.title}
-                  </h3>
-                  <p className="text-sm text-primary-500 mt-1">
-                    Submitted on {formatTimestamp(selectedResponse.createdAt)}
-                  </p>
-                  {(() => {
-                    let correctCount = 0;
-                    allQuestions.forEach((q) => {
-                      if (q.correctAnswer) {
-                        const ans = selectedResponse.answers[q.id];
-                        if (ans !== undefined && ans !== null) {
-                          const ansStr = Array.isArray(ans)
-                            ? ans.join(", ")
-                            : String(ans);
-                          const corrStr = Array.isArray(q.correctAnswer)
-                            ? q.correctAnswer.join(", ")
-                            : String(q.correctAnswer);
-                          if (ansStr.toLowerCase() === corrStr.toLowerCase())
-                            correctCount++;
-                        }
-                      }
-                    });
-                    const score = correctCount * 10;
-                    const percentage = Math.round((score / 110) * 100);
-                    return (
-                      <p className="text-sm text-primary-500 mt-1">
-                        Quiz Score: {score}/110 ({percentage}%)
-                      </p>
-                    );
-                  })()}
+      {selectedResponse && (() => {
+        const normalizedAnswers: Record<string, any> = (() => {
+          const ans = selectedResponse.answers;
+          if (!ans) return {};
+          if (ans instanceof Map) return Object.fromEntries(ans);
+          if (typeof ans === "object") return ans;
+          return {};
+        })();
 
-                  {/* Status Update Section */}
-                  <div className="mt-3 flex items-center gap-3">
-                    <label className="text-sm font-medium text-primary-700">
-                      Status:
-                    </label>
-                    <select
-                      value={
-                        selectedStatus || selectedResponse.status || "pending"
-                      }
-                      onChange={(event) =>
-                        setSelectedStatus(event.target.value)
-                      }
-                      className="px-3 py-1.5 border border-primary-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    >
-                      <option value="pending">Pending</option>
-                      <option value="verified">Completed</option>
-                      <option value="rejected">Closed</option>
-                    </select>
+        const currentResponseId = selectedResponse.id || selectedResponse._id;
+        const quizQuestions = (allQuestions || []).filter(
+          (q) => q && q.correctAnswer !== undefined && q.correctAnswer !== null
+        );
+
+        let correctCount = 0;
+        if (quizQuestions.length > 0) {
+          quizQuestions.forEach((q) => {
+            const ans = normalizedAnswers[q.id];
+            if (ans !== undefined && ans !== null) {
+              const ansStr = Array.isArray(ans) ? ans.join(", ") : String(ans);
+              const corrStr = Array.isArray(q.correctAnswer)
+                ? q.correctAnswer.join(", ")
+                : String(q.correctAnswer);
+              if (ansStr.toLowerCase() === corrStr.toLowerCase()) {
+                correctCount++;
+              }
+            }
+          });
+        }
+
+        const score = correctCount * 10;
+        const totalPossible = quizQuestions.length * 10;
+        const percentage =
+          totalPossible > 0 ? Math.round((score / totalPossible) * 100) : 0;
+
+        const capturedLoc = selectedResponse.submissionMetadata?.capturedLocation;
+        const lat =
+          capturedLoc?.latitude != null ? Number(capturedLoc.latitude) : null;
+        const lng =
+          capturedLoc?.longitude != null ? Number(capturedLoc.longitude) : null;
+        const accuracy =
+          capturedLoc?.accuracy != null ? Number(capturedLoc.accuracy) : null;
+
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+            <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-primary-200 dark:border-gray-800">
+              <div className="px-6 py-4 border-b border-primary-200 dark:border-gray-800 sticky top-0 bg-white dark:bg-gray-900 z-10 shadow-xs">
+                <div className="flex justify-between items-start gap-4">
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold text-primary-700 dark:text-primary-400">
+                      {form?.title || "Form Response"}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-primary-500 mt-0.5">
+                      Submitted on {formatTimestamp(selectedResponse.createdAt)}
+                    </p>
+                    {quizQuestions.length > 0 && (
+                      <p className="text-xs sm:text-sm text-primary-600 font-semibold mt-1">
+                        Quiz Score: {score}/{totalPossible} ({percentage}%)
+                      </p>
+                    )}
+
+                    {/* Status Update Section */}
+                    <div className="mt-3 flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                        Status:
+                      </span>
+                      <div className="inline-flex rounded-xl bg-gray-100 dark:bg-gray-800 p-1 border border-gray-200 dark:border-gray-700">
+                        <button
+                          type="button"
+                          onClick={() => handleStatusUpdate("pending")}
+                          disabled={updating}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            (selectedStatus || selectedResponse.status || "pending") === "pending"
+                              ? "bg-amber-500 text-white shadow-xs"
+                              : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                          }`}
+                          title="Mark response as Pending (Inspection submitted, awaiting final sign-off)"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-amber-200" />
+                          <span>Pending</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleStatusUpdate("verified")}
+                          disabled={updating}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            (selectedStatus || selectedResponse.status) === "verified"
+                              ? "bg-green-600 text-white shadow-xs"
+                              : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                          }`}
+                          title="Mark response as Completed (Verified & approved)"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Completed</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleStatusUpdate("rejected")}
+                          disabled={updating}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            (selectedStatus || selectedResponse.status) === "rejected"
+                              ? "bg-red-600 text-white shadow-xs"
+                              : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                          }`}
+                          title="Mark response as Closed / Rejected"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>Closed</span>
+                        </button>
+                      </div>
+                      {updating && (
+                        <span className="text-xs font-semibold text-blue-600 animate-pulse">
+                          Saving...
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
                     <button
-                      onClick={handleStatusUpdate}
-                      disabled={
-                        updating ||
-                        !selectedStatus ||
-                        selectedStatus === selectedResponse.status
+                      type="button"
+                      onClick={() =>
+                        navigate(`/responses/${currentResponseId}/edit`)
                       }
-                      className="btn-primary flex items-center text-sm px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                      title="Edit response answers"
                     >
-                      <Save className="w-4 h-4 mr-1" />
-                      {updating ? "Updating..." : "Update"}
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        window.open(`/responses/${currentResponseId}`, "_blank")
+                      }
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                      title="Open full page view in new tab"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Full Page</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteResponse(currentResponseId)}
+                      className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                      title="Delete response"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        form &&
+                        exportResponseToPDF(
+                          selectedResponse as any,
+                          form as any
+                        )
+                      }
+                      className="p-1.5 text-primary-600 hover:bg-primary-50 dark:hover:bg-gray-800 rounded-lg transition-colors cursor-pointer"
+                      title="Download as PDF"
+                    >
+                      <FileText className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedResponse(null);
+                        setSelectedStatus("");
+                      }}
+                      className="text-primary-500 hover:text-primary-700 p-1.5 rounded-lg cursor-pointer"
+                      title="Close"
+                    >
+                      <X className="w-5 h-5" />
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() =>
-                      form && exportResponseToPDF(selectedResponse as any, form as any)
-                    }
-                    className="p-2 text-primary-600 hover:bg-primary-50 rounded-full transition-colors"
-                    title="Download as PDF"
-                  >
-                    <FileText className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSelectedResponse(null);
-                      setSelectedStatus("");
-                    }}
-                    className="text-primary-500 hover:text-primary-700 ml-4"
-                  >
-                    <X className="w-6 h-6" />
-                  </button>
-                </div>
               </div>
-            </div>
 
-            <div className="p-6">
-              <h4 className="text-lg font-semibold text-primary-700 mb-4">
-                Response Details
-              </h4>
-              <div className="space-y-4">
-                {Object.entries(selectedResponse.answers).map(
-                  ([key, value]) => (
-                    <div key={key} className="border-b border-primary-100 pb-4">
-                      <div className="font-medium text-primary-700 mb-2">
-                        {getQuestionText(key)}
-                      </div>
-                      {(() => {
-                        const question = allQuestions.find((q) => q.id === key);
-                        const isQuiz = question && question.correctAnswer;
-                        const correct = isQuiz
-                          ? (() => {
-                              const answerStr = Array.isArray(value)
-                                ? value.join(", ")
-                                : typeof value === "object"
-                                ? JSON.stringify(value, null, 2)
-                                : String(value);
-                              const corrStr = Array.isArray(
-                                question.correctAnswer
-                              )
-                                ? question.correctAnswer.join(", ")
-                                : String(question.correctAnswer);
-                              return (
-                                answerStr.toLowerCase() ===
-                                corrStr.toLowerCase()
-                              );
-                            })()
-                          : null;
+              <div className="p-6">
+                <h4 className="text-base font-bold text-primary-700 dark:text-primary-300 mb-4">
+                  Response Details
+                </h4>
+                <div className="space-y-4">
+                  {Object.keys(normalizedAnswers).length === 0 ? (
+                    <p className="text-sm text-gray-500 italic">
+                      No answers recorded for this response.
+                    </p>
+                  ) : (
+                    Object.entries(normalizedAnswers).map(([key, value]) => {
+                      const question = (allQuestions || []).find(
+                        (q) => q && q.id === key
+                      );
+                      const isQuiz =
+                        question && question.correctAnswer !== undefined;
+                      const correct = isQuiz
+                        ? (() => {
+                            const answerStr = Array.isArray(value)
+                              ? value.join(", ")
+                              : typeof value === "object"
+                              ? JSON.stringify(value, null, 2)
+                              : String(value);
+                            const corrStr = Array.isArray(
+                              question.correctAnswer
+                            )
+                              ? question.correctAnswer.join(", ")
+                              : String(question.correctAnswer);
+                            return (
+                              answerStr.toLowerCase() === corrStr.toLowerCase()
+                            );
+                          })()
+                        : null;
 
-                        return (
+                      return (
+                        <div
+                          key={key}
+                          className="border-b border-primary-100 dark:border-gray-800 pb-4"
+                        >
+                          <div className="font-semibold text-sm text-primary-800 dark:text-primary-200 mb-1.5">
+                            {getQuestionText(key)}
+                          </div>
                           <div
-                            className={`p-3 rounded-lg flex flex-col gap-1 ${
+                            className={`p-3 rounded-xl flex flex-col gap-1 text-xs sm:text-sm ${
                               isQuiz
                                 ? correct
-                                  ? "bg-green-50 text-green-700"
-                                  : "bg-red-50 text-red-700"
-                                : "bg-primary-50 text-primary-600"
+                                  ? "bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300 border border-green-200 dark:border-green-800"
+                                  : "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300 border border-red-200 dark:border-red-800"
+                                : "bg-primary-50/80 text-primary-700 dark:bg-gray-800/80 dark:text-gray-200 border border-primary-100 dark:border-gray-700"
                             }`}
                           >
                             <div>{renderValue(value)}</div>
@@ -864,115 +1071,99 @@ export default function FormResponses() {
                               </div>
                             )}
                           </div>
-                        );
-                      })()}
-                    </div>
-                  )
-                )}
+                        </div>
+                      );
+                    })
+                  )}
 
-                {/* Location Information */}
-                {selectedResponse.submissionMetadata?.capturedLocation && (
-                  <div className="border-t border-primary-200 pt-4 mt-4">
-                    <h5 className="text-md font-semibold text-primary-700 mb-2">
-                      Location Information
-                    </h5>
-                    <div className="text-primary-600 bg-primary-50 p-3 rounded-lg space-y-1">
-                      {selectedResponse.submissionMetadata.capturedLocation
-                        .latitude &&
-                        selectedResponse.submissionMetadata.capturedLocation
-                          .longitude && (
+                  {/* Location Information */}
+                  {capturedLoc && (
+                    <div className="border-t border-primary-200 dark:border-gray-800 pt-4 mt-4">
+                      <h5 className="text-sm font-bold text-primary-700 dark:text-primary-300 mb-2">
+                        Location Information
+                      </h5>
+                      <div className="text-primary-600 dark:text-gray-300 bg-primary-50 dark:bg-gray-800/60 p-3 rounded-xl space-y-1 text-xs">
+                        {lat != null && lng != null && !isNaN(lat) && !isNaN(lng) && (
                           <p>
-                            <strong>Coordinates:</strong>{" "}
-                            {selectedResponse.submissionMetadata.capturedLocation.latitude.toFixed(
-                              5
-                            )}
-                            ,{" "}
-                            {selectedResponse.submissionMetadata.capturedLocation.longitude.toFixed(
-                              5
-                            )}
+                            <strong>Coordinates:</strong> {lat.toFixed(5)},{" "}
+                            {lng.toFixed(5)}
                           </p>
                         )}
-                      {selectedResponse.submissionMetadata.capturedLocation
-                        .accuracy && (
-                        <p>
-                          <strong>Accuracy:</strong> ±
-                          {
-                            selectedResponse.submissionMetadata.capturedLocation
-                              .accuracy
-                          }{" "}
-                          meters
-                        </p>
-                      )}
-                      {selectedResponse.submissionMetadata.capturedLocation
-                        .source && (
-                        <p>
-                          <strong>Source:</strong>{" "}
-                          {
-                            selectedResponse.submissionMetadata.capturedLocation
-                              .source
-                          }
-                        </p>
-                      )}
-                      {selectedResponse.submissionMetadata.capturedLocation
-                        .capturedAt && (
-                        <p>
-                          <strong>Captured At:</strong>{" "}
-                          {formatTimestamp(
-                            selectedResponse.submissionMetadata.capturedLocation
-                              .capturedAt
-                          )}
-                        </p>
-                      )}
+                        {accuracy != null && !isNaN(accuracy) && (
+                          <p>
+                            <strong>Accuracy:</strong> ±{accuracy.toFixed(1)}{" "}
+                            meters
+                          </p>
+                        )}
+                        {capturedLoc.source && (
+                          <p>
+                            <strong>Source:</strong> {capturedLoc.source}
+                          </p>
+                        )}
+                        {capturedLoc.capturedAt && (
+                          <p>
+                            <strong>Captured At:</strong>{" "}
+                            {formatTimestamp(capturedLoc.capturedAt)}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {selectedResponse.childResponses && selectedResponse.childResponses.length > 0 && (
-                  <div className="mt-8 pt-8 border-t-2 border-primary-200">
-                    <h4 className="text-lg font-semibold text-primary-700 mb-4 flex items-center">
-                      <span className="text-purple-600 mr-2">📄</span>
-                      Follow-up Form Responses ({selectedResponse.childResponses.length})
-                    </h4>
-                    <div className="space-y-6">
-                      {selectedResponse.childResponses.map((childResponse, idx) => (
-                        <div key={childResponse.id} className="bg-purple-50 border-2 border-purple-200 rounded-lg p-4">
-                          <div className="mb-4 pb-3 border-b border-purple-200">
-                            <h5 className="font-semibold text-purple-900">
-                              Follow-up Form Response {idx + 1}
-                            </h5>
-                            <div className="text-sm text-purple-700 mt-1">
-                              {formatTimestamp(childResponse.createdAt)}
-                            </div>
-                          </div>
-                          <div className="space-y-3">
-                            {Object.entries(childResponse.answers).map(
-                              ([key, value]) => (
-                                <div key={key}>
-                                  <div className="text-sm font-medium text-purple-800 mb-1">
-                                    {getQuestionText(key)}
-                                  </div>
-                                  <div className="text-sm text-purple-700 bg-white dark:bg-gray-900 p-2 rounded border border-purple-100 flex flex-col gap-1">
-                                    <div>{renderValue(value)}</div>
-                                    {childResponse.responseRanks?.[key] && (
-                                      <div className="text-[10px] font-bold text-blue-600 dark:text-blue-400">
-                                        #{childResponse.responseRanks[key]}
-                                      </div>
-                                    )}
+                  {selectedResponse.childResponses &&
+                    selectedResponse.childResponses.length > 0 && (
+                      <div className="mt-8 pt-6 border-t-2 border-primary-200 dark:border-gray-800">
+                        <h4 className="text-base font-bold text-primary-700 dark:text-primary-300 mb-4 flex items-center">
+                          <span className="text-purple-600 mr-2">📄</span>
+                          Follow-up Form Responses (
+                          {selectedResponse.childResponses.length})
+                        </h4>
+                        <div className="space-y-4">
+                          {selectedResponse.childResponses.map(
+                            (childResponse, idx) => (
+                              <div
+                                key={childResponse.id || idx}
+                                className="bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-xl p-4"
+                              >
+                                <div className="mb-3 pb-2 border-b border-purple-200 dark:border-purple-800">
+                                  <h5 className="font-bold text-purple-900 dark:text-purple-200 text-sm">
+                                    Follow-up Form Response {idx + 1}
+                                  </h5>
+                                  <div className="text-xs text-purple-700 dark:text-purple-400 mt-0.5">
+                                    {formatTimestamp(childResponse.createdAt)}
                                   </div>
                                 </div>
-                              )
-                            )}
-                          </div>
+                                <div className="space-y-2.5">
+                                  {Object.entries(
+                                    childResponse.answers || {}
+                                  ).map(([key, value]) => (
+                                    <div key={key}>
+                                      <div className="font-semibold text-xs text-purple-900 dark:text-purple-200 mb-1">
+                                        {getQuestionText(key)}
+                                      </div>
+                                      <div className="text-xs text-purple-700 dark:text-purple-300 bg-white dark:bg-gray-900 p-2 rounded-lg border border-purple-100 dark:border-purple-900 flex flex-col gap-1">
+                                        <div>{renderValue(value)}</div>
+                                        {childResponse.responseRanks?.[key] && (
+                                          <div className="text-[10px] font-bold text-blue-600 dark:text-blue-400">
+                                            #{childResponse.responseRanks[key]}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                      </div>
+                    )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Table View Modal */}
       {showTableView && (

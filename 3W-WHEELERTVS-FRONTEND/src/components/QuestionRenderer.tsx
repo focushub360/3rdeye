@@ -16,6 +16,7 @@ import {
   User,
   Clock,
   Loader2,
+  Upload,
 } from "lucide-react";
 import type { FollowUpQuestion } from "../types";
 import { useTheme } from "../context/ThemeContext";
@@ -221,6 +222,16 @@ export default function QuestionRenderer({
   const [lastResponseId, setLastResponseId] = useState<string | null>(null);
   const [rankHistory, setRankHistory] = useState<any[]>([]);
   const [dispatchInfo, setDispatchInfo] = useState<{ isDispatched: boolean; dispatchedAt?: string | null; dispatchedByName?: string | null } | null>(null);
+  const [lastSubmittedBy, setLastSubmittedBy] = useState<string | null>(null);
+
+  const userStr = typeof window !== 'undefined' ? window.localStorage.getItem('user') : null;
+  const currentUser = userStr ? JSON.parse(userStr) : null;
+  const isCreator = lastSubmittedBy && currentUser && (
+    lastSubmittedBy === currentUser.username ||
+    lastSubmittedBy === currentUser.name ||
+    lastSubmittedBy === currentUser.email ||
+    lastSubmittedBy === String(currentUser._id || currentUser.id)
+  );
   const [biwInfo, setBiwInfo] = useState<{ status: string; reviewedByName?: string; reviewedAt?: string; notes?: string } | null>(null);
   const [chatCount, setChatCount] = useState<number>(0);
   const [showChatModal, setShowChatModal] = useState(false);
@@ -233,30 +244,101 @@ export default function QuestionRenderer({
   const [loadingRank, setLoadingRank] = useState(false);
   const [previousAnswers, setPreviousAnswers] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [pendingBiwAction, setPendingBiwAction] = useState<"Rejected" | "Reworked" | null>(null);
+  const [biwReasonSelect, setBiwReasonSelect] = useState<string>("");
+  const [biwReasonText, setBiwReasonText] = useState<string>("");
+  const [biwEvidenceUrl, setBiwEvidenceUrl] = useState<string>("");
+  const [biwUploading, setBiwUploading] = useState<boolean>(false);
+  const [formQuestions, setFormQuestions] = useState<{id: string, text: string}[]>([]);
+  const [biwSelectedQuestionIds, setBiwSelectedQuestionIds] = useState<string[]>([]);
 
-  const handleUpdateBiwStatus = async (status: "Accepted" | "Rejected" | "Reworked") => {
+  // Track global rank matched answers for this question
+  useEffect(() => {
+    if (rankMatchedAnswers) {
+      const qId = question.id || (question as any)._id;
+      const rankVal = rankMatchedAnswers[qId];
+      if (rankVal !== undefined && rankVal !== null && String(rankVal).trim() !== "") {
+        setPreviousAnswers(prev => {
+          if (!prev.includes(rankVal)) {
+            return [...prev, rankVal];
+          }
+          return prev;
+        });
+      }
+    }
+  }, [rankMatchedAnswers, question.id, (question as any)._id]);
+
+  useEffect(() => {
+    if (pendingBiwAction && formId && formQuestions.length === 0) {
+      apiClient.getForm(formId).then((res: any) => {
+        if (res?.form?.sections) {
+          const options: {id: string, text: string}[] = [];
+          res.form.sections.forEach((sec: any) => {
+            sec.questions?.forEach((q: any) => {
+              if (q.id !== "chassis" && q.type !== "chassis") {
+                options.push({ id: q.id, text: q.text || q.id });
+              }
+            });
+          });
+          setFormQuestions(options);
+        }
+      }).catch(console.error);
+    }
+  }, [pendingBiwAction, formId]);
+
+  const handleBiwEvidenceUpload = async (file: File) => {
+    try {
+      setBiwUploading(true);
+      const result = await apiClient.uploadFile(file, "form");
+      const url = apiClient.resolveUploadedFileUrl(result);
+      if (url) setBiwEvidenceUrl(url);
+    } catch (err) {
+      console.error("BIW evidence upload failed:", err);
+      alert("Evidence upload failed. Please try again.");
+    } finally {
+      setBiwUploading(false);
+    }
+  };
+
+  const handleUpdateBiwStatus = async (status: "Accepted" | "Rejected" | "Reworked", remark?: string, evidenceUrl?: string, flaggedQuestions?: {questionId: string, questionText: string}[]) => {
     const targetId = lastResponseId || (rankHistory.length > 0 ? rankHistory[rankHistory.length - 1].id : null);
     if (!targetId) return;
 
     setUpdatingBiw(true);
     try {
       await apiClient.updateResponse(targetId, {
-        biwReview: { status }
+        biwReview: { 
+          status, 
+          remark: remark || "", 
+          evidenceUrl: evidenceUrl || "",
+          flaggedQuestions: flaggedQuestions || []
+        }
       });
 
       setBiwInfo((prev) => ({
         ...(prev || {}),
         status,
+        reason: remark, // Map remark to local reason state for backward compatibility in UI
         reviewedAt: new Date().toISOString(),
         reviewedByName: "You"
       }));
 
       // Automatically post a status message to the discussion thread
       try {
+        let msg = `[BIW Review] Status marked as ${status}.`;
+        if (flaggedQuestions && flaggedQuestions.length > 0) {
+          msg += `\nQuestions Flagged: ${flaggedQuestions.map(q => q.questionText).join(", ")}`;
+        }
+        if (remark) {
+          msg += `\nRemark: ${remark}`;
+        }
+        if (evidenceUrl) {
+          msg += `\n\n![Evidence](${evidenceUrl})`;
+        }
         await apiClient.request("/messages/send", {
           method: "POST",
           body: JSON.stringify({
-            message: `[BIW Review] Status marked as ${status}`,
+            message: msg,
             responseId: targetId,
             formId: formId || null,
             toEmail: "inspector"
@@ -381,6 +463,7 @@ export default function QuestionRenderer({
       setLastResponseId(null);
       setRankHistory([]);
       setDispatchInfo(null);
+      setLastSubmittedBy(null);
       setBiwInfo(null);
       setChatCount(0);
       setLoadingRank(false);
@@ -423,12 +506,14 @@ export default function QuestionRenderer({
           : (response && response.data && typeof response.data.chatCount === "number")
             ? response.data.chatCount
             : 0;
+        const submittedBy = (response && response.lastSubmittedBy) || (response && response.data && response.data.lastSubmittedBy) || null;
 
         setRank(rankVal);
         setPreviousStatus(prevStat);
         setLastResponseId(lastId);
         setRankHistory(hist);
         setDispatchInfo(isDisp ? { isDispatched: true, dispatchedAt: dispAt, dispatchedByName: dispBy } : null);
+        setLastSubmittedBy(submittedBy);
         setBiwInfo(biw);
         setChatCount(chatCnt);
       } catch (err) {
@@ -631,8 +716,45 @@ export default function QuestionRenderer({
       return String(val);
     };
 
-    return (
+  return (
       <div className="mt-2 space-y-2 animate-in fade-in slide-in-from-top-1 duration-300">
+        {hasPrevious && !hasRanked && (
+          <div className="mt-2 space-y-2 border border-gray-200 dark:border-gray-800 rounded-lg p-2.5 bg-gray-50 dark:bg-gray-900/50">
+            <span className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1.5">
+              <History className="w-3 h-3" /> Previous Answers
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {previousAnswers.map((prevAns, idx) => {
+                const ansStr = String(prevAns);
+                const isImg = isImageFile(ansStr) || ansStr.startsWith("http") && (ansStr.includes("cloudinary.com/") || ansStr.includes("/api/files/"));
+                return (
+                  <div key={idx} className="relative group cursor-pointer" onClick={() => {
+                    if (!readOnly && onChange) {
+                      onChange(prevAns);
+                    }
+                  }}>
+                    {isImg ? (
+                      <div className={`w-16 h-16 rounded overflow-hidden border-2 transition-all ${String(value) === ansStr ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'}`}>
+                        <img src={ansStr} alt={`Previous answer ${idx + 1}`} className="w-full h-full object-cover" />
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`text-xs px-2.5 py-1.5 rounded-md border font-medium transition-colors ${
+                          String(value) === ansStr
+                            ? "bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300"
+                            : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-indigo-300 dark:hover:border-indigo-600"
+                        }`}
+                      >
+                        {ansStr}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -1450,34 +1572,36 @@ export default function QuestionRenderer({
                     <div key={`prev-attempt-${hist.rank}`} className="inline-flex">
                       {canViewRecord ? (
                         <a
-                          href={`/responses/${respId}?tab=responses`}
+                          href={`/responses/${hist.responseId}?tab=responses`}
                           target="_blank"
                           rel="noopener noreferrer"
+                          className={`flex flex-col items-center justify-between w-[5.5rem] min-h-[6rem] p-2 rounded-xl border text-center transition-all hover:scale-105 hover:brightness-110 active:scale-95 cursor-pointer ${colorClass}`}
                           title={`Attempt #${hist.rank} (${hist.status || "Accepted Record"}) - Click to view response`}
-                          className={`flex flex-col items-center justify-between w-20 h-24 p-2 rounded-xl border text-center transition-all hover:scale-105 hover:brightness-110 active:scale-95 cursor-pointer ${colorClass}`}
                         >
                           <span className="text-[11px] font-black tracking-tight leading-tight">
                             Attempt #{hist.rank}
                           </span>
-                          {hist.status && (
-                            <span className="text-[9.5px] font-bold bg-black/25 px-1 py-0.5 rounded leading-none text-center max-w-full truncate">
+                          {hist.status && hist.status !== 'pending' && (
+                            <span className="text-[9.5px] font-bold bg-black/25 px-1 py-0.5 rounded leading-[1.1] text-center w-full break-words whitespace-normal">
                               {hist.status}
                             </span>
                           )}
-                          <span className="flex items-center justify-center gap-1 text-[9.5px] font-bold bg-white/25 hover:bg-white/40 px-2 py-1 rounded-md transition-colors w-full">
-                            <Eye className="w-3.5 h-3.5 stroke-[2.5]" />
-                            <span>View</span>
-                          </span>
+                          {isCreator && (
+                            <span className="flex items-center justify-center gap-1 text-[9.5px] font-bold bg-white/25 hover:bg-white/40 px-2 py-1 rounded-md transition-colors w-full mt-auto">
+                              <Eye className="w-3.5 h-3.5 stroke-[2.5]" />
+                              <span>View</span>
+                            </span>
+                          )}
                         </a>
                       ) : (
                         <div
-                          className={`flex flex-col items-center justify-center gap-2 w-20 h-24 p-2 rounded-xl border text-center shadow-sm ${colorClass}`}
+                          className={`flex flex-col items-center justify-center gap-2 w-[5.5rem] min-h-[6rem] p-2 rounded-xl border text-center shadow-sm ${colorClass}`}
                         >
                           <span className="text-[11px] font-black tracking-tight leading-tight">
                             Attempt #{hist.rank}
                           </span>
                           {hist.status && (
-                            <span className="text-[9.5px] font-bold bg-black/25 px-1.5 py-0.5 rounded leading-none text-center max-w-full truncate">
+                            <span className="text-[9.5px] font-bold bg-black/25 px-1.5 py-0.5 rounded leading-[1.1] text-center w-full break-words whitespace-normal">
                               {hist.status}
                             </span>
                           )}
@@ -1499,13 +1623,13 @@ export default function QuestionRenderer({
 
                   return (
                     <div
-                      className={`flex flex-col items-center justify-center gap-2 w-20 h-24 p-2 rounded-xl border text-center shadow-sm ${colorClass}`}
+                      className={`flex flex-col items-center justify-center gap-2 w-[5.5rem] min-h-[6rem] p-2 rounded-xl border text-center shadow-sm ${colorClass}`}
                     >
                       <span className="text-[11px] font-black tracking-tight leading-tight">
                         Attempt #{rank - 1}
                       </span>
                       {previousStatus && (
-                        <span className="text-[9.5px] font-bold bg-black/25 px-1.5 py-0.5 rounded leading-none text-center max-w-full truncate">
+                        <span className="text-[9.5px] font-bold bg-black/25 px-1.5 py-0.5 rounded leading-[1.1] text-center w-full break-words whitespace-normal">
                           {previousStatus}
                         </span>
                       )}
@@ -1515,7 +1639,7 @@ export default function QuestionRenderer({
 
                 {/* Current Active Attempt in vertical rectangle */}
                 <div
-                  className="flex flex-col items-center justify-center gap-2 w-20 h-24 p-2 rounded-xl border text-center bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 shadow-sm"
+                  className="flex flex-col items-center justify-center gap-2 w-[5.5rem] min-h-[6rem] p-2 rounded-xl border text-center bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 shadow-sm"
                   title={`Current inspection attempt #${rank}`}
                 >
                   <span className="text-[11px] font-black tracking-tight leading-tight">
@@ -1529,7 +1653,12 @@ export default function QuestionRenderer({
                 {/* BIW Review & Overall Chat Icon Buttons placed aside */}
                 <div className="flex items-center gap-2 ml-1 self-center">
                   {/* BIW Review Icon */}
-                  {(dispatchInfo?.isDispatched || historyItems.length > 0 || lastResponseId || biwInfo?.status) && (() => {
+                  {(() => {
+                    const hasActionableContext = dispatchInfo?.isDispatched || historyItems.length > 0 || lastResponseId || biwInfo?.status;
+
+                    if (!hasActionableContext) return null;
+                    if (isCreator && !biwInfo?.status) return null; // Hide BIW icon if creator and no BIW status exists yet
+
                     const bStr = String(biwInfo?.status || "").toLowerCase();
                     const isBiwRej = bStr.includes("reject");
                     const isBiwAccepted = bStr.includes("accept") || bStr.includes("ok");
@@ -1569,8 +1698,14 @@ export default function QuestionRenderer({
                   })()}
 
                   {/* Overall Chat Icon for this Chassis (Opens In-Screen Modal) */}
-                  {(dispatchInfo?.isDispatched || chatCount > 0 || (historyItems.length > 0 && lastResponseId)) && (
-                    <button
+                  {(() => {
+                    // Show if there is a chat, OR if it's dispatched/history exists AND the user is NOT the creator
+                    const shouldShowChat = chatCount > 0 || ((dispatchInfo?.isDispatched || (historyItems.length > 0 && lastResponseId)) && !isCreator);
+                    
+                    if (!shouldShowChat) return null;
+
+                    return (
+                      <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1587,17 +1722,9 @@ export default function QuestionRenderer({
                         </span>
                       )}
                     </button>
-                  )}
+                    );
+                  })()}
 
-                  {/* Dispatch Icon (if dispatched) */}
-                  {dispatchInfo?.isDispatched && (
-                    <div
-                      className="p-2.5 rounded-xl border text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 flex items-center justify-center shadow-xs"
-                      title={`Dispatched${dispatchInfo.dispatchedByName ? ` by ${dispatchInfo.dispatchedByName}` : ""}${dispatchInfo.dispatchedAt ? ` on ${new Date(dispatchInfo.dispatchedAt).toLocaleDateString()}` : ""}`}
-                    >
-                      <Truck className="w-5 h-5" />
-                    </div>
-                  )}
                 </div>
               </div>
             );
@@ -2112,44 +2239,188 @@ export default function QuestionRenderer({
                 <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase block mb-2">
                   Update Quality Review Status
                 </span>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    disabled={updatingBiw}
-                    onClick={() => handleUpdateBiwStatus("Accepted")}
-                    className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                      biwInfo?.status === "Accepted"
-                        ? "bg-green-600 text-white border-green-600 shadow-xs"
-                        : "bg-white dark:bg-gray-800 text-green-700 border-green-300 hover:bg-green-50"
-                    }`}
-                  >
-                    <span>✅</span> Accepted
-                  </button>
-                  <button
-                    type="button"
-                    disabled={updatingBiw}
-                    onClick={() => handleUpdateBiwStatus("Rejected")}
-                    className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                      biwInfo?.status === "Rejected"
-                        ? "bg-red-600 text-white border-red-600 shadow-xs"
-                        : "bg-white dark:bg-gray-800 text-red-700 border-red-300 hover:bg-red-50"
-                    }`}
-                  >
-                    <span>❌</span> Rejected
-                  </button>
-                  <button
-                    type="button"
-                    disabled={updatingBiw}
-                    onClick={() => handleUpdateBiwStatus("Reworked")}
-                    className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                      biwInfo?.status === "Reworked"
-                        ? "bg-purple-600 text-white border-purple-600 shadow-xs"
-                        : "bg-white dark:bg-gray-800 text-purple-700 border-purple-300 hover:bg-purple-50"
-                    }`}
-                  >
-                    <span>🔄</span> Rework
-                  </button>
-                </div>
+                {!pendingBiwAction ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      disabled={updatingBiw}
+                      onClick={() => handleUpdateBiwStatus("Accepted")}
+                      className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                        biwInfo?.status === "Accepted"
+                          ? "bg-green-600 text-white border-green-600 shadow-xs"
+                          : "bg-white dark:bg-gray-800 text-green-700 border-green-300 hover:bg-green-50"
+                      }`}
+                    >
+                      <span>✅</span> Accepted
+                    </button>
+                    <button
+                      type="button"
+                      disabled={updatingBiw}
+                      onClick={() => setPendingBiwAction("Rejected")}
+                      className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                        biwInfo?.status === "Rejected"
+                          ? "bg-red-600 text-white border-red-600 shadow-xs"
+                          : "bg-white dark:bg-gray-800 text-red-700 border-red-300 hover:bg-red-50"
+                      }`}
+                    >
+                      <span>❌</span> Rejected
+                    </button>
+                    <button
+                      type="button"
+                      disabled={updatingBiw}
+                      onClick={() => setPendingBiwAction("Reworked")}
+                      className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                        biwInfo?.status === "Reworked"
+                          ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                          : "bg-white dark:bg-gray-800 text-purple-700 border-purple-300 hover:bg-purple-50"
+                      }`}
+                    >
+                      <span>🔄</span> Rework
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs font-bold px-2 py-1 rounded ${pendingBiwAction === "Rejected" ? "bg-red-100 text-red-700" : "bg-purple-100 text-purple-700"}`}>
+                        {pendingBiwAction === "Rejected" ? "❌ Rejected" : "🔄 Rework"} Selected
+                      </span>
+                      <button onClick={() => { setPendingBiwAction(null); setBiwSelectedQuestionIds([]); setBiwReasonText(""); setBiwEvidenceUrl(""); }} className="text-[10px] font-bold text-gray-500 hover:text-gray-700 underline cursor-pointer">
+                        Cancel
+                      </button>
+                    </div>
+
+                    {/* Question Selection Checkboxes */}
+                    <div>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">
+                        Which question(s) is this about?
+                      </label>
+                      <div className="space-y-1 max-h-32 overflow-y-auto pr-1 border border-purple-200 dark:border-purple-800 rounded-lg p-2 bg-white dark:bg-gray-800">
+                        {formQuestions.length === 0 ? (
+                          <div className="flex items-center justify-center p-2 text-xs text-gray-500">
+                            <Loader2 className="w-3 h-3 animate-spin mr-2" /> Loading questions...
+                          </div>
+                        ) : (
+                          formQuestions.map(q => (
+                            <label key={q.id} className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer p-1 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded">
+                              <input
+                                type="checkbox"
+                                checked={biwSelectedQuestionIds.includes(q.id)}
+                                onChange={() => {
+                                  setBiwSelectedQuestionIds(prev => 
+                                    prev.includes(q.id) ? prev.filter(id => id !== q.id) : [...prev, q.id]
+                                  );
+                                }}
+                                className="w-3.5 h-3.5 mt-0.5 rounded accent-purple-600 cursor-pointer"
+                              />
+                              <span className="leading-tight">{q.text}</span>
+                            </label>
+                          ))
+                        )}
+                        {/* Other option */}
+                        <label className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer p-1 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded">
+                          <input
+                            type="checkbox"
+                            checked={biwSelectedQuestionIds.includes("other")}
+                            onChange={() => {
+                              setBiwSelectedQuestionIds(prev => 
+                                prev.includes("other") ? prev.filter(id => id !== "other") : [...prev, "other"]
+                              );
+                            }}
+                            className="w-3.5 h-3.5 mt-0.5 rounded accent-purple-600 cursor-pointer"
+                          />
+                          <span className="leading-tight text-gray-500 italic">Other (Specify below)</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Remark Textarea */}
+                    <div>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">
+                        Remark
+                      </label>
+                      <textarea
+                        rows={2}
+                        placeholder="Explain why this needs rework or is rejected..."
+                        value={biwReasonText}
+                        onChange={(e) => setBiwReasonText(e.target.value)}
+                        className="w-full text-xs p-2 rounded-lg border border-purple-300 dark:border-purple-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-purple-500 outline-none resize-none"
+                      />
+                    </div>
+
+                    {/* Evidence Upload */}
+                    <div>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">
+                        Evidence (optional)
+                      </label>
+                      {biwEvidenceUrl ? (
+                        <div className="relative group">
+                          <img
+                            src={biwEvidenceUrl}
+                            alt="Evidence"
+                            className="w-full h-24 object-cover rounded-lg border border-purple-300 dark:border-purple-700 cursor-pointer"
+                            onClick={() => window.open(biwEvidenceUrl, "_blank")}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setBiwEvidenceUrl("")}
+                            className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                            title="Remove evidence"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : biwUploading ? (
+                        <div className="flex items-center justify-center gap-2 p-3 bg-purple-50/50 dark:bg-purple-900/10 border border-purple-300 dark:border-purple-700 rounded-lg">
+                          <Loader2 className="w-4 h-4 animate-spin text-purple-500" />
+                          <span className="text-[10px] text-gray-500 font-semibold">Uploading...</span>
+                        </div>
+                      ) : (
+                        <label className="flex flex-col items-center justify-center gap-1 p-3 border-2 border-dashed border-purple-300 dark:border-purple-700 rounded-lg cursor-pointer hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-all bg-white dark:bg-gray-800">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (file) await handleBiwEvidenceUpload(file);
+                              e.target.value = "";
+                            }}
+                          />
+                          <Upload className="w-4 h-4 text-purple-400" />
+                          <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">
+                            Upload photo evidence
+                          </span>
+                        </label>
+                      )}
+                    </div>
+
+                    <button
+                      disabled={
+                        (biwSelectedQuestionIds.length === 0 && !biwReasonText.trim()) || 
+                        (biwSelectedQuestionIds.includes("other") && !biwReasonText.trim()) || 
+                        updatingBiw || 
+                        biwUploading
+                      }
+                      onClick={() => {
+                        const flaggedQuestions = biwSelectedQuestionIds
+                          .filter(id => id !== "other")
+                          .map(id => ({
+                            questionId: id,
+                            questionText: formQuestions.find(q => q.id === id)?.text || id
+                          }));
+                          
+                        handleUpdateBiwStatus(pendingBiwAction, biwReasonText.trim(), biwEvidenceUrl, flaggedQuestions);
+                        setPendingBiwAction(null);
+                        setBiwSelectedQuestionIds([]);
+                        setBiwReasonText("");
+                        setBiwEvidenceUrl("");
+                      }}
+                      className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg disabled:opacity-50 transition-colors cursor-pointer"
+                    >
+                      {updatingBiw ? "Updating..." : "Submit Review"}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Reviewer Details */}

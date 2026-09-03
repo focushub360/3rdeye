@@ -180,15 +180,37 @@ export const getFile = async (req, res) => {
       fileRecord = await File.findOne({ filename });
     }
 
-    if (!fileRecord || !fileRecord.cloudinaryUrl) {
+    if (!fileRecord) {
       return res.status(404).json({
         success: false,
         message: 'File not found'
       });
     }
 
-    // Redirect to Cloudinary URL
-    res.redirect(fileRecord.cloudinaryUrl);
+    if (fileRecord.cloudinaryUrl) {
+      // Redirect to Cloudinary URL
+      return res.redirect(fileRecord.cloudinaryUrl);
+    }
+
+    if (fileRecord.gridfsId) {
+      // Stream from GridFS
+      const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: 'uploads' });
+      res.setHeader('Content-Type', fileRecord.mimetype || 'application/octet-stream');
+      
+      const downloadStream = bucket.openDownloadStream(fileRecord.gridfsId);
+      downloadStream.on('error', (err) => {
+        console.error('GridFS download error:', err);
+        if (!res.headersSent) {
+          res.status(404).send('File not found in GridFS');
+        }
+      });
+      return downloadStream.pipe(res);
+    }
+
+    return res.status(404).json({
+      success: false,
+      message: 'File contents not found'
+    });
 
   } catch (error) {
     console.error('Get file error:', error);

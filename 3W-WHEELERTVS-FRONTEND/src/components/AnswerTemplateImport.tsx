@@ -9,7 +9,9 @@ import {
   Loader,
   AlertTriangle,
   Link2,
+  History,
 } from "lucide-react";
+import ImportHistoryModal from "./history/ImportHistoryModal";
 import { useForms } from "../hooks/useApi";
 import { apiClient } from "../api/client";
 import { useNotification } from "../context/NotificationContext";
@@ -36,6 +38,7 @@ export default function AnswerTemplateImport({
   onClose,
   onSuccess,
 }: AnswerTemplateImportProps) {
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
   const navigate = useNavigate();
   const { showSuccess, showError } = useNotification();
   const { data: formsData } = useForms();
@@ -471,8 +474,19 @@ export default function AnswerTemplateImport({
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
           <div className="bg-gradient-to-r from-blue-600 to-blue-700 dark:from-blue-700 dark:to-blue-800 px-8 py-6 flex items-center justify-between">
-            <h2 className="text-2xl font-bold text-white">Bulk Response Import</h2>
-            <button onClick={onClose} disabled={isSubmitting} className="p-2 hover:bg-white/20 rounded-lg text-white disabled:opacity-50">
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-bold text-white">Bulk Response Import</h2>
+              <button
+                type="button"
+                onClick={() => setShowHistoryModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white rounded-xl text-xs font-bold transition-all border border-white/25 shadow-xs cursor-pointer"
+                title="View Bulk Import & Activity History"
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>History</span>
+              </button>
+            </div>
+            <button onClick={onClose} disabled={isSubmitting} className="p-2 hover:bg-white/20 rounded-lg text-white disabled:opacity-50 cursor-pointer">
               <X className="w-6 h-6" />
             </button>
           </div>
@@ -765,6 +779,12 @@ export default function AnswerTemplateImport({
           </div>
         </div>
       </div>
+
+      <ImportHistoryModal
+        isOpen={showHistoryModal}
+        onClose={() => setShowHistoryModal(false)}
+        formId={selectedFormId || undefined}
+      />
     </>
   );
 }

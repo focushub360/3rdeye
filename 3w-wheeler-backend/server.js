@@ -38,6 +38,7 @@ import otpRoutes from './routes/otpRoutes.js';
 import hrRoutes from './routes/hrRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import internalTrackingRoutes from './routes/internalTrackingRoutes.js';
+import importHistoryRoutes from './routes/importHistoryRoutes.js';
 import { initKeepAlive } from './utils/keepAlive.js';
 
 // Connect to database safely without crashing startup
@@ -181,6 +182,7 @@ app.use('/api/hr', hrRoutes);
 app.use('/api/otp', otpRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/internal-tracking', internalTrackingRoutes);
+app.use('/api/import-history', importHistoryRoutes);
 
 
 process.on('SIGTERM', async () => {
