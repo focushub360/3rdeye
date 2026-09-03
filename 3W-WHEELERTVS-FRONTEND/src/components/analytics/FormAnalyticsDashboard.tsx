@@ -51,6 +51,7 @@ import {
   ArrowDown,
   ArrowUpDown,
   FileSpreadsheet,
+  LogIn,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Pie, Doughnut, Radar } from "react-chartjs-2";
@@ -10163,6 +10164,12 @@ export default function FormAnalyticsDashboard() {
 
   if (error) {
     const isTimeoutError = error.includes('timeout') || error.includes('too long');
+    const isAuthError =
+      error.toLowerCase().includes("no token") ||
+      error.toLowerCase().includes("access denied") ||
+      error.toLowerCase().includes("unauthorized") ||
+      error.toLowerCase().includes("no auth token") ||
+      error.toLowerCase().includes("jwt expired");
 
     return (
       <div className="p-6">
@@ -10170,11 +10177,13 @@ export default function FormAnalyticsDashboard() {
           <div className={`rounded-lg p-6 mb-4 ${isTimeoutError ? 'bg-amber-50 dark:bg-amber-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
             {isTimeoutError ? (
               <Clock className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+            ) : isAuthError ? (
+              <LogIn className="w-12 h-12 text-blue-600 dark:text-blue-400 mx-auto mb-4" />
             ) : (
               <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
             )}
-            <p className={`font-medium ${isTimeoutError ? 'text-yellow-800 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
-              {error}
+            <p className={`font-medium ${isTimeoutError ? 'text-yellow-800 dark:text-yellow-400' : isAuthError ? 'text-blue-700 dark:text-blue-300' : 'text-red-600 dark:text-red-400'}`}>
+              {isAuthError ? "Session Expired: Your login token has expired or is missing. Please log in again to access form responses." : error}
             </p>
             {isTimeoutError && (
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
@@ -10182,31 +10191,48 @@ export default function FormAnalyticsDashboard() {
                 You can try again or view the data with limited functionality.
               </p>
             )}
+            {isAuthError && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Clicking &quot;Log In Again&quot; will take you to login and return you directly back to this table.
+              </p>
+            )}
           </div>
 
           <div className="flex gap-3 justify-center flex-wrap">
-            <button
-              onClick={handleRetry}
-              disabled={isRetrying || loading}
-              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
-            >
-              {isRetrying || loading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                  Loading...
-                </>
-              ) : (
-                <>
-                  <RotateCcw className="w-4 h-4" />
-                  Retry
-                </>
-              )}
-            </button>
+            {isAuthError ? (
+              <button
+                onClick={() => {
+                  window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+                }}
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold flex items-center gap-2 transition-colors cursor-pointer shadow-md"
+              >
+                <LogIn className="w-4 h-4" />
+                Log In Again
+              </button>
+            ) : (
+              <button
+                onClick={handleRetry}
+                disabled={isRetrying || loading}
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                {isRetrying || loading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    Loading...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-4 h-4" />
+                    Retry
+                  </>
+                )}
+              </button>
+            )}
 
             {!isGuest && (
               <button
                 onClick={() => navigate(-1)}
-                className="px-6 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                className="px-6 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
               >
                 Go Back
               </button>
