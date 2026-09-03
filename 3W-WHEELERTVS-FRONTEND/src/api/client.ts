@@ -1055,6 +1055,8 @@ class ApiClient {
       status?: string;
       includePartial?: boolean;
       forceNetwork?: boolean;
+      batchId?: string;
+      uploadOnly?: boolean;
     },
   ) {
     const query = new URLSearchParams();
@@ -1063,6 +1065,8 @@ class ApiClient {
     if (options?.limit) query.set("limit", options.limit.toString());
     if (options?.status) query.set("status", options.status);
     if (options?.includePartial) query.set("includePartial", "true");
+    if (options?.batchId) query.set("batchId", options.batchId);
+    if (options?.uploadOnly) query.set("uploadOnly", "true");
 
     const queryString = query.toString() ? `?${query.toString()}` : "";
     // Analytics requests are now paginated (500 rows/page) instead of

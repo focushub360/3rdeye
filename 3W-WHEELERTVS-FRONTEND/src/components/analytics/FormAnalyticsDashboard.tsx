@@ -2445,7 +2445,9 @@ export default function FormAnalyticsDashboard() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const batchIdParam = searchParams.get("batchId");
+  const uploadOnlyParam = searchParams.get("uploadOnly") === "true";
 
   // Permission check for analytics tabs
   const hasTabPermission = (tabName: string): boolean => {
@@ -4294,6 +4296,8 @@ export default function FormAnalyticsDashboard() {
         limit: responsesPageSize,
         analytics: false,
         forceNetwork: true,
+        batchId: batchIdParam || undefined,
+        uploadOnly: uploadOnlyParam || undefined,
       });
       setTableResponses(data.responses || []);
       setTotalResponsesCount(data.pagination?.totalResponses || 0);
@@ -4447,14 +4451,14 @@ export default function FormAnalyticsDashboard() {
   // would spin on "Loading…" forever. Kick it off here too, the same way
   // the other tabs already do.
   useEffect(() => {
-    if (activeTab === "responses" && !loadedTabs.has("responses") && id) {
-      fetchResponsesPage(1);
+    if (activeTab === "responses" && id) {
+      fetchResponsesPage(responsesPage);
       if (!loadedTabs.has("dashboard") && responses.length === 0) {
         fetchFullAnalyticsResponses();
       }
       setLoadedTabs((prev) => new Set(prev).add("responses"));
     }
-  }, [activeTab, id, loadedTabs]);
+  }, [activeTab, id, batchIdParam, uploadOnlyParam, responsesPage, responsesPageSize]);
 
   // Page / page-size changes on an already-loaded Responses tab re-fetch
   // from the server instead of re-slicing an in-memory array.
@@ -10726,12 +10730,34 @@ export default function FormAnalyticsDashboard() {
           {analyticsView === "responses" && (
             <div className="space-y-4 sm:space-y-6">
               <div className="card p-3 sm:p-6">
+                {(batchIdParam || uploadOnlyParam) && (
+                  <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl flex items-center justify-between gap-3 text-xs sm:text-sm shadow-2xs">
+                    <div className="flex items-center gap-2 text-blue-800 dark:text-blue-300 font-bold">
+                      <FileSpreadsheet className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                      <span>Filtered to Uploaded Data ({activeTotalResponsesCount} records)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newParams = new URLSearchParams(searchParams);
+                        newParams.delete("batchId");
+                        newParams.delete("uploadOnly");
+                        setSearchParams(newParams);
+                      }}
+                      className="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-300 dark:border-gray-600 font-bold text-xs cursor-pointer flex items-center gap-1.5 transition-colors shadow-2xs"
+                    >
+                      <X className="w-3.5 h-3.5 text-red-500" />
+                      <span>Show All Form Responses</span>
+                    </button>
+                  </div>
+                )}
+
                 <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex flex-col">
                     <div className="flex items-center gap-2.5">
                       <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                         <Table className="w-5 h-5 text-indigo-600" />
-                        All Responses
+                        {batchIdParam || uploadOnlyParam ? "Uploaded Responses (Excel Import)" : "All Responses"}
                       </h3>
                       <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50">
                         <span className="relative flex h-2 w-2">

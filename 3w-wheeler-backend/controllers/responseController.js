@@ -3011,6 +3011,16 @@ export const getResponsesByForm = async (req, res) => {
       query.status = status;
     }
 
+    // Add batchId or uploadOnly filter if provided
+    if (req.query.batchId) {
+      query.batchId = req.query.batchId;
+    } else if (req.query.uploadOnly === 'true') {
+      query.$or = [
+        { batchId: { $exists: true, $ne: null } },
+        { submittedBy: 'Excel Import' }
+      ];
+    }
+
     // Add partial submission filter
     if (includePartial !== 'true') {
       query.isSectionSubmit = { $ne: true };

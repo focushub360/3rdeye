@@ -134,12 +134,13 @@ export default function ImportHistoryModal({
     setTimeout(() => setCopiedBatchId(null), 2000);
   };
 
-  // Redirect to form responses table to edit or delete
-  const handleRedirectToFormResponses = (targetFormId?: string, e?: React.MouseEvent) => {
+  // Redirect to form responses table (Screen 2: row & column analytics table) filtered to only uploaded data
+  const handleRedirectToFormResponses = (item: ImportHistoryItem, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    if (!targetFormId) return;
+    if (!item.formId) return;
     onClose();
-    navigate(`/forms/${targetFormId}/responses`);
+    const batchParam = item.batchId ? `&batchId=${encodeURIComponent(item.batchId)}` : `&uploadOnly=true`;
+    navigate(`/forms/${item.formId}/analytics?tab=responses${batchParam}`);
   };
 
   // Open "View Data" modal
@@ -366,17 +367,17 @@ export default function ImportHistoryModal({
                           {/* Form / Submitter */}
                           <td className="py-4 px-5">
                             <div
-                              onClick={(e) => item.formId && handleRedirectToFormResponses(item.formId, e)}
-                              className={`font-black text-gray-900 dark:text-gray-100 text-[14.5px] ${item.formId ? 'hover:text-blue-600 hover:underline' : ''}`}
-                              title={item.formId ? "Click to view uploaded responses for this form" : undefined}
+                              onClick={(e) => item.formId && handleRedirectToFormResponses(item, e)}
+                              className={`font-black text-gray-900 dark:text-gray-100 text-[14.5px] ${item.formId ? 'hover:text-blue-600 hover:underline cursor-pointer' : ''}`}
+                              title={item.formId ? "Click to view uploaded responses in Analytics Table" : undefined}
                             >
                               {item.formTitle || 'Inspection Form'}
                             </div>
                             <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2 mt-1">
-                              <span className="font-semibold text-gray-700 dark:text-gray-300">{item.userName || 'Admin'}</span>
-                              {item.userRole && (
-                                <span className="text-[10px] px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-bold uppercase border border-gray-200 dark:border-gray-700">
-                                  {item.userRole}
+                              <span>Uploaded by: <strong className="text-gray-700 dark:text-gray-300 font-bold">{item.userName || item.userEmail}</strong></span>
+                              {item.details?.submitters?.length > 0 && item.details.submitters[0] !== item.userName && (
+                                <span className="text-blue-600 dark:text-blue-400 font-medium">
+                                  • Submitter: {item.details.submitters[0]}
                                 </span>
                               )}
                             </div>
@@ -427,7 +428,7 @@ export default function ImportHistoryModal({
                               {/* 1. Redirect to Uploaded Responses Table */}
                               {item.formId && (
                                 <button
-                                  onClick={(e) => handleRedirectToFormResponses(item.formId, e)}
+                                  onClick={(e) => handleRedirectToFormResponses(item, e)}
                                   className="p-2 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer"
                                   title="Redirect to form responses table to edit or delete uploaded data"
                                 >
@@ -497,12 +498,12 @@ export default function ImportHistoryModal({
                                   <div className="flex items-center gap-2.5">
                                     {item.formId && (
                                       <button
-                                        onClick={(e) => handleRedirectToFormResponses(item.formId, e)}
+                                        onClick={(e) => handleRedirectToFormResponses(item, e)}
                                         className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
-                                        title="Redirect to form responses page to view, edit, or delete uploaded records"
+                                        title="Open Service Analytics responses table (row & column view) filtered to this upload"
                                       >
                                         <ArrowUpRight className="w-4 h-4" />
-                                        <span>Go to Uploaded Data (Edit / Delete)</span>
+                                        <span>View Uploaded Data in Table (Edit / Delete)</span>
                                       </button>
                                     )}
 
@@ -591,9 +592,9 @@ export default function ImportHistoryModal({
               <div className="flex items-center gap-2">
                 {inspectItem.formId && (
                   <button
-                    onClick={(e) => handleRedirectToFormResponses(inspectItem.formId, e)}
+                    onClick={(e) => handleRedirectToFormResponses(inspectItem, e)}
                     className="px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
-                    title="Open full form responses table"
+                    title="Open full responses table in Service Analytics"
                   >
                     <span>Full Responses Table</span>
                     <ArrowUpRight className="w-3.5 h-3.5" />
