@@ -13,7 +13,6 @@ import {
   ChevronDown,
   ChevronUp,
   FileSpreadsheet,
-  Eye,
   ExternalLink,
   AlertTriangle,
   Database,
@@ -80,11 +79,6 @@ export default function ImportHistoryModal({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [copiedBatchId, setCopiedBatchId] = useState<string | null>(null);
 
-  // View Uploaded Data Dialog State
-  const [inspectItem, setInspectItem] = useState<ImportHistoryItem | null>(null);
-  const [inspectResponses, setInspectResponses] = useState<BatchResponseItem[]>([]);
-  const [isLoadingInspect, setIsLoadingInspect] = useState(false);
-  const [deletingResponseId, setDeletingResponseId] = useState<string | null>(null);
 
   // Delete Options Dialog State
   const [deleteTarget, setDeleteTarget] = useState<ImportHistoryItem | null>(null);
@@ -143,56 +137,6 @@ export default function ImportHistoryModal({
     navigate(`/forms/${item.formId}/analytics?tab=responses${batchParam}`);
   };
 
-  // Open "View Data" modal
-  const handleOpenInspect = async (item: ImportHistoryItem, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setInspectItem(item);
-    setIsLoadingInspect(true);
-    try {
-      const res = await apiClient.getImportHistoryResponses(item._id);
-      const respList = res?.responses || res?.data?.responses || [];
-      setInspectResponses(respList);
-    } catch (err) {
-      console.error('Failed to load batch responses:', err);
-      setInspectResponses([]);
-    } finally {
-      setIsLoadingInspect(false);
-    }
-  };
-
-  // Delete single response from inspect dialog
-  const handleDeleteSingleResponse = async (responseId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm('Are you sure you want to permanently delete this uploaded response?')) {
-      return;
-    }
-    setDeletingResponseId(responseId);
-    try {
-      await apiClient.deleteResponse(responseId);
-      setInspectResponses(prev => prev.filter(r => r.id !== responseId));
-      // Also update counts locally
-      if (inspectItem) {
-        setItems(prev => prev.map(it => {
-          if (it._id === inspectItem._id) {
-            return {
-              ...it,
-              dataCount: {
-                ...it.dataCount,
-                total: Math.max(0, it.dataCount.total - 1),
-                success: Math.max(0, it.dataCount.success - 1)
-              }
-            };
-          }
-          return it;
-        }));
-      }
-    } catch (err) {
-      console.error('Failed to delete response:', err);
-      alert('Failed to delete response. Please try again.');
-    } finally {
-      setDeletingResponseId(null);
-    }
-  };
 
   // Open "Delete Options" modal
   const handleOpenDelete = (item: ImportHistoryItem, e: React.MouseEvent) => {
@@ -436,14 +380,6 @@ export default function ImportHistoryModal({
                                 </button>
                               )}
 
-                              {/* 2. View Data / Inspect Eye Button */}
-                              <button
-                                onClick={(e) => handleOpenInspect(item, e)}
-                                className="p-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer"
-                                title="Inspect uploaded records & edit/delete individual responses"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
 
                               {/* 3. Delete Options Button */}
                               <button
@@ -507,14 +443,7 @@ export default function ImportHistoryModal({
                                       </button>
                                     )}
 
-                                    <button
-                                      onClick={(e) => handleOpenInspect(item, e)}
-                                      className="px-3.5 py-2 bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-200 rounded-xl text-xs font-bold transition-all border border-gray-300 dark:border-gray-700 flex items-center gap-1.5 cursor-pointer"
-                                    >
-                                      <Eye className="w-4 h-4 text-blue-600" />
-                                      <span>Inspect Responses ({item.dataCount.total})</span>
-                                    </button>
-                                  </div>
+                                    </div>
                                 </div>
 
                                 {/* Affected Chassis Numbers */}
@@ -568,172 +497,6 @@ export default function ImportHistoryModal({
         </div>
       </div>
 
-      {/* ────────────────────────────────────────────────────────────────────────── */}
-      {/* 1. "SEE EDITED ONE DATA" / INSPECT UPLOADED DATA MODAL                     */}
-      {/* ────────────────────────────────────────────────────────────────────────── */}
-      {inspectItem && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-60 flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-2xl shadow-2xl max-w-5xl w-full max-h-[88vh] flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800">
-            
-            {/* Modal Top Bar */}
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center justify-between text-white">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-white/20">
-                  <Eye className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold">Uploaded Data Inspection</h3>
-                  <p className="text-xs text-blue-100">
-                    {inspectItem.formTitle} • {inspectResponses.length} response(s) loaded
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {inspectItem.formId && (
-                  <button
-                    onClick={(e) => handleRedirectToFormResponses(inspectItem, e)}
-                    className="px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
-                    title="Open full responses table in Service Analytics"
-                  >
-                    <span>Full Responses Table</span>
-                    <ArrowUpRight className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                <button
-                  onClick={() => setInspectItem(null)}
-                  className="p-2 rounded-xl hover:bg-white/20 text-white transition-colors cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Batch Info Header */}
-            <div className="p-4 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-800 text-xs grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div>
-                <span className="text-gray-500 block">Uploaded By</span>
-                <span className="font-bold text-gray-800 dark:text-gray-200">{inspectItem.userName}</span>
-              </div>
-              <div>
-                <span className="text-gray-500 block">Date & Time</span>
-                <span className="font-bold text-gray-800 dark:text-gray-200">{formatDateTime(inspectItem.createdAt)}</span>
-              </div>
-              <div>
-                <span className="text-gray-500 block">Total Records</span>
-                <span className="font-bold text-emerald-600 dark:text-emerald-400">{inspectItem.dataCount.success} Successful</span>
-              </div>
-              <div>
-                <span className="text-gray-500 block">Source File</span>
-                <span className="font-bold text-gray-800 dark:text-gray-200 truncate block">{inspectItem.fileName || 'Responses.xlsx'}</span>
-              </div>
-            </div>
-
-            {/* Responses List Table with Direct Edit and Delete Options */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-              {isLoadingInspect ? (
-                <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-                  <RefreshCw className="w-8 h-8 animate-spin text-blue-600 mb-3" />
-                  <p className="text-sm font-semibold">Loading uploaded responses...</p>
-                </div>
-              ) : inspectResponses.length === 0 ? (
-                <div className="text-center py-16 text-gray-400">
-                  <AlertCircle className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-                  <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">No individual responses found for this batch</p>
-                  <p className="text-xs text-gray-500 mt-1">The responses may have been deleted or archived.</p>
-                </div>
-              ) : (
-                <table className="w-full text-left border-collapse text-xs sm:text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-200 dark:border-gray-800 text-xs font-bold uppercase text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/50">
-                      <th className="py-2.5 px-3 w-12 text-center">#</th>
-                      <th className="py-2.5 px-3">CHASSIS NUMBER</th>
-                      <th className="py-2.5 px-3">SUBMITTER</th>
-                      <th className="py-2.5 px-3 text-center">STATUS</th>
-                      <th className="py-2.5 px-3">SUBMITTED AT</th>
-                      <th className="py-2.5 px-3 text-right">ACTIONS (EDIT / DELETE)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {inspectResponses.map((resp, rIdx) => (
-                      <tr key={resp.id || rIdx} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
-                        <td className="py-3 px-3 text-center font-bold text-gray-400">{rIdx + 1}</td>
-                        <td className="py-3 px-3">
-                          <span className="px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                            {resp.chassisNumber !== '-' ? resp.chassisNumber : 'No Chassis'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 font-semibold text-gray-800 dark:text-gray-200">
-                          {resp.submittedBy || 'Excel Import'}
-                        </td>
-                        <td className="py-3 px-3 text-center">
-                          <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                            {resp.status || 'pending'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-xs text-gray-500 dark:text-gray-400">
-                          {formatDateTime(resp.createdAt)}
-                        </td>
-                        <td className="py-3 px-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {/* 1. Edit Response (Opens edit form in new tab) */}
-                            <a
-                              href={`/responses/${resp.id}/edit`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-2xs transition-colors"
-                              title="Edit this response's answers and data"
-                            >
-                              <Edit2 className="w-3 h-3" />
-                              <span>Edit</span>
-                            </a>
-
-                            {/* 2. Open / View Response */}
-                            <a
-                              href={`/responses/${resp.id}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition-colors"
-                              title="View full response details & photos"
-                            >
-                              <Eye className="w-3 h-3" />
-                              <span>View</span>
-                            </a>
-
-                            {/* 3. Delete this single uploaded response */}
-                            <button
-                              onClick={(e) => handleDeleteSingleResponse(resp.id, e)}
-                              disabled={deletingResponseId === resp.id}
-                              className="p-1.5 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                              title="Permanently delete this uploaded response"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-6 py-3.5 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/80 flex items-center justify-between">
-              <span className="text-xs text-gray-500">
-                Use "Edit" to modify answers or defect data, or 🗑️ to delete individual uploaded entries.
-              </span>
-              <button
-                onClick={() => setInspectItem(null)}
-                className="px-4 py-1.5 bg-gray-800 hover:bg-gray-900 text-white rounded-xl text-xs font-bold cursor-pointer"
-              >
-                Close View
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
 
       {/* ────────────────────────────────────────────────────────────────────────── */}
       {/* 2. "DELETE UPLOAD DATA" OPTIONS MODAL                                      */}

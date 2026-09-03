@@ -215,8 +215,8 @@ export const getImportHistory = async (req, res) => {
     const query = {};
     const andConditions = [];
 
-    // Tenant isolation: Superadmin can view all or filter by tenant; others see own tenant + shared forms + own uploads
-    if (req.user?.role !== 'superadmin') {
+    // Tenant isolation: Superadmin and Admin can view all; others see own tenant + shared forms + own uploads
+    if (req.user?.role !== 'superadmin' && req.user?.role !== 'admin') {
       const tenantIdStr = req.user?.tenantId ? req.user.tenantId.toString() : null;
       const tenantIdObj = mongoose.Types.ObjectId.isValid(tenantIdStr)
         ? new mongoose.Types.ObjectId(tenantIdStr)
@@ -331,7 +331,7 @@ export const getImportHistoryStats = async (req, res) => {
     await syncLegacyExcelImports(req.user?.tenantId);
 
     const match = {};
-    if (req.user?.role !== 'superadmin') {
+    if (req.user?.role !== 'superadmin' && req.user?.role !== 'admin') {
       const tenantIdStr = req.user?.tenantId ? req.user.tenantId.toString() : null;
       const tenantIdObj = mongoose.Types.ObjectId.isValid(tenantIdStr)
         ? new mongoose.Types.ObjectId(tenantIdStr)

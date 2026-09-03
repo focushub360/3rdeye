@@ -1248,11 +1248,11 @@ class ApiClient {
 
     const queryString = query.toString();
     const endpoint = queryString ? `/import-history?${queryString}` : "/import-history";
-    return this.request<any>(endpoint);
+    return this.request<any>(endpoint, { forceNetwork: true });
   }
 
   async getImportHistoryStats() {
-    return this.request<any>("/import-history/stats");
+    return this.request<any>("/import-history/stats", { forceNetwork: true });
   }
 
   async deleteImportHistory(id: string, deleteResponses?: boolean) {
