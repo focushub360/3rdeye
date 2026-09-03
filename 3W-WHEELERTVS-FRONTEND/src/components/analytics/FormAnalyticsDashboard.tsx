@@ -10163,12 +10163,16 @@ export default function FormAnalyticsDashboard() {
   }
 
   if (error) {
-    const isTimeoutError = error.includes('timeout') || error.includes('too long');
+    const errorMsg =
+      typeof error === "string"
+        ? error
+        : (error as any)?.message || String(error || "");
+    const isTimeoutError = errorMsg.includes('timeout') || errorMsg.includes('too long');
     const isAuthError =
-      error.toLowerCase().includes("no token") ||
-      error.toLowerCase().includes("no auth token") ||
-      error.toLowerCase().includes("jwt expired") ||
-      (error.toLowerCase().includes("unauthorized") && !error.toLowerCase().includes("organization"));
+      errorMsg.toLowerCase().includes("no token") ||
+      errorMsg.toLowerCase().includes("no auth token") ||
+      errorMsg.toLowerCase().includes("jwt expired") ||
+      (errorMsg.toLowerCase().includes("unauthorized") && !errorMsg.toLowerCase().includes("organization"));
 
     return (
       <div className="p-6">
@@ -10182,7 +10186,7 @@ export default function FormAnalyticsDashboard() {
               <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
             )}
             <p className={`font-medium ${isTimeoutError ? 'text-yellow-800 dark:text-yellow-400' : isAuthError ? 'text-blue-700 dark:text-blue-300' : 'text-red-600 dark:text-red-400'}`}>
-              {isAuthError ? "Session Expired: Your login token has expired or is missing. Please log in again to access form responses." : error}
+              {isAuthError ? "Session Expired: Your login token has expired or is missing. Please log in again to access form responses." : errorMsg}
             </p>
             {isTimeoutError && (
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
