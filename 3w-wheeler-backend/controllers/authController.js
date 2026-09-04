@@ -85,20 +85,22 @@ export const login = async (req, res) => {
     // Find user by username or email
     let user;
     console.log('--- DEBUG LOGIN START ---');
-    console.log('Request Body:', JSON.stringify(req.body, null, 2));
-    if (normalizedUsername) {
-      console.log('Searching by username:', normalizedUsername);
-      user = await User.findOne({ username: normalizedUsername });
-    } else if (normalizedEmail) {
-      console.log('Searching by email:', normalizedEmail);
-      user = await User.findOne({ email: normalizedEmail });
-    } else {
+    const identifier = (normalizedUsername || normalizedEmail);
+    if (!identifier) {
       console.log('Login failed: Username or email is required');
       return res.status(400).json({
         success: false,
         message: 'Username or email is required'
       });
     }
+
+    console.log('Searching by identifier (email or username):', identifier);
+    user = await User.findOne({
+      $or: [
+        { email: identifier.toLowerCase() },
+        { username: identifier }
+      ]
+    });
 
     if (!user) {
       console.log('Login failed: User not found in DB');
