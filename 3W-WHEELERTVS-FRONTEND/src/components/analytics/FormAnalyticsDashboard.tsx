@@ -6747,6 +6747,14 @@ export default function FormAnalyticsDashboard() {
 
 
   const OverallQualityPieChart = () => {
+    const totalCount = totalPieChartData.counts.total;
+    const directOkCount = totalPieChartData.counts.directOk;
+    const reworkCompCount = totalPieChartData.counts.reworkCompleted;
+    const addedOkCount = directOkCount + reworkCompCount;
+    const addedOkPercent = totalCount > 0
+      ? Number(((addedOkCount / totalCount) * 100).toFixed(1))
+      : 0;
+
     // NOTE: Dispatched is intentionally NOT one of the doughnut slices.
     // Direct Ok / Rework Completed / Rejected / Ongoing Rework are
     // mutually exclusive and sum to 100% of responses, so they make a
@@ -6818,6 +6826,12 @@ export default function FormAnalyticsDashboard() {
 
               return `${label}: ${value}% (${count} responses)`;
             },
+            afterBody: function () {
+              return [
+                "",
+                `Total OK (Direct + Rework): ${addedOkPercent}% (${addedOkCount} of ${totalCount})`
+              ];
+            },
           },
         },
       },
@@ -6825,6 +6839,38 @@ export default function FormAnalyticsDashboard() {
       interaction: {
         mode: "nearest" as const,
         intersect: true,
+      },
+    };
+
+    const centerTextPlugin = {
+      id: "doughnutCenterText",
+      afterDraw(chart: any) {
+        if (!totalCount) return;
+        const meta = chart.getDatasetMeta(0);
+        const { left, right, top, bottom } = chart.chartArea || {};
+        const fallbackX = (left + right) / 2;
+        const fallbackY = (top + bottom) / 2;
+        const x = meta?.data?.[0]?.x ?? fallbackX;
+        const y = meta?.data?.[0]?.y ?? fallbackY;
+
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        const isDark = document.documentElement.classList.contains("dark");
+
+        // Center added up percentage: e.g. "90.9%"
+        ctx.font = "bold 16px Inter, system-ui, -apple-system, sans-serif";
+        ctx.fillStyle = isDark ? "#34d399" : "#059669";
+        ctx.fillText(`${addedOkPercent}%`, x, y - 7);
+
+        // Center label: "Total OK"
+        ctx.font = "bold 9px Inter, system-ui, -apple-system, sans-serif";
+        ctx.fillStyle = isDark ? "#94a3b8" : "#64748b";
+        ctx.fillText("Total OK", x, y + 9);
+
+        ctx.restore();
       },
     };
 
@@ -6866,8 +6912,7 @@ export default function FormAnalyticsDashboard() {
           ) : (
             <>
               <div style={{ height: "200px", position: "relative" }}>
-                {/* Only change needed here - use Doughnut instead of Pie */}
-                <Doughnut data={data} options={options} />
+                <Doughnut data={data} options={options} plugins={[centerTextPlugin]} />
               </div>
 
               {/* Stats summary - these 4 mirror the pie slices above and
