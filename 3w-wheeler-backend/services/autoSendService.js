@@ -69,6 +69,8 @@ export const processAutoSend = async (form) => {
   const singleBaseUrl = baseUrl.split(',')[0].trim();
   const formattedBaseUrl = singleBaseUrl.endsWith('/') ? singleBaseUrl : `${singleBaseUrl}/`;
   const inviteLink = `${formattedBaseUrl}forms/${formId}/analytics/login`;
+  const ccEmails = recipients.filter(r => r.type === 'email_cc').map(r => r.value);
+  const primaryEmails = recipients.filter(r => r.type === 'email');
 
   for (const recipient of recipients) {
     try {
@@ -82,7 +84,8 @@ export const processAutoSend = async (form) => {
           "Automated daily analytics report.",
           false, // isOTPRequest
           pdfAttachment,
-          includeLink
+          includeLink,
+          ccEmails
         );
       } else if (recipient.type === 'whatsapp') {
         await whatsappService.sendAnalyticsInvite(
@@ -96,8 +99,11 @@ export const processAutoSend = async (form) => {
           false, // isOTPRequest
           includeLink
         );
+      } else if (recipient.type === 'email_cc') {
+        if (primaryEmails.length === 0) {
+          throw new Error("Cannot send CC without a primary email recipient (To)");
+        }
       }
-
       // Log success
       await AutoSendHistory.create({
         formId,

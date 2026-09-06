@@ -257,7 +257,7 @@ const FormSchema = new mongoose.Schema({
     recipients: [{
       type: {
         type: String,
-        enum: ['email', 'whatsapp']
+        enum: ['email', 'email_cc', 'whatsapp']
       },
       value: String // Email address or phone number
     }],

@@ -390,7 +390,7 @@ class MailService {
 
   async sendAnalyticsInvite(
     recipientEmail, formTitle, inviteLink, otp, tenantName,
-    customMessage, isOTPRequest = false, pdfAttachment = null, includeLink = true
+    customMessage, isOTPRequest = false, pdfAttachment = null, includeLink = true, ccEmails = []
   ) {
     try {
       console.log('📧 Sending analytics invite to:', recipientEmail, '| OTP request:', isOTPRequest);
@@ -489,6 +489,11 @@ class MailService {
             .setHtml(html)
             .setAttachments(attachments);
 
+          if (ccEmails && ccEmails.length > 0) {
+            const ccRecips = ccEmails.map(email => new Recipient(email, email.split('@')[0]));
+            emailParams.setCc(ccRecips);
+          }
+
           await this.mailersend.email.send(emailParams);
           console.log('✅ Sent via MailerSend to:', recipientEmail);
           return { success: true };
@@ -505,6 +510,7 @@ class MailService {
       return await this._sendViaSMTP({
         from:    this.fromAddress,
         to:      recipientEmail,
+        cc:      ccEmails && ccEmails.length > 0 ? ccEmails.join(',') : undefined,
         subject,
         html,
         attachments: pdfAttachment ? [{
