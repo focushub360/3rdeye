@@ -2825,6 +2825,54 @@ class ApiClient {
     );
   }
 
+  async getMyMonthlyAttendanceSummary(params?: {
+    month?: number;
+    year?: number;
+    inspectorId?: string;
+  }) {
+    const query = new URLSearchParams();
+    if (params?.month) query.set("month", params.month.toString());
+    if (params?.year) query.set("year", params.year.toString());
+    if (params?.inspectorId) query.set("inspectorId", params.inspectorId);
+    return this.request<{
+      data: {
+        month: number;
+        year: number;
+        monthName: string;
+        totalWorkingHours: number;
+        targetMonthlyHours: number;
+        expectedHoursSoFar: number;
+        presentDays: number;
+        halfDays: number;
+        lateDays: number;
+        earlyCheckoutDays: number;
+        avgDailyHours: number;
+        daysInMonth: number;
+        currentDay: number;
+        workingDaysSoFar: number;
+        totalWorkingDaysInMonth: number;
+        attendanceRate: number;
+        records: Array<{
+          _id: string;
+          date: string;
+          checkInTime?: string;
+          checkOutTime?: string;
+          workingHours?: number;
+          status?: string;
+          isLate?: boolean;
+          isHalfDay?: boolean;
+          isEarlyCheckout?: boolean;
+          shift?: any;
+          shiftName?: string;
+          punches?: any[];
+        }>;
+      };
+    }>(
+      "/hr/attendance/my-monthly-summary" +
+      (query.toString() ? `?${query.toString()}` : ""),
+    );
+  }
+
   async getMyHRShift() {
     return this.request<{ data: any }>("/hr/attendance/my-shift");
   }

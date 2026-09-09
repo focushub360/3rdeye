@@ -4,6 +4,7 @@ import {
     getAttendanceSummary,
     updateLastActive,
     getMyAttendance,
+    getMyMonthlySummary,
     exportAttendance,
     getAttendanceUsers,
     updateLoginLocation,
@@ -33,6 +34,11 @@ router.get('/summary', getAttendanceSummary);
 // @desc    Get current user's attendance history
 // @access  Private
 router.get('/my', getMyAttendance);
+
+// @route   GET /api/attendance/my-monthly-summary
+// @desc    Get current user's monthly attendance and working hours summary
+// @access  Private
+router.get('/my-monthly-summary', getMyMonthlySummary);
 
 // @route   GET /api/attendance/users
 // @desc    Get all users for attendance management

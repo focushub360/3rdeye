@@ -486,6 +486,141 @@ export const getMyHistory = async (req, res) => {
 };
 
 /**
+ * Get monthly attendance summary and day-by-day working hours log for user
+ */
+export const getMyMonthlySummary = async (req, res) => {
+  try {
+    const isElevated = ['admin', 'superadmin'].includes(req.user.role);
+    const targetUserId = (req.query.inspectorId && isElevated)
+      ? req.query.inspectorId
+      : req.user._id;
+
+    const now = getISTNow();
+    const month = parseInt(req.query.month) || (now.getMonth() + 1); // 1-indexed (1 to 12)
+    const year = parseInt(req.query.year) || now.getFullYear();
+
+    // Start and end of month in IST
+    const startOfMonth = new Date(year, month - 1, 1, 0, 0, 0, 0);
+    const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999);
+
+    const userObjId = mongoose.Types.ObjectId.isValid(targetUserId)
+      ? new mongoose.Types.ObjectId(String(targetUserId))
+      : null;
+
+    const inspectorCondition = userObjId
+      ? { $in: [targetUserId, String(targetUserId), userObjId] }
+      : targetUserId;
+
+    // Fetch records for the selected month
+    const records = await Attendance.find({
+      inspector: inspectorCondition,
+      $or: [
+        { date: { $gte: startOfMonth, $lte: endOfMonth } },
+        { checkInTime: { $gte: startOfMonth, $lte: endOfMonth } }
+      ]
+    })
+      .populate('shift', 'name displayName startTime endTime')
+      .sort({ date: -1 })
+      .lean();
+
+    let totalWorkingHours = 0;
+    let presentDays = 0;
+    let halfDays = 0;
+    let lateDays = 0;
+    let earlyCheckoutDays = 0;
+
+    const formattedRecords = records.map(r => {
+      let hours = r.workingHours || 0;
+      // If currently checked in and hasn't checked out today, compute live working hours
+      if (r.checkInTime && !r.checkOutTime) {
+        const checkInDate = new Date(r.checkInTime);
+        const liveHours = Math.max(0, (Date.now() - checkInDate.getTime()) / (1000 * 60 * 60));
+        hours = parseFloat(liveHours.toFixed(2));
+      } else if (typeof hours === 'number') {
+        hours = parseFloat(hours.toFixed(2));
+      }
+
+      totalWorkingHours += hours;
+
+      if (r.status === 'present' || r.checkInTime) {
+        presentDays++;
+      }
+      if (r.isHalfDay || r.status === 'half-day') {
+        halfDays++;
+      }
+      if (r.isLate) {
+        lateDays++;
+      }
+      if (r.isEarlyCheckout) {
+        earlyCheckoutDays++;
+      }
+
+      return {
+        ...r,
+        workingHours: hours
+      };
+    });
+
+    totalWorkingHours = parseFloat(totalWorkingHours.toFixed(2));
+    const avgDailyHours = presentDays > 0 ? parseFloat((totalWorkingHours / presentDays).toFixed(2)) : 0;
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const isCurrentMonth = (year === now.getFullYear() && month === (now.getMonth() + 1));
+    const currentDay = isCurrentMonth ? now.getDate() : daysInMonth;
+    
+    // Count weekdays (excluding Sundays) as working days up to currentDay
+    let workingDaysSoFar = 0;
+    let totalWorkingDaysInMonth = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayOfWeek = new Date(year, month - 1, d).getDay();
+      if (dayOfWeek !== 0) { // Exclude Sundays
+        totalWorkingDaysInMonth++;
+        if (d <= currentDay) {
+          workingDaysSoFar++;
+        }
+      }
+    }
+
+    const attendanceRate = workingDaysSoFar > 0
+      ? Math.min(100, Math.round((presentDays / workingDaysSoFar) * 100))
+      : (currentDay > 0 ? Math.min(100, Math.round((presentDays / currentDay) * 100)) : 0);
+
+    const targetMonthlyHours = totalWorkingDaysInMonth * 8; // 8 hours per working day
+    const expectedHoursSoFar = workingDaysSoFar * 8;
+
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    res.json({
+      success: true,
+      data: {
+        month,
+        year,
+        monthName: monthNames[month - 1] || 'Current Month',
+        totalWorkingHours,
+        targetMonthlyHours,
+        expectedHoursSoFar,
+        presentDays,
+        halfDays,
+        lateDays,
+        earlyCheckoutDays,
+        avgDailyHours,
+        daysInMonth,
+        currentDay,
+        workingDaysSoFar,
+        totalWorkingDaysInMonth,
+        attendanceRate,
+        records: formattedRecords
+      }
+    });
+  } catch (error) {
+    console.error('getMyMonthlySummary error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
  * Legacy Compatibility: getMyAttendance (requested by attendanceRoutes.js)
  */
 export const getMyAttendance = getMyHistory;

@@ -30,6 +30,7 @@ router.post('/attendance/checkout', authenticate, attendanceController.checkOut)
 router.post('/attendance/send-otp', authenticate, attendanceController.sendAttendanceOTP);
 router.get('/attendance/my-status', authenticate, attendanceController.getMyStatus);
 router.get('/attendance/my-history', authenticate, attendanceController.getMyHistory);
+router.get('/attendance/my-monthly-summary', authenticate, attendanceController.getMyMonthlySummary);
 router.get('/attendance/my-shift', authenticate, shiftController.getMyShift);
 
 /**
