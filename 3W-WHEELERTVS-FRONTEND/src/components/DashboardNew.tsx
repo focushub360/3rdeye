@@ -389,15 +389,11 @@ export default function DashboardNew() {
         const response = (await apiClient.getBiwSummary({ forceNetwork: true })) as any;
         console.log('[BIW] Summary response:', response);
 
-        if (response?.data) {
-          // The data is already grouped and ready to display
-          const data = Array.isArray(response.data) ? response.data : [];
-          console.log(`[BIW] Total users: ${data.length}`);
-          console.log(`[BIW] Total responses: ${response.totalResponses || 'N/A'}`);
-          setBiwResponses(data);
-        } else {
-          setBiwResponses([]);
-        }
+        const data = Array.isArray(response)
+          ? response
+          : (Array.isArray(response?.data) ? response.data : []);
+        console.log(`[BIW] Total users: ${data.length}`);
+        setBiwResponses(data);
       } catch (error) {
         console.error("Error fetching BIW summary:", error);
         setBiwResponses([]);

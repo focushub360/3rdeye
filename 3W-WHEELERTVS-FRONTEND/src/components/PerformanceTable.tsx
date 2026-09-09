@@ -681,13 +681,13 @@ const PerformanceTable = ({
                       )}
                     </td>
                     <td className="px-2 py-1.5 font-bold text-center text-green-600 tabular-nums">
-                      {row.accepted}
+                      {row.accepted || 0}
                     </td>
                     <td className="px-2 py-1.5 font-bold text-center text-red-600 tabular-nums">
-                      {row.rejected}
+                      {row.rejectedReview ?? row.rejected ?? 0}
                     </td>
                     <td className="px-2 py-1.5 font-bold text-center text-orange-600 tabular-nums">
-                      {row.rework}
+                      {row.reworked ?? row.rework ?? 0}
                     </td>
                     <td className="px-2 py-1.5 text-center">
                       <span
