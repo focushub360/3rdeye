@@ -7,6 +7,11 @@ const connectDB = async () => {
       throw new Error('MONGODB_URI environment variable is not set. Please check your .env file.');
     }
 
+    // Reuse existing connection if already connected (critical for Vercel serverless)
+    if (mongoose.connection.readyState >= 1) {
+      return mongoose.connection;
+    }
+
     const conn = await mongoose.connect(process.env.MONGODB_URI, {
       maxPoolSize: 10,
       minPoolSize: 2,

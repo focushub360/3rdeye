@@ -48,14 +48,16 @@ try {
   console.error("⚠️ Database initial connection failed:", dbErr.message || dbErr);
 }
 
-// Initialize AutoSend cron job
+// Initialize AutoSend cron job (skip in serverless)
 import { initAutoSendJob } from './services/autoSendService.js';
 import { startPermissionCron } from './scripts/permissionCron.js';
-try {
-  initAutoSendJob();
-  startPermissionCron();
-} catch (cronErr) {
-  console.error("⚠️ Cron job init failed:", cronErr.message || cronErr);
+if (!process.env.VERCEL) {
+  try {
+    initAutoSendJob();
+    startPermissionCron();
+  } catch (cronErr) {
+    console.error("⚠️ Cron job init failed:", cronErr.message || cronErr);
+  }
 }
 
 const app = express();
@@ -134,6 +136,16 @@ app.use(
 app.use(express.json({ limit: "200mb" }));
 app.use(express.urlencoded({ extended: true, limit: "200mb" }));
 
+// Ensure database is connected for every request (critical for serverless / Vercel)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (dbErr) {
+    console.error("DB connection error in request middleware:", dbErr.message || dbErr);
+    next(dbErr);
+  }
+});
 
 app.use('/api/upload', uploadRoutes);
 
@@ -324,15 +336,17 @@ app.set('io', io);
 
 export default app;
 
-httpServer.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🌐 API Base URL: http://localhost:${PORT}/api`);
-  console.log(`⏱️  Request timeout: ${requestTimeout}ms (${Math.round(requestTimeout / 1000 / 60)} minutes)`);
-  console.log(`🔌 WebSocket server initialized for real-time updates`);
+if (!process.env.VERCEL) {
+  httpServer.listen(PORT, "0.0.0.0", () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🌐 API Base URL: http://localhost:${PORT}/api`);
+    console.log(`⏱️  Request timeout: ${requestTimeout}ms (${Math.round(requestTimeout / 1000 / 60)} minutes)`);
+    console.log(`🔌 WebSocket server initialized for real-time updates`);
 
-  // Start keep-alive pinger to prevent Render cold starts
-  if (process.env.NODE_ENV === 'production' || process.env.RENDER_EXTERNAL_URL) {
-    initKeepAlive();
-  }
-});
+    // Start keep-alive pinger to prevent Render cold starts
+    if (process.env.NODE_ENV === 'production' || process.env.RENDER_EXTERNAL_URL) {
+      initKeepAlive();
+    }
+  });
+}
