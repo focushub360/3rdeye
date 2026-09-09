@@ -10,7 +10,9 @@ const API_BASE_URL = (() => {
 
   const isStaging =
     hostname.includes("netlify.app") ||
-    hostname.includes("netlify.live");
+    hostname.includes("netlify.live") ||
+    hostname.includes("3-w-nu.vercel.app") ||
+    (hostname.includes("vercel.app") && !hostname.includes("focus3rdeye.com"));
 
   const getBaseUrl = (): string => {
     const hostname = window.location.hostname;
@@ -24,9 +26,9 @@ const API_BASE_URL = (() => {
       return import.meta.env.VITE_API_URL;
     }
 
-    // Developer Test / Staging backend on Render
+    // Developer Test / Staging backend on Vercel
     if (isStaging) {
-      return "https://threew-vu4v.onrender.com/api";
+      return "https://3-w-s53g.vercel.app/api";
     }
 
     // Production backend on AWS EC2
