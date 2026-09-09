@@ -77,7 +77,18 @@ export const checkIn = async (req, res) => {
   try {
     const { lat, lng, accuracy, otp } = req.body;
     const inspectorId = req.user._id;
-    const tenantId = req.user.tenantId;
+    let tenantId = req.user.tenantId;
+    if (!tenantId) {
+      try {
+        const Tenant = mongoose.model('Tenant');
+        const firstTenant = await Tenant.findOne({ isActive: true }) || await Tenant.findOne();
+        if (firstTenant) {
+          tenantId = firstTenant._id;
+        }
+      } catch (err) {
+        console.warn('Could not resolve fallback tenantId:', err.message);
+      }
+    }
 
     // Verify OTP if provided
     if (otp) {
@@ -104,33 +115,64 @@ export const checkIn = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Already checked in' });
     }
 
-    // 2.5 Auto Shift Detection
-    const allShifts = await Shift.find({ tenantId, isActive: true });
+    // 2.5 Auto Shift Detection based on current IST punch time
+    const allShifts = tenantId ? await Shift.find({ tenantId, isActive: true }) : await Shift.find({ isActive: true });
     const currentMins = now.getHours() * 60 + now.getMinutes();
 
-    let shift = findShiftByTime(currentMins, allShifts, 15); // 15 mins buffer
+    let shift = findShiftByTime(currentMins, allShifts, 30); // 30 mins buffer for smooth punch-in window
 
     // Overtime/Fallback Shift lookup
     if (!shift && existingAttendance && existingAttendance.shift) {
       shift = await Shift.findById(existingAttendance.shift);
     }
-    if (!shift) {
+    if (!shift && tenantId) {
       shift = await Shift.findOne({
         tenantId,
         assignedInspectors: inspectorId,
         isActive: true
       });
     }
-    if (!shift) {
+    if (!shift && tenantId) {
       // Fallback to any active shift for this tenant to avoid blocking the user
       shift = await Shift.findOne({ tenantId, isActive: true });
+    }
+    if (!shift) {
+      shift = await Shift.findOne({ isActive: true });
+    }
+
+    // Auto-provision a default General Shift if no shift exists yet
+    if (!shift && tenantId) {
+      try {
+        shift = await Shift.create({
+          tenantId,
+          name: 'general',
+          displayName: 'General Shift (09:00 - 18:00)',
+          startTime: '09:00',
+          endTime: '18:00',
+          gracePeriod: 15,
+          lateMarkingAfter: 30,
+          halfDayMarkingAfter: 120,
+          isActive: true,
+          assignedInspectors: [inspectorId]
+        });
+        console.log('Auto-created standard General Shift for tenant:', tenantId);
+      } catch (shiftErr) {
+        console.warn('Failed to auto-create shift:', shiftErr.message);
+      }
     }
 
     if (!shift) {
       return res.status(400).json({
         success: false,
-        message: 'No shift available for current time. Contact admin.'
+        message: 'No shift available for current time. Please configure an active shift.'
       });
+    }
+
+    // Automatically bind user to the matched shift if not already assigned
+    if (shift && (!shift.assignedInspectors || !shift.assignedInspectors.some(id => id.toString() === inspectorId.toString()))) {
+      shift.assignedInspectors = shift.assignedInspectors || [];
+      shift.assignedInspectors.push(inspectorId);
+      await shift.save().catch(e => console.warn('Could not auto-bind user to shift:', e.message));
     }
 
     // 3. Validate timing against shift (Late/Half-day marking) - only if it's the FIRST check-in today
@@ -336,7 +378,18 @@ export const checkOut = async (req, res) => {
 export const getMyStatus = async (req, res) => {
   try {
     const inspectorId = req.user._id;
-    const tenantId = req.user.tenantId;
+    let tenantId = req.user.tenantId;
+    if (!tenantId) {
+      try {
+        const Tenant = mongoose.model('Tenant');
+        const firstTenant = await Tenant.findOne({ isActive: true }) || await Tenant.findOne();
+        if (firstTenant) {
+          tenantId = firstTenant._id;
+        }
+      } catch (err) {
+        console.warn('Could not resolve fallback tenantId:', err.message);
+      }
+    }
 
     console.log('getMyStatus - inspectorId:', inspectorId, 'tenantId:', tenantId);
 
@@ -353,20 +406,23 @@ export const getMyStatus = async (req, res) => {
     if (attendance && attendance.shift) {
       shift = await Shift.findById(attendance.shift);
     } else {
-      const allShifts = await Shift.find({ tenantId, isActive: true });
+      const allShifts = tenantId ? await Shift.find({ tenantId, isActive: true }) : await Shift.find({ isActive: true });
       const currentMins = now.getHours() * 60 + now.getMinutes();
       console.log(`getMyStatus - current IST: ${now.toString()}, currentMins: ${currentMins}, shifts found: ${allShifts.length}`);
-      shift = findShiftByTime(currentMins, allShifts, 15);
+      shift = findShiftByTime(currentMins, allShifts, 30);
       
-      if (!shift) {
+      if (!shift && tenantId) {
         shift = await Shift.findOne({
           tenantId,
           assignedInspectors: inspectorId,
           isActive: true
         });
       }
-      if (!shift) {
+      if (!shift && tenantId) {
         shift = await Shift.findOne({ tenantId, isActive: true });
+      }
+      if (!shift) {
+        shift = await Shift.findOne({ isActive: true });
       }
     }
 

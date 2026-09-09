@@ -8,7 +8,7 @@ import { processAttendanceForReport, generateAttendanceExcel } from '../services
  */
 export const getAttendanceReport = async (req, res) => {
   try {
-    const { startDate, endDate, inspectorId, status, shiftId } = req.query;
+    const { startDate, endDate, inspectorId, status, shiftId, role } = req.query;
     const userRole = req.user.role;
     const tenantId = req.user.tenantId;
 
@@ -16,7 +16,7 @@ export const getAttendanceReport = async (req, res) => {
     console.log('User role:', userRole);
     console.log('User email:', req.user.email);
     console.log('tenantId:', tenantId);
-    console.log('startDate:', startDate, 'endDate:', endDate);
+    console.log('startDate:', startDate, 'endDate:', endDate, 'filterRole:', role);
 
     // 1. Build Query
     let query = {};
@@ -46,18 +46,31 @@ export const getAttendanceReport = async (req, res) => {
 
     console.log('Final query:', JSON.stringify(query));
 
+    // User filter for roster (all users or filtered by role)
+    const userFilter = { isActive: true };
+    if (role && role !== 'all') {
+      userFilter.role = role;
+    } else {
+      userFilter.role = { $in: ['admin', 'subadmin', 'inspector', 'user'] };
+    }
+
     // 2. Fetch Data in parallel using lean() for maximum query speed
-    const [logs, inspectors] = await Promise.all([
+    const [rawLogs, inspectors] = await Promise.all([
       Attendance.find(query)
-        .populate('inspector', 'firstName lastName username email tenantId')
+        .populate('inspector', 'firstName lastName username email role tenantId')
         .populate('tenantId', 'name companyName')
         .populate('shift', 'name displayName startTime endTime')
         .sort({ date: -1 })
         .lean(),
       userRole === 'superadmin'
-        ? User.find({ role: 'inspector', isActive: true }).select('firstName lastName username email').lean()
-        : User.find({ tenantId, role: 'inspector', isActive: true }).select('firstName lastName username email').lean()
+        ? User.find(userFilter).select('firstName lastName username email role').lean()
+        : User.find({ tenantId, ...userFilter }).select('firstName lastName username email role').lean()
     ]);
+
+    // If a specific role was requested, filter logs to only include users with that role
+    const logs = (role && role !== 'all')
+      ? rawLogs.filter(l => l.inspector && l.inspector.role === role)
+      : rawLogs;
 
     // 3. Process Report
     const diffTime = Math.abs(end.getTime() - start.getTime());
@@ -79,32 +92,49 @@ export const getAttendanceReport = async (req, res) => {
  */
 export const exportAttendanceReport = async (req, res) => {
   try {
-    const { startDate, endDate, inspectorId, status, shiftId } = req.query;
+    const { startDate, endDate, inspectorId, status, shiftId, role } = req.query;
+    const userRole = req.user.role;
     const tenantId = req.user.tenantId;
 
     // 1. Fetch Tenant info
-    const tenant = await Tenant.findById(tenantId);
+    const tenant = tenantId ? await Tenant.findById(tenantId) : null;
     
     // 2. Build Query & Fetch Logs
-    const query = { tenantId };
+    const query = {};
+    if (userRole !== 'superadmin' && tenantId) {
+      query.tenantId = tenantId;
+    }
     if (startDate && endDate) {
       const start = new Date(startDate);
       start.setHours(0, 0, 0, 0);
       const end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
       query.date = { $gte: start, $lte: end };
-      console.log('getAttendanceReport - date query:', query.date);
+      console.log('exportAttendanceReport - date query:', query.date);
     }
     if (inspectorId) query.inspector = inspectorId;
     if (status) query.status = status;
     if (shiftId) query.shift = shiftId;
 
-    const logs = await Attendance.find(query)
-      .populate('inspector', 'firstName lastName username email')
+    const rawLogs = await Attendance.find(query)
+      .populate('inspector', 'firstName lastName username email role')
       .populate('shift', 'name displayName startTime endTime')
       .sort({ date: -1 });
 
-    const inspectors = await User.find({ tenantId, role: 'inspector', isActive: true });
+    const userFilter = { isActive: true };
+    if (role && role !== 'all') {
+      userFilter.role = role;
+    } else {
+      userFilter.role = { $in: ['admin', 'subadmin', 'inspector', 'user'] };
+    }
+
+    const inspectors = await User.find(
+      userRole === 'superadmin' ? userFilter : { tenantId, ...userFilter }
+    ).select('firstName lastName username email role').lean();
+
+    const logs = (role && role !== 'all')
+      ? rawLogs.filter(l => l.inspector && l.inspector.role === role)
+      : rawLogs;
 
     // 3. Process Data
     const diffTime = Math.abs(new Date(endDate) - new Date(startDate));

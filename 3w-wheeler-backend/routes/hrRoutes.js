@@ -23,14 +23,14 @@ router.post('/shifts/:id/assign', authenticate, adminOnly, shiftController.assig
 router.delete('/shifts/:id/remove', authenticate, adminOnly, shiftController.removeInspectors);
 
 /**
- * ATTENDANCE (Inspector only)
+ * ATTENDANCE (Universal - all authenticated roles)
  */
-router.post('/attendance/checkin', authenticate, inspectorOnly, attendanceController.checkIn);
-router.post('/attendance/checkout', authenticate, inspectorOnly, attendanceController.checkOut);
-router.post('/attendance/send-otp', authenticate, inspectorOnly, attendanceController.sendAttendanceOTP);
-router.get('/attendance/my-status', authenticate, inspectorOnly, attendanceController.getMyStatus);
-router.get('/attendance/my-history', authenticate, inspectorOnly, attendanceController.getMyHistory);
-router.get('/attendance/my-shift', authenticate, inspectorOnly, shiftController.getMyShift);
+router.post('/attendance/checkin', authenticate, attendanceController.checkIn);
+router.post('/attendance/checkout', authenticate, attendanceController.checkOut);
+router.post('/attendance/send-otp', authenticate, attendanceController.sendAttendanceOTP);
+router.get('/attendance/my-status', authenticate, attendanceController.getMyStatus);
+router.get('/attendance/my-history', authenticate, attendanceController.getMyHistory);
+router.get('/attendance/my-shift', authenticate, shiftController.getMyShift);
 
 /**
  * LEAVE MANAGEMENT

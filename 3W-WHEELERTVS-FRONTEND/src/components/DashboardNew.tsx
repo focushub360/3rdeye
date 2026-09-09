@@ -31,6 +31,9 @@ import { Doughnut } from "react-chartjs-2";
 import { apiClient } from "../api/client";
 import PerformanceTable from "./PerformanceTable";
 import { LAYOUT_CONFIG } from "../config/layoutConfig";
+import { useAttendanceStatus } from "../context/AttendanceContext";
+import { AttendancePunchModal } from "./attendance/AttendancePunchModal";
+import { Clock } from "lucide-react";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
@@ -268,6 +271,8 @@ const MyReviewBreakdownChart = ({ myReviewStats }: { myReviewStats: any }) => {
 export default function DashboardNew() {
   const navigate = useNavigate();
   const { user, tenant: currentTenant } = useAuth();
+  const [showPunchModal, setShowPunchModal] = useState(false);
+  const { isCheckedIn, checkInTime, elapsedTime } = useAttendanceStatus();
   const [userPerformanceScore, setUserPerformanceScore] = useState(100);
   const [formsData, setFormsData] = useState<any>(() => {
     return apiClient.getCachedData("/forms?limit=100") || null;
@@ -2209,6 +2214,48 @@ export default function DashboardNew() {
         </div>
       )}
 
+      {/* Attendance Punch Section */}
+      {user && (
+        <div className="mb-6 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 sm:p-6 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+           <div>
+             <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-1">Daily Attendance</h3>
+             <p className="text-xs text-gray-500 dark:text-gray-400">
+               {isCheckedIn ? `Checked in at ${checkInTime || "--"}` : "You haven't checked in yet today."}
+             </p>
+           </div>
+           
+           <button
+             type="button"
+             onClick={() => setShowPunchModal(true)}
+             className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm border ${
+               isCheckedIn
+                 ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60"
+                 : "bg-slate-900 text-white hover:bg-slate-800 border-slate-900 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+             }`}
+           >
+             {isCheckedIn ? (
+               <>
+                 <span className="relative flex h-2.5 w-2.5">
+                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                 </span>
+                 <span>Checked In</span>
+                 {elapsedTime && (
+                   <span className="font-mono text-xs font-semibold pl-2 border-l border-emerald-300 dark:border-emerald-700/60">
+                     {elapsedTime}
+                   </span>
+                 )}
+               </>
+             ) : (
+               <>
+                 <Clock className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
+                 <span>Check In Now</span>
+               </>
+             )}
+           </button>
+        </div>
+      )}
+
       {/* Main Dashboard Container */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 sm:p-6 lg:p-8 shadow-sm">
         {/* Header with Breadcrumb */}
@@ -2349,6 +2396,11 @@ export default function DashboardNew() {
 
 
       </div>
+
+      <AttendancePunchModal
+        isOpen={showPunchModal}
+        onClose={() => setShowPunchModal(false)}
+      />
     </div>
   );
 }

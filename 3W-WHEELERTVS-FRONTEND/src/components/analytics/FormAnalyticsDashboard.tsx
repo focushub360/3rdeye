@@ -11,6 +11,7 @@ import StatusMultiSelect from "./StatusMultiSelect";
 import {
   exportDashboardToPDF,
   exportFormAnalyticsToPDF,
+  exportDashboardToPPT,
 } from "../../utils/formanalyticsexport";
 import {
   Users as UsersIcon,
@@ -2249,6 +2250,7 @@ export default function FormAnalyticsDashboard() {
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const exportDropdownRef = useRef<HTMLDivElement>(null);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [isExportingPPT, setIsExportingPPT] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -5772,7 +5774,8 @@ export default function FormAnalyticsDashboard() {
       rejected,
       recentResponses,
       responseTrend,
-      dateRange, // ← Use this instead of last30Days
+      dateRange,
+      countsData: counts,
       percentageData,
     };
   }, [filteredResponses, dateFilter.startDate, dateFilter.endDate, dateFilter.type]);
@@ -6479,63 +6482,15 @@ export default function FormAnalyticsDashboard() {
 
 
 
-  const visibleDashboardSectionStats = useMemo(
-    () =>
-      dashboardSectionPerformanceStats.filter((stat) =>
-        selectedSectionIds.includes(stat.id),
-      ),
-    [dashboardSectionPerformanceStats, selectedSectionIds],
-  );
-
-  const sectionSummaryRows = useMemo(
-    () =>
-      visibleDashboardSectionStats
-        .map((stat) => {
-          const rowYesCount = stat.yes + (stat.accepted || 0);
-          const rowNoCount = stat.no + (stat.rejected || 0);
-          const rowNaCount = stat.na + (stat.rework || 0);
-
-          const yesPercent = stat.total ? (rowYesCount / stat.total) * 100 : 0;
-          const noPercent = stat.total ? (rowNoCount / stat.total) * 100 : 0;
-          const naPercent = stat.total ? (rowNaCount / stat.total) * 100 : 0;
-
-          return {
-            id: stat.id,
-            title: stat.title,
-            yesPercent,
-            yesCount: rowYesCount,
-            noPercent,
-            noCount: rowNoCount,
-            naPercent,
-            naCount: rowNaCount,
-            total: stat.total,
-          };
-        })
-        // Sort by Yes percentage in descending order
-        .sort((a, b) => b.yesPercent - a.yesPercent),
-    [visibleDashboardSectionStats],
-  );
-
-  const summaryTotals = useMemo(() => {
-    return sectionSummaryRows.reduce(
-      (acc, row) => ({
-        total: acc.total + row.total,
-        yesCount: acc.yesCount + (row.yesCount || 0),
-        noCount: acc.noCount + (row.noCount || 0),
-        naCount: acc.naCount + (row.naCount || 0),
-      }),
-      {
-        total: 0,
-        yesCount: 0,
-        noCount: 0,
-        naCount: 0,
-      },
+  const visibleDashboardSectionStats = useMemo(() => {
+    return dashboardSectionPerformanceStats.filter((stat) =>
+      selectedSectionIds.includes(stat.id),
     );
-  }, [sectionSummaryRows]);
+  }, [dashboardSectionPerformanceStats, selectedSectionIds]);
 
-  const qualitySectionSummaryRows = useMemo(
-    () =>
-      qualitySectionPerformanceStats.map((stat) => {
+  const sectionSummaryRows = useMemo(() => {
+    return visibleDashboardSectionStats
+      .map((stat) => {
         const rowYesCount = stat.yes + (stat.accepted || 0);
         const rowNoCount = stat.no + (stat.rejected || 0);
         const rowNaCount = stat.na + (stat.rework || 0);
@@ -6555,9 +6510,51 @@ export default function FormAnalyticsDashboard() {
           naCount: rowNaCount,
           total: stat.total,
         };
+      })
+      // Sort by Yes percentage in descending order
+      .sort((a, b) => b.yesPercent - a.yesPercent);
+  }, [visibleDashboardSectionStats]);
+
+  const summaryTotals = useMemo(() => {
+    return sectionSummaryRows.reduce(
+      (acc, row) => ({
+        total: acc.total + row.total,
+        yesCount: acc.yesCount + (row.yesCount || 0),
+        noCount: acc.noCount + (row.noCount || 0),
+        naCount: acc.naCount + (row.naCount || 0),
       }),
-    [qualitySectionPerformanceStats],
-  );
+      {
+        total: 0,
+        yesCount: 0,
+        noCount: 0,
+        naCount: 0,
+      },
+    );
+  }, [sectionSummaryRows]);
+
+  const qualitySectionSummaryRows = useMemo(() => {
+    return qualitySectionPerformanceStats.map((stat) => {
+      const rowYesCount = stat.yes + (stat.accepted || 0);
+      const rowNoCount = stat.no + (stat.rejected || 0);
+      const rowNaCount = stat.na + (stat.rework || 0);
+
+      const yesPercent = stat.total ? (rowYesCount / stat.total) * 100 : 0;
+      const noPercent = stat.total ? (rowNoCount / stat.total) * 100 : 0;
+      const naPercent = stat.total ? (rowNaCount / stat.total) * 100 : 0;
+
+      return {
+        id: stat.id,
+        title: stat.title,
+        yesPercent,
+        yesCount: rowYesCount,
+        noPercent,
+        noCount: rowNoCount,
+        naPercent,
+        naCount: rowNaCount,
+        total: stat.total,
+      };
+    });
+  }, [qualitySectionPerformanceStats]);
 
   const uniqueInspectors = useMemo(() => {
     // Combine inspectors from responses, inspectorSummary, and allInspectors (Role-based)
@@ -8473,6 +8470,34 @@ export default function FormAnalyticsDashboard() {
     }
   };
 
+  const handleExportToPPT = async () => {
+    try {
+      setIsExportingPPT(true);
+      showToast("Generating PPT report...", "info");
+
+      const success = await exportDashboardToPPT(
+        form?.title || "Form Analytics",
+        {
+          total: analytics.total,
+          pending: analytics.pending,
+          verified: analytics.verified,
+          rejected: analytics.rejected,
+        }
+      );
+
+      if (success) {
+        showToast("PPT report generated successfully!", "success");
+      } else {
+        showToast("Failed to generate PPT. Please try again.", "error");
+      }
+    } catch (error) {
+      console.error("Error downloading PPT:", error);
+      showToast("Failed to generate PPT. Please try again.", "error");
+    } finally {
+      setIsExportingPPT(false);
+    }
+  };
+
   const handleExportToExcel = async (
     mode: "full" | "consolidated" | "standard" = "full",
   ) => {
@@ -9097,6 +9122,7 @@ export default function FormAnalyticsDashboard() {
           borderColor: "rgb(21, 128, 61)",
           borderWidth: 1,
           stack: "stack1",
+          maxBarThickness: 60,
         },
         {
           label: "Rejected",
@@ -9105,6 +9131,7 @@ export default function FormAnalyticsDashboard() {
           borderColor: "rgb(185, 28, 28)",
           borderWidth: 1,
           stack: "stack1",
+          maxBarThickness: 60,
         },
         {
           label: "Reworked",
@@ -9235,6 +9262,7 @@ export default function FormAnalyticsDashboard() {
           borderWidth: 1,
           stack: "stack1",
           minBarLength: 0,
+          maxBarThickness: 60,
         },
         {
           label: "Rejected",
@@ -9244,6 +9272,7 @@ export default function FormAnalyticsDashboard() {
           borderWidth: 1,
           stack: "stack1",
           minBarLength: 0,
+          maxBarThickness: 60,
         },
         {
           label: "Reworked",
@@ -9253,6 +9282,7 @@ export default function FormAnalyticsDashboard() {
           borderWidth: 1,
           stack: "stack1",
           minBarLength: 0,
+          maxBarThickness: 60,
         },
       ],
     };
@@ -10431,19 +10461,6 @@ export default function FormAnalyticsDashboard() {
                 Responses
               </button>
             )}
-            {/* {!isInspector && !isGuest && (
-              <button
-                onClick={() => setAnalyticsView("comparison")}
-                className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${
-                  analyticsView === "comparison"
-                    ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
-                    : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
-                }`}
-              >
-                <UsersIcon className="w-4 h-4" />
-                Comparison
-              </button>
-            )} */}
           </div>
 
           {/* Refresh Button - Only for Dashboard */}
@@ -10547,8 +10564,20 @@ export default function FormAnalyticsDashboard() {
                   </>
                 )}
                 <button
+                  onClick={handleExportToPPT}
+                  disabled={isExportingPPT || isExporting || isExportingExcel}
+                  className="p-1.5 sm:p-2 text-gray-500 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded-lg transition-colors disabled:opacity-50"
+                  title="Export to PPT"
+                >
+                  {isExportingPPT ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                </button>
+                <button
                   onClick={handleExportToPDF}
-                  disabled={isExporting}
+                  disabled={isExportingPPT || isExporting || isExportingExcel}
                   className="p-1.5 sm:p-2 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
                   title="Export to PDF"
                 >
@@ -10560,11 +10589,15 @@ export default function FormAnalyticsDashboard() {
                 </button>
                 <button
                   onClick={handleExportToExcel}
-                  disabled={isExporting}
+                  disabled={isExportingPPT || isExporting || isExportingExcel}
                   className="p-1.5 sm:p-2 text-gray-500 hover:text-green-600 dark:text-gray-400 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors disabled:opacity-50"
                   title="Export to Excel"
                 >
-                  <Table className="w-4 h-4" />
+                  {isExportingExcel ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-green-500" />
+                  ) : (
+                    <Table className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </div>
@@ -10671,8 +10704,8 @@ export default function FormAnalyticsDashboard() {
                               ),
                               datasets: [
                                 {
-                                  label: "Responses %",
-                                  data: analytics.percentageData,
+                                  label: "Responses",
+                                  data: analytics.countsData,
                                   borderColor: "rgb(59, 130, 246)",
                                   backgroundColor: "rgba(59, 130, 246, 0.1)",
                                   fill: true,
@@ -10683,6 +10716,15 @@ export default function FormAnalyticsDashboard() {
                                   pointBorderColor: "#fff",
                                   pointBorderWidth: 2,
                                   borderWidth: 2,
+                                  datalabels: {
+                                    color: "#374151",
+                                    font: { weight: "bold" as const, size: 9 },
+                                    formatter: (value: number) => {
+                                      return value > 0 ? value : "";
+                                    },
+                                    align: "top",
+                                    offset: 4,
+                                  },
                                 },
                               ],
                             }}
@@ -10729,7 +10771,6 @@ export default function FormAnalyticsDashboard() {
                               scales: {
                                 y: {
                                   beginAtZero: true,
-                                  max: 100,
                                   grid: {
                                     color: "rgba(0, 0, 0, 0.05)",
                                     drawBorder: false,
@@ -10737,9 +10778,7 @@ export default function FormAnalyticsDashboard() {
                                   ticks: {
                                     color: "rgb(107, 114, 128)",
                                     font: { size: 10 },
-                                    callback: function (value) {
-                                      return value + "%";
-                                    },
+                                    stepSize: 1,
                                   },
                                 },
                                 x: {

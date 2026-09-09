@@ -53,6 +53,7 @@ import SignupPage from "./components/auth/SignupPage";
 import DashboardNew from "./components/DashboardNew";
 import FormsAnalytics from "./components/analytics/FormsAnalytics";
 import FormAnalyticsDashboard from "./components/analytics/FormAnalyticsDashboard";
+import { QualityDashboard } from "./components/analytics/QualityDashboard";
 import FormsList from "./components/FormsList";
 import FormResponses from "./components/FormResponses";
 import AllResponses from "./components/AllResponses";
@@ -396,6 +397,12 @@ const router = createBrowserRouter(
         {
           path: "/forms/analytics",
           element: withAccessControl(<FormsAnalytics />, {
+            requiredPermission: ROUTE_PERMISSIONS.ANALYTICS,
+          }),
+        },
+        {
+          path: "/forms/analytics/summary",
+          element: withAccessControl(<QualityDashboard />, {
             requiredPermission: ROUTE_PERMISSIONS.ANALYTICS,
           }),
         },

@@ -14,12 +14,15 @@ const DEV_URL = Platform.OS === 'web'
   : `http://${LOCAL_IP}:5000/api/`;
 
 const STAGING_URL = 'https://threew-vu4v.onrender.com/api/';
+const PRODUCTION_URL = 'https://www.focus3rdeye.com/api/';
 
 console.log('🛡️ API Client Module Loading...');
 
+// Currently configuring to use Production URL if not in dev mode.
+// If you want to force staging on a release build, change this to STAGING_URL.
 export let BASE_URL = IS_DEV 
   ? DEV_URL
-  : STAGING_URL;
+  : PRODUCTION_URL;
 
 export let ROOT_URL = BASE_URL.replace('/api/', '');
 

@@ -83,10 +83,12 @@ export const generateAttendanceExcel = (data, options) => {
 export const processAttendanceForReport = (logs, inspectors, totalDays) => {
   const inspectorMap = new Map();
   
-  // Initialize map for all inspectors
+  // Initialize map for all inspectors / users
   inspectors.forEach(ins => {
     inspectorMap.set(ins._id.toString(), {
+      id: ins._id,
       name: `${ins.firstName} ${ins.lastName}`,
+      role: ins.role || 'user',
       present: 0,
       late: 0,
       halfDay: 0,
@@ -107,7 +109,7 @@ export const processAttendanceForReport = (logs, inspectors, totalDays) => {
     else if (log.status === 'late') stats.late++;
     else if (log.status === 'half-day') stats.halfDay++;
     
-    stats.totalHours += log.workingHours;
+    stats.totalHours += (log.workingHours || 0);
     stats.logs.push(log);
   });
 
@@ -119,7 +121,9 @@ export const processAttendanceForReport = (logs, inspectors, totalDays) => {
 
   // Format statistics
   const inspectorStats = Array.from(inspectorMap.values()).map(s => ({
+    inspectorId: s.id,
     name: s.name,
+    role: s.role,
     present: s.present,
     late: s.late,
     halfDay: s.halfDay,
@@ -133,7 +137,7 @@ export const processAttendanceForReport = (logs, inspectors, totalDays) => {
       // Convert stored UTC date to local date (IST = UTC+5:30)
       // IST is UTC+5:30, so add 5.5 hours to get correct local date
       const istOffsetMs = 5.5 * 60 * 60 * 1000;
-      const localDate = new Date(log.date.getTime() + istOffsetMs).toISOString().split('T')[0];
+      const localDate = new Date(new Date(log.date).getTime() + istOffsetMs).toISOString().split('T')[0];
      
       // Get tenant info if available
       const tenantName = log.tenantId?.companyName || log.tenantId?.name || null;
@@ -143,6 +147,7 @@ export const processAttendanceForReport = (logs, inspectors, totalDays) => {
       if (log.punches && log.punches.length > 0) {
         punchesList = log.punches.map(p => ({
           type: p.type,
+          rawTime: p.time,
           time: p.time ? new Date(p.time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : null,
           lat: p.lat,
           lng: p.lng,
@@ -154,6 +159,7 @@ export const processAttendanceForReport = (logs, inspectors, totalDays) => {
         if (log.checkInTime) {
           punchesList.push({
             type: 'in',
+            rawTime: log.checkInTime,
             time: new Date(log.checkInTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }),
             lat: log.checkInLat,
             lng: log.checkInLng,
@@ -164,6 +170,7 @@ export const processAttendanceForReport = (logs, inspectors, totalDays) => {
         if (log.checkOutTime) {
           punchesList.push({
             type: 'out',
+            rawTime: log.checkOutTime,
             time: new Date(log.checkOutTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }),
             lat: log.checkOutLat,
             lng: log.checkOutLng,
@@ -174,15 +181,25 @@ export const processAttendanceForReport = (logs, inspectors, totalDays) => {
       }
 
       return {
+        _id: log._id,
         date: localDate,
+        rawDate: log.date,
         inspector: log.inspector ? `${log.inspector.firstName} ${log.inspector.lastName}` : 'Unknown',
         inspectorId: log.inspector?._id || null,
+        role: log.inspector?.role || 'user',
         tenant: tenantName,
         shift: log.shiftName || log.shift?.displayName || log.shift?.name || 'N/A',
+        shiftStartTime: log.shiftStartTime || log.shift?.startTime || null,
+        shiftEndTime: log.shiftEndTime || log.shift?.endTime || null,
         checkIn: log.checkInTime ? new Date(log.checkInTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : null,
+        rawCheckInTime: log.checkInTime,
         checkOut: log.checkOutTime ? new Date(log.checkOutTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : null,
-        hours: log.workingHours,
+        rawCheckOutTime: log.checkOutTime,
+        hours: log.workingHours || 0,
         status: log.status,
+        isLate: !!log.isLate,
+        isHalfDay: !!log.isHalfDay,
+        isEarlyCheckout: !!log.isEarlyCheckout,
         location: log.checkInPlace || log.checkOutPlace,
         punches: punchesList
       };

@@ -646,18 +646,8 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
     });
 
     if (q.type === "zone-in" || q.type === "zone-out") {
-      columns.push({
-        label: `${headerText} - Remark`,
-        id: `${q.id}__remark`,
-        type: "paragraph",
-        required: false,
-      });
-      columns.push({
-        label: `${headerText} - Evidence Photo`,
-        id: `${q.id}__evidence`,
-        type: "image",
-        required: q.required,
-      });
+      // NOTE: Remark and Evidence Photo columns are explicitly omitted from the Main Form template
+      // as requested. They are still available in the Follow-up Template.
     }
   });
 

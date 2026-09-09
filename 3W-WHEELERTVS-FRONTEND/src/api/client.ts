@@ -24,8 +24,13 @@ const API_BASE_URL = (() => {
       return import.meta.env.VITE_API_URL;
     }
 
-    // Production backend on Render
-    return "https://threew-vu4v.onrender.com/api";
+    // Developer Test / Staging backend on Render
+    if (isStaging) {
+      return "https://threew-vu4v.onrender.com/api";
+    }
+
+    // Production backend on AWS EC2
+    return "https://www.focus3rdeye.com/api";
   };
 
   const baseUrl = getBaseUrl();
@@ -527,6 +532,7 @@ class ApiClient {
   private isHeavyAnalyticsEndpoint(endpoint: string): boolean {
     const heavyEndpoints = [
       '/analytics/performance-table',
+      '/analytics/quality-summary',
       '/responses/form/',
       '/analytics/inspector-summary',
       '/responses/bulk'
@@ -1329,12 +1335,6 @@ class ApiClient {
     });
     console.log("API Client: Auto-fill chassis result", result);
     return result;
-  }
-
-  async deleteResponse(id: string) {
-    return this.request(`/responses/${id}`, {
-      method: "DELETE",
-    });
   }
 
   async bulkUpdateBiwReview(ids: string[], status: "Accepted" | "Rejected" | "Reworked" | null) {
@@ -2827,12 +2827,17 @@ class ApiClient {
     return this.request<{ data: any }>("/hr/attendance/my-shift");
   }
 
+  async getHRShifts() {
+    return this.request<{ data: any[] }>("/hr/shifts");
+  }
+
   async getHRAttendanceReport(params: {
     startDate: string;
     endDate: string;
     inspectorId?: string;
     status?: string;
     shiftId?: string;
+    role?: string;
   }) {
     const query = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
@@ -2850,6 +2855,7 @@ class ApiClient {
     inspectorId?: string;
     status?: string;
     shiftId?: string;
+    role?: string;
   }) {
     const query = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
@@ -3443,6 +3449,24 @@ class ApiClient {
       }>;
       totalResponses: number;
     }>("/responses/biw-summary", { forceNetwork: params?.forceNetwork });
+  }
+
+  async getQualitySummary(params?: {
+    formId?: string;
+    startDate?: string;
+    endDate?: string;
+    tenantId?: string;
+    forceNetwork?: boolean;
+  }) {
+    const query = new URLSearchParams();
+    if (params?.formId) query.append("formId", params.formId);
+    if (params?.startDate) query.append("startDate", params.startDate);
+    if (params?.endDate) query.append("endDate", params.endDate);
+    if (params?.tenantId) query.append("tenantId", params.tenantId);
+
+    const queryString = query.toString();
+    const endpoint = `/analytics/quality-summary${queryString ? `?${queryString}` : ""}`;
+    return this.get<any>(endpoint, { forceNetwork: params?.forceNetwork ?? true });
   }
 }
 

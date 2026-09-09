@@ -8,6 +8,7 @@ import Tenant from '../models/Tenant.js';
 import Shift from '../models/Shift.js';
 import Review from '../models/Review.js';
 import { calculateUserActiveMinutes } from './activityController.js';
+import { appCache } from '../utils/cache.js';
 
 // ─── Date Parser Helper ──────────────────────────────────────────────────────
 const parseDate = (dateStr) => {
@@ -3361,5 +3362,352 @@ export const getOverallAnalytics = async (req, res) => {
   } catch (error) {
     console.error('getOverallAnalytics error:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
+ * Quality and Inspector Performance Summary (Mirrors Excel Pivot & Daily Sheet)
+ */
+export const getQualitySummary = async (req, res) => {
+  try {
+    const startTimer = Date.now();
+    const { formId, startDate, endDate, tenantId: queryTenantId } = req.query;
+    const { role, tenantId: userTenantId } = req.user;
+
+    // ─── Cache check (3 minute TTL) ─────────────────────────────────────
+    const cacheKey = `quality_summary_${userTenantId || 'superadmin'}_${formId || 'all'}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cached = appCache.get(cacheKey);
+    if (cached) {
+      console.log(`[Quality Summary] Cache HIT (${cacheKey}) - returning in ${Date.now() - startTimer}ms`);
+      return res.json(cached);
+    }
+    console.log(`[Quality Summary] Cache MISS (${cacheKey}) - computing from DB...`);
+
+    // 1. Identify target tenant
+    let targetTenantId = userTenantId;
+    if (role === 'superadmin' && queryTenantId) {
+      targetTenantId = queryTenantId;
+    }
+
+    // 2. Fetch accessible forms
+    const formQuery = {};
+    if (role === 'superadmin' && !queryTenantId) {
+      // Superadmin sees all forms
+    } else if (targetTenantId) {
+      const tIdObj = mongoose.Types.ObjectId.isValid(targetTenantId)
+        ? new mongoose.Types.ObjectId(targetTenantId)
+        : targetTenantId;
+
+      formQuery.$or = [
+        { tenantId: tIdObj },
+        { tenantId: targetTenantId.toString() },
+        { isGlobal: true },
+        { sharedWithTenants: targetTenantId.toString() },
+        { sharedWithTenants: tIdObj },
+        { 'chassisTenantAssignments.assignedTenants': targetTenantId.toString() }
+      ];
+    }
+
+    const accessibleForms = await Form.find(formQuery)
+      .select('id _id title sections tenantId')
+      .lean();
+
+    const questionTitleMap = {};
+    const formOptions = accessibleForms.map(f => {
+      (f.sections || []).forEach(sec => {
+        (sec.questions || []).forEach(q => {
+          if (q.id && q.text) {
+            questionTitleMap[q.id] = q.text.trim();
+          }
+        });
+      });
+      return {
+        id: f.id || f._id.toString(),
+        _id: f._id.toString(),
+        title: f.title
+      };
+    });
+
+    // 3. Build response filter
+    let formKeys = [];
+    if (formId && formId !== 'all') {
+      const selectedForm = accessibleForms.find(
+        f => f.id === formId || f._id.toString() === formId
+      );
+      if (selectedForm) {
+        formKeys = [selectedForm.id, selectedForm._id?.toString()].filter(Boolean);
+      } else {
+        formKeys = [formId];
+      }
+    } else {
+      formKeys = accessibleForms.flatMap(f => [f.id, f._id?.toString()]).filter(Boolean);
+    }
+
+    const responseFilter = {
+      questionId: { $in: formKeys },
+      isSectionSubmit: { $ne: true }
+    };
+
+    if (startDate || endDate) {
+      responseFilter.createdAt = {};
+      if (startDate) responseFilter.createdAt.$gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        responseFilter.createdAt.$lte = end;
+      }
+    }
+
+    // 4. Fetch responses WITHOUT the massive 'answers' payload first (but include chassis_number)
+    const responses = await Response.find(responseFilter)
+      .select('submittedBy status biwReview createdAt questionId formId isDispatched answers.chassis_number')
+      .lean()
+      .maxTimeMS(60000);
+
+    const defectResponseIds = [];
+    const rawResponsesMap = new Map();
+
+
+
+    // 5. Aggregate metrics
+    const inspectorMap = {};
+    const dailyMap = {};
+    const defectTypeMap = {};
+    let totalChecked = 0;
+    let totalAccepted = 0;
+    let totalDefects = 0;
+    let totalRework1 = 0;
+
+    responses.forEach(r => {
+      totalChecked++;
+      const rawName = (r.submittedBy || 'Unknown Submitter').trim().replace(/\s+/g, ' ');
+      const dateStr = r.createdAt ? new Date(r.createdAt).toISOString().split('T')[0] : 'Unknown Date';
+
+      let isDefect = false;
+      let isRework1 = false;
+
+      // Store basic info for the raw responses table
+      let chassisNo = 'N/A';
+      if (r.answers && typeof r.answers === 'object') {
+        const tempAnswers = r.answers instanceof Map ? Object.fromEntries(r.answers) : r.answers;
+        if (tempAnswers.chassis_number) chassisNo = typeof tempAnswers.chassis_number === 'object' ? tempAnswers.chassis_number.v || tempAnswers.chassis_number.status : tempAnswers.chassis_number;
+      }
+
+      rawResponsesMap.set(r._id.toString(), {
+        id: r._id.toString(),
+        chassisNumber: chassisNo,
+        submittedBy: rawName,
+        date: dateStr,
+        status: r.status || 'pending',
+        biwReviewStatus: r.biwReview?.status || 'Pending',
+        formId: r.formId || r.questionId,
+        defects: [] // will be populated in phase 2 if defective
+      });
+
+      // Check basic status
+      if (r.status && (r.status.toLowerCase().includes('rework') || r.status.toLowerCase().includes('reject'))) {
+        isDefect = true;
+      }
+      if (r.status === 'Rework 1') {
+        isRework1 = true;
+        totalRework1++;
+      }
+
+      const isAccept = !isDefect;
+      if (isAccept) {
+        totalAccepted++;
+      } else {
+        totalDefects++;
+        defectResponseIds.push(r._id); // Save ID to fetch answers later
+      }
+
+      // Inspector map
+      if (!inspectorMap[rawName]) {
+        inspectorMap[rawName] = {
+          name: rawName,
+          totalChecked: 0,
+          acceptCount: 0,
+          defectCount: 0,
+          rework1Count: 0,
+          biwAcceptCount: 0,
+          biwDefectCount: 0,
+          defectBreakdown: {}
+        };
+      }
+      const insp = inspectorMap[rawName];
+      insp.totalChecked++;
+      if (isAccept) insp.acceptCount++;
+      else insp.defectCount++;
+      if (isRework1) insp.rework1Count++;
+
+      // BIW review status
+      const biwStat = r.biwReview?.status;
+      if (biwStat === 'Accepted') insp.biwAcceptCount++;
+      else if (biwStat === 'Rejected' || biwStat === 'Reworked') insp.biwDefectCount++;
+      else if (isAccept) insp.biwAcceptCount++;
+      else insp.biwDefectCount++;
+
+      // Daily map
+      if (!dailyMap[dateStr]) {
+        dailyMap[dateStr] = {
+          date: dateStr,
+          totalChecked: 0,
+          acceptCount: 0,
+          defectCount: 0,
+          reworkCount: 0
+        };
+      }
+      const dObj = dailyMap[dateStr];
+      dObj.totalChecked++;
+      if (isAccept) dObj.acceptCount++;
+      else dObj.defectCount++;
+      if (isRework1) dObj.reworkCount++;
+    });
+
+    // 5.5 Fetch answers ONLY for defective responses to build defect breakdown
+    if (defectResponseIds.length > 0) {
+      console.log(`[Quality Summary] Fetching answers for ${defectResponseIds.length} defective responses...`);
+      const defectiveResponses = await Response.find({ _id: { $in: defectResponseIds } })
+        .select('submittedBy answers')
+        .lean()
+        .maxTimeMS(60000);
+
+      defectiveResponses.forEach(r => {
+        const rawName = (r.submittedBy || 'Unknown Submitter').trim().replace(/\s+/g, ' ');
+        const answersObj = r.answers instanceof Map ? Object.fromEntries(r.answers) : r.answers;
+        const insp = inspectorMap[rawName];
+        
+        if (answersObj && insp) {
+          for (const [k, v] of Object.entries(answersObj)) {
+            if (!v || k === 'chassis_number' || k.includes('id_number')) continue;
+            let s = '';
+            if (typeof v === 'object' && v.status) s = String(v.status).trim();
+            else if (typeof v === 'string') s = v.trim();
+
+            const sl = s.toLowerCase();
+            if (sl === 'rework' || sl === 'reworked' || sl === 'defect' || sl === 'defect found' || sl === 'rejected' || sl === 'no') {
+              const qTitle = questionTitleMap[k] || k;
+              defectTypeMap[qTitle] = (defectTypeMap[qTitle] || 0) + 1;
+              insp.defectBreakdown[qTitle] = (insp.defectBreakdown[qTitle] || 0) + 1;
+              
+              // Add to raw response defects
+              const rawRes = rawResponsesMap.get(r._id.toString());
+              if (rawRes) {
+                rawRes.defects.push(qTitle);
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Convert rawResponsesMap to array for the payload
+    const rawResponsesList = Array.from(rawResponsesMap.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    // Inspector performance ratings
+    let exemplaryCount = 0;
+    let exceededCount = 0;
+    let metCount = 0;
+    let partiallyMetCount = 0;
+
+    const inspectorList = Object.values(inspectorMap).map(insp => {
+      const acceptRate = insp.totalChecked > 0 ? Math.round((insp.acceptCount / insp.totalChecked) * 100) : 0;
+      const defectRate = Math.max(0, 100 - acceptRate);
+
+      let performanceStatus = 'Partially met performer';
+      let tier = 'partially-met';
+      let arrow = 'down';
+
+      if (acceptRate >= 90) {
+        performanceStatus = 'Exemplary performer';
+        tier = 'exemplary';
+        arrow = 'up';
+        exemplaryCount++;
+      } else if (acceptRate >= 80) {
+        performanceStatus = 'Exceeded Performance';
+        tier = 'exceeded';
+        arrow = 'up-right';
+        exceededCount++;
+      } else if (acceptRate >= 70) {
+        performanceStatus = 'Met expectation';
+        tier = 'met';
+        arrow = 'right';
+        metCount++;
+      } else {
+        partiallyMetCount++;
+      }
+
+      const biwTotal = insp.biwAcceptCount + insp.biwDefectCount;
+      const biwAcceptRate = biwTotal > 0 ? Math.round((insp.biwAcceptCount / biwTotal) * 100) : 0;
+      const biwDefectRate = Math.max(0, 100 - biwAcceptRate);
+
+      const topDefects = Object.entries(insp.defectBreakdown)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, count]) => ({ name, count }));
+
+      return {
+        ...insp,
+        acceptRate,
+        defectRate,
+        performanceStatus,
+        tier,
+        arrow,
+        biwAcceptRate,
+        biwDefectRate,
+        topDefects
+      };
+    });
+
+    inspectorList.sort((a, b) => b.totalChecked - a.totalChecked);
+
+    // Defect breakdown array
+    const defectBreakdown = Object.entries(defectTypeMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
+
+    // Daily trends array
+    const dailyTrends = Object.values(dailyMap)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(d => ({
+        ...d,
+        passRate: d.totalChecked > 0 ? Math.round((d.acceptCount / d.totalChecked) * 10000) / 100 : 0
+      }));
+
+    const overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
+    const overallDefectRate = Math.max(0, Math.round((100 - overallAcceptRate) * 100) / 100);
+
+    const payload = {
+      success: true,
+      data: {
+        summary: {
+          totalChecked,
+          totalAccepted,
+          totalDefects,
+          totalRework1,
+          overallAcceptRate,
+          overallDefectRate,
+          totalInspectors: inspectorList.length,
+          exemplaryCount,
+          exceededCount,
+          metCount,
+          partiallyMetCount
+        },
+        formOptions,
+        inspectors: inspectorList,
+        defectBreakdown,
+        dailyTrends,
+        rawResponses: rawResponsesList // Include raw forms data for the Excel-like grid
+      }
+    };
+
+    // Cache for 3 minutes (180s)
+    appCache.set(cacheKey, payload, 180);
+    console.log(`[Quality Summary] Computed in ${Date.now() - startTimer}ms for ${totalChecked} responses, cached as ${cacheKey}`);
+    res.json(payload);
+
+  } catch (error) {
+    console.error('getQualitySummary error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error calculating quality summary' });
   }
 };

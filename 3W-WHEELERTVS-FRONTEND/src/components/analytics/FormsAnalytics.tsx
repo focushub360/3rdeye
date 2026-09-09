@@ -36,6 +36,7 @@ import {
   History,
 } from "lucide-react";
 import ImportHistoryModal from "../history/ImportHistoryModal";
+import { QualitySummaryModal } from "./QualitySummaryModal";
 import { useForms, useResponses, useMutation } from "../../hooks/useApi";
 import { apiClient } from "../../api/client";
 import { useNotification } from "../../context/NotificationContext";
@@ -231,6 +232,7 @@ export default function FormsAnalytics() {
   const [isImporting, setIsImporting] = useState(false);
   const [isAnswerTemplateOpen, setIsAnswerTemplateOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isQualitySummaryOpen, setIsQualitySummaryOpen] = useState(false);
   const [previewFormData, setPreviewFormData] = useState<FormQuestion | null>(
     null,
   );
@@ -920,6 +922,16 @@ export default function FormsAnalytics() {
           {/* Only show action buttons for users who have permissions or are admin/superadmin */}
           {(userRole === 'admin' || userRole === 'superadmin' || canManage) && (
             <>
+              {/* Summary Box Button */}
+              <button
+                onClick={() => navigate('/forms/analytics/summary')}
+                className="btn-secondary flex items-center justify-center px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-sm font-semibold rounded-lg transition-all whitespace-nowrap"
+                title="View Inspector TVS performance, BIW quality defects & daily trend summary"
+              >
+                <BarChart3 className="w-4 h-4 mr-2 text-blue-600 dark:text-blue-400" />
+                Summary Box
+              </button>
+
               {/* Download Template - admins always see this, others need permission */}
               {(userRole === 'admin' || userRole === 'superadmin' || canDownloadTemplate) && (
                 <div
@@ -2048,6 +2060,11 @@ export default function FormsAnalytics() {
         }
         formId={shareAnalyticsModal.formId || ""}
         formTitle={shareAnalyticsModal.formTitle}
+      />
+      <QualitySummaryModal
+        isOpen={isQualitySummaryOpen}
+        onClose={() => setIsQualitySummaryOpen(false)}
+        forms={(forms || []).map((f: any) => ({ id: f.id || f._id, title: f.title }))}
       />
     </div>
   );

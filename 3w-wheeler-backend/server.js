@@ -50,8 +50,10 @@ try {
 
 // Initialize AutoSend cron job
 import { initAutoSendJob } from './services/autoSendService.js';
+import { startPermissionCron } from './scripts/permissionCron.js';
 try {
   initAutoSendJob();
+  startPermissionCron();
 } catch (cronErr) {
   console.error("⚠️ Cron job init failed:", cronErr.message || cronErr);
 }

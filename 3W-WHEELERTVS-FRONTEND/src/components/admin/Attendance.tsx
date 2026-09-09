@@ -22,7 +22,9 @@ import {
   X,
   Edit,
   Plus,
+  UserCheck,
 } from "lucide-react";
+import { DailyAttendanceRegister } from "./DailyAttendanceRegister";
 
 interface AttendanceRecord {
   _id: string;
@@ -200,14 +202,29 @@ export default function Attendance() {
 
     const cached = apiClient.getCachedData<any>(cacheKey);
     const logs = cached?.detailedLogs || cached?.data?.detailedLogs || [];
-    if (logs && logs.length > 0) {
-      const userMap = new Map<string, UserAttendance>();
-      const cachedInspectors = apiClient.getCachedData<any>("/attendance/inspectors") || [];
-      const inspectorsList = Array.isArray(cachedInspectors) ? cachedInspectors : cachedInspectors?.data || [];
-      const nameToInspector = new Map(
-        inspectorsList.map((i: any) => [`${i.firstName} ${i.lastName}`.trim(), i])
-      );
+    
+    const userMap = new Map<string, UserAttendance>();
+    const cachedInspectors = apiClient.getCachedData<any>("/attendance/inspectors") || [];
+    const inspectorsList = Array.isArray(cachedInspectors) ? cachedInspectors : cachedInspectors?.data || [];
+    const nameToInspector = new Map(
+      inspectorsList.map((i: any) => [`${i.firstName} ${i.lastName}`.trim(), i])
+    );
 
+    // Always initialize with all users
+    inspectorsList.forEach((ins: any) => {
+      const userName = `${ins.firstName} ${ins.lastName}`.trim();
+      userMap.set(userName, {
+        userId: ins._id || userName,
+        firstName: ins.firstName || "",
+        lastName: ins.lastName || "",
+        username: ins.username || "",
+        role: ins.role || "user",
+        tenantId: ins.tenantId || undefined,
+        attendance: {},
+      });
+    });
+
+    if (logs && logs.length > 0) {
       logs.forEach((log: any) => {
         const userName = log.inspector;
         if (!userName) return;
@@ -262,10 +279,9 @@ export default function Attendance() {
           };
         }
       });
-
-      return Array.from(userMap.values());
     }
-    return [];
+    
+    return Array.from(userMap.values());
   };
 
   const today = new Date();
@@ -316,6 +332,7 @@ export default function Attendance() {
 
   // New Tab & Swapping state
   const [activeTab, setActiveTab] = useState<"attendance" | "report-response" | "calendar-grid" | "attendance-summary">("attendance");
+  const [attendanceViewMode, setAttendanceViewMode] = useState<"daily-register" | "monthly-matrix">("daily-register");
   const [reportResponseData, setReportResponseData] = useState<any[]>([]);
   const [inspectorsList, setInspectorsList] = useState<any[]>(() => {
     const cached = apiClient.getCachedData<any>("/attendance/inspectors");
@@ -895,6 +912,20 @@ export default function Attendance() {
     const nameToInspector = new Map(
       inspectorsList.map((i: any) => [`${i.firstName} ${i.lastName}`.trim(), i])
     );
+
+    // Initialize map with all users so nobody misses out
+    inspectorsList.forEach((ins: any) => {
+      const userName = `${ins.firstName} ${ins.lastName}`.trim();
+      userMap.set(userName, {
+        userId: ins._id || userName,
+        firstName: ins.firstName || "",
+        lastName: ins.lastName || "",
+        username: ins.username || "",
+        role: ins.role || "user",
+        tenantId: ins.tenantId || undefined,
+        attendance: {},
+      });
+    });
 
     logs.forEach((log) => {
       // HR Report format: inspector is a string "FirstName LastName"
@@ -1862,8 +1893,50 @@ export default function Attendance() {
           </nav>
         </div>
 
-        {/* Month Selector and Controls */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-4">
+        {/* Sub-view mode switcher for Attendance Tab */}
+        {activeTab === "attendance" && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 p-2 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+            <div className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-700/60 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setAttendanceViewMode("daily-register")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all ${
+                  attendanceViewMode === "daily-register"
+                    ? "bg-white dark:bg-gray-800 text-primary-600 dark:text-primary-400 shadow-sm"
+                    : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                <UserCheck className="w-4 h-4" />
+                Daily Register
+              </button>
+              <button
+                type="button"
+                onClick={() => setAttendanceViewMode("monthly-matrix")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all ${
+                  attendanceViewMode === "monthly-matrix"
+                    ? "bg-white dark:bg-gray-800 text-primary-600 dark:text-primary-400 shadow-sm"
+                    : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                <Calendar className="w-4 h-4" />
+                Monthly Matrix
+              </button>
+            </div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 px-3 hidden md:block font-medium">
+              {attendanceViewMode === "daily-register"
+                ? "Live single-day roster, punch tracking & shift analytics"
+                : "Complete month-at-a-glance matrix with working hours"}
+            </div>
+          </div>
+        )}
+
+        {/* Render Daily Register when active on Attendance Tab */}
+        {activeTab === "attendance" && attendanceViewMode === "daily-register" ? (
+          <DailyAttendanceRegister />
+        ) : (
+          <>
+            {/* Month Selector and Controls */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center flex-wrap gap-2">
               <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
@@ -3034,6 +3107,8 @@ export default function Attendance() {
             <span className="text-xs">Future Date / No Data</span>
           </div>
         </div>
+          </>
+        )}
 
         {/* User Attendance Details Modal */}
         {showAttendanceModal && selectedUserAttendance && (

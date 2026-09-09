@@ -13,7 +13,8 @@ import {
   getInspectorSummary,
   getMyReviewStats,
   getPerformanceTable,
-  getOverallAnalytics
+  getOverallAnalytics,
+  getQualitySummary
 } from '../controllers/analyticsController.js';
 import { authenticate, adminOnly, superAdminOnly, inspectorOrAdmin, authenticateGuest } from '../middleware/auth.js';
 import { addTenantFilter } from '../middleware/tenantIsolation.js';
@@ -63,5 +64,6 @@ router.get('/forms/:formId/response-times', inspectorOrAdmin, getResponseTimeAna
 router.get('/inspector-summary', inspectorOrAdmin, cacheMiddleware(60), getInspectorSummary);
 router.get('/my-review-stats', inspectorOrAdmin, cacheMiddleware(60), getMyReviewStats);
 router.get('/performance-table', inspectorOrAdmin, cacheMiddleware(60), getPerformanceTable);
+router.get('/quality-summary', inspectorOrAdmin, getQualitySummary);
 
 export default router;

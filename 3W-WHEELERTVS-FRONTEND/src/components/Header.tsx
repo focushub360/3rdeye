@@ -649,8 +649,8 @@ export default function Header() {
             </div>
           </nav>
 
-          {/* Right side - theme toggle and user info */}
-          <div className="flex items-center justify-end gap-3 min-w-[200px]">
+          {/* Right side - theme toggle, and user info */}
+          <div className="flex items-center justify-end gap-2.5 sm:gap-3 min-w-[200px]">
             <button
               onClick={toggleDarkMode}
               className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"

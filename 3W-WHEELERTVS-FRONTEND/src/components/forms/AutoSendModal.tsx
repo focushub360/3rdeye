@@ -281,22 +281,23 @@ export default function AutoSendModal({
                         onChange={(e) => updateRecipient(index, 'type', e.target.value)}
                         className="w-32 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
                       >
-                        <option value="email">Email</option>
+                        <option value="email">Email (To)</option>
+                        <option value="email_cc">Email (CC)</option>
                         <option value="whatsapp">WhatsApp</option>
                       </select>
                       <div className="flex-1 relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                          {recipient.type === 'email' ? (
+                          {recipient.type === 'email' || recipient.type === 'email_cc' ? (
                             <Mail className="h-4 w-4 text-gray-400" />
                           ) : (
                             <MessageCircle className="h-4 w-4 text-gray-400" />
                           )}
                         </div>
                         <input
-                          type={recipient.type === 'email' ? 'email' : 'tel'}
+                          type={recipient.type === 'email' || recipient.type === 'email_cc' ? 'email' : 'tel'}
                           value={recipient.value}
                           onChange={(e) => updateRecipient(index, 'value', e.target.value)}
-                          placeholder={recipient.type === 'email' ? "email@example.com" : "+91..."}
+                          placeholder={recipient.type === 'email' || recipient.type === 'email_cc' ? "email@example.com" : "+91..."}
                           className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg pl-10 pr-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
