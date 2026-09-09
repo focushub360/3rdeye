@@ -317,11 +317,11 @@ const PerformanceTable = ({
       0,
     );
     const totalRejected = performanceTableData.reduce(
-      (sum, row) => sum + (row.rejected || 0),
+      (sum, row) => sum + (row.rejectedReview ?? row.rejected ?? 0),
       0,
     );
     const totalRework = performanceTableData.reduce(
-      (sum, row) => sum + (row.rework || 0),
+      (sum, row) => sum + (row.reworked ?? row.rework ?? 0),
       0,
     );
     const avgPerformance =
@@ -529,8 +529,36 @@ const PerformanceTable = ({
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
         <div className="max-h-[600px] overflow-y-auto">
           <table className="w-full text-[11px] text-left border-collapse">
-            <thead className="bg-gray-50/80 dark:bg-gray-700/80 sticky top-0 z-10 text-gray-700 dark:text-gray-300 uppercase text-[9px] font-black tracking-wider">
-              <tr>
+            <thead className="bg-gray-50/90 dark:bg-gray-700/90 sticky top-0 z-10 text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+              {/* Grouped Section Header Row */}
+              <tr className="border-b border-gray-200 dark:border-gray-600 text-[9px] font-black">
+                <th
+                  colSpan={(isSuperAdmin ? 1 : 0) + 1 + performanceStatuses.filter(s => s !== "Dispatched").length + 1 + (performanceStatuses.includes("Dispatched") ? 1 : 0)}
+                  className="px-3 py-1.5 bg-gray-100/70 dark:bg-gray-800/70 text-gray-500 dark:text-gray-400 text-left tracking-widest uppercase border-r border-gray-200 dark:border-gray-700"
+                >
+                  Inspection & Dispatch
+                </th>
+                <th
+                  colSpan={1}
+                  className="px-2 py-1.5 bg-gray-100/70 dark:bg-gray-800/70 text-gray-600 dark:text-gray-300 text-center tracking-widest uppercase border-r border-gray-200 dark:border-gray-700"
+                >
+                  Submission
+                </th>
+                <th
+                  colSpan={5}
+                  className="px-3 py-1.5 bg-purple-100/80 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-center tracking-widest uppercase border-x-2 border-purple-300 dark:border-purple-600 shadow-sm"
+                >
+                  ✦ BIW Review Section ✦
+                </th>
+                <th
+                  colSpan={3}
+                  className="px-3 py-1.5 bg-gray-100/70 dark:bg-gray-800/70 text-gray-500 dark:text-gray-400 text-center tracking-widest uppercase border-l border-gray-200 dark:border-gray-700"
+                >
+                  Evaluation
+                </th>
+              </tr>
+              {/* Column Labels Row */}
+              <tr className="text-[9px] font-black">
                 {isSuperAdmin && (
                   <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap">
                     Tenant
@@ -557,23 +585,24 @@ const PerformanceTable = ({
                     Dispatched
                   </th>
                 )}
-                <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center">
+                <th className="px-2 py-2 border-b border-r border-gray-200 dark:border-gray-700 whitespace-nowrap text-center">
                   Total Submitted
                 </th>
-                <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center">
+                {/* BIW Review Section Columns */}
+                <th className="px-2 py-2 border-b border-l border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-purple-800 dark:text-purple-200">
                   Total Reviewed
                 </th>
-                <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-amber-600">
+                <th className="px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400">
                   Review Pending
                 </th>
-                <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-green-600">
-                  Accepted
+                <th className="px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-green-600 dark:text-green-400 font-extrabold">
+                  BIW Accepted
                 </th>
-                <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-red-600">
-                  Rejected
+                <th className="px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-red-600 dark:text-red-400 font-extrabold">
+                  BIW Rejected
                 </th>
-                <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-orange-600">
-                  Reworked
+                <th className="px-2 py-2 border-b border-r border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-orange-600 dark:text-orange-400 font-extrabold">
+                  BIW Reworked
                 </th>
                 <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center">
                   Performance Score
@@ -655,14 +684,15 @@ const PerformanceTable = ({
                           </td>
                         );
                       })()}
-                    <td className="px-2 py-1.5 font-bold text-center tabular-nums">
+                    <td className="px-2 py-1.5 font-bold text-center tabular-nums border-r border-gray-100 dark:border-gray-700">
                       {row.totalSubmitted}
                     </td>
-                    <td className="px-2 py-1.5 font-bold text-center tabular-nums">
+                    {/* BIW Review Data Cells with distinct shading */}
+                    <td className="px-2 py-1.5 font-bold text-center tabular-nums border-l border-purple-100 dark:border-purple-900/30 bg-purple-50/25 dark:bg-purple-950/10 text-purple-900 dark:text-purple-200">
                       {row.totalReviewed}
                     </td>
                     <td
-                      className={`px-2 py-1.5 font-bold text-center tabular-nums ${(() => {
+                      className={`px-2 py-1.5 font-bold text-center tabular-nums bg-purple-50/25 dark:bg-purple-950/10 ${(() => {
                         const dispatched =
                           inspectorStatusMap[row.name]?.["Dispatched"] || 0;
                         const pending = Math.max(
@@ -680,13 +710,13 @@ const PerformanceTable = ({
                         (row.totalReviewed || 0),
                       )}
                     </td>
-                    <td className="px-2 py-1.5 font-bold text-center text-green-600 tabular-nums">
+                    <td className="px-2 py-1.5 font-extrabold text-center text-green-600 dark:text-green-400 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">
                       {row.accepted || 0}
                     </td>
-                    <td className="px-2 py-1.5 font-bold text-center text-red-600 tabular-nums">
+                    <td className="px-2 py-1.5 font-extrabold text-center text-red-600 dark:text-red-400 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">
                       {row.rejectedReview ?? row.rejected ?? 0}
                     </td>
-                    <td className="px-2 py-1.5 font-bold text-center text-orange-600 tabular-nums">
+                    <td className="px-2 py-1.5 font-extrabold text-center text-orange-600 dark:text-orange-400 tabular-nums border-r border-purple-100 dark:border-purple-900/30 bg-purple-50/25 dark:bg-purple-950/10">
                       {row.reworked ?? row.rework ?? 0}
                     </td>
                     <td className="px-2 py-1.5 text-center">
@@ -762,8 +792,8 @@ const PerformanceTable = ({
                           }
                           acc.totalReviewed += it.totalReviewed || 0;
                           acc.accepted += it.accepted || 0;
-                          acc.rework += it.rework || 0;
-                          acc.rejected_outcome += it.rejected || 0;
+                          acc.rework += it.reworked ?? it.rework ?? 0;
+                          acc.rejected_outcome += it.rejectedReview ?? it.rejected ?? 0;
                           return acc;
                         }, {
                           statuses: {} as Record<string, number>,
@@ -806,12 +836,13 @@ const PerformanceTable = ({
                                 {dispatched}
                               </td>
                             )}
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums">{totalSubmitted}</td>
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums">{totalReviewed}</td>
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums">{reviewPending}</td>
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums">{accepted}</td>
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums">{rejected_outcome}</td>
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums">{rework}</td>
+                            <td className="px-2 py-1.5 font-bold text-center tabular-nums border-r border-purple-100 dark:border-purple-900/30">{totalSubmitted}</td>
+                            {/* BIW Review cells for expanded row */}
+                            <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-purple-100/40 dark:bg-purple-900/20 border-l border-purple-200 dark:border-purple-800 text-purple-900 dark:text-purple-200">{totalReviewed}</td>
+                            <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-purple-100/40 dark:bg-purple-900/20 text-amber-600 dark:text-amber-400">{reviewPending}</td>
+                            <td className="px-2 py-1.5 font-extrabold text-center text-green-600 dark:text-green-400 tabular-nums bg-purple-100/40 dark:bg-purple-900/20">{accepted}</td>
+                            <td className="px-2 py-1.5 font-extrabold text-center text-red-600 dark:text-red-400 tabular-nums bg-purple-100/40 dark:bg-purple-900/20">{rejected_outcome}</td>
+                            <td className="px-2 py-1.5 font-extrabold text-center text-orange-600 dark:text-orange-400 tabular-nums border-r border-purple-200 dark:border-purple-800 bg-purple-100/40 dark:bg-purple-900/20">{rework}</td>
                             {/* Empty cells for alignment */}
                             <td className="px-2 py-1.5"></td>
                             <td className="px-2 py-1.5"></td>
@@ -857,22 +888,23 @@ const PerformanceTable = ({
                     {totalDispatched}
                   </td>
                 )}
-                <td className="px-2 py-1.5 text-center tabular-nums font-black">
+                <td className="px-2 py-1.5 text-center tabular-nums font-black border-r border-gray-300 dark:border-gray-500">
                   {totalTotalSubmitted}
                 </td>
-                <td className="px-2 py-1.5 text-center tabular-nums font-black">
+                {/* BIW Review Total Cells */}
+                <td className="px-2 py-1.5 text-center tabular-nums font-black border-l border-purple-300 dark:border-purple-700 bg-purple-100/70 dark:bg-purple-900/40 text-purple-900 dark:text-purple-200">
                   {totalTotalReviewed}
                 </td>
-                <td className="px-2 py-1.5 text-center tabular-nums font-black text-amber-700 dark:text-amber-300">
+                <td className="px-2 py-1.5 text-center tabular-nums font-black text-amber-700 dark:text-amber-300 bg-purple-100/70 dark:bg-purple-900/40">
                   {totalReviewPending}
                 </td>
-                <td className="px-2 py-1.5 text-center tabular-nums font-black text-green-700 dark:text-green-300">
+                <td className="px-2 py-1.5 text-center tabular-nums font-black text-green-700 dark:text-green-300 bg-purple-100/70 dark:bg-purple-900/40">
                   {totalAccepted}
                 </td>
-                <td className="px-2 py-1.5 text-center tabular-nums font-black text-red-700 dark:text-red-300">
+                <td className="px-2 py-1.5 text-center tabular-nums font-black text-red-700 dark:text-red-300 bg-purple-100/70 dark:bg-purple-900/40">
                   {totalRejected}
                 </td>
-                <td className="px-2 py-1.5 text-center tabular-nums font-black text-orange-700 dark:text-orange-300">
+                <td className="px-2 py-1.5 text-center tabular-nums font-black text-orange-700 dark:text-orange-300 border-r border-purple-300 dark:border-purple-700 bg-purple-100/70 dark:bg-purple-900/40">
                   {totalRework}
                 </td>
                 <td className="px-2 py-1.5 text-center">

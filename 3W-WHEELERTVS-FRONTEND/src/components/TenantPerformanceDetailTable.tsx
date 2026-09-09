@@ -109,8 +109,8 @@ export default function TenantPerformanceDetailTable({ tenant, onBack }: { tenan
       acc.totalReviewed += user.totalReviewed || 0;
       acc.reviewPending += user.reviewPending || 0;
       acc.accepted += user.accepted || 0;
-      acc.rejected += user.rejected || 0;
-      acc.reworked += user.reworked || 0;
+      acc.rejected += user.rejectedReview ?? user.rejected ?? 0;
+      acc.reworked += user.reworked ?? user.rework ?? 0;
       return acc;
     },
     {
@@ -214,18 +214,30 @@ export default function TenantPerformanceDetailTable({ tenant, onBack }: { tenan
 
             <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
             <table className="w-full text-sm text-left border-collapse">
-            <thead className="bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-md sticky top-0 z-10 text-gray-500 dark:text-gray-400 uppercase text-[10px] font-black tracking-[0.1em]">
+            <thead className="bg-gray-50/90 dark:bg-gray-700/90 backdrop-blur-md sticky top-0 z-10 text-gray-500 dark:text-gray-400 uppercase text-[10px] font-black tracking-[0.1em]">
+              <tr className="border-b border-gray-200 dark:border-gray-600 text-[9px] font-black">
+                <th colSpan={3} className="px-4 py-2 bg-gray-100/70 dark:bg-gray-800/70 text-gray-500 dark:text-gray-400 text-left tracking-widest uppercase border-r border-gray-200 dark:border-gray-700">
+                  Inspection & Submissions
+                </th>
+                <th colSpan={5} className="px-4 py-2 bg-purple-100/80 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-center tracking-widest uppercase border-x-2 border-purple-300 dark:border-purple-600 shadow-sm">
+                  ✦ BIW Review Section ✦
+                </th>
+                <th colSpan={2} className="px-4 py-2 bg-gray-100/70 dark:bg-gray-800/70 text-gray-500 dark:text-gray-400 text-center tracking-widest uppercase border-l border-gray-200 dark:border-gray-700">
+                  Evaluation
+                </th>
+              </tr>
               <tr>
-                <th className="px-4 py-4 border-b border-gray-100 dark:border-gray-700">User Name</th>
-                <th className="px-4 py-4 border-b border-gray-100 dark:border-gray-700 text-center">Dispatch Pending</th>
-                <th className="px-4 py-4 border-b border-gray-100 dark:border-gray-700 text-center">Total Submitted</th>
-                <th className="px-4 py-4 border-b border-gray-100 dark:border-gray-700 text-center">Total Reviewed</th>
-                <th className="px-4 py-4 border-b border-gray-100 dark:border-gray-700 text-center">Review Pending</th>
-                <th className="px-4 py-4 border-b border-gray-100 dark:border-gray-700 text-center text-emerald-600">Accepted</th>
-                <th className="px-4 py-4 border-b border-gray-100 dark:border-gray-700 text-center text-rose-600">Rejected</th>
-                <th className="px-4 py-4 border-b border-gray-100 dark:border-gray-700 text-center text-amber-600">Reworked</th>
-                <th className="px-4 py-4 border-b border-gray-100 dark:border-gray-700 text-center">Performance Score</th>
-                <th className="px-4 py-4 border-b border-gray-100 dark:border-gray-700 text-center">Performance Category</th>
+                <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">User Name</th>
+                <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 text-center">Dispatch Pending</th>
+                <th className="px-4 py-3 border-b border-r border-gray-100 dark:border-gray-700 text-center">Total Submitted</th>
+                {/* BIW Review Section Columns */}
+                <th className="px-4 py-3 border-b border-l border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 text-center text-purple-800 dark:text-purple-200">Total Reviewed</th>
+                <th className="px-4 py-3 border-b bg-purple-50/60 dark:bg-purple-950/30 text-center text-amber-600 dark:text-amber-400">Review Pending</th>
+                <th className="px-4 py-3 border-b bg-purple-50/60 dark:bg-purple-950/30 text-center text-emerald-600 dark:text-emerald-400 font-extrabold">BIW Accepted</th>
+                <th className="px-4 py-3 border-b bg-purple-50/60 dark:bg-purple-950/30 text-center text-rose-600 dark:text-rose-400 font-extrabold">BIW Rejected</th>
+                <th className="px-4 py-3 border-b border-r border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 text-center text-amber-600 dark:text-amber-400 font-extrabold">BIW Reworked</th>
+                <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 text-center">Performance Score</th>
+                <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 text-center">Performance Category</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
@@ -250,12 +262,13 @@ export default function TenantPerformanceDetailTable({ tenant, onBack }: { tenan
                         <tr key={user.userId || idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-900/20 transition-colors">
                         <td className="px-4 py-4 font-bold text-gray-800 dark:text-white whitespace-nowrap">{user.name}</td>
                         <td className="px-4 py-4 text-center font-bold text-blue-600 dark:text-blue-400 tabular-nums">{user.dispatched || 0}</td>
-                        <td className="px-4 py-4 text-center font-bold text-gray-700 dark:text-gray-300 tabular-nums">{user.totalSubmitted}</td>
-                        <td className="px-4 py-4 text-center font-bold text-gray-700 dark:text-gray-300 tabular-nums">{user.totalReviewed}</td>
-                        <td className="px-4 py-4 text-center font-bold text-gray-700 dark:text-gray-300 tabular-nums">{user.reviewPending}</td>
-                        <td className="px-4 py-4 text-center font-bold text-emerald-600 dark:text-emerald-500 tabular-nums">{user.accepted}</td>
-                        <td className="px-4 py-4 text-center font-bold text-rose-600 dark:text-rose-500 tabular-nums">{user.rejected}</td>
-                        <td className="px-4 py-4 text-center font-bold text-amber-600 dark:text-amber-500 tabular-nums">{user.reworked}</td>
+                        <td className="px-4 py-4 text-center font-bold text-gray-700 dark:text-gray-300 tabular-nums border-r border-gray-100 dark:border-gray-700">{user.totalSubmitted}</td>
+                        {/* BIW Review row cells */}
+                        <td className="px-4 py-4 text-center font-bold text-purple-900 dark:text-purple-200 tabular-nums bg-purple-50/25 dark:bg-purple-950/10 border-l border-purple-100 dark:border-purple-900/30">{user.totalReviewed}</td>
+                        <td className="px-4 py-4 text-center font-bold text-gray-700 dark:text-gray-300 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">{user.reviewPending}</td>
+                        <td className="px-4 py-4 text-center font-extrabold text-emerald-600 dark:text-emerald-500 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">{user.accepted}</td>
+                        <td className="px-4 py-4 text-center font-extrabold text-rose-600 dark:text-rose-500 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">{user.rejectedReview ?? user.rejected ?? 0}</td>
+                        <td className="px-4 py-4 text-center font-extrabold text-amber-600 dark:text-amber-500 tabular-nums bg-purple-50/25 dark:bg-purple-950/10 border-r border-purple-100 dark:border-purple-900/30">{user.reworked ?? user.rework ?? 0}</td>
                         <td className="px-4 py-4 text-center font-black tabular-nums">{user.performanceScore}%</td>
                         <td className="px-4 py-4 text-center whitespace-nowrap">
                             <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getCategoryBadgeColor(user.performanceScore)}`}>
@@ -271,12 +284,13 @@ export default function TenantPerformanceDetailTable({ tenant, onBack }: { tenan
               <tr className="bg-gray-100/80 dark:bg-gray-800/50 font-black text-gray-800 dark:text-white">
                 <td className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 text-xs uppercase tracking-widest">Total</td>
                 <td className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 text-center tabular-nums">{total.dispatchPending}</td>
-                <td className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 text-center tabular-nums">{total.totalSubmitted}</td>
-                <td className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 text-center tabular-nums">{total.totalReviewed}</td>
-                <td className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 text-center tabular-nums">{total.reviewPending}</td>
-                <td className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 text-center text-emerald-600 tabular-nums">{total.accepted}</td>
-                <td className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 text-center text-rose-600 tabular-nums">{total.rejected}</td>
-                <td className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 text-center text-amber-600 tabular-nums">{total.reworked}</td>
+                <td className="px-4 py-4 border-t border-r border-gray-200 dark:border-gray-700 text-center tabular-nums">{total.totalSubmitted}</td>
+                {/* BIW Review footer cells */}
+                <td className="px-4 py-4 border-t border-l border-purple-300 dark:border-purple-700 bg-purple-100/70 dark:bg-purple-900/40 text-center tabular-nums text-purple-900 dark:text-purple-200">{total.totalReviewed}</td>
+                <td className="px-4 py-4 border-t bg-purple-100/70 dark:bg-purple-900/40 text-center tabular-nums text-amber-700 dark:text-amber-300">{total.reviewPending}</td>
+                <td className="px-4 py-4 border-t bg-purple-100/70 dark:bg-purple-900/40 text-center text-emerald-600 tabular-nums font-extrabold">{total.accepted}</td>
+                <td className="px-4 py-4 border-t bg-purple-100/70 dark:bg-purple-900/40 text-center text-rose-600 tabular-nums font-extrabold">{total.rejected}</td>
+                <td className="px-4 py-4 border-t border-r border-purple-300 dark:border-purple-700 bg-purple-100/70 dark:bg-purple-900/40 text-center text-amber-600 tabular-nums font-extrabold">{total.reworked}</td>
                 <td className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 text-center tabular-nums">{totalPerformanceScore}%</td>
                 <td className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 text-center">
                     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getCategoryBadgeColor(totalPerformanceScore)}`}>
