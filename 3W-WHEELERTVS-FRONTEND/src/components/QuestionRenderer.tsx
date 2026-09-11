@@ -17,6 +17,7 @@ import {
   Clock,
   Loader2,
   Upload,
+  Link2,
 } from "lucide-react";
 import type { FollowUpQuestion } from "../types";
 import { useTheme } from "../context/ThemeContext";
@@ -223,6 +224,21 @@ export default function QuestionRenderer({
   const [rankHistory, setRankHistory] = useState<any[]>([]);
   const [dispatchInfo, setDispatchInfo] = useState<{ isDispatched: boolean; dispatchedAt?: string | null; dispatchedByName?: string | null } | null>(null);
   const [lastSubmittedBy, setLastSubmittedBy] = useState<string | null>(null);
+  const [parentMatchInfo, setParentMatchInfo] = useState<{
+    exists: boolean;
+    isParentLinked: boolean;
+    parentFormTitle?: string | null;
+    parentFormId?: string | null;
+    attemptsCount: number;
+    lastStatus?: string | null;
+    lastSubmittedBy?: string | null;
+    lastCreatedAt?: string | null;
+    daysElapsed?: number;
+    color: "green" | "orange" | "red" | "white";
+    badgeText: string;
+    statusLabel?: string;
+    history?: any[];
+  } | null>(null);
 
   const userStr = typeof window !== 'undefined' ? window.localStorage.getItem('user') : null;
   const currentUser = userStr ? JSON.parse(userStr) : null;
@@ -408,45 +424,30 @@ export default function QuestionRenderer({
   const imageUrl = getGoogleDriveDirectLink(question.imageUrl || "");
   const isImage = isImageUrl(imageUrl);
 
-  const isRankTrackingEnabled =
-    question.trackResponseRank === true ||
-    String(question.trackResponseRank) === "true" ||
-    question.type === "chassis" ||
-    question.type === "chassisWithZone" ||
-    question.type === "chassisWithoutZone" ||
-    question.type === "chassis-with-zone" ||
-    question.type === "chassis-without-zone" ||
-    question.type === "zone-in" ||
-    question.type === "zone-out" ||
-    Boolean(
-      question.text && (
-        question.text.toLowerCase().includes("chassis") ||
-        question.text.toLowerCase().includes("id number") ||
-        question.text.toLowerCase().includes("id_number") ||
-        question.text.toLowerCase().includes("identification")
-      )
-    );
+  const isRankTrackingEnabled = true;
 
   const isQuestionTrackingEnabled =
     question.trackResponseQuestion === true ||
     String(question.trackResponseQuestion) === "true";
 
-  const isTrackingEnabled = isRankTrackingEnabled || isQuestionTrackingEnabled;
+  const isTrackingEnabled = true;
 
-  const trackingInputType = question.trackResponseQuestionType || "text";
+  const trackingInputType = question.trackResponseQuestionType || question.trackResponseRankType || "text";
   const trackingInputLabel =
-    question.trackResponseQuestionLabel || "Tracking Question";
+    question.trackResponseQuestionLabel || question.trackResponseRankLabel || "Tracking Question";
 
   // Determine which value to use for fetching rank
   const effectiveTrackingValue = useMemo(() => {
     const val =
-      isQuestionTrackingEnabled && trackingValue ? trackingValue : value;
+      trackingValue !== undefined && trackingValue !== null && String(trackingValue).trim() !== ""
+        ? trackingValue
+        : value;
     if (typeof val === "object" && val !== null) {
       const inner = (val as any).chassisNumber || (val as any).value || (val as any).text || (val as any).chassis || "";
       return typeof inner === "string" ? inner.trim() : inner;
     }
     return typeof val === "string" ? val.trim() : (val || "");
-  }, [isQuestionTrackingEnabled, trackingValue, value]);
+  }, [trackingValue, value]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -507,6 +508,7 @@ export default function QuestionRenderer({
             ? response.data.chatCount
             : 0;
         const submittedBy = (response && response.lastSubmittedBy) || (response && response.data && response.data.lastSubmittedBy) || null;
+        const pMatch = (response && response.parentMatch) || (response && response.data && response.data.parentMatch) || (response && response.followUpStatus) || (response && response.data && response.data.followUpStatus) || null;
 
         setRank(rankVal);
         setPreviousStatus(prevStat);
@@ -516,6 +518,7 @@ export default function QuestionRenderer({
         setLastSubmittedBy(submittedBy);
         setBiwInfo(biw);
         setChatCount(chatCnt);
+        setParentMatchInfo(pMatch);
       } catch (err) {
         if (!isCancelled) {
           console.error("Failed to fetch rank:", err);
@@ -525,6 +528,7 @@ export default function QuestionRenderer({
           setDispatchInfo(null);
           setBiwInfo(null);
           setChatCount(0);
+          setParentMatchInfo(null);
         }
       } finally {
         if (!isCancelled) {
@@ -764,6 +768,142 @@ export default function QuestionRenderer({
   };
 
   const renderNoMatchIndicator = () => {
+    return null;
+  };
+
+  const renderFollowUpParentStatusCard = () => {
+    if (!effectiveTrackingValue || typeof effectiveTrackingValue !== "string" || effectiveTrackingValue.trim().length === 0) return null;
+
+    if (loadingRank) {
+      return (
+        <div className="mt-2.5 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 text-slate-600 dark:text-slate-400 text-xs flex items-center gap-2 animate-pulse">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+          <span className="font-medium">Checking parent inspection history for "{effectiveTrackingValue}"...</span>
+        </div>
+      );
+    }
+
+    if (parentMatchInfo?.isParentLinked || (parentMatchInfo?.exists && parentMatchInfo?.attemptsCount > 0)) {
+      const historyItems = (rankHistory && rankHistory.length > 0) ? rankHistory : (parentMatchInfo.history || []);
+      const days = parentMatchInfo.daysElapsed ?? 0;
+      const totalAttempts = (parentMatchInfo.attemptsCount || 0) + 1;
+
+      return (
+        <div className="mt-2.5 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50 text-slate-800 dark:text-slate-200 animate-in fade-in slide-in-from-top-1 duration-200 shadow-2xs">
+          {/* Header */}
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <Link2 className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+                <span>Parent Form:</span>
+                <span className="font-bold text-slate-900 dark:text-white">
+                  {parentMatchInfo.parentFormTitle || "Main Inspection Form"}
+                </span>
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                {parentMatchInfo.attemptsCount} {parentMatchInfo.attemptsCount === 1 ? 'Parent Attempt' : 'Parent Attempts'}
+              </span>
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60">
+                Follow-up Attempt #{totalAttempts}
+              </span>
+            </div>
+          </div>
+
+          {/* Details */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-800 text-[11px]">
+            <div className="flex flex-wrap items-center gap-3 text-slate-600 dark:text-slate-400">
+              {parentMatchInfo.lastSubmittedBy && (
+                <span className="flex items-center gap-1">
+                  <User className="w-3 h-3 text-slate-400" />
+                  <span>Inspector:</span>
+                  <strong className="text-slate-800 dark:text-slate-200 font-semibold">{parentMatchInfo.lastSubmittedBy}</strong>
+                </span>
+              )}
+              {parentMatchInfo.lastCreatedAt && (
+                <span className="flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-slate-400" />
+                  <span>{new Date(parentMatchInfo.lastCreatedAt).toLocaleDateString()}</span>
+                  {days > 0 && <span className="text-slate-400">({days}d ago)</span>}
+                </span>
+              )}
+            </div>
+
+            {parentMatchInfo.lastStatus && (() => {
+              const s = parentMatchInfo.lastStatus.toLowerCase();
+              const isRej = s.includes('reject');
+              const isRew = s.includes('rework');
+              const statusStyle = isRej
+                ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:border-rose-900/50'
+                : isRew
+                  ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-900/50'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-900/50';
+
+              return (
+                <span className={`px-2 py-0.5 rounded-md font-semibold text-[10px] border ${statusStyle}`}>
+                  Status: {parentMatchInfo.lastStatus}
+                </span>
+              );
+            })()}
+          </div>
+
+          {/* Sequence Timeline */}
+          {historyItems.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-800 flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mr-1">Progression:</span>
+              {historyItems.map((hist: any, idx: number) => {
+                const sStr = String(hist.status || "").toLowerCase().trim();
+                const isRej = sStr.includes("reject");
+                const isAccepted = sStr.includes("accept") || sStr.includes("direct ok") || sStr.includes("ok") || sStr === "verified";
+                const chipStyle = isRej
+                  ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
+                  : isAccepted
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                    : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
+
+                return (
+                  <React.Fragment key={`hist-${hist.rank || idx}`}>
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border ${chipStyle}`}>
+                      <span className="font-semibold">Attempt #{hist.rank}:</span>
+                      <span>{hist.status || 'Recorded'}</span>
+                    </span>
+                    {idx < historyItems.length - 1 && (
+                      <span className="text-slate-300 dark:text-slate-600 text-xs">→</span>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+              <span className="text-slate-300 dark:text-slate-600 text-xs">→</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800">
+                Attempt #{totalAttempts}: Current (Follow-up)
+              </span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (parentMatchInfo?.color === 'orange' || (parentMatchInfo && !parentMatchInfo.exists)) {
+      return (
+        <div className="mt-2.5 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 text-slate-700 dark:text-slate-300 text-xs flex items-center justify-between gap-2 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
+            <span className="font-medium text-slate-600 dark:text-slate-400">
+              New Entry: Not linked to any prior parent inspection record.
+            </span>
+          </div>
+          <span className="text-[10px] font-semibold px-2 py-0.5 bg-slate-200/70 dark:bg-slate-800 rounded text-slate-700 dark:text-slate-300">
+            Initial Attempt #1
+          </span>
+        </div>
+      );
+    }
+
     return null;
   };
 
@@ -1379,7 +1519,10 @@ export default function QuestionRenderer({
   };
 
   const renderTrackingInput = () => {
-    if (!isQuestionTrackingEnabled) return null;
+    const shouldRenderSubTracking =
+      isQuestionTrackingEnabled ||
+      Boolean(question.trackResponseRankLabel && (question.trackResponseRank === true || String(question.trackResponseRank) === "true"));
+    if (!shouldRenderSubTracking) return null;
 
     if (question.type?.startsWith("chassis-") || question.type?.startsWith("zone-")) {
       return (
@@ -1428,7 +1571,7 @@ export default function QuestionRenderer({
     );
   };
 
-  const questionText = question.text?.trim() || "";
+  const questionText = question.text?.trim() || (question as any).title?.trim() || (question as any).description?.trim() || "";
   const showLabel = questionText.length > 0;
 
   const activeError = error || validationError;
@@ -1524,152 +1667,38 @@ export default function QuestionRenderer({
             </span>
           )}
           {typeof rank === "number" && rank > 0 && (() => {
+            const isParentFollowUp = Boolean(parentMatchInfo?.isParentLinked || (parentMatchInfo?.exists && parentMatchInfo?.attemptsCount > 0));
             const statusLower = (previousStatus || "").toLowerCase().trim();
-            const isReject = statusLower.includes("reject");
-            const isRework = statusLower.includes("rework");
 
-            // If we have rankHistory from live check or suggestedAnswers:
             const historyItems = (rankHistory && rankHistory.length > 0)
               ? rankHistory
               : (Array.isArray(suggestedAnswers) ? suggestedAnswers : []);
 
-            if (rank === 1 && historyItems.length === 0) {
+            const hasActionableContext = dispatchInfo?.isDispatched || historyItems.length > 0 || lastResponseId || biwInfo?.status;
+            const showBiw = hasActionableContext && (!isCreator || Boolean(biwInfo?.status));
+            const showChat = chatCount > 0 || ((dispatchInfo?.isDispatched || (historyItems.length > 0 && lastResponseId)) && !isCreator);
+
+            // Render BIW & Chat buttons cleanly
+            const renderActionIcons = () => {
+              if (!showBiw && !showChat) return null;
+
               return (
-                <div className="flex items-center ml-2">
-                  <div
-                    className="flex flex-col items-center justify-center gap-1.5 w-20 h-24 p-2 rounded-xl border text-center bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700 shadow-sm"
-                    title="Inspection Attempt #1 (Initial inspection)"
-                  >
-                    <span className="text-[11px] font-black tracking-tight leading-tight">
-                      Attempt #1
-                    </span>
-                    <span className="text-[10px] font-bold bg-green-200/60 dark:bg-green-800/60 text-green-800 dark:text-green-200 px-1.5 py-0.5 rounded leading-none">
-                      Initial
-                    </span>
-                  </div>
-                </div>
-              );
-            }
-
-            return (
-              <div className="flex flex-wrap items-center gap-2.5 ml-2 mt-1 sm:mt-0">
-                {/* Historical attempts in vertical rectangle boxes */}
-                {historyItems.map((hist: any) => {
-                  const sStr = String(hist.status || "").toLowerCase().trim();
-                  const isHistRej = sStr.includes("reject");
-                  const isHistAccepted = sStr.includes("accept") || sStr.includes("direct ok") || sStr.includes("ok") || sStr === "verified";
-
-                  const colorClass = isHistRej
-                    ? "bg-red-600 text-white border-red-700 shadow-sm shadow-red-600/30"
-                    : isHistAccepted
-                      ? "bg-emerald-600 text-white border-emerald-700 shadow-sm shadow-emerald-600/30"
-                      : "bg-amber-500 text-white border-amber-600 shadow-sm shadow-amber-500/30";
-
-                  const respId = hist.id || hist.responseId || hist._id;
-                  const canViewRecord = isHistAccepted && Boolean(respId);
-
-                  return (
-                    <div key={`prev-attempt-${hist.rank}`} className="inline-flex">
-                      {canViewRecord ? (
-                        <a
-                          href={`/responses/${hist.responseId}?tab=responses`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`flex flex-col items-center justify-between w-[5.5rem] min-h-[6rem] p-2 rounded-xl border text-center transition-all hover:scale-105 hover:brightness-110 active:scale-95 cursor-pointer ${colorClass}`}
-                          title={`Attempt #${hist.rank} (${hist.status || "Accepted Record"}) - Click to view response`}
-                        >
-                          <span className="text-[11px] font-black tracking-tight leading-tight">
-                            Attempt #{hist.rank}
-                          </span>
-                          {hist.status && hist.status !== 'pending' && (
-                            <span className="text-[9.5px] font-bold bg-black/25 px-1 py-0.5 rounded leading-[1.1] text-center w-full break-words whitespace-normal">
-                              {hist.status}
-                            </span>
-                          )}
-                          {isCreator && (
-                            <span className="flex items-center justify-center gap-1 text-[9.5px] font-bold bg-white/25 hover:bg-white/40 px-2 py-1 rounded-md transition-colors w-full mt-auto">
-                              <Eye className="w-3.5 h-3.5 stroke-[2.5]" />
-                              <span>View</span>
-                            </span>
-                          )}
-                        </a>
-                      ) : (
-                        <div
-                          className={`flex flex-col items-center justify-center gap-2 w-[5.5rem] min-h-[6rem] p-2 rounded-xl border text-center shadow-sm ${colorClass}`}
-                        >
-                          <span className="text-[11px] font-black tracking-tight leading-tight">
-                            Attempt #{hist.rank}
-                          </span>
-                          {hist.status && (
-                            <span className="text-[9.5px] font-bold bg-black/25 px-1.5 py-0.5 rounded leading-[1.1] text-center w-full break-words whitespace-normal">
-                              {hist.status}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-
-                {/* If no history items array yet, but rank > 1, show previous attempt vertical box */}
-                {historyItems.length === 0 && rank > 1 && (() => {
-                  const isPrevAccepted = statusLower.includes("accept") || statusLower.includes("direct ok") || statusLower.includes("ok") || statusLower === "verified";
-                  const isPrevRej = statusLower.includes("reject");
-                  const colorClass = isPrevRej
-                    ? "bg-red-600 text-white border-red-700 shadow-sm shadow-red-600/30"
-                    : isPrevAccepted
-                      ? "bg-emerald-600 text-white border-emerald-700 shadow-sm shadow-emerald-600/30"
-                      : "bg-amber-500 text-white border-amber-600 shadow-sm shadow-amber-500/30";
-
-                  return (
-                    <div
-                      className={`flex flex-col items-center justify-center gap-2 w-[5.5rem] min-h-[6rem] p-2 rounded-xl border text-center shadow-sm ${colorClass}`}
-                    >
-                      <span className="text-[11px] font-black tracking-tight leading-tight">
-                        Attempt #{rank - 1}
-                      </span>
-                      {previousStatus && (
-                        <span className="text-[9.5px] font-bold bg-black/25 px-1.5 py-0.5 rounded leading-[1.1] text-center w-full break-words whitespace-normal">
-                          {previousStatus}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {/* Current Active Attempt in vertical rectangle */}
-                <div
-                  className="flex flex-col items-center justify-center gap-2 w-[5.5rem] min-h-[6rem] p-2 rounded-xl border text-center bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 shadow-sm"
-                  title={`Current inspection attempt #${rank}`}
-                >
-                  <span className="text-[11px] font-black tracking-tight leading-tight">
-                    Attempt #{rank}
-                  </span>
-                  <span className="text-[9.5px] font-bold bg-blue-200/60 dark:bg-blue-800/60 text-blue-800 dark:text-blue-200 px-1.5 py-0.5 rounded leading-none">
-                    Current
-                  </span>
-                </div>
-
-                {/* BIW Review & Overall Chat Icon Buttons placed aside */}
-                <div className="flex items-center gap-2 ml-1 self-center">
+                <div className="flex items-center gap-1.5 ml-1 self-center">
                   {/* BIW Review Icon */}
                   {(() => {
-                    const hasActionableContext = dispatchInfo?.isDispatched || historyItems.length > 0 || lastResponseId || biwInfo?.status;
-
-                    if (!hasActionableContext) return null;
-                    if (isCreator && !biwInfo?.status) return null; // Hide BIW icon if creator and no BIW status exists yet
+                    if (!showBiw) return null;
 
                     const bStr = String(biwInfo?.status || "").toLowerCase();
                     const isBiwRej = bStr.includes("reject");
                     const isBiwAccepted = bStr.includes("accept") || bStr.includes("ok");
                     const isBiwRework = bStr.includes("rework");
                     const biwIconColor = isBiwRej
-                      ? "text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 border-red-200 dark:border-red-800"
+                      ? "text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800"
                       : isBiwAccepted
-                        ? "text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800"
+                        ? "text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"
                         : isBiwRework
-                          ? "text-purple-600 bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/30 border-purple-200 dark:border-purple-800"
-                          : "text-amber-600 bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800";
+                          ? "text-purple-600 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800"
+                          : "text-amber-600 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800";
 
                     return (
                       <button
@@ -1678,14 +1707,14 @@ export default function QuestionRenderer({
                           e.stopPropagation();
                           setShowBiwModal(true);
                         }}
-                        className={`relative p-2.5 rounded-xl border flex items-center justify-center transition-all cursor-pointer shadow-xs hover:scale-105 ${biwIconColor}`}
+                        className={`relative p-1.5 rounded-lg border flex items-center justify-center transition-all cursor-pointer shadow-xs hover:scale-105 ${biwIconColor}`}
                         title={`BIW Review: ${biwInfo?.status || "Pending Review"}${biwInfo?.reviewedByName ? ` (by ${biwInfo.reviewedByName})` : ""}`}
                       >
-                        <ShieldCheck className="w-5 h-5" />
+                        <ShieldCheck className="w-4 h-4" />
                         <span
-                          className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-gray-900 ${
+                          className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900 ${
                             isBiwRej
-                              ? "bg-red-500"
+                              ? "bg-rose-500"
                               : isBiwAccepted
                                 ? "bg-emerald-500"
                                 : isBiwRework
@@ -1697,35 +1726,134 @@ export default function QuestionRenderer({
                     );
                   })()}
 
-                  {/* Overall Chat Icon for this Chassis (Opens In-Screen Modal) */}
+                  {/* Overall Chat Icon */}
                   {(() => {
-                    // Show if there is a chat, OR if it's dispatched/history exists AND the user is NOT the creator
-                    const shouldShowChat = chatCount > 0 || ((dispatchInfo?.isDispatched || (historyItems.length > 0 && lastResponseId)) && !isCreator);
-                    
-                    if (!shouldShowChat) return null;
+                    if (!showChat) return null;
 
                     return (
                       <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowChatModal(true);
-                        fetchChatHistory();
-                      }}
-                      title={`Chassis Discussion / Chat (${chatCount} messages) - Click to open discussion in screen`}
-                      className="relative p-2.5 rounded-xl border text-indigo-600 dark:text-indigo-400 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 hover:scale-105 active:scale-95 border-indigo-200 dark:border-indigo-800 flex items-center justify-center transition-all cursor-pointer shadow-xs"
-                    >
-                      <MessageCircle className="w-5 h-5" />
-                      {chatCount > 0 && (
-                        <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-4 px-1 rounded-full text-[10px] font-black bg-indigo-600 text-white flex items-center justify-center ring-2 ring-white dark:ring-gray-900 leading-none">
-                          {chatCount}
-                        </span>
-                      )}
-                    </button>
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowChatModal(true);
+                          fetchChatHistory();
+                        }}
+                        title={`Chassis Discussion / Chat (${chatCount} messages) - Click to open discussion`}
+                        className="relative p-1.5 rounded-lg border text-indigo-600 dark:text-indigo-400 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 hover:scale-105 active:scale-95 border-indigo-200 dark:border-indigo-800 flex items-center justify-center transition-all cursor-pointer shadow-xs"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        {chatCount > 0 && (
+                          <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full text-[9px] font-black bg-indigo-600 text-white flex items-center justify-center ring-1.5 ring-white dark:ring-gray-900 leading-none">
+                            {chatCount}
+                          </span>
+                        )}
+                      </button>
                     );
                   })()}
-
                 </div>
+              );
+            };
+
+            // If follow-up parent card exists, let the bottom card display the full progression cleanly
+            if (isParentFollowUp) {
+              return renderActionIcons();
+            }
+
+            if (rank === 1 && historyItems.length === 0) {
+              return (
+                <div className="flex items-center gap-1.5 ml-2">
+                  <span
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md border text-xs font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                    title="Inspection Attempt #1 (Initial inspection)"
+                  >
+                    <span>Attempt #1</span>
+                    <span className="text-[10px] font-medium opacity-80">(Initial)</span>
+                  </span>
+                  {renderActionIcons()}
+                </div>
+              );
+            }
+
+            return (
+              <div className="flex flex-wrap items-center gap-1.5 ml-2 mt-1 sm:mt-0">
+                {/* Historical attempts */}
+                {historyItems.map((hist: any) => {
+                  const sStr = String(hist.status || "").toLowerCase().trim();
+                  const isHistRej = sStr.includes("reject");
+                  const isHistAccepted = sStr.includes("accept") || sStr.includes("direct ok") || sStr.includes("ok") || sStr === "verified";
+                  const chipStyle = isHistRej
+                    ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
+                    : isHistAccepted
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                      : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
+
+                  const respId = hist.id || hist.responseId || hist._id;
+                  const canViewRecord = isHistAccepted && Boolean(respId);
+
+                  if (canViewRecord) {
+                    return (
+                      <a
+                        key={`prev-attempt-${hist.rank}`}
+                        href={`/responses/${hist.responseId}?tab=responses`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border transition-all hover:scale-105 cursor-pointer ${chipStyle}`}
+                        title={`Attempt #${hist.rank} (${hist.status || "Accepted"}) - Click to view response`}
+                      >
+                        <span>Attempt #{hist.rank}</span>
+                        {hist.status && hist.status !== 'pending' && (
+                          <span className="text-[10px] font-medium opacity-80">({hist.status})</span>
+                        )}
+                        <Eye className="w-3 h-3 ml-0.5 opacity-70" />
+                      </a>
+                    );
+                  }
+
+                  return (
+                    <span
+                      key={`prev-attempt-${hist.rank}`}
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border ${chipStyle}`}
+                    >
+                      <span>Attempt #{hist.rank}</span>
+                      {hist.status && (
+                        <span className="text-[10px] font-medium opacity-80">({hist.status})</span>
+                      )}
+                    </span>
+                  );
+                })}
+
+                {/* If no history items array yet, but rank > 1 */}
+                {historyItems.length === 0 && rank > 1 && (() => {
+                  const isPrevAccepted = statusLower.includes("accept") || statusLower.includes("direct ok") || statusLower.includes("ok") || statusLower === "verified";
+                  const isPrevRej = statusLower.includes("reject");
+                  const chipStyle = isPrevRej
+                    ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
+                    : isPrevAccepted
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                      : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
+
+                  return (
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border ${chipStyle}`}
+                    >
+                      <span>Attempt #{rank - 1}</span>
+                      {previousStatus && (
+                        <span className="text-[10px] font-medium opacity-80">({previousStatus})</span>
+                      )}
+                    </span>
+                  );
+                })()}
+
+                {/* Current Active Attempt */}
+                <span
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800"
+                  title={`Current inspection attempt #${rank}`}
+                >
+                  <span>Attempt #{rank}</span>
+                  <span className="text-[10px] font-medium px-1 bg-indigo-200/50 dark:bg-indigo-800/50 rounded">Current</span>
+                </span>
+
+                {renderActionIcons()}
               </div>
             );
           })()}
@@ -1978,6 +2106,7 @@ export default function QuestionRenderer({
       <div className="mt-2">
         {renderTrackingInput()}
         <div className="mt-4">{renderInput()}</div>
+        {renderFollowUpParentStatusCard()}
       </div>
       {activeError && (
         <p className="text-[10px] font-bold text-red-500 mt-1 animate-in fade-in slide-in-from-top-1">

@@ -2279,11 +2279,12 @@ export default function Attendance() {
                           </td>
                         </tr>
                       ) : (
-                        paginatedUsers.map((user) => {
+                        paginatedUsers.map((user, userIdx) => {
                           let pCount = 0;
                           let haCount = 0;
                           let aCount = 0;
                           let totalHoursDecimal = 0;
+                          const isTopRow = userIdx <= 1;
 
                           visibleDates.forEach((d) => {
                             const record = user.attendance?.[d.dateString];
@@ -2322,38 +2323,105 @@ export default function Attendance() {
                                 const record = user.attendance?.[d.dateString];
                                 let symbol = "-";
                                 let cellClass = "text-gray-400 dark:text-gray-600";
+                                let hoverTitle = "";
+                                let hoverDetails: { formattedH: string; inTime: string | null; outTime: string | null; hoursDecimal: number } | null = null;
 
                                 if (record) {
+                                  const hoursDecimal = record.workingHours || calculateWorkingHours(record.loginTime || record.checkInTime, record.logoutTime || record.checkOutTime, record.workingHours || 0) || 0;
+                                  const wholeH = Math.floor(hoursDecimal);
+                                  const mins = Math.round((hoursDecimal - wholeH) * 60);
+                                  const formattedH = `${wholeH}h ${mins}m`;
+                                  const inTime = record.checkInTime || record.loginTime ? formatTime(record.checkInTime || record.loginTime) : null;
+                                  const outTime = record.checkOutTime || record.logoutTime ? formatTime(record.checkOutTime || record.logoutTime) : null;
+
+                                  hoverDetails = {
+                                    formattedH,
+                                    inTime,
+                                    outTime,
+                                    hoursDecimal,
+                                  };
+
                                   if (record.isPresent) {
                                     if (record.presentStatus === "half-day" || record.presentStatus === "halfday") {
                                       symbol = "HA";
-                                      cellClass = "text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/20 font-bold";
+                                      cellClass = "text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/20 font-bold hover:bg-orange-100 dark:hover:bg-orange-900/40";
+                                      hoverTitle = `${user.firstName} ${user.lastName} (${d.day} ${monthDetails.monthName})\nStatus: Half Day\nWorking Hours: ${formattedH}${inTime ? `\nCheck-in: ${inTime}` : ""}${outTime ? `\nCheck-out: ${outTime}` : ""}`;
                                     } else {
                                       symbol = "P";
-                                      cellClass = "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/20 font-bold";
+                                      cellClass = "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/20 font-bold hover:bg-green-100 dark:hover:bg-green-900/40";
+                                      hoverTitle = `${user.firstName} ${user.lastName} (${d.day} ${monthDetails.monthName})\nStatus: Present\nWorking Hours: ${formattedH}${inTime ? `\nCheck-in: ${inTime}` : ""}${outTime ? `\nCheck-out: ${outTime}` : ""}`;
                                     }
                                   } else {
                                     if (record.presentStatus === "weekly-off" || record.presentStatus === "weekly_off") {
                                       symbol = "W";
                                       cellClass = "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 font-bold";
+                                      hoverTitle = `${user.firstName} ${user.lastName} (${d.day} ${monthDetails.monthName})\nStatus: Weekly Off`;
                                     } else {
                                       symbol = "A";
                                       cellClass = "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 font-bold";
+                                      hoverTitle = `${user.firstName} ${user.lastName} (${d.day} ${monthDetails.monthName})\nStatus: Absent`;
                                     }
                                   }
                                 } else {
                                   if (d.date.getDay() === 0) {
                                     symbol = "S";
                                     cellClass = "text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/20 font-bold";
+                                    hoverTitle = `${d.day} ${monthDetails.monthName} (Sunday)`;
                                   }
                                 }
 
                                 return (
                                   <td
                                     key={d.dateString}
-                                    className={`px-1 py-1 border border-gray-200 dark:border-gray-700 text-center text-xs ${cellClass}`}
+                                    title={hoverTitle || undefined}
+                                    className={`px-1 py-1 border border-gray-200 dark:border-gray-700 text-center text-xs relative group/day hover:z-50 ${cellClass} transition-colors cursor-default`}
                                   >
-                                    {symbol}
+                                    <span className="inline-block w-full">{symbol}</span>
+                                    {hoverDetails && (symbol === "P" || symbol === "HA") && (
+                                      <div
+                                        className={`absolute left-1/2 -translate-x-1/2 hidden group-hover/day:flex flex-col items-center z-[9999] pointer-events-none drop-shadow-2xl ${
+                                          isTopRow ? "top-full mt-2" : "bottom-full mb-2"
+                                        }`}
+                                      >
+                                        {isTopRow && (
+                                          <div className="w-2.5 h-2.5 bg-slate-900 dark:bg-slate-950 rotate-45 -mb-1.5 border-l border-t border-slate-700/80 z-10" />
+                                        )}
+                                        <div className="bg-slate-900 dark:bg-slate-950 text-white p-3 rounded-xl shadow-2xl border border-slate-700/90 whitespace-nowrap min-w-[175px] text-center backdrop-blur-md">
+                                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between gap-3">
+                                            <span>{d.day} {monthDetails.monthName} ({d.dayOfWeek})</span>
+                                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${symbol === "P" ? "bg-emerald-950 text-emerald-400 border border-emerald-700/60" : "bg-amber-950 text-amber-400 border border-amber-700/60"}`}>
+                                              {symbol === "P" ? "Present" : "Half Day"}
+                                            </span>
+                                          </div>
+                                          <div className="text-base sm:text-lg font-black text-emerald-400 tracking-tight my-0.5 flex items-center justify-center gap-1.5">
+                                            <span>⏱</span>
+                                            <span>{hoverDetails.formattedH}</span>
+                                          </div>
+                                          <div className="text-[10px] font-semibold text-slate-300">
+                                            Total Working Hours
+                                          </div>
+                                          {(hoverDetails.inTime || hoverDetails.outTime) && (
+                                            <div className="mt-2 pt-1.5 border-t border-slate-800 flex items-center justify-between gap-2 text-[11px] font-medium">
+                                              {hoverDetails.inTime && (
+                                                <div className="flex items-center gap-1 text-emerald-300">
+                                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                                  <span>In: <strong>{hoverDetails.inTime}</strong></span>
+                                                </div>
+                                              )}
+                                              {hoverDetails.outTime && (
+                                                <div className="flex items-center gap-1 text-rose-300">
+                                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                                  <span>Out: <strong>{hoverDetails.outTime}</strong></span>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                        {!isTopRow && (
+                                          <div className="w-2.5 h-2.5 bg-slate-900 dark:bg-slate-950 rotate-45 -mt-1.5 border-r border-b border-slate-700/80 z-10" />
+                                        )}
+                                      </div>
+                                    )}
                                   </td>
                                 );
                               })}

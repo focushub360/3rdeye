@@ -816,10 +816,15 @@ export const updateForm = async (req, res) => {
     // Update form
     const updateData = { ...req.body };
 
-    // Only superadmin can change isGlobal and sharedWithTenants
-    if (req.user.role !== 'superadmin') {
+    // Only superadmin and admin can change isGlobal and sharedWithTenants
+    if (req.user.role !== 'superadmin' && req.user.role !== 'admin') {
       delete updateData.isGlobal;
       delete updateData.sharedWithTenants;
+      delete updateData.tenantId;
+    }
+    // Admin can update sharedWithTenants but not isGlobal or tenantId
+    if (req.user.role === 'admin') {
+      delete updateData.isGlobal;
       delete updateData.tenantId;
     }
 
@@ -1666,7 +1671,10 @@ export const linkChildForm = async (req, res) => {
       order
     });
 
-    await parentForm.save();
+    // Also set parentFormId on child form for bidirectional consistency
+    childForm.parentFormId = parentForm.id || parentForm._id.toString();
+
+    await Promise.all([parentForm.save(), childForm.save()]);
 
     res.json({
       success: true,
@@ -1737,6 +1745,17 @@ export const unlinkChildForm = async (req, res) => {
     });
 
     await parentForm.save();
+
+    // Also clear parentFormId on child form if it points to this parent
+    try {
+      const childForm = await findFormByIdentifier(childFormId);
+      if (childForm && (childForm.parentFormId === parentForm.id || childForm.parentFormId === parentForm._id.toString())) {
+        childForm.parentFormId = null;
+        await childForm.save();
+      }
+    } catch (childErr) {
+      console.warn('Failed to clear child parentFormId:', childErr);
+    }
 
     res.json({
       success: true,

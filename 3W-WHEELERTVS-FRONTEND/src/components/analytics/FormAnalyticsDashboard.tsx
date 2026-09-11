@@ -10865,6 +10865,8 @@ export default function FormAnalyticsDashboard() {
                   </div>
                 )}
 
+
+
                 <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex flex-col">
                     <div className="flex items-center gap-2.5">
@@ -11970,11 +11972,21 @@ export default function FormAnalyticsDashboard() {
                                       </div>
                                     ) : (
                                       <div className="flex items-center gap-1.5 group">
-                                        <span>{getChassisDisplayValue(response.answers?.chassis_number)}</span>
+                                        <span className="font-semibold text-gray-900 dark:text-white">
+                                          {getChassisDisplayValue(
+                                            response.answers?.chassis_number ||
+                                            response.answers?.chassisNumber ||
+                                            response.answers?.id_number ||
+                                            response.answers?.idNumber ||
+                                            response.answers?.["ID number"] ||
+                                            response.answers?.["Chassis / VIN"] ||
+                                            (chassisQuestionId ? response.answers?.[chassisQuestionId] : "")
+                                          )}
+                                        </span>
                                         <button
                                           onClick={() => handleStartChassisEdit(response)}
                                           title="Edit Chassis"
-                                          className="p-1 text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded transition-all opacity-0 group-hover:opacity-100"
+                                          className="p-1 text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded transition-all opacity-0 group-hover:opacity-100 cursor-pointer"
                                         >
                                           <Edit className="w-3.5 h-3.5" />
                                         </button>

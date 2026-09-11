@@ -216,10 +216,36 @@ export default function FormsManagementNew() {
     [forms],
   );
 
+  // Set of all child form IDs linked to any form
+  const linkedChildFormIds = React.useMemo(() => {
+    const set = new Set<string>();
+    activeForms.forEach((form: Form) => {
+      if (Array.isArray(form.childForms)) {
+        form.childForms.forEach((cf: any) => {
+          const cfId = typeof cf === "string" ? cf : cf.formId || cf.id || cf._id;
+          if (cfId) set.add(String(cfId));
+        });
+      }
+      if (form.parentFormId) {
+        if (form.id) set.add(String(form.id));
+        if (form._id) set.add(String(form._id));
+      }
+    });
+    return set;
+  }, [activeForms]);
+
   // Separate parent/standalone forms and child forms
   const parentAndStandaloneForms = React.useMemo(
-    () => activeForms.filter((form: Form) => !form.parentFormId),
-    [activeForms],
+    () =>
+      activeForms.filter((form: Form) => {
+        if (form.parentFormId) return false;
+        const formId = form.id?.toString?.();
+        const formMongoId = form._id?.toString?.();
+        if (formId && linkedChildFormIds.has(formId)) return false;
+        if (formMongoId && linkedChildFormIds.has(formMongoId)) return false;
+        return true;
+      }),
+    [activeForms, linkedChildFormIds],
   );
 
   // Filter forms based on search (parent/standalone only, children will be shown under parents)
@@ -239,12 +265,47 @@ export default function FormsManagementNew() {
   // Get child forms for a parent - memoized to avoid recalculating on every render
   const childFormsMap = React.useMemo(() => {
     const map = new Map<string, Form[]>();
+    const formsById = new Map<string, Form>();
+    activeForms.forEach((f) => {
+      if (f.id) formsById.set(String(f.id), f);
+      if (f._id) formsById.set(String(f._id), f);
+    });
+
     activeForms.forEach((form: Form) => {
-      if (form.parentFormId) {
-        if (!map.has(form.parentFormId)) {
-          map.set(form.parentFormId, []);
+      // 1. Resolve from parent's childForms array
+      if (Array.isArray(form.childForms) && form.childForms.length > 0) {
+        const parentKey = String(form._id || form.id);
+        const children: Form[] = [];
+        const seen = new Set<string>();
+
+        form.childForms.forEach((cf: any) => {
+          const cfId = String(typeof cf === "string" ? cf : cf.formId || cf.id || cf._id || "");
+          if (cfId && !seen.has(cfId)) {
+            seen.add(cfId);
+            const childObj = formsById.get(cfId);
+            if (childObj) children.push(childObj);
+          }
+        });
+
+        if (children.length > 0) {
+          map.set(parentKey, children);
+          if (form.id && form._id && String(form.id) !== String(form._id)) {
+            map.set(String(form.id), children);
+          }
         }
-        map.get(form.parentFormId)!.push(form);
+      }
+
+      // 2. Also support if child form has parentFormId
+      if (form.parentFormId) {
+        const pKey = String(form.parentFormId);
+        if (!map.has(pKey)) {
+          map.set(pKey, []);
+        }
+        const existing = map.get(pKey)!;
+        const cId = String(form._id || form.id);
+        if (!existing.some((e) => String(e._id || e.id) === cId)) {
+          existing.push(form);
+        }
       }
     });
     return map;
@@ -318,7 +379,7 @@ export default function FormsManagementNew() {
                   className="w-full text-left px-4 py-2 text-sm text-primary-700 hover:bg-primary-50 flex items-center"
                 >
                   <LinkIcon className="w-4 h-4 mr-2" />
-                  Manage Child Forms
+                  Manage Follow-up Forms
                 </button>
               )}
               <button
@@ -989,7 +1050,7 @@ export default function FormsManagementNew() {
               <div className="px-6 py-4 border-b border-neutral-200 dark:border-gray-700 flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-semibold text-primary-900">
-                    Manage Child Forms
+                    Manage Follow-up Forms
                   </h2>
                   <p className="text-sm text-primary-600 mt-1">
                     Parent: {selectedParentForm.title}

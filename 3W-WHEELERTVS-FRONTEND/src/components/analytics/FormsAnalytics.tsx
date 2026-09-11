@@ -3,6 +3,7 @@ import React, {
   useMemo,
   useRef,
   useEffect,
+  useCallback,
   ChangeEvent,
 } from "react";
 import { useNavigate } from "react-router-dom";
@@ -425,12 +426,43 @@ export default function FormsAnalytics() {
     setActualResponseCounts(counts);
   }, [visibleForms]);
 
-  const totalForms = visibleForms.filter((form: FormItem) => !form.parentFormId).length;
+  // Set of all child form IDs linked in any form's childForms array or with parentFormId
+  const allChildFormIds = useMemo(() => {
+    const set = new Set<string>();
+    forms.forEach((form: FormItem) => {
+      if (Array.isArray(form.childForms)) {
+        form.childForms.forEach((cf: any) => {
+          const cfId = typeof cf === "string" ? cf : cf.formId || cf.id || cf._id;
+          if (cfId) set.add(String(cfId));
+        });
+      }
+      if (form.parentFormId) {
+        if (form.id) set.add(String(form.id));
+        if (form._id) set.add(String(form._id));
+      }
+    });
+    return set;
+  }, [forms]);
+
+  const isFormAChild = useCallback(
+    (form: FormItem) => {
+      if (form.parentFormId) return true;
+      const formIdStr = form.id ? String(form.id) : "";
+      const formMongoIdStr = form._id ? String(form._id) : "";
+      return (
+        Boolean(formIdStr && allChildFormIds.has(formIdStr)) ||
+        Boolean(formMongoIdStr && allChildFormIds.has(formMongoIdStr))
+      );
+    },
+    [allChildFormIds],
+  );
+
+  const totalForms = visibleForms.filter((form: FormItem) => !isFormAChild(form)).length;
   const activeFormsCount = visibleForms.filter(
-    (form: FormItem) => form.isActive === true && !form.parentFormId,
+    (form: FormItem) => form.isActive === true && !isFormAChild(form),
   ).length;
   const inactiveFormsCount = visibleForms.filter(
-    (form: FormItem) => form.isActive === false && !form.parentFormId,
+    (form: FormItem) => form.isActive === false && !isFormAChild(form),
   ).length;
 
   const formsMap = useMemo(() => {
@@ -459,25 +491,33 @@ export default function FormsAnalytics() {
   const groupedForms = useMemo(() => {
     const result = filteredForms.reduce(
       (acc, form) => {
-        const key = form.parentFormId || form.id || form._id;
+        const isChild = isFormAChild(form);
+
+        if (isChild) {
+          const parentKey = form.parentFormId;
+          if (parentKey) {
+            acc[parentKey] = acc[parentKey] || {
+              parent: null,
+              children: [],
+            };
+            const childId = form.id || form._id;
+            if (!acc[parentKey].children.some((c) => (c.id || c._id) === childId)) {
+              acc[parentKey].children.push(form);
+            }
+          }
+          return acc;
+        }
+
+        const key = form.id || form._id;
         if (!key) {
           return acc;
         }
 
         if (!acc[key]) {
           acc[key] = {
-            parent: form.parentFormId ? null : form,
+            parent: form,
             children: [],
           };
-        }
-
-        if (form.parentFormId) {
-          const parentKey = form.parentFormId;
-          acc[parentKey] = acc[parentKey] || {
-            parent: null,
-            children: [],
-          };
-          acc[parentKey].children.push(form);
         } else {
           acc[key].parent = form;
         }
@@ -497,10 +537,6 @@ export default function FormsAnalytics() {
         (a, b) => (a.order ?? 0) - (b.order ?? 0),
       );
 
-      if (childRefs.length === 0) {
-        return;
-      }
-
       const existingChildrenMap = new Map<string, FormItem>();
       group.children.forEach((child) => {
         const childKey = child.id || child._id;
@@ -512,7 +548,7 @@ export default function FormsAnalytics() {
       const orderedChildren: FormItem[] = [];
       const usedChildIds = new Set<string>();
 
-      childRefs.forEach((childRef, index) => {
+      childRefs.forEach((childRef) => {
         const childId = childRef.formId;
         if (!childId || usedChildIds.has(childId)) {
           return;
@@ -538,6 +574,7 @@ export default function FormsAnalytics() {
         if (!childId || usedChildIds.has(childId)) {
           return;
         }
+        usedChildIds.add(childId);
         orderedChildren.push(child);
       });
 
@@ -545,7 +582,7 @@ export default function FormsAnalytics() {
     });
 
     return result;
-  }, [filteredForms, formsMap]);
+  }, [filteredForms, formsMap, isFormAChild]);
 
   const allForms = filteredForms.length;
   const totalResponses = filteredForms.reduce((sum, form) => {
@@ -1310,7 +1347,7 @@ export default function FormsAnalytics() {
                                   </div>
                                   <div className="text-left flex-1">
                                     <div className="font-medium">
-                                      Manage Child Forms
+                                      Manage Follow-up Forms
                                     </div>
                                     <div className="text-[10px] text-primary-500">
                                       Link & organize forms

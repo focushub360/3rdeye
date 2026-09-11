@@ -265,6 +265,7 @@ const PerformanceTable = ({
     endIndex,
     paginatedPerformance,
     totalDispatched,
+    getUserTotalSubmitted,
     totalTotalSubmitted,
     totalTotalReviewed,
     totalAccepted,
@@ -304,8 +305,17 @@ const PerformanceTable = ({
         sum + (inspectorStatusMap[row.name]?.["Dispatched"] || 0),
       0,
     );
+    const getUserTotalSubmitted = (rowName: string, backendTotal: number) => {
+      const directOk = inspectorStatusMap[rowName]?.["Direct Ok"] || 0;
+      const reworkCompleted = inspectorStatusMap[rowName]?.["Rework QC Completed"] || 0;
+      const reworkPending = inspectorStatusMap[rowName]?.["Rework QC Pending"] || 0;
+      const rejected = inspectorStatusMap[rowName]?.["Rejected"] || 0;
+      const statusSum = directOk + reworkCompleted + reworkPending + rejected;
+      return Math.max(backendTotal || 0, statusSum);
+    };
+
     const totalTotalSubmitted = performanceTableData.reduce(
-      (sum, row) => sum + (row.totalSubmitted || 0),
+      (sum, row) => sum + getUserTotalSubmitted(row.name, row.totalSubmitted || 0),
       0,
     );
     const totalTotalReviewed = performanceTableData.reduce(
@@ -324,15 +334,18 @@ const PerformanceTable = ({
       (sum, row) => sum + (row.reworked ?? row.rework ?? 0),
       0,
     );
+    const reviewedRows = performanceTableData.filter(
+      (row) => (row.totalReviewed || 0) > 0,
+    );
     const avgPerformance =
-      performanceTableData.length > 0
+      reviewedRows.length > 0
         ? Math.round(
-          performanceTableData.reduce(
+          reviewedRows.reduce(
             (sum, row) => sum + (row.performanceScore || 0),
             0,
-          ) / performanceTableData.length,
+          ) / reviewedRows.length,
         )
-        : 0;
+        : null;
 
     const statusTotals: Record<string, number> = {};
     performanceStatuses
@@ -374,6 +387,7 @@ const PerformanceTable = ({
       endIndex,
       paginatedPerformance,
       totalDispatched,
+      getUserTotalSubmitted,
       totalTotalSubmitted,
       totalTotalReviewed,
       totalAccepted,
@@ -685,7 +699,7 @@ const PerformanceTable = ({
                         );
                       })()}
                     <td className="px-2 py-1.5 font-bold text-center tabular-nums border-r border-gray-100 dark:border-gray-700">
-                      {row.totalSubmitted}
+                      {getUserTotalSubmitted(row.name, row.totalSubmitted)}
                     </td>
                     {/* BIW Review Data Cells with distinct shading */}
                     <td className="px-2 py-1.5 font-bold text-center tabular-nums border-l border-purple-100 dark:border-purple-900/30 bg-purple-50/25 dark:bg-purple-950/10 text-purple-900 dark:text-purple-200">
@@ -720,38 +734,49 @@ const PerformanceTable = ({
                       {row.reworked ?? row.rework ?? 0}
                     </td>
                     <td className="px-2 py-1.5 text-center">
-                      <span
-                        className={`px-2 py-1 rounded-full text-[10px] font-black tabular-nums ${row.performanceScore >= 80
-                          ? "bg-green-100 text-green-700"
-                          : row.performanceScore >= 50
-                            ? "bg-orange-100 text-orange-700"
-                            : "bg-red-100 text-red-700"
-                          }`}
-                      >
-                        {row.performanceScore}%
-                      </span>
+                      {(row.totalReviewed || 0) === 0 ? (
+                        <span className="px-2 py-1 rounded-full text-[10px] font-bold text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 tabular-nums">
+                          N/A
+                        </span>
+                      ) : (
+                        <span
+                          className={`px-2 py-1 rounded-full text-[10px] font-black tabular-nums ${row.performanceScore >= 80
+                            ? "bg-green-100 text-green-700"
+                            : row.performanceScore >= 50
+                              ? "bg-orange-100 text-orange-700"
+                              : "bg-red-100 text-red-700"
+                            }`}
+                        >
+                          {row.performanceScore}%
+                        </span>
+                      )}
                     </td>
                     <td className="px-2 py-1.5 text-center">
-                      <span
-                        className={`px-2 py-1 rounded-full text-[10px] font-black ${(() => {
-                          const score = row.performanceScore || 0;
-                          if (score < 60) return "bg-red-100 text-red-700";
-                          if (score < 70) return "bg-orange-100 text-orange-700";
-                          if (score < 80) return "bg-yellow-100 text-yellow-700";
-                          if (score < 90) return "bg-green-100 text-green-700";
-                          return "bg-emerald-100 text-emerald-700";
-                        })()}`}
-                      >
-                        {(() => {
-                          const score = row.performanceScore || 0;
-                          if (score < 60) return "Not met performer";
-                          if (score < 70) return "partially met performer";
-                          if (score < 80) return "Met expectation";
-                          if (score < 90) return "exceeded Performance";
-                          return "Exemplary performer"
-                        }
-                        )()}
-                      </span>
+                      {(row.totalReviewed || 0) === 0 ? (
+                        <span className="px-2 py-1 rounded-full text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30">
+                          Pending Review
+                        </span>
+                      ) : (
+                        <span
+                          className={`px-2 py-1 rounded-full text-[10px] font-black ${(() => {
+                            const score = row.performanceScore || 0;
+                            if (score < 60) return "bg-red-100 text-red-700";
+                            if (score < 70) return "bg-orange-100 text-orange-700";
+                            if (score < 80) return "bg-yellow-100 text-yellow-700";
+                            if (score < 90) return "bg-green-100 text-green-700";
+                            return "bg-emerald-100 text-emerald-700";
+                          })()}`}
+                        >
+                          {(() => {
+                            const score = row.performanceScore || 0;
+                            if (score < 60) return "Not met performer";
+                            if (score < 70) return "partially met performer";
+                            if (score < 80) return "Met expectation";
+                            if (score < 90) return "exceeded Performance";
+                            return "Exemplary performer";
+                          })()}
+                        </span>
+                      )}
                     </td>
                     <td className="px-2 py-1.5 text-center">
                       <button
@@ -908,37 +933,49 @@ const PerformanceTable = ({
                   {totalRework}
                 </td>
                 <td className="px-2 py-1.5 text-center">
-                  <span
-                    className={`px-2 py-1 rounded-full text-[10px] font-black tabular-nums ${avgPerformance >= 80
-                      ? "bg-green-200 text-green-800"
-                      : avgPerformance >= 50
-                        ? "bg-orange-200 text-orange-800"
-                        : "bg-red-200 text-red-800"
-                      }`}
-                  >
-                    {avgPerformance}%
-                  </span>
+                  {avgPerformance === null ? (
+                    <span className="px-2 py-1 rounded-full text-[10px] font-bold text-gray-400 dark:text-gray-500 bg-gray-200 dark:bg-gray-600 tabular-nums">
+                      N/A
+                    </span>
+                  ) : (
+                    <span
+                      className={`px-2 py-1 rounded-full text-[10px] font-black tabular-nums ${avgPerformance >= 80
+                        ? "bg-green-200 text-green-800 dark:bg-green-900/30 dark:text-green-300"
+                        : avgPerformance >= 50
+                          ? "bg-orange-200 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300"
+                          : "bg-red-200 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+                        }`}
+                    >
+                      {avgPerformance}%
+                    </span>
+                  )}
                 </td>
                 <td className="px-2 py-1.5 text-center">
-                  <span
-                    className={`px-2 py-1 rounded-full text-[10px] font-black ${(() => {
-                      if (avgPerformance < 60) return "bg-red-100 text-red-700";
-                      if (avgPerformance < 70) return "bg-orange-100 text-orange-700";
-                      if (avgPerformance < 80) return "bg-yellow-100 text-yellow-700";
-                      if (avgPerformance < 90) return "bg-green-100 text-green-700";
-                      return "bg-emerald-100 text-emerald-700";
-                    })()}`}
-                  >
-                    {avgPerformance < 60
-                      ? "Not met performer"
-                      : avgPerformance < 70
-                        ? "partially met performer"
-                        : avgPerformance < 80
-                          ? "Met expectation"
-                          : avgPerformance < 90
-                            ? "exceeded Performance"
-                            : "Exemplary performer"}
-                  </span>
+                  {avgPerformance === null ? (
+                    <span className="px-2 py-1 rounded-full text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30">
+                      Pending Review
+                    </span>
+                  ) : (
+                    <span
+                      className={`px-2 py-1 rounded-full text-[10px] font-black ${(() => {
+                        if (avgPerformance < 60) return "bg-red-100 text-red-700";
+                        if (avgPerformance < 70) return "bg-orange-100 text-orange-700";
+                        if (avgPerformance < 80) return "bg-yellow-100 text-yellow-700";
+                        if (avgPerformance < 90) return "bg-green-100 text-green-700";
+                        return "bg-emerald-100 text-emerald-700";
+                      })()}`}
+                    >
+                      {avgPerformance < 60
+                        ? "Not met performer"
+                        : avgPerformance < 70
+                          ? "partially met performer"
+                          : avgPerformance < 80
+                            ? "Met expectation"
+                            : avgPerformance < 90
+                              ? "exceeded Performance"
+                              : "Exemplary performer"}
+                    </span>
+                  )}
                 </td>
                 <td className="px-2 py-1.5 text-center">
                   <span className="text-xs text-gray-400">—</span>

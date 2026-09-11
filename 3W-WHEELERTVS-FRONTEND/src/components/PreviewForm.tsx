@@ -340,17 +340,16 @@ export default function PreviewForm({
   useEffect(() => {
     const fetchForm = async () => {
       if (propQuestions && propQuestions.length > 0) {
+        const firstQ = propQuestions[0];
         const mockForm: Form = {
-          id: formId || "preview",
-          title: "Preview Form",
-          description: "This is a preview of your form",
+          id: formId || firstQ?.id || (firstQ as any)?._id || "preview",
+          title: firstQ?.title || "Preview Form",
+          description: firstQ?.description || "This is a preview of your form",
           sections: [],
           viewType: viewType,
           chassisNumbers: propChassisNumbers,
           chassisTenantAssignments: propChassisTenantAssignments,
         };
-
-        const firstQ = propQuestions[0];
         if (firstQ.sections && firstQ.sections.length > 0) {
           mockForm.title = firstQ.title;
           mockForm.description = firstQ.description;
@@ -969,6 +968,18 @@ export default function PreviewForm({
           setGlobalRankAnswers(suggestions[0].answers || null);
           setGlobalRank(suggestions[0].rank || 1);
           showSuccess(`${totalAnswersCount} previous records found!`);
+
+          // If trackResponseRank is enabled for this question, auto-apply the first record to the whole form
+          const triggeringQ = allFormQuestions.find(
+            (q) => (q.id || (q as any)._id) === questionId,
+          );
+          if (
+            triggeringQ &&
+            (triggeringQ.trackResponseRank === true ||
+              String(triggeringQ.trackResponseRank) === "true")
+          ) {
+            applySuggestions(suggestions[0].answers, undefined, 1);
+          }
         } else {
           setSuggestedAnswers({ _no_match: true });
           setGlobalRankAnswers(null);
@@ -2277,7 +2288,7 @@ export default function PreviewForm({
                             answers={answers}
                             onAnswerChange={handleResponseChange}
                             validationErrors={validationErrors}
-                            formId={formId}
+                            formId={formId || form?.id || (form as any)?._id}
                             tenantSlug={tenantSlug}
                             suggestedAnswers={suggestedAnswers}
                             lastSuggestionSource={lastSuggestionSource}

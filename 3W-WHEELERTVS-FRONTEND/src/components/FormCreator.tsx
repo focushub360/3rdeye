@@ -228,6 +228,7 @@ export default function FormCreator() {
   const [parameters, setParameters] = useState<any[]>([]);
   const [tempParameters, setTempParameters] = useState<any[]>([]);
   const [showMobilePagesModal, setShowMobilePagesModal] = useState(false);
+  const [enableFollowUp, setEnableFollowUp] = useState(false);
   const { showSuccess, showError, showConfirm } = useNotification();
 
   useEffect(() => {
@@ -308,6 +309,10 @@ export default function FormCreator() {
 
           if (backendForm.sharedWithTenants) {
             setSharedWithTenants(backendForm.sharedWithTenants);
+          }
+
+          if (backendForm.childForms && backendForm.childForms.length > 0) {
+            setEnableFollowUp(true);
           }
 
           // Transform backend form to frontend format
@@ -4138,6 +4143,22 @@ export default function FormCreator() {
                   </label>
                 </div>
 
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="enableFollowUp"
+                    checked={enableFollowUp}
+                    onChange={(e) => setEnableFollowUp(e.target.checked)}
+                    className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <label
+                    htmlFor="enableFollowUp"
+                    className="ml-2 text-sm text-primary-700 dark:text-primary-200"
+                  >
+                    Add follow-up forms
+                  </label>
+                </div>
+
                 {/* Load Demo Data Button */}
                 <div className="pt-4 border-t border-neutral-200 dark:border-gray-700">
                   <button
@@ -4154,6 +4175,50 @@ export default function FormCreator() {
                 </div>
               </div>
             </div>
+
+            {/* Follow-up Forms Manager - Only show when enabled and editing existing form */}
+            {id && enableFollowUp && (
+              <div className="mb-6">
+                <ChildFormsManager
+                  parentFormId={id}
+                  parentFormTitle={form.title}
+                  parentFormTenantId={user?.role === "superadmin" ? selectedTenantId : user?.tenantId}
+                  onUpdate={() => {
+                    // Optionally refresh form data if needed
+                    console.log("Child forms updated");
+                  }}
+                />
+              </div>
+            )}
+            
+            {/* Show info card if enabled but not saved yet */}
+            {!id && enableFollowUp && (
+              <div className="mb-6 bg-blue-50 border-2 border-blue-200 rounded-xl p-6">
+                <div className="flex items-start space-x-3">
+                  <LinkIcon className="w-6 h-6 text-blue-600 flex-shrink-0 mt-1" />
+                  <div>
+                    <h3 className="text-lg font-semibold text-blue-900 mb-2">
+                      🔗 Manage Follow-up Forms
+                    </h3>
+                    <p className="text-sm text-blue-800 mb-3">
+                      Want to link follow-up forms that appear after users
+                      complete this form?
+                    </p>
+                    <div className="text-sm bg-white bg-opacity-50 p-3 rounded-lg border border-blue-200">
+                      <ol className="list-decimal list-inside space-y-1 text-blue-800">
+                        <li>Save this form first</li>
+                        <li>Come back to edit it</li>
+                        <li>Link existing forms or create new follow-ups</li>
+                        <li>
+                          Follow-up forms will appear to users after completing
+                          this parent form
+                        </li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Page Navigation */}
             {(() => {
@@ -5583,45 +5648,7 @@ export default function FormCreator() {
                 </p>
               </button>
 
-              {/* Child Forms Manager - Only show when editing existing form */}
-              {id ? (
-                <div className="mt-6">
-                  <ChildFormsManager
-                    parentFormId={id}
-                    onUpdate={() => {
-                      // Optionally refresh form data if needed
-                      console.log("Child forms updated");
-                    }}
-                  />
-                </div>
-              ) : (
-                <div className="mt-6 bg-blue-50 border-2 border-blue-200 rounded-xl p-6">
-                  <div className="flex items-start space-x-3">
-                    <LinkIcon className="w-6 h-6 text-blue-600 flex-shrink-0 mt-1" />
-                    <div>
-                      <h3 className="text-lg font-semibold text-blue-900 mb-2">
-                        🔗 Create Follow-Up Forms (Child Forms)
-                      </h3>
-                      <p className="text-sm text-blue-800 mb-3">
-                        Want to link follow-up forms that appear after users
-                        complete this form?
-                      </p>
-                      <div className="bg-white dark:bg-gray-900 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
-                        <p className="font-medium mb-2">📝 How it works:</p>
-                        <ol className="list-decimal list-inside space-y-1 text-blue-800">
-                          <li>Save this form first</li>
-                          <li>Come back to edit it</li>
-                          <li>Link existing forms as "child forms"</li>
-                          <li>
-                            Child forms will appear to users after completing
-                            this parent form
-                          </li>
-                        </ol>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Follow-up Forms Manager moved to top */}
             </div>
           </div>
 
