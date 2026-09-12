@@ -24,6 +24,7 @@ import {
   Database,
   Send,
   Share2,
+  ChevronDown,
 } from "lucide-react";
 import { useForms, useMutation } from "../hooks/useApi";
 import { apiClient } from "../api/client";
@@ -207,6 +208,15 @@ export default function FormsManagementNew() {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [openDropdownId]);
+
+  const [expandedChildFormIds, setExpandedChildFormIds] = React.useState<Record<string, boolean>>({});
+
+  const toggleChildForms = (parentFormId: string) => {
+    setExpandedChildFormIds((prev) => ({
+      ...prev,
+      [parentFormId]: !prev[parentFormId],
+    }));
+  };
 
   const forms = formsData?.forms || [];
 
@@ -1030,9 +1040,36 @@ export default function FormsManagementNew() {
 
                   {/* Child Forms (nested under parent) */}
                   {childForms.length > 0 && (
-                    <div className="space-y-2">
-                      {childForms.map((childForm: Form) =>
-                        renderFormCard(childForm, true),
+                    <div className="ml-8 space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleChildForms(form._id)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer shadow-sm ${
+                          expandedChildFormIds[form._id]
+                            ? "bg-blue-600 text-white border-blue-700 hover:bg-blue-700"
+                            : "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:border-blue-300 dark:bg-blue-900/40 dark:text-blue-200 dark:border-blue-700"
+                        }`}
+                        title={
+                          expandedChildFormIds[form._id]
+                            ? "Click to collapse child forms"
+                            : "Click to expand child forms"
+                        }
+                      >
+                        <LinkIcon className="w-3.5 h-3.5" />
+                        <span>Child Forms ({childForms.length})</span>
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 transition-transform duration-300 ${
+                            expandedChildFormIds[form._id] ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+
+                      {expandedChildFormIds[form._id] && (
+                        <div className="space-y-2 pt-1 animate-fadeIn">
+                          {childForms.map((childForm: Form) =>
+                            renderFormCard(childForm, true),
+                          )}
+                        </div>
                       )}
                     </div>
                   )}

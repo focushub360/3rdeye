@@ -787,11 +787,11 @@ export default function DashboardNew() {
     }
   }, [selectedTenant, viewMode, formsLoaded]);
 
-  const loadFormsForTenant = useCallback(async (tenantId: string) => {
+  const loadFormsForTenant = useCallback(async (tenantId: string, forceNetwork: boolean = false) => {
     if (!tenantId) return;
 
     const cacheKey = `/forms?tenantId=${tenantId}&limit=100`;
-    const cachedForms = apiClient.getCachedData<any>(cacheKey) || apiClient.getCachedData<any>("/forms");
+    const cachedForms = !forceNetwork ? (apiClient.getCachedData<any>(cacheKey) || apiClient.getCachedData<any>("/forms")) : null;
     if (cachedForms) {
       setFormsData(cachedForms);
       setFormsLoaded(true);
@@ -805,7 +805,7 @@ export default function DashboardNew() {
       const formsResponse = await apiClient.getForms({
         tenantId: tenantId,
         limit: 100,
-        forceNetwork: false
+        forceNetwork: forceNetwork
       });
 
       setFormsData(formsResponse);
@@ -1533,12 +1533,23 @@ export default function DashboardNew() {
           <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
             <FileText className="w-8 h-8 text-red-600 dark:text-red-400" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
             Error loading data
           </h3>
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-gray-600 dark:text-gray-400 mb-4 max-w-md mx-auto text-sm">
             {formsError}
           </p>
+          <button
+            type="button"
+            onClick={() => {
+              if (selectedTenant) {
+                loadFormsForTenant(selectedTenant._id, true);
+              }
+            }}
+            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-sm font-bold shadow-sm transition-all cursor-pointer"
+          >
+            Retry Loading Forms
+          </button>
         </div>
       );
     }

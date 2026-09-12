@@ -53,6 +53,9 @@ import {
   ArrowUpDown,
   FileSpreadsheet,
   LogIn,
+  Link2,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Pie, Doughnut, Radar } from "react-chartjs-2";
@@ -85,6 +88,7 @@ import ShareAnalyticsModal from "./ShareAnalyticsModal";
 import AutoSendModal from "../forms/AutoSendModal";
 import HeatmapCalendar from "./HeatmapCalendar";
 import { io, Socket } from "socket.io-client";
+import FollowUpResponsesTab from "./FollowUpResponsesTab";
 
 import { useTheme } from "../../context/ThemeContext";
 
@@ -230,6 +234,20 @@ interface Form {
   followUpQuestions?: FollowUpQuestion[];
   parentFormId?: string;
   parentFormTitle?: string;
+  childForms?: Array<{
+    formId: string;
+    formTitle: string;
+    order?: number;
+    _id?: string;
+    id?: string;
+    responseCount?: number;
+  }>;
+  parentForm?: {
+    _id: string;
+    id: string;
+    title: string;
+    responseCount?: number;
+  };
   chassisNumbers?: ChassisNumberEntry[];
   tenantId?: string | { _id?: string; toString?: () => string };
 }
@@ -2471,6 +2489,7 @@ export default function FormAnalyticsDashboard() {
       section: "sections",
       overall: "overall",
       responses: "response",
+      followup: "response",
       preview: "preview",
     };
     const suffix = suffixMap[tabName];
@@ -2564,9 +2583,12 @@ export default function FormAnalyticsDashboard() {
 
   const [tvsReviews, setTvsReviews] = useState<any[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
-  const [analyticsView, setAnalyticsView] = useState<"responses" | "dashboard">(() => {
+  const [analyticsView, setAnalyticsView] = useState<"responses" | "dashboard" | "followup">(() => {
     const tabParam = new URLSearchParams(window.location.search).get("tab");
-    if (tabParam && ["responses", "dashboard"].includes(tabParam)) {
+    if (tabParam === "followup" || tabParam === "responses") {
+      return "responses";
+    }
+    if (tabParam && ["dashboard"].includes(tabParam)) {
       return tabParam as any;
     }
     return "dashboard";
@@ -2574,7 +2596,10 @@ export default function FormAnalyticsDashboard() {
 
   useEffect(() => {
     const tabParam = searchParams.get("tab");
-    if (tabParam && ["responses", "dashboard"].includes(tabParam)) {
+    if (tabParam === "followup" || tabParam === "responses") {
+      setAnalyticsView("responses");
+      setActiveTab("responses");
+    } else if (tabParam && ["dashboard"].includes(tabParam)) {
       setAnalyticsView(tabParam as any);
       setActiveTab(tabParam as any);
     }
@@ -3152,7 +3177,7 @@ export default function FormAnalyticsDashboard() {
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const tabParam = searchParams.get("tab");
-    if (tabParam && ["question", "section", "table", "responses", "dashboard", "comparison", "overall"].includes(tabParam)) {
+    if (tabParam && ["question", "section", "table", "responses", "dashboard", "comparison", "overall", "followup"].includes(tabParam)) {
       if (hasTabPermission(tabParam)) {
         setAnalyticsView(tabParam as any);
       }
@@ -3179,7 +3204,7 @@ export default function FormAnalyticsDashboard() {
     // If URL has a specific valid tab param, let the sync effect handle it
     const searchParams = new URLSearchParams(location.search);
     const tabParam = searchParams.get("tab");
-    if (tabParam && ["question", "section", "table", "responses", "dashboard", "comparison", "overall"].includes(tabParam)) {
+    if (tabParam && ["question", "section", "table", "responses", "dashboard", "comparison", "overall", "followup"].includes(tabParam)) {
       return;
     }
 
@@ -3368,6 +3393,35 @@ export default function FormAnalyticsDashboard() {
   const [selectedResponsesSectionIds, setSelectedResponsesSectionIds] =
     useState<string[]>([]);
   const [showResponsesFilter, setShowResponsesFilter] = useState(false);
+  const [showParentMatchColumn, setShowParentMatchColumn] = useState<boolean>(() => {
+    try {
+      const isChild = Boolean(form?.parentForm || form?.parentFormId);
+      const formKey = form?.id || form?._id || "default";
+      const saved = localStorage.getItem(`show_parent_match_${formKey}`);
+      if (saved !== null) {
+        return saved === "true";
+      }
+      return isChild;
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (!form) return;
+    try {
+      const isChild = Boolean(form?.parentForm || form?.parentFormId);
+      const formKey = form?.id || form?._id || "default";
+      const saved = localStorage.getItem(`show_parent_match_${formKey}`);
+      if (saved !== null) {
+        setShowParentMatchColumn(saved === "true");
+      } else {
+        setShowParentMatchColumn(isChild);
+      }
+    } catch {
+      setShowParentMatchColumn(false);
+    }
+  }, [form?.id, form?._id, form?.parentForm, form?.parentFormId]);
   const [editingResponseId, setEditingResponseId] = useState<string | null>(
     null,
   );
@@ -3409,8 +3463,13 @@ export default function FormAnalyticsDashboard() {
   // Lazy-loading-by-tab state. Nothing in `loadedTabs` fires on mount —
   // each tab's data is fetched the first time the user actually views it.
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "question" | "section" | "overall" | "responses"
+    "dashboard" | "question" | "section" | "overall" | "responses" | "followup"
   >("dashboard");
+
+  const totalFollowUpCount = useMemo(() => {
+    if (!form?.childForms || form.childForms.length === 0) return 0;
+    return form.childForms.reduce((sum: number, cf: any) => sum + (cf.responseCount || 0), 0);
+  }, [form?.childForms]);
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
   // Server-side paginated data for the Responses tab (replaces the old
   // client-side slice of the full `responses` array).
@@ -3435,6 +3494,108 @@ export default function FormAnalyticsDashboard() {
       return JSON.stringify(value);
     }
     return String(value);
+  };
+
+  // Helper to compute Parent/Follow-up matching status and color coding
+  const computeParentMatch = (response: any) => {
+    // 1. If backend already provided rich followUpStatus, prioritize it
+    const fs = response?.followUpStatus;
+    if (fs) {
+      if (fs.status === "matched") {
+        const isParentMatch = fs.matchType === "parent";
+        return {
+          status: "matched",
+          badgeText: isParentMatch ? "✓ Parent Matched" : "✓ Follow-up Done",
+          badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
+          icon: CheckCircle2,
+          subText: isParentMatch
+            ? (fs.parentStatus ? `Status: ${fs.parentStatus}` : "Linked to Parent")
+            : (fs.followUpStatus ? `Status: ${fs.followUpStatus}` : "Follow-up Complete"),
+          tooltip: fs.details || (isParentMatch
+            ? `Matched parent chassis "${fs.matchedChassis || ""}" (Status: ${fs.parentStatus || "Accepted"}) by ${fs.parentSubmittedBy || "Inspector"}`
+            : `Follow-up completed for chassis "${fs.matchedChassis || ""}" by ${fs.followUpSubmittedBy || "Inspector"}`)
+        };
+      }
+
+      if (fs.status === "unmatched") {
+        return {
+          status: "unmatched",
+          badgeText: "⚠ No Parent Match",
+          badgeClasses: "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100",
+          icon: AlertTriangle,
+          subText: "Standalone Follow-up",
+          tooltip: fs.details || `Chassis "${fs.matchedChassis || ""}" has not been inspected in the parent form yet`
+        };
+      }
+
+      if (fs.status === "pending") {
+        return {
+          status: "pending",
+          badgeText: fs.badgeText || "⏳ Pending Follow-up",
+          badgeClasses: "bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-800 hover:bg-sky-100",
+          icon: Clock,
+          subText: fs.daysElapsed !== undefined ? `Day ${fs.daysElapsed + 1}/10` : "Active window",
+          tooltip: fs.details || "Follow-up inspection is currently pending within active 10-day window"
+        };
+      }
+
+      if (fs.status === "overdue") {
+        return {
+          status: "overdue",
+          badgeText: fs.badgeText || "✕ Overdue",
+          badgeClasses: "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800 hover:bg-rose-100",
+          icon: XCircle,
+          subText: fs.daysElapsed !== undefined ? `Overdue ${fs.daysElapsed}d` : "Overdue",
+          tooltip: fs.details || "Follow-up inspection has exceeded the 10-day window"
+        };
+      }
+    }
+
+    // 2. Client-side fallback matching logic
+    const chassisVal = getChassisDisplayValue(
+      response.answers?.chassis_number ||
+      response.answers?.chassisNumber ||
+      response.answers?.id_number ||
+      response.answers?.idNumber ||
+      response.answers?.["ID number"] ||
+      response.answers?.["Chassis / VIN"] ||
+      (chassisQuestionId ? response.answers?.[chassisQuestionId] : "") ||
+      response.chassisNumber
+    );
+
+    if (!chassisVal || chassisVal === "-") {
+      return {
+        status: "none",
+        badgeText: "-",
+        badgeClasses: "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700",
+        icon: Link2,
+        subText: "",
+        tooltip: "No chassis specified on this response"
+      };
+    }
+
+    const isChild = Boolean(form?.parentForm || form?.parentFormId);
+
+    if (isChild) {
+      const parentFormTitle = form?.parentForm?.title || "Parent Inspection Form";
+      return {
+        status: "unmatched",
+        badgeText: "⚠ No Parent Match",
+        badgeClasses: "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100",
+        icon: AlertTriangle,
+        subText: "Standalone Follow-up",
+        tooltip: `Chassis "${chassisVal}" has no recorded match in ${parentFormTitle}`
+      };
+    }
+
+    return {
+      status: "standalone",
+      badgeText: "Main Record",
+      badgeClasses: "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700",
+      icon: Link2,
+      subText: "Direct Inspection",
+      tooltip: `Standard parent inspection record for chassis "${chassisVal}"`
+    };
   };
 
   // BIW Review — a second, independent accept/reject/rework check that any
@@ -4163,12 +4324,32 @@ export default function FormAnalyticsDashboard() {
       });
 
       if (formData && formData.form) {
-        setForm(formData.form);
-        console.log("[ANALYTICS DEBUG] Form fetched:", formData.form?.title);
+        let loadedForm = { ...formData.form };
+        if (!loadedForm.sections || loadedForm.sections.length === 0) {
+          const defaultQuestions = loadedForm.followUpQuestions && loadedForm.followUpQuestions.length > 0
+            ? loadedForm.followUpQuestions
+            : [
+                {
+                  id: loadedForm.id || loadedForm._id,
+                  text: loadedForm.title || "Follow-up Response",
+                  type: "text",
+                }
+              ];
 
-        if (formData.form?.sections && formData.form.sections.length > 0) {
+          loadedForm.sections = [
+            {
+              id: "section-default",
+              title: loadedForm.title || "Inspection Questions",
+              questions: defaultQuestions,
+            },
+          ];
+        }
+        setForm(loadedForm);
+        console.log("[ANALYTICS DEBUG] Form fetched:", loadedForm?.title);
+
+        if (loadedForm?.sections && loadedForm.sections.length > 0) {
           setSelectedResponsesSectionIds(
-            formData.form.sections.map((s: Section) => s.id),
+            loadedForm.sections.map((s: any) => s.id),
           );
         }
       }
@@ -4200,14 +4381,32 @@ export default function FormAnalyticsDashboard() {
     // SWR: Check if we have recent analytics data for this form to display instantly
     const cached = formAnalyticsMemoryCache.get(id);
     if (cached && Date.now() - cached.timestamp < 180000) {
-      setForm(cached.form);
+      let cachedForm = cached.form ? { ...cached.form } : null;
+      if (cachedForm && (!cachedForm.sections || cachedForm.sections.length === 0)) {
+        cachedForm.sections = [
+          {
+            id: "section-default",
+            title: cachedForm.title || "Inspection Questions",
+            questions: cachedForm.followUpQuestions && cachedForm.followUpQuestions.length > 0
+              ? cachedForm.followUpQuestions
+              : [
+                  {
+                    id: cachedForm.id || cachedForm._id,
+                    text: cachedForm.title || "Follow-up Response",
+                    type: "text",
+                  }
+                ],
+          },
+        ];
+      }
+      setForm(cachedForm);
       setResponses(cached.responses);
       setTableResponses(cached.tableResponses);
       setLoading(false);
       setAnalyticsResponsesLoading(false);
-      if (cached.form?.sections && cached.form.sections.length > 0) {
+      if (cachedForm?.sections && cachedForm.sections.length > 0) {
         setSelectedResponsesSectionIds(
-          cached.form.sections.map((s: Section) => s.id),
+          cachedForm.sections.map((s: any) => s.id),
         );
       }
       // Revalidate in background
@@ -4312,6 +4511,76 @@ export default function FormAnalyticsDashboard() {
     }
   };
 
+  // Dynamic question auto-discovery: If any response row has answer keys that are not
+  // registered in form.sections, inject them into form.sections so a column is always rendered!
+  useEffect(() => {
+    if (!form || !tableResponses || tableResponses.length === 0) return;
+
+    const existingQuestionIds = new Set<string>();
+    (form.sections || []).forEach((sec: any) => {
+      (sec.questions || []).forEach((q: any) => existingQuestionIds.add(q.id));
+    });
+
+    const missingQuestionKeys = new Set<string>();
+    const systemKeys = new Set([
+      "chassis_number",
+      "chassisNumber",
+      "id_number",
+      "idNumber",
+      "Chassis / VIN",
+      "_id",
+      "id",
+      "batchId",
+      "status",
+      "biw_review_status",
+    ]);
+
+    tableResponses.forEach((r) => {
+      if (r.answers && typeof r.answers === "object") {
+        Object.keys(r.answers).forEach((k) => {
+          if (!systemKeys.has(k) && !existingQuestionIds.has(k)) {
+            missingQuestionKeys.add(k);
+          }
+        });
+      }
+    });
+
+    if (missingQuestionKeys.size > 0) {
+      setForm((prevForm: any) => {
+        if (!prevForm) return prevForm;
+        const updatedSections = [...(prevForm.sections || [])];
+        if (updatedSections.length === 0) {
+          updatedSections.push({
+            id: "section-default",
+            title: prevForm.title || "Inspection Questions",
+            questions: [],
+          });
+        }
+        const targetSec = {
+          ...updatedSections[0],
+          questions: [...(updatedSections[0].questions || [])],
+        };
+        missingQuestionKeys.forEach((k) => {
+          const isMatchingFormId = k === prevForm.id || k === prevForm._id;
+          targetSec.questions.push({
+            id: k,
+            text: isMatchingFormId
+              ? (prevForm.title || "Follow-up Response")
+              : `Question (${k.slice(0, 8)})`,
+            type: "text",
+          });
+        });
+        updatedSections[0] = targetSec;
+        return { ...prevForm, sections: updatedSections };
+      });
+
+      setSelectedResponsesSectionIds((prev) => {
+        const secId = form.sections?.[0]?.id || "section-default";
+        return prev.includes(secId) ? prev : [...prev, secId];
+      });
+    }
+  }, [form?.sections, tableResponses]);
+
   // ── Real-time Socket & Auto-Refresh for Recent Uploads ─────────────
   useEffect(() => {
     if (!id) return;
@@ -4343,28 +4612,46 @@ export default function FormAnalyticsDashboard() {
       socket.on("connect", () => {
         console.log("✅ [ANALYTICS] Connected to socket server, joining room for form:", id);
         socket?.emit("join-form-analytics", id);
+        if (form && (form as any)._id && String((form as any)._id) !== String(id)) {
+          socket?.emit("join-form-analytics", String((form as any)._id));
+        }
+        if (form && form.id && String(form.id) !== String(id)) {
+          socket?.emit("join-form-analytics", String(form.id));
+        }
       });
 
+      let liveRefreshTimeout: any = null;
       const handleLiveResponseCreated = (data: any) => {
         console.log("🔔 [ANALYTICS LIVE] New response received:", data);
         const newResp = data?.response || data;
         if (!newResp) return;
 
-        // Auto-refresh table responses silently so recent uploads appear immediately
-        fetchResponsesPage(responsesPage, true);
+        // 1. Immediately inject the new response into the table state so it appears instantaneously
+        setTableResponses((prev) => {
+          const respId = newResp.id || newResp._id;
+          if (prev.some((r) => (r.id || r._id) === respId)) return prev;
+          return [newResp, ...prev];
+        });
 
-        // Update full analytics dataset
+        // 2. Increment response counts immediately
+        setTotalResponsesCount((prev) => prev + 1);
+
+        // 3. Update full analytics dataset
         setResponses((prev) => {
           const respId = newResp.id || newResp._id;
           if (prev.some((r) => (r.id || r._id) === respId)) return prev;
           return [newResp, ...prev];
         });
 
-        // Update dashboard summaries in background if active
-        if (activeTab === "dashboard") {
-          fetchSummary();
-          fetchPerformanceTable();
-        }
+        // 4. Debounced sync from server so bursts don't flood the network
+        if (liveRefreshTimeout) clearTimeout(liveRefreshTimeout);
+        liveRefreshTimeout = setTimeout(() => {
+          fetchResponsesPage(responsesPage, true);
+          if (activeTab === "dashboard") {
+            fetchSummary();
+            fetchPerformanceTable();
+          }
+        }, 250);
       };
 
       const handleLiveResponseUpdated = (data: any) => {
@@ -4394,9 +4681,15 @@ export default function FormAnalyticsDashboard() {
       socket.on("response-created", handleLiveResponseCreated);
       socket.on("response-updated", handleLiveResponseUpdated);
       socket.on("response-deleted", handleLiveResponseDeleted);
-      socket.on("batch-imported", () => {
-        fetchResponsesPage(responsesPage, true);
-        if (responses.length > 0) fetchFullAnalyticsResponses();
+      socket.on("batch-imported", (batchData: any) => {
+        console.log("🔔 [ANALYTICS LIVE] Batch imported event received:", batchData);
+        // Instantly reload page 1 to display the newly imported batch
+        fetchResponsesPage(1, false);
+        fetchFullAnalyticsResponses();
+        if (activeTab === "dashboard") {
+          fetchSummary();
+          fetchPerformanceTable();
+        }
       });
 
     } catch (e) {
@@ -4423,7 +4716,7 @@ export default function FormAnalyticsDashboard() {
   // set analyticsView; this propagates that choice into the lazy-loading
   // tab tracker below without needing to touch every button's onClick).
   useEffect(() => {
-    const knownTabs = ["dashboard", "responses"] as const;
+    const knownTabs = ["dashboard", "responses", "followup"] as const;
     const tab = (knownTabs as readonly string[]).includes(analyticsView)
       ? (analyticsView as typeof activeTab)
       : "dashboard";
@@ -5580,6 +5873,14 @@ export default function FormAnalyticsDashboard() {
         const rankA = chassisAttemptRanks[a.id] || (a.responseRanks && chassisQuestionId ? a.responseRanks[chassisQuestionId] : 1);
         const rankB = chassisAttemptRanks[b.id] || (b.responseRanks && chassisQuestionId ? b.responseRanks[chassisQuestionId] : 1);
         return isAsc ? rankA - rankB : rankB - rankA;
+      }
+
+      // Parent Match sorting
+      if (columnId === "__parentMatch") {
+        const matchA = computeParentMatch(a).badgeText;
+        const matchB = computeParentMatch(b).badgeText;
+        const cmp = String(matchA).localeCompare(String(matchB));
+        return isAsc ? cmp : -cmp;
       }
 
       // Generic question answer sorting
@@ -10404,64 +10705,110 @@ export default function FormAnalyticsDashboard() {
     >
       {/* Header with Tabs - Single Row */}
       {form && (
-        <div className="bg-white dark:bg-gray-900 p-3 sm:p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 flex flex-col lg:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2 sm:gap-4 w-full lg:w-auto">
-            {!isGuest && (
+        <>
+          {/* Linked Parent Form Banner (if this form is a follow-up form) */}
+          {form.parentForm && (
+            <div className="mb-2 px-3.5 py-2.5 bg-gradient-to-r from-indigo-50 via-purple-50 to-blue-50 dark:from-indigo-950/40 dark:via-purple-950/40 dark:to-blue-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-2.5">
+                <span className="px-2 py-0.5 rounded-md bg-indigo-600 text-white text-[11px] font-black uppercase tracking-wide">
+                  Follow-up Form
+                </span>
+                <span className="text-xs sm:text-sm font-bold text-gray-800 dark:text-gray-200">
+                  Parent Inspection Form: <strong>{form.parentForm.title}</strong>
+                </span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  ({form.parentForm.responseCount ?? 0} parent records)
+                </span>
+              </div>
               <button
-                onClick={() => navigate(-1)}
-                className="p-1.5 sm:p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                title="Go back"
+                type="button"
+                onClick={() => navigate(`/forms/${form.parentForm?._id || form.parentForm?.id}/analytics?tab=${analyticsView === "followup" ? "responses" : analyticsView}`)}
+                className="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 rounded-lg text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer w-fit"
               >
-                <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span>← Switch to Parent Form Analytics ({form.parentForm.responseCount ?? 0})</span>
               </button>
-            )}
-            <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white truncate max-w-[200px] sm:max-w-md">
-              {form?.title || "Form"}
-            </h1>
-          </div>
+            </div>
+          )}
 
-          {/* Tabs - Center */}
-          <div className="flex items-center gap-1 overflow-x-auto pb-1 lg:pb-0 max-w-full no-scrollbar">
-            <>
-              {hasTabPermission("dashboard") && (
+          <div className="bg-white dark:bg-gray-900 p-3 sm:p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 flex flex-col lg:flex-row items-center justify-between gap-4">
+            <div className="flex flex-col gap-1 w-full lg:w-auto">
+              <div className="flex items-center gap-2 sm:gap-4">
+                {!isGuest && (
+                  <button
+                    onClick={() => navigate(-1)}
+                    className="p-1.5 sm:p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                    title="Go back"
+                  >
+                    <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
+                )}
+                <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white truncate max-w-[200px] sm:max-w-md">
+                  {form?.title || "Form"}
+                </h1>
+              </div>
+
+              {/* Form Ecosystem Switcher Pills (Main Form + Follow-up Forms) */}
+              {form.childForms && form.childForms.length > 0 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {}}
+                    className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-xs font-bold border border-blue-200 dark:border-blue-800 flex items-center gap-1.5 shrink-0 cursor-default"
+                  >
+                    <span>📋 Main Form</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-blue-200/70 dark:bg-blue-800 text-blue-800 dark:text-blue-200 text-[10px]">
+                      {analytics.total}
+                    </span>
+                  </button>
+                  {form.childForms.map((cf: any, idx: number) => (
+                    <button
+                      key={cf.formId || idx}
+                      type="button"
+                      onClick={() => navigate(`/forms/${cf._id || cf.formId}/analytics?tab=${analyticsView === "followup" ? "responses" : analyticsView}`)}
+                      className="px-2.5 py-1 rounded-lg bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-gray-600 dark:text-gray-400 hover:text-indigo-700 dark:hover:text-indigo-300 text-xs font-bold border border-gray-200 dark:border-gray-700 hover:border-indigo-200 dark:hover:border-indigo-800 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+                      title={`Switch to ${cf.formTitle || 'Follow-up Form'}`}
+                    >
+                      <Reply className="w-3 h-3 text-indigo-500" />
+                      <span>{cf.formTitle || `Follow-up #${idx + 1}`}</span>
+                      <span className="px-1.5 py-0.2 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold">
+                        {cf.responseCount ?? 0}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Tabs - Center */}
+            <div className="flex items-center gap-1 overflow-x-auto pb-1 lg:pb-0 max-w-full no-scrollbar">
+              <>
+                {hasTabPermission("dashboard") && (
+                  <button
+                    onClick={() => setAnalyticsView("dashboard")}
+                    className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "dashboard"
+                      ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
+                      : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
+                      }`}
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                    Dashboard
+                  </button>
+                )}
+              </>
+
+              {hasTabPermission("responses") && (
                 <button
-                  onClick={() => setAnalyticsView("dashboard")}
-                  className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "dashboard"
+                  onClick={() => setAnalyticsView("responses")}
+                  className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "responses"
                     ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
                     : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
                     }`}
                 >
-                  <BarChart3 className="w-4 h-4" />
-                  Dashboard
+                  <UsersIcon className="w-4 h-4" />
+                  Responses
                 </button>
               )}
-
-              {/* <button
-                  onClick={() => setAnalyticsView("table")}
-                  className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${
-                    analyticsView === "table"
-                      ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
-                      : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
-                  }`}
-                >
-                  <Table className="w-4 h-4" />
-                  Table
-                </button> */}
-            </>
-
-            {hasTabPermission("responses") && (
-              <button
-                onClick={() => setAnalyticsView("responses")}
-                className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "responses"
-                  ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
-                  : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
-                  }`}
-              >
-                <UsersIcon className="w-4 h-4" />
-                Responses
-              </button>
-            )}
-          </div>
+            </div>
 
           {/* Refresh Button - Only for Dashboard */}
 
@@ -10611,7 +10958,8 @@ export default function FormAnalyticsDashboard() {
             )}
           </div>
         </div>
-      )}
+      </>
+    )}
 
       {/* Dashboard View - Always render for PDF export capability, but hide if not active */}
       {(analyticsView === "dashboard" || isExporting) && (
@@ -10623,6 +10971,40 @@ export default function FormAnalyticsDashboard() {
           }
           aria-hidden={analyticsView !== "dashboard"}
         >
+          {/* Inspection Ecosystem Dashboard Banner (when form has follow-up forms) */}
+          {form?.childForms && form.childForms.length > 0 && (
+            <div className="p-3.5 sm:p-4 bg-gradient-to-r from-blue-50/90 via-indigo-50/90 to-purple-50/90 dark:from-blue-950/40 dark:via-indigo-950/40 dark:to-purple-950/40 rounded-2xl border border-blue-200/80 dark:border-blue-800/60 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-2xs shrink-0">
+                  <BarChart3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                    <span>Inspection Ecosystem Dashboard</span>
+                    <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 text-[11px] font-black">
+                      Active: Main Form
+                    </span>
+                  </h4>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                    Viewing metrics for <strong>{form.title}</strong> ({analytics.total} records). Switch below to view Follow-up inspection dashboard without fail.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {form.childForms.map((cf: any, idx: number) => (
+                  <button
+                    key={cf.formId || idx}
+                    type="button"
+                    onClick={() => navigate(`/forms/${cf._id || cf.formId}/analytics?tab=dashboard`)}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    <span>View {cf.formTitle || `Follow-up #${idx + 1}`} Dashboard ({cf.responseCount ?? 0}) ↗</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {responses.length === 0 && isChartLoading && !isExporting ? (
             <div className="space-y-6 animate-pulse">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full">
@@ -10963,6 +11345,32 @@ export default function FormAnalyticsDashboard() {
                         </button>
                       </div>
                     )}
+                    {/* Checkbox option to toggle Parent Match column */}
+                    <label
+                      title="Toggle Parent Match column visibility (Optional)"
+                      className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold border transition-all cursor-pointer select-none ${
+                        showParentMatchColumn
+                          ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700 shadow-2xs"
+                          : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/60"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={showParentMatchColumn}
+                        onChange={(e) => {
+                          const nextVal = e.target.checked;
+                          setShowParentMatchColumn(nextVal);
+                          try {
+                            const formKey = form?.id || form?._id || "default";
+                            localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
+                          } catch (err) {}
+                        }}
+                        className="w-3.5 h-3.5 text-indigo-600 rounded accent-indigo-600 cursor-pointer"
+                      />
+                      <Link2 className={`w-3.5 h-3.5 ${showParentMatchColumn ? "text-indigo-600 dark:text-indigo-400" : "text-gray-400"}`} />
+                      <span className="hidden sm:inline">Parent Match</span>
+                    </label>
+
                     <button
                       onClick={() =>
                         setShowResponsesFilter(!showResponsesFilter)
@@ -10988,7 +11396,7 @@ export default function FormAnalyticsDashboard() {
                     <div className="relative" ref={exportDropdownRef}>
                       <button
                         onClick={() => setShowExportDropdown((prev) => !prev)}
-                        disabled={selectedResponsesSectionIds.length === 0 || isExportingExcel}
+                        disabled={(Boolean(form?.sections && form.sections.length > 0 && selectedResponsesSectionIds.length === 0)) || isExportingExcel}
                         className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm"
                         title="Download Excel Report"
                       >
@@ -11095,7 +11503,7 @@ export default function FormAnalyticsDashboard() {
                           {isBulkBiwUpdating ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
-                            <XCircle className="w-4 h-4" />
+                            <X className="w-4 h-4" />
                           )}
                           <span className="hidden md:inline">BIW Reject</span>
                           <span className="md:hidden">Reject</span>
@@ -11103,13 +11511,13 @@ export default function FormAnalyticsDashboard() {
                         <button
                           onClick={() => handleBulkBiwReviewUpdate("Reworked")}
                           disabled={isBulkBiwUpdating}
-                          className="px-3 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2 animate-in fade-in zoom-in-95 duration-150"
-                          title="Bulk Rework (BIW Review)"
+                          className="px-3 sm:px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2 animate-in fade-in zoom-in-95 duration-150"
+                          title="Bulk Mark as Reworked (BIW Review)"
                         >
                           {isBulkBiwUpdating ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
-                            <RotateCcw className="w-4 h-4" />
+                            <RefreshCw className="w-4 h-4" />
                           )}
                           <span className="hidden md:inline">BIW Rework</span>
                           <span className="md:hidden">Rework</span>
@@ -11231,13 +11639,41 @@ export default function FormAnalyticsDashboard() {
                               No sections available
                             </p>
                           )}
+
+                          {/* Optional Columns section */}
+                          <div className="pt-2.5 mt-2 border-t border-gray-200 dark:border-gray-700">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 block px-2 mb-1.5">
+                              Optional Columns
+                            </span>
+                            <label className="flex items-center gap-3 p-2 rounded-lg hover:bg-indigo-50/60 dark:hover:bg-indigo-950/30 cursor-pointer transition-colors group">
+                              <input
+                                type="checkbox"
+                                checked={showParentMatchColumn}
+                                onChange={(e) => {
+                                  const nextVal = e.target.checked;
+                                  setShowParentMatchColumn(nextVal);
+                                  try {
+                                    const formKey = form?.id || form?._id || "default";
+                                    localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
+                                  } catch (err) {}
+                                }}
+                                className="w-4 h-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-indigo-600"
+                              />
+                              <div className="flex items-center gap-2">
+                                <Link2 className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                <span className="text-xs font-semibold text-gray-900 dark:text-gray-200">
+                                  Parent Match
+                                </span>
+                              </div>
+                            </label>
+                          </div>
                         </div>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {selectedResponsesSectionIds.length > 0 ? (
+                {(!form?.sections || form.sections.length === 0 || selectedResponsesSectionIds.length > 0) ? (
                   <>
                     {/* Overall Inspection Statistics Summary Bar */}
                     <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 p-3 sm:p-4 mb-4">
@@ -11586,6 +12022,38 @@ export default function FormAnalyticsDashboard() {
                                 />
                               </div>
                             </th>
+                            {/* Parent Match Column Header */}
+                            {showParentMatchColumn && (
+                              <th className="text-center px-4 py-3 font-semibold text-xs uppercase tracking-wider border border-gray-200 dark:border-gray-700 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-200 min-w-36 whitespace-nowrap">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <span
+                                    onClick={() => {
+                                      setTableSort((prev) =>
+                                        prev?.columnId === "__parentMatch"
+                                          ? prev.direction === "asc"
+                                            ? { columnId: "__parentMatch", direction: "desc" }
+                                            : null
+                                          : { columnId: "__parentMatch", direction: "asc" }
+                                      );
+                                    }}
+                                    className="cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center justify-center gap-1.5"
+                                    title="Click to sort by Parent Match status"
+                                  >
+                                    <Link2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    <span>Parent Match</span>
+                                    {tableSort?.columnId === "__parentMatch" && (
+                                      <span className="text-indigo-600 dark:text-indigo-400">
+                                        {tableSort.direction === "asc" ? (
+                                          <ArrowUp className="w-3.5 h-3.5" />
+                                        ) : (
+                                          <ArrowDown className="w-3.5 h-3.5" />
+                                        )}
+                                      </span>
+                                    )}
+                                  </span>
+                                </div>
+                              </th>
+                            )}
                             {form?.sections?.map(
                               (section: Section) =>
                                 selectedResponsesSectionIds.includes(
@@ -12312,6 +12780,35 @@ export default function FormAnalyticsDashboard() {
                                       );
                                     })()}
                                   </td>
+                                  {/* Parent Match Status Cell */}
+                                  {showParentMatchColumn && (
+                                    <td className="px-3 py-3 border border-gray-200 dark:border-gray-700 min-w-36 whitespace-nowrap text-center bg-indigo-50/20 dark:bg-indigo-950/10">
+                                      {(() => {
+                                        const matchInfo = computeParentMatch(response);
+                                        const IconComponent = matchInfo.icon;
+                                        return (
+                                          <div className="flex flex-col items-center justify-center gap-1 group relative">
+                                            <span
+                                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border shadow-2xs transition-all ${matchInfo.badgeClasses}`}
+                                              title={matchInfo.tooltip}
+                                            >
+                                              <IconComponent className="w-3.5 h-3.5 shrink-0" />
+                                              <span>{matchInfo.badgeText}</span>
+                                            </span>
+
+                                            {matchInfo.subText && (
+                                              <span
+                                                className="text-[10px] text-gray-500 dark:text-gray-400 font-medium max-w-[130px] truncate block"
+                                                title={matchInfo.tooltip}
+                                              >
+                                                {matchInfo.subText}
+                                              </span>
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
+                                    </td>
+                                  )}
                                   {form?.sections?.map(
                                     (section: Section) =>
                                       selectedResponsesSectionIds.includes(
@@ -12473,6 +12970,11 @@ export default function FormAnalyticsDashboard() {
                                 <td className="px-4 py-4 border border-gray-200 dark:border-gray-700">
                                   <div className="w-16 h-4 bg-gray-200 dark:bg-gray-700 rounded mx-auto"></div>
                                 </td>
+                                {showParentMatchColumn && (
+                                  <td className="px-4 py-4 border border-gray-200 dark:border-gray-700">
+                                    <div className="w-20 h-4 bg-gray-200 dark:bg-gray-700 rounded mx-auto"></div>
+                                  </td>
+                                )}
                                 {form?.sections?.map(
                                   (section: Section) =>
                                     selectedResponsesSectionIds.includes(section.id) &&
@@ -12488,7 +12990,7 @@ export default function FormAnalyticsDashboard() {
                             <tr>
                               <td
                                 colSpan={
-                                  9 +
+                                  (showParentMatchColumn ? 11 : 10) +
                                   (form?.sections?.reduce(
                                     (acc: number, sec: Section) =>
                                       selectedResponsesSectionIds.includes(
@@ -12516,6 +13018,24 @@ export default function FormAnalyticsDashboard() {
                 )}
               </div>
             </div>
+          )}
+
+          {/* Follow-up Data Response Tab */}
+          {analyticsView === "followup" && (
+            <FollowUpResponsesTab
+              parentForm={form}
+              onOpenResponseDetails={(resp) => {
+                setSelectedResponse(resp);
+                setSelectedFormForModal(form);
+              }}
+              onSwitchToMainResponses={() => setAnalyticsView("responses")}
+              onNavigateToChildDashboard={(childId) => {
+                navigate(`/forms/${childId}/analytics?tab=dashboard`);
+              }}
+              onDeleteResponse={async (respId) => {
+                await apiClient.deleteResponse(respId);
+              }}
+            />
           )}
         </>
       )}

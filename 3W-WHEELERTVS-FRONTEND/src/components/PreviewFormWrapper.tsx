@@ -295,7 +295,7 @@ export default function PreviewFormWrapper() {
       // REMOVED: questionId: id!,
       // REMOVED: tenantSlug: tenant?.slug,
       answers: response.answers,
-      timestamp: response.timestamp,
+      timestamp: response.timestamp || (response as any).createdAt || new Date().toISOString(),
       sessionId: sessionId,
       startedAt: startedAt.toISOString(),
       completedAt: completedAt.toISOString(),
@@ -389,12 +389,12 @@ export default function PreviewFormWrapper() {
     if (heartbeatIntervalRef.current)
       clearInterval(heartbeatIntervalRef.current);
 
-    console.log("🏃 Navigating to /responses/all");
+    console.log(`🏃 Navigating to /forms/${id}/analytics?tab=responses`);
     console.log("Current path:", window.location.pathname);
 
     setTimeout(() => {
-      console.log("🏃 Navigating NOW...");
-      navigate("/responses/all");
+      console.log("🏃 Navigating NOW to responses tab...");
+      navigate(`/forms/${id}/analytics?tab=responses`);
     }, 100);
   } catch (err) {
     console.error("❌ Submission failed:", err);

@@ -190,37 +190,37 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
     : 0;
 
   return (
-    <div className="mb-6 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden transition-all">
+    <div className="mb-6 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden transition-all">
       {/* Top Banner Row: Today's Status + Actions */}
-      <div className="p-4 sm:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-gray-100 dark:border-gray-700/60 bg-gradient-to-r from-gray-50/50 via-white to-purple-50/20 dark:from-gray-800 dark:via-gray-800 dark:to-purple-950/10">
+      <div className="p-4 sm:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-gray-200 dark:border-gray-700/80 bg-gradient-to-r from-gray-50 via-white to-purple-50/30 dark:from-gray-800 dark:via-gray-800 dark:to-purple-950/20">
         <div className="flex items-center gap-3">
           <div className="w-1.5 h-10 bg-purple-600 rounded-full shadow-sm shadow-purple-500/20"></div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-base font-bold text-gray-900 dark:text-white leading-none">
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white leading-none">
                 Daily Attendance & Monthly Working Hours
               </h3>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+              <span className="px-2.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-200 border border-purple-200 dark:border-purple-700">
                 {data?.monthName || "Monthly"}
               </span>
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-2">
+            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mt-1.5 flex items-center gap-2">
               {isCheckedIn ? (
                 <>
-                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="font-bold text-emerald-700 dark:text-emerald-300">
                     Checked in at {checkInTime || "--"}
                   </span>
                   {elapsedTime && (
-                    <span className="font-mono bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 px-1.5 py-0.5 rounded text-[11px] font-bold">
+                    <span className="font-mono bg-emerald-100 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-200 px-2 py-0.5 rounded text-xs font-bold border border-emerald-300 dark:border-emerald-700">
                       {elapsedTime}
                     </span>
                   )}
                 </>
               ) : (
                 <>
-                  <span className="inline-block w-2 h-2 rounded-full bg-gray-400"></span>
-                  <span>You haven't checked in yet today.</span>
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+                  <span className="font-medium text-slate-600 dark:text-slate-400">You haven't checked in yet today.</span>
                 </>
               )}
             </p>
@@ -230,21 +230,21 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Month Navigator */}
-          <div className="flex items-center bg-gray-100 dark:bg-gray-700/60 rounded-xl p-1 border border-gray-200 dark:border-gray-600">
+          <div className="flex items-center bg-gray-100 dark:bg-gray-700/80 rounded-xl p-1 border border-gray-300 dark:border-gray-600">
             <button
               onClick={handlePrevMonth}
               title="Previous Month"
-              className="p-1 hover:bg-white dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors"
+              className="p-1 hover:bg-white dark:hover:bg-gray-600 rounded-lg text-slate-700 dark:text-slate-200 transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="px-3 text-xs font-bold text-gray-700 dark:text-gray-200 whitespace-nowrap min-w-[120px] text-center">
+            <span className="px-3 text-xs font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap min-w-[120px] text-center">
               {data?.monthName || "Month"} {currentYear}
             </span>
             <button
               onClick={handleNextMonth}
               title="Next Month"
-              className="p-1 hover:bg-white dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors"
+              className="p-1 hover:bg-white dark:hover:bg-gray-600 rounded-lg text-slate-700 dark:text-slate-200 transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -256,7 +256,7 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
             onClick={onOpenPunchModal}
             className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold text-xs transition-all shadow-sm border ${
               isCheckedIn
-                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60"
+                ? "bg-emerald-100 text-emerald-900 border-emerald-300 hover:bg-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-200 dark:border-emerald-700"
                 : "bg-slate-900 text-white hover:bg-slate-800 border-slate-900 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
             }`}
           >
@@ -280,9 +280,9 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
           <button
             type="button"
             onClick={() => setShowDetails(!showDetails)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold text-xs text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs text-purple-800 dark:text-purple-200 bg-purple-100/70 dark:bg-purple-900/40 border border-purple-300 dark:border-purple-700 hover:bg-purple-200 dark:hover:bg-purple-900/60 transition-colors"
           >
-            <CalendarDays className="w-3.5 h-3.5" />
+            <CalendarDays className="w-3.5 h-3.5 text-purple-700 dark:text-purple-300" />
             <span>{showDetails ? "Hide Logs" : "View Month Logs"}</span>
             {showDetails ? (
               <ChevronUp className="w-3.5 h-3.5" />
@@ -297,33 +297,33 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
       <div className="p-4 sm:p-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Card 1: Total Working Hours */}
-          <div className="bg-purple-50/40 dark:bg-purple-950/15 rounded-2xl p-4 border border-purple-100 dark:border-purple-900/30 flex flex-col justify-between">
+          <div className="bg-purple-50/50 dark:bg-purple-950/20 rounded-2xl p-4 border border-purple-200 dark:border-purple-800/50 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
+              <span className="text-xs font-bold uppercase tracking-wide text-purple-900 dark:text-purple-200 flex items-center gap-1.5">
                 <Timer className="w-3.5 h-3.5" />
                 Working Hours
               </span>
-              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-200/60 dark:bg-purple-900/50 text-purple-800 dark:text-purple-200">
+              <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-purple-100 text-purple-900 dark:bg-purple-900/60 dark:text-purple-200 border border-purple-200 dark:border-purple-700">
                 {progressPercent}% Goal
               </span>
             </div>
             <div>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-2xl font-black text-gray-900 dark:text-white tabular-nums">
+                <span className="text-2xl font-extrabold text-slate-900 dark:text-white tabular-nums">
                   {loading ? "--" : data?.totalWorkingHours?.toFixed(1) || "0.0"}
                 </span>
-                <span className="text-xs font-bold text-gray-400">
+                <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
                   / {data?.targetMonthlyHours || 160} hrs
                 </span>
               </div>
               {/* Progress Bar */}
-              <div className="w-full h-1.5 bg-purple-200 dark:bg-purple-900/50 rounded-full mt-2.5 overflow-hidden">
+              <div className="w-full h-2 bg-purple-200 dark:bg-purple-900/50 rounded-full mt-2.5 overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-purple-500 to-indigo-600 rounded-full transition-all duration-500"
+                  className="h-full bg-gradient-to-r from-purple-600 to-indigo-600 rounded-full transition-all duration-500"
                   style={{ width: `${progressPercent}%` }}
                 ></div>
               </div>
-              <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mt-1.5">
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mt-2">
                 {data?.targetMonthlyHours && data.targetMonthlyHours > data.totalWorkingHours
                   ? `${(data.targetMonthlyHours - data.totalWorkingHours).toFixed(1)} hrs remaining this month`
                   : "Monthly target achieved!"}
@@ -332,56 +332,56 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
           </div>
 
           {/* Card 2: Days Present */}
-          <div className="bg-emerald-50/40 dark:bg-emerald-950/15 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-900/30 flex flex-col justify-between">
+          <div className="bg-emerald-50/50 dark:bg-emerald-950/20 rounded-2xl p-4 border border-emerald-200 dark:border-emerald-800/50 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+              <span className="text-xs font-bold uppercase tracking-wide text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
                 <CalendarCheck className="w-3.5 h-3.5" />
                 Days Present
               </span>
-              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-200/60 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200">
+              <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-700">
                 {data?.attendanceRate || 0}% Rate
               </span>
             </div>
             <div>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-2xl font-black text-gray-900 dark:text-white tabular-nums">
+                <span className="text-2xl font-extrabold text-slate-900 dark:text-white tabular-nums">
                   {loading ? "--" : data?.presentDays || 0}
                 </span>
-                <span className="text-xs font-bold text-gray-400">
+                <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
                   / {data?.workingDaysSoFar || data?.currentDay || 1} days so far
                 </span>
               </div>
-              <div className="w-full h-1.5 bg-emerald-200 dark:bg-emerald-900/50 rounded-full mt-2.5 overflow-hidden">
+              <div className="w-full h-2 bg-emerald-200 dark:bg-emerald-900/50 rounded-full mt-2.5 overflow-hidden">
                 <div
                   className="h-full bg-emerald-500 rounded-full transition-all duration-500"
                   style={{ width: `${data?.attendanceRate || 0}%` }}
                 ></div>
               </div>
-              <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mt-1.5">
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mt-2">
                 {data?.totalWorkingDaysInMonth || 26} total scheduled days in {data?.monthName || "month"}
               </p>
             </div>
           </div>
 
           {/* Card 3: Avg Daily Working Hours */}
-          <div className="bg-blue-50/40 dark:bg-blue-950/15 rounded-2xl p-4 border border-blue-100 dark:border-blue-900/30 flex flex-col justify-between">
+          <div className="bg-blue-50/50 dark:bg-blue-950/20 rounded-2xl p-4 border border-blue-200 dark:border-blue-800/50 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
+              <span className="text-xs font-bold uppercase tracking-wide text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
                 <TrendingUp className="w-3.5 h-3.5" />
                 Avg Daily Hours
               </span>
-              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-blue-200/60 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200">
+              <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-blue-100 text-blue-900 dark:bg-blue-900/60 dark:text-blue-200 border border-blue-200 dark:border-blue-700">
                 8.0h Norm
               </span>
             </div>
             <div>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-2xl font-black text-gray-900 dark:text-white tabular-nums">
+                <span className="text-2xl font-extrabold text-slate-900 dark:text-white tabular-nums">
                   {loading ? "--" : data?.avgDailyHours?.toFixed(1) || "0.0"}
                 </span>
-                <span className="text-xs font-bold text-gray-400">hrs / day</span>
+                <span className="text-xs font-bold text-slate-600 dark:text-slate-300">hrs / day</span>
               </div>
-              <div className="w-full h-1.5 bg-blue-200 dark:bg-blue-900/50 rounded-full mt-2.5 overflow-hidden">
+              <div className="w-full h-2 bg-blue-200 dark:bg-blue-900/50 rounded-full mt-2.5 overflow-hidden">
                 <div
                   className="h-full bg-blue-500 rounded-full transition-all duration-500"
                   style={{
@@ -389,7 +389,7 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
                   }}
                 ></div>
               </div>
-              <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mt-1.5">
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mt-2">
                 {(data?.avgDailyHours || 0) >= 8.0
                   ? "Optimal working efficiency"
                   : "Below expected benchmark"}
@@ -398,31 +398,31 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
           </div>
 
           {/* Card 4: Punctuality & Shifts */}
-          <div className="bg-amber-50/40 dark:bg-amber-950/15 rounded-2xl p-4 border border-amber-100 dark:border-amber-900/30 flex flex-col justify-between">
+          <div className="bg-amber-50/50 dark:bg-amber-950/20 rounded-2xl p-4 border border-amber-200 dark:border-amber-800/50 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+              <span className="text-xs font-bold uppercase tracking-wide text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
                 <AlertCircle className="w-3.5 h-3.5" />
                 Punctuality
               </span>
-              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-200/60 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200">
+              <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-200 dark:border-amber-700">
                 {data?.lateDays || 0} Late
               </span>
             </div>
             <div>
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-black text-gray-900 dark:text-white tabular-nums">
+                <span className="text-2xl font-extrabold text-slate-900 dark:text-white tabular-nums">
                   {loading ? "--" : Math.max(0, (data?.presentDays || 0) - (data?.lateDays || 0))}
                 </span>
-                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
                   On-Time Days
                 </span>
               </div>
-              <div className="flex items-center gap-3 mt-2 text-[11px] font-medium text-gray-600 dark:text-gray-300">
-                <span>Half-Days: <strong className="text-amber-600">{data?.halfDays || 0}</strong></span>
+              <div className="flex items-center gap-3 mt-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                <span>Half-Days: <strong className="text-amber-700 dark:text-amber-300 font-extrabold">{data?.halfDays || 0}</strong></span>
                 <span>•</span>
-                <span>Early Outs: <strong className="text-rose-600">{data?.earlyCheckoutDays || 0}</strong></span>
+                <span>Early Outs: <strong className="text-rose-700 dark:text-rose-300 font-extrabold">{data?.earlyCheckoutDays || 0}</strong></span>
               </div>
-              <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mt-1">
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mt-1">
                 {data?.lateDays === 0 ? "Punctual check-in record! 🌟" : "Keep track of shift start times"}
               </p>
             </div>

@@ -443,9 +443,9 @@ export default function AnswerTemplateImport({
         clearImportState();
         setFollowUpStates({});
         if (selectedFormId) {
-          navigate(`/forms/${selectedFormId}/analytics`);
+          navigate(`/forms/${selectedFormId}/analytics?tab=responses${newBatchId ? `&batchId=${newBatchId}` : ''}`);
         }
-      }, 1500);
+      }, 400);
 
     } catch (error: any) {
       const message = error.response?.data?.message || error.message || "Failed to submit answers";

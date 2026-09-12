@@ -7,6 +7,11 @@ import {
   ChevronDown,
   ChevronUp,
   Check,
+  Plus,
+  Sparkles,
+  GitBranch,
+  Edit2,
+  Link2,
 } from "lucide-react";
 import { apiClient } from "../../api/client";
 
@@ -40,6 +45,7 @@ export default function ChildFormsManager({
   
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [modalTab, setModalTab] = useState<"create" | "link">("create");
   
   const [selectedFormId, setSelectedFormId] = useState("");
   const [assignedTenants, setAssignedTenants] = useState<string[]>([]);
@@ -48,12 +54,72 @@ export default function ChildFormsManager({
   const [successMessage, setSuccessMessage] = useState("");
   const [isExpanded, setIsExpanded] = useState(true);
 
-  // Strip existing " - Follow up N" suffixes to get the base title
-  const getBaseTitle = (title: string) => {
-    return title.replace(/(\s*-\s*Follow\s*up\s*\d+)+$/i, "").trim();
+  // Follow-up creation state
+  const [followUpTitle, setFollowUpTitle] = useState("");
+  const [followUpDescription, setFollowUpDescription] = useState("");
+  const [followUpSource, setFollowUpSource] = useState<"parent" | "empty">("parent");
+  const [sequenceNumber, setSequenceNumber] = useState(1);
+  const [selectedPresetFormat, setSelectedPresetFormat] = useState<"standard" | "xFormat" | "ordinal" | "child" | "custom">("standard");
+  const [isCreating, setIsCreating] = useState(false);
+  const [parentFullForm, setParentFullForm] = useState<any>(null);
+
+  const getOrdinal = (n: number) => {
+    const s = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
   };
 
-  const baseTitle = getBaseTitle(parentFormTitle);
+  // Strip existing " - Follow up N" suffixes to get the base title
+  const getBaseTitle = (title: string) => {
+    return (title || "")
+      .replace(/(\s*-\s*Follow\s*up\s*(?:x\d+|\d+))+$/i, "")
+      .replace(/(\s*-\s*\d+(?:st|nd|rd|th)\s*Follow-?up)+$/i, "")
+      .replace(/(\s*-\s*Child\s*Follow\s*up\s*\d+)+$/i, "")
+      .trim();
+  };
+
+  const getPresetTitle = (presetType: "standard" | "xFormat" | "ordinal" | "child", seq: number) => {
+    const base = getBaseTitle(parentFormTitle || "Form");
+    switch (presetType) {
+      case "standard":
+        return `${base} - Follow up ${seq}`;
+      case "xFormat":
+        return `${base} - Follow up x${seq}`;
+      case "ordinal":
+        return `${base} - ${getOrdinal(seq)} Follow-up`;
+      case "child":
+        return `${base} - Child Follow-up ${seq}`;
+      default:
+        return `${base} - Follow up ${seq}`;
+    }
+  };
+
+  const handleApplyPreset = (presetType: "standard" | "xFormat" | "ordinal" | "child", seq?: number) => {
+    const num = seq !== undefined ? seq : sequenceNumber;
+    setSelectedPresetFormat(presetType);
+    setFollowUpTitle(getPresetTitle(presetType, num));
+  };
+
+  const handleSequenceChange = (newSeq: number) => {
+    if (newSeq < 1) return;
+    setSequenceNumber(newSeq);
+    if (selectedPresetFormat !== "custom") {
+      setFollowUpTitle(getPresetTitle(selectedPresetFormat, newSeq));
+    }
+  };
+
+  const openAddFollowUpModal = () => {
+    const nextSeq = childForms.length + 1;
+    setSequenceNumber(nextSeq);
+    setSelectedPresetFormat("standard");
+    const base = getBaseTitle(parentFormTitle || "Form");
+    setFollowUpTitle(`${base} - Follow up ${nextSeq}`);
+    setFollowUpDescription(`Follow-up form for ${parentFormTitle || base}`);
+    setFollowUpSource("parent");
+    setModalTab("create");
+    setSelectedFormId("");
+    setShowAddModal(true);
+  };
 
   useEffect(() => {
     fetchData();
@@ -81,6 +147,7 @@ export default function ChildFormsManager({
       try {
         const formData = await apiClient.getFormById(parentFormId);
         const form = formData.form || formData;
+        setParentFullForm(form);
         const shared = (form.sharedWithTenants || []).map((t: any) => 
           typeof t === 'string' ? t : t._id || t.toString()
         );
@@ -101,6 +168,102 @@ export default function ChildFormsManager({
       console.error("Error fetching forms:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreateFollowUp = async (openEditor: boolean = false) => {
+    if (!followUpTitle.trim()) return;
+    try {
+      setIsCreating(true);
+      let sections = [];
+      if (followUpSource === "parent" && parentFullForm?.sections?.length > 0) {
+        sections = parentFullForm.sections.map((sec: any, sIdx: number) => ({
+          ...sec,
+          id: crypto.randomUUID(),
+          questions: (sec.questions || []).map((q: any, qIdx: number) => {
+            if (sIdx === 0 && qIdx === 0) {
+              return {
+                ...q,
+                id: crypto.randomUUID(),
+                text: q.text && q.text.toLowerCase().includes("chassis") ? q.text : "Chassis Number",
+                trackResponseQuestion: true,
+                trackResponseRank: true,
+                trackResponseRankLabel: "Chassis Number",
+                trackResponseQuestionLabel: "Chassis Number",
+                placeholder: "Enter Chassis Number / VIN...",
+              };
+            }
+            return {
+              ...q,
+              id: crypto.randomUUID(),
+            };
+          }),
+        }));
+      } else {
+        sections = [
+          {
+            id: crypto.randomUUID(),
+            title: "Chassis Details",
+            description: "Chassis identification and tracking",
+            questions: [
+              {
+                id: crypto.randomUUID(),
+                text: "Chassis Number",
+                type: "text",
+                required: true,
+                trackResponseQuestion: true,
+                trackResponseRank: true,
+                trackResponseRankLabel: "Chassis Number",
+                trackResponseQuestionLabel: "Chassis Number",
+                placeholder: "Enter Chassis Number / VIN...",
+              },
+            ],
+          },
+        ];
+      }
+
+      const payload = {
+        title: followUpTitle.trim(),
+        description:
+          followUpDescription.trim() || `Follow-up form for ${parentFormTitle}`,
+        parentFormId,
+        parentFormTitle,
+        tenantId:
+          parentFullForm?.tenantId?._id ||
+          parentFullForm?.tenantId ||
+          parentFormTenantId,
+        isGlobal: Boolean(parentFullForm?.isGlobal),
+        isVisible: true,
+        sections,
+        chassisNumbers: parentFullForm?.chassisNumbers || [],
+        chassisTenantAssignments:
+          parentFullForm?.chassisTenantAssignments || [],
+        sharedWithTenants: parentFullForm?.sharedWithTenants || [],
+      };
+
+      const res = await apiClient.createForm(payload);
+      const createdForm = (res as any).form || (res as any).data?.form || res;
+      const newFormId = createdForm?._id || createdForm?.id;
+
+      if (newFormId) {
+        try {
+          await apiClient.linkChildForm(parentFormId, newFormId);
+        } catch (linkErr) {
+          // Handled / auto-linked
+        }
+      }
+
+      setShowAddModal(false);
+      await fetchData();
+      onUpdate?.();
+
+      if (openEditor && newFormId) {
+        navigate(`/forms/${newFormId}/edit`);
+      }
+    } catch (err: any) {
+      alert(err.message || "Failed to create follow-up form");
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -224,8 +387,27 @@ export default function ChildFormsManager({
 
       {isExpanded && (
         <div className="p-6">
+          <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-100 dark:border-gray-800">
+            <div>
+              <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                Connected Follow-up Sequence
+              </h4>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Forms executed sequentially in follow-up rounds
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={openAddFollowUpModal}
+              className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Add Follow-up Form</span>
+            </button>
+          </div>
+
           {/* Existing linked follow-up forms */}
-          {childForms.length > 0 && (
+          {childForms.length > 0 ? (
             <div className="space-y-3 mb-6">
               {childForms.map((form, index) => (
                 <div
@@ -294,6 +476,18 @@ export default function ChildFormsManager({
                   </button>
                 </div>
               ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg mb-6">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">No follow-up forms connected yet</p>
+              <button
+                type="button"
+                onClick={openAddFollowUpModal}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-semibold inline-flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Create Follow-up Form</span>
+              </button>
             </div>
           )}
 
@@ -364,59 +558,318 @@ export default function ChildFormsManager({
         </div>
       )}
 
-      {/* Link Existing Form Modal */}
+      {/* Add / Link Follow-up Form Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl max-w-md w-full p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-4 border-b pb-4 dark:border-gray-700">
-              <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">
-                Link Existing Form
-              </h3>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl max-w-xl w-full border border-blue-100 dark:border-gray-800 shadow-2xl overflow-hidden animate-fadeIn">
+            {/* Modal Header */}
+            <div className="p-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-white/20 backdrop-blur-md rounded-xl">
+                  <GitBranch className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold">Add Follow-up Form</h3>
+                  <p className="text-xs text-blue-100">
+                    Target Form: <span className="font-semibold text-white">{parentFormTitle}</span>
+                  </p>
+                </div>
+              </div>
               <button
                 onClick={() => setShowAddModal(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                className="p-1.5 hover:bg-white/20 rounded-lg transition-colors text-white/80 hover:text-white"
               >
-                <X className="w-6 h-6" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 uppercase">
-                Select Form
-              </label>
-              <select
-                value={selectedFormId}
-                onChange={(e) => setSelectedFormId(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-medium"
+            {/* Modal Tabs */}
+            <div className="flex border-b border-gray-200 dark:border-gray-800 px-6 pt-3 bg-gray-50/50 dark:bg-gray-900/50">
+              <button
+                type="button"
+                onClick={() => setModalTab("create")}
+                className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+                  modalTab === "create"
+                    ? "border-blue-600 text-blue-700 dark:text-blue-400"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
               >
-                <option value="">-- Select a form to link --</option>
-                {availableForms.map((form) => (
-                  <option key={form.id} value={form.id}>
-                    {form.title}
-                  </option>
-                ))}
-              </select>
-              {availableForms.length === 0 && (
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                  No available forms to link. Create more forms first.
-                </p>
+                <Sparkles className="w-4 h-4" />
+                Create New Follow-up
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab("link")}
+                className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+                  modalTab === "link"
+                    ? "border-blue-600 text-blue-700 dark:text-blue-400"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                <Link2 className="w-4 h-4" />
+                Link Existing Form
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
+              {modalTab === "create" ? (
+                <>
+                  {/* Sequence & Preset Selection */}
+                  <div className="bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wider flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                        Follow-up Sequence & Preset Names
+                      </span>
+                      <div className="flex items-center space-x-1.5 bg-white dark:bg-gray-800 px-2 py-1 rounded-lg border border-blue-200 dark:border-blue-700 shadow-sm">
+                        <span className="text-xs font-medium text-gray-500 mr-1">Seq:</span>
+                        <button
+                          type="button"
+                          onClick={() => handleSequenceChange(sequenceNumber - 1)}
+                          disabled={sequenceNumber <= 1}
+                          className="w-5 h-5 flex items-center justify-center rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs font-bold disabled:opacity-40"
+                        >
+                          -
+                        </button>
+                        <span className="text-xs font-bold px-1.5 text-blue-700 dark:text-blue-300">
+                          {sequenceNumber}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleSequenceChange(sequenceNumber + 1)}
+                          className="w-5 h-5 flex items-center justify-center rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs font-bold"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Presets Chips */}
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleApplyPreset("standard")}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${
+                          selectedPresetFormat === "standard"
+                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-blue-400"
+                        }`}
+                      >
+                        <div className="text-[10px] opacity-75 font-semibold">Standard</div>
+                        <div className="font-semibold truncate">Follow up {sequenceNumber}</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleApplyPreset("xFormat")}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${
+                          selectedPresetFormat === "xFormat"
+                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-blue-400"
+                        }`}
+                      >
+                        <div className="text-[10px] opacity-75 font-semibold">x-Format</div>
+                        <div className="font-semibold truncate">Follow up x{sequenceNumber}</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleApplyPreset("ordinal")}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${
+                          selectedPresetFormat === "ordinal"
+                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-blue-400"
+                        }`}
+                      >
+                        <div className="text-[10px] opacity-75 font-semibold">Ordinal Format</div>
+                        <div className="font-semibold truncate">{getOrdinal(sequenceNumber)} Follow-up</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleApplyPreset("child")}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${
+                          selectedPresetFormat === "child"
+                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-blue-400"
+                        }`}
+                      >
+                        <div className="text-[10px] opacity-75 font-semibold">Child Format</div>
+                        <div className="font-semibold truncate">Child Follow-up {sequenceNumber}</div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Title Input */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                      Follow-up Form Title <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={followUpTitle}
+                      onChange={(e) => {
+                        setFollowUpTitle(e.target.value);
+                        setSelectedPresetFormat("custom");
+                      }}
+                      placeholder={`e.g. ${parentFormTitle} - Follow up 2`}
+                      className="w-full px-3.5 py-2.5 text-sm border border-gray-300 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                    />
+                  </div>
+
+                  {/* Description Input */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                      Description (Optional)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={followUpDescription}
+                      onChange={(e) => setFollowUpDescription(e.target.value)}
+                      placeholder="Purpose of this follow-up form..."
+                      className="w-full px-3.5 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    />
+                  </div>
+
+                  {/* Template Source Option */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                      Questions & Template Source
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label
+                        className={`flex items-start p-3 rounded-xl border cursor-pointer transition-all ${
+                          followUpSource === "parent"
+                            ? "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20"
+                            : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="followUpSource"
+                          value="parent"
+                          checked={followUpSource === "parent"}
+                          onChange={() => setFollowUpSource("parent")}
+                          className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                        />
+                        <div className="ml-2.5">
+                          <span className="text-xs font-semibold text-gray-900 dark:text-white block">
+                            Copy from Parent
+                          </span>
+                          <span className="text-[11px] text-gray-500 dark:text-gray-400 block mt-0.5">
+                            Duplicate {parentFullForm?.sections?.length || 0} sections & questions
+                          </span>
+                        </div>
+                      </label>
+
+                      <label
+                        className={`flex items-start p-3 rounded-xl border cursor-pointer transition-all ${
+                          followUpSource === "empty"
+                            ? "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20"
+                            : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="followUpSource"
+                          value="empty"
+                          checked={followUpSource === "empty"}
+                          onChange={() => setFollowUpSource("empty")}
+                          className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                        />
+                        <div className="ml-2.5">
+                          <span className="text-xs font-semibold text-gray-900 dark:text-white block">
+                            Start Blank
+                          </span>
+                          <span className="text-[11px] text-gray-500 dark:text-gray-400 block mt-0.5">
+                            Fresh inspection questions
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* Link Existing Tab */
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                      Select Existing Form to Link as Follow-up
+                    </label>
+                    <select
+                      value={selectedFormId}
+                      onChange={(e) => setSelectedFormId(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-medium"
+                    >
+                      <option value="">-- Select a form to link --</option>
+                      {availableForms.map((form) => (
+                        <option key={form.id} value={form.id}>
+                          {form.title}
+                        </option>
+                      ))}
+                    </select>
+                    {availableForms.length === 0 && (
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                        No available forms to link. Create more forms first.
+                      </p>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
 
-            <div className="flex justify-end space-x-3 pt-4 border-t dark:border-gray-700">
+            {/* Modal Footer */}
+            <div className="p-4 bg-gray-50 dark:bg-gray-800/80 border-t border-gray-200 dark:border-gray-800 flex flex-col sm:flex-row items-center justify-end gap-2">
               <button
+                type="button"
                 onClick={() => setShowAddModal(false)}
-                className="px-5 py-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors font-medium"
+                className="w-full sm:w-auto px-4 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors cursor-pointer"
               >
                 Cancel
               </button>
-              <button
-                onClick={handleLinkForm}
-                disabled={!selectedFormId}
-                className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-md hover:shadow-lg"
-              >
-                Link Form
-              </button>
+
+              {modalTab === "create" ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={isCreating || !followUpTitle.trim()}
+                    onClick={() => handleCreateFollowUp(false)}
+                    className="w-full sm:w-auto px-4 py-2 text-xs font-semibold text-blue-700 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-300 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {isCreating ? (
+                      <div className="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
+                    Quick Create & Link
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isCreating || !followUpTitle.trim()}
+                    onClick={() => handleCreateFollowUp(true)}
+                    className="w-full sm:w-auto px-4 py-2 text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {isCreating ? (
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Edit2 className="w-3.5 h-3.5" />
+                    )}
+                    Create & Open Builder
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  disabled={!selectedFormId}
+                  onClick={handleLinkForm}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-md hover:shadow-lg text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                  Link Form
+                </button>
+              )}
             </div>
           </div>
         </div>

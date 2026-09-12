@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import Form from '../models/Form.js';
 import Response from '../models/Response.js';
 import Parameter from '../models/Parameter.js';
+import Tenant from '../models/Tenant.js';
+import User from '../models/User.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const ALLOWED_FILE_TYPES = ['image', 'pdf', 'excel', 'stp', 'pvz', 'doc', 'docx'];
@@ -292,6 +294,32 @@ export const createForm = async (req, res) => {
 
 
     await form.save();
+
+    // If parentFormId is specified, auto-link to parent's childForms
+    if (formData.parentFormId) {
+      try {
+        const parentForm = await Form.findOne({
+          $or: [
+            { id: formData.parentFormId },
+            { _id: mongoose.Types.ObjectId.isValid(formData.parentFormId) ? formData.parentFormId : null }
+          ]
+        });
+        if (parentForm) {
+          if (!parentForm.childForms) parentForm.childForms = [];
+          const exists = parentForm.childForms.some(cf => cf.formId === form.id || cf.formId === form._id.toString());
+          if (!exists) {
+            parentForm.childForms.push({
+              formId: form.id || form._id.toString(),
+              formTitle: form.title,
+              order: parentForm.childForms.length
+            });
+            await parentForm.save();
+          }
+        }
+      } catch (linkErr) {
+        console.warn('Auto-link child form error:', linkErr);
+      }
+    }
 
     console.log('Form created successfully with ID:', form.id);
 
@@ -768,9 +796,137 @@ export const getFormById = async (req, res) => {
       }
     }
 
+    let formObj = form.toObject ? form.toObject() : { ...form };
+
+    try {
+      // 1. Resolve Child Forms (Follow-up forms) and calculate their response counts
+      const parentIdentifiers = [formObj.id, formObj._id ? formObj._id.toString() : null].filter(Boolean);
+      const dbChildren = await Form.find({
+        parentFormId: { $in: parentIdentifiers }
+      }).select('id _id title sections createdAt').lean();
+
+      const childMap = new Map();
+      (formObj.childForms || []).forEach(cf => {
+        if (cf.formId) {
+          childMap.set(cf.formId, {
+            formId: cf.formId,
+            formTitle: cf.formTitle || 'Follow up form',
+            order: cf.order ?? 0
+          });
+        }
+      });
+
+      dbChildren.forEach((dc) => {
+        const key = dc.id || dc._id.toString();
+        if (!childMap.has(key)) {
+          childMap.set(key, {
+            formId: key,
+            formTitle: dc.title,
+            order: childMap.size
+          });
+        }
+        const item = childMap.get(key);
+        item._id = dc._id.toString();
+        item.id = dc.id;
+        item.formTitle = dc.title || item.formTitle;
+      });
+
+      const enrichedChildForms = [];
+      for (const [key, cf] of childMap.entries()) {
+        const cIds = [cf.formId, cf.id, cf._id].filter(Boolean);
+        const count = await Response.countDocuments({
+          questionId: { $in: cIds },
+          isSectionSubmit: { $ne: true }
+        });
+        enrichedChildForms.push({
+          ...cf,
+          responseCount: count
+        });
+      }
+      formObj.childForms = enrichedChildForms;
+
+      // 2. If this form itself is a child form, attach parentForm details
+      if (formObj.parentFormId) {
+        const pDoc = await Form.findOne({
+          $or: [
+            { id: formObj.parentFormId },
+            { _id: mongoose.Types.ObjectId.isValid(formObj.parentFormId) ? new mongoose.Types.ObjectId(formObj.parentFormId) : null }
+          ].filter(Boolean)
+        }).select('id _id title sections chassisNumbers').lean();
+
+        if (pDoc) {
+          const pCount = await Response.countDocuments({
+            questionId: { $in: [pDoc.id, pDoc._id.toString()] },
+            isSectionSubmit: { $ne: true }
+          });
+          formObj.parentForm = {
+            _id: pDoc._id.toString(),
+            id: pDoc.id,
+            title: pDoc.title,
+            responseCount: pCount
+          };
+
+          // If child form has empty sections, inherit sections from parent form with Chassis Number tracking
+          if ((!formObj.sections || formObj.sections.length === 0) && pDoc.sections && pDoc.sections.length > 0) {
+            formObj.sections = pDoc.sections.map((sec, sIdx) => ({
+              ...sec,
+              questions: (sec.questions || []).map((q, qIdx) => {
+                if (sIdx === 0 && qIdx === 0) {
+                  return {
+                    ...q,
+                    text: q.text && q.text.toLowerCase().includes('chassis') ? q.text : 'Chassis Number',
+                    trackResponseQuestion: true,
+                    trackResponseRank: true,
+                    trackResponseRankLabel: 'Chassis Number',
+                    trackResponseQuestionLabel: 'Chassis Number',
+                    placeholder: 'Enter Chassis Number / VIN...'
+                  };
+                }
+                return { ...q };
+              })
+            }));
+          }
+
+          // Inherit chassisNumbers from parent if child has none
+          if ((!formObj.chassisNumbers || formObj.chassisNumbers.length === 0) && pDoc.chassisNumbers && pDoc.chassisNumbers.length > 0) {
+            formObj.chassisNumbers = pDoc.chassisNumbers;
+          }
+        }
+      }
+
+      // 3. If form still has no sections, synthesize a default section with a tracked Chassis Number question
+      if (!formObj.sections || formObj.sections.length === 0) {
+        const defaultQuestions = formObj.followUpQuestions && formObj.followUpQuestions.length > 0
+          ? formObj.followUpQuestions
+          : [
+              {
+                id: 'chassis-number-q',
+                text: 'Chassis Number',
+                type: 'text',
+                required: true,
+                trackResponseQuestion: true,
+                trackResponseRank: true,
+                trackResponseRankLabel: 'Chassis Number',
+                trackResponseQuestionLabel: 'Chassis Number',
+                placeholder: 'Enter Chassis Number / VIN...'
+              }
+            ];
+
+        formObj.sections = [
+          {
+            id: 'section-chassis',
+            title: 'Chassis Number',
+            questions: defaultQuestions
+          }
+        ];
+      }
+    } catch (enrichErr) {
+      console.warn('[getFormById] Failed to enrich child/parent relationships:', enrichErr);
+    }
+
     res.json({
       success: true,
-      data: { form }
+      data: { form: formObj }
     });
 
   } catch (error) {

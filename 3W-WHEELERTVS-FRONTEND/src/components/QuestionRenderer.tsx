@@ -428,13 +428,22 @@ export default function QuestionRenderer({
 
   const isQuestionTrackingEnabled =
     question.trackResponseQuestion === true ||
-    String(question.trackResponseQuestion) === "true";
+    String(question.trackResponseQuestion) === "true" ||
+    question.trackResponseRank === true ||
+    String(question.trackResponseRank) === "true" ||
+    (typeof question.text === "string" && (
+      question.text.toLowerCase().includes("chassis") ||
+      question.text.toLowerCase().includes("id number") ||
+      question.text.toLowerCase().includes("vin")
+    ));
 
   const isTrackingEnabled = true;
 
   const trackingInputType = question.trackResponseQuestionType || question.trackResponseRankType || "text";
   const trackingInputLabel =
-    question.trackResponseQuestionLabel || question.trackResponseRankLabel || "Tracking Question";
+    question.trackResponseQuestionLabel || question.trackResponseRankLabel || (
+      question.text && question.text.toLowerCase().includes("chassis") ? "Chassis Number" : "Tracking Question"
+    );
 
   // Determine which value to use for fetching rank
   const effectiveTrackingValue = useMemo(() => {
@@ -789,47 +798,47 @@ export default function QuestionRenderer({
       const totalAttempts = (parentMatchInfo.attemptsCount || 0) + 1;
 
       return (
-        <div className="mt-2.5 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50 text-slate-800 dark:text-slate-200 animate-in fade-in slide-in-from-top-1 duration-200 shadow-2xs">
+        <div className="mt-3 p-4 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/90 text-slate-900 dark:text-slate-100 animate-in fade-in slide-in-from-top-1 duration-200 shadow-xs">
           {/* Header */}
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div className="flex flex-wrap items-center justify-between gap-2.5 mb-2.5">
             <div className="flex items-center gap-2">
-              <span className="flex h-2 w-2 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              <span className="flex h-2.5 w-2.5 relative shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-600"></span>
               </span>
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                <Link2 className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-                <span>Parent Form:</span>
-                <span className="font-bold text-slate-900 dark:text-white">
+              <span className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <Link2 className="w-4 h-4 text-slate-600 dark:text-slate-300 stroke-[2.5]" />
+                <span className="font-semibold text-slate-700 dark:text-slate-300">Parent Form:</span>
+                <span className="font-extrabold text-slate-950 dark:text-white underline decoration-slate-400">
                   {parentMatchInfo.parentFormTitle || "Main Inspection Form"}
                 </span>
               </span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold px-3 py-1 rounded-lg bg-slate-200 text-slate-900 border border-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600 shadow-2xs">
                 {parentMatchInfo.attemptsCount} {parentMatchInfo.attemptsCount === 1 ? 'Parent Attempt' : 'Parent Attempts'}
               </span>
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60">
+              <span className="text-xs font-bold px-3 py-1 rounded-lg bg-indigo-100 text-indigo-950 border border-indigo-300 dark:bg-indigo-950 dark:text-indigo-200 dark:border-indigo-700 shadow-2xs">
                 Follow-up Attempt #{totalAttempts}
               </span>
             </div>
           </div>
 
           {/* Details */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-800 text-[11px]">
-            <div className="flex flex-wrap items-center gap-3 text-slate-600 dark:text-slate-400">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-300 dark:border-slate-700 text-xs">
+            <div className="flex flex-wrap items-center gap-4 text-slate-800 dark:text-slate-200 font-semibold">
               {parentMatchInfo.lastSubmittedBy && (
-                <span className="flex items-center gap-1">
-                  <User className="w-3 h-3 text-slate-400" />
-                  <span>Inspector:</span>
-                  <strong className="text-slate-800 dark:text-slate-200 font-semibold">{parentMatchInfo.lastSubmittedBy}</strong>
+                <span className="flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-slate-700 dark:text-slate-300 stroke-[2.5]" />
+                  <span className="text-slate-600 dark:text-slate-400">Inspector:</span>
+                  <strong className="text-slate-950 dark:text-white font-extrabold">{parentMatchInfo.lastSubmittedBy}</strong>
                 </span>
               )}
               {parentMatchInfo.lastCreatedAt && (
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3 h-3 text-slate-400" />
-                  <span>{new Date(parentMatchInfo.lastCreatedAt).toLocaleDateString()}</span>
-                  {days > 0 && <span className="text-slate-400">({days}d ago)</span>}
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-slate-700 dark:text-slate-300 stroke-[2.5]" />
+                  <strong className="text-slate-900 dark:text-slate-100 font-bold">{new Date(parentMatchInfo.lastCreatedAt).toLocaleDateString()}</strong>
+                  {days > 0 && <span className="font-bold text-slate-600 dark:text-slate-400">({days}d ago)</span>}
                 </span>
               )}
             </div>
@@ -839,13 +848,13 @@ export default function QuestionRenderer({
               const isRej = s.includes('reject');
               const isRew = s.includes('rework');
               const statusStyle = isRej
-                ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:border-rose-900/50'
+                ? 'bg-rose-100 text-rose-950 border-2 border-rose-400 dark:bg-rose-950 dark:text-rose-200 dark:border-rose-700'
                 : isRew
-                  ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-900/50'
-                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-900/50';
+                  ? 'bg-amber-100 text-amber-950 border-2 border-amber-400 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-700'
+                  : 'bg-emerald-100 text-emerald-950 border-2 border-emerald-400 dark:bg-emerald-950 dark:text-emerald-200 dark:border-emerald-700';
 
               return (
-                <span className={`px-2 py-0.5 rounded-md font-semibold text-[10px] border ${statusStyle}`}>
+                <span className={`px-3 py-1 rounded-lg font-extrabold text-xs shadow-2xs ${statusStyle}`}>
                   Status: {parentMatchInfo.lastStatus}
                 </span>
               );
@@ -854,32 +863,32 @@ export default function QuestionRenderer({
 
           {/* Sequence Timeline */}
           {historyItems.length > 0 && (
-            <div className="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-800 flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mr-1">Progression:</span>
+            <div className="mt-2.5 pt-2.5 border-t border-slate-300 dark:border-slate-700 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wide mr-1">PROGRESSION:</span>
               {historyItems.map((hist: any, idx: number) => {
                 const sStr = String(hist.status || "").toLowerCase().trim();
                 const isRej = sStr.includes("reject");
                 const isAccepted = sStr.includes("accept") || sStr.includes("direct ok") || sStr.includes("ok") || sStr === "verified";
                 const chipStyle = isRej
-                  ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
+                  ? "bg-rose-100 text-rose-950 border-2 border-rose-400 dark:bg-rose-950 dark:text-rose-200 dark:border-rose-700"
                   : isAccepted
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
-                    : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
+                    ? "bg-emerald-100 text-emerald-950 border-2 border-emerald-400 dark:bg-emerald-950 dark:text-emerald-200 dark:border-emerald-700"
+                    : "bg-amber-100 text-amber-950 border-2 border-amber-400 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-700";
 
                 return (
                   <React.Fragment key={`hist-${hist.rank || idx}`}>
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border ${chipStyle}`}>
-                      <span className="font-semibold">Attempt #{hist.rank}:</span>
-                      <span>{hist.status || 'Recorded'}</span>
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-extrabold shadow-2xs ${chipStyle}`}>
+                      <span>Attempt #{hist.rank}:</span>
+                      <span className="font-bold">{hist.status || 'Recorded'}</span>
                     </span>
                     {idx < historyItems.length - 1 && (
-                      <span className="text-slate-300 dark:text-slate-600 text-xs">→</span>
+                      <span className="text-slate-500 dark:text-slate-400 font-extrabold text-sm">→</span>
                     )}
                   </React.Fragment>
                 );
               })}
-              <span className="text-slate-300 dark:text-slate-600 text-xs">→</span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800">
+              <span className="text-slate-500 dark:text-slate-400 font-extrabold text-sm">→</span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-extrabold bg-indigo-100 text-indigo-950 border-2 border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200 dark:border-indigo-600 shadow-2xs">
                 Attempt #{totalAttempts}: Current (Follow-up)
               </span>
             </div>
@@ -1498,9 +1507,11 @@ export default function QuestionRenderer({
             <input
               type={effectiveType}
               value={value || ""}
-              onChange={(e) =>
-                !readOnly && onChange && onChange(e.target.value)
-              }
+              onChange={(e) => {
+                const newVal = e.target.value;
+                if (!readOnly && onChange) onChange(newVal);
+                if (!readOnly && onTrackingChange) onTrackingChange(newVal);
+              }}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
               required={question.required}
@@ -1508,7 +1519,7 @@ export default function QuestionRenderer({
               className={`w-full px-3 py-1.5 border rounded-xl text-[11px] font-medium transition-all duration-300 ${getBorderClass()} ${readOnly ? "opacity-50 cursor-not-allowed" : ""} ${
                 error ? "border-red-500 ring-4 ring-red-500/10" : ""
               }`}
-              placeholder={`Enter ${effectiveType === "email" ? "email" : effectiveType === "number" ? "number" : "response"}...`}
+              placeholder={question.placeholder || (question.text && question.text.toLowerCase().includes("chassis") ? "Enter Chassis Number / VIN..." : `Enter ${effectiveType === "email" ? "email" : effectiveType === "number" ? "number" : "response"}...`)}
             />
             {renderLoadingIndicator()}
             {renderNoMatchIndicator()}
@@ -1519,6 +1530,17 @@ export default function QuestionRenderer({
   };
 
   const renderTrackingInput = () => {
+    // If the question itself is already a text input representing the tracked field,
+    // don't render a duplicate sub-input box
+    const isSelfTrackedTextInput = question.type === "text" && (
+      question.text?.toLowerCase().includes("chassis") ||
+      question.text?.toLowerCase().includes("id number") ||
+      question.text?.toLowerCase().includes("vin") ||
+      question.trackResponseQuestion === true ||
+      question.trackResponseRank === true
+    );
+    if (isSelfTrackedTextInput) return null;
+
     const shouldRenderSubTracking =
       isQuestionTrackingEnabled ||
       Boolean(question.trackResponseRankLabel && (question.trackResponseRank === true || String(question.trackResponseRank) === "true"));

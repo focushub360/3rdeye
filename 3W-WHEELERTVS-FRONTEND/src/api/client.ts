@@ -542,6 +542,7 @@ class ApiClient {
     return heavyEndpoints.some(path => endpoint.includes(path));
   }
 
+
   // Authentication
   async login(credentials: {
     email: string;
@@ -1174,7 +1175,7 @@ class ApiClient {
 
   async batchImportResponses(batchData: any) {
     const responses = batchData?.responses;
-    const CHUNK_SIZE = 50;
+    const CHUNK_SIZE = 250;
 
     // If small batch (<= 50 responses) or invalid array, process in single request
     if (!Array.isArray(responses) || responses.length <= CHUNK_SIZE) {

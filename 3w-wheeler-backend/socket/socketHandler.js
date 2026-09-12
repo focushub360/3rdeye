@@ -171,6 +171,27 @@ export const emitResponseDeleted = (formId, responseId) => {
   }
 };
 
+export const emitBatchImported = (formId, data = {}) => {
+  if (io) {
+    const fId = String(formId);
+    // Emit to specific form analytics room
+    io.to(`form-analytics-${fId}`).emit('batch-imported', {
+      formId: fId,
+      ...data,
+      timestamp: new Date()
+    });
+
+    // Also emit to dashboard analytics
+    io.to('dashboard-analytics').emit('batch-imported', {
+      formId: fId,
+      ...data,
+      timestamp: new Date()
+    });
+
+    console.log(`🔔 Emitted batch-imported event for form: ${fId}, count: ${data.count || 0}`);
+  }
+};
+
 export const emitImageProgress = (submissionId, status) => {
   if (io) {
     io.to(`submission-${submissionId}`).emit('image-progress', {

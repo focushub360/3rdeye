@@ -1,36 +1,62 @@
 import mongoose from 'mongoose';
 
+let connectingPromise = null;
+
+// Add connection event listeners once
+mongoose.connection.on('connected', () => {
+  console.log('✅ MongoDB connection established');
+});
+mongoose.connection.on('error', (err) => {
+  console.error('⚠️ MongoDB connection error:', err.message || err);
+});
+mongoose.connection.on('disconnected', () => {
+  console.warn('⚠️ MongoDB disconnected. Will attempt reconnection on next operation.');
+});
+
 const connectDB = async () => {
-  try {
-    // Check if MONGODB_URI is available
-    if (!process.env.MONGODB_URI) {
-      throw new Error('MONGODB_URI environment variable is not set. Please check your .env file.');
-    }
-
-    // Reuse existing connection if already connected (critical for Vercel serverless)
-    if (mongoose.connection.readyState >= 1) {
-      return mongoose.connection;
-    }
-
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      maxPoolSize: 10,
-      minPoolSize: 2,
-      serverSelectionTimeoutMS: 15000,
-      socketTimeoutMS: 30000,
-      connectTimeoutMS: 15000,
-      heartbeatFrequencyMS: 30000,
-      retryWrites: true,
-      w: 'majority'
-    });
-
-    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
-    
-    // Create default admin if none exists
-    await createDefaultAdmin();
-    
-  } catch (error) {
-    console.error('Database connection error:', error.message || error);
+  // 1 = connected
+  if (mongoose.connection.readyState === 1) {
+    return mongoose.connection;
   }
+
+  // If already connecting (2), wait for existing connection promise
+  if (connectingPromise) {
+    return connectingPromise;
+  }
+
+  // Check if MONGODB_URI is available
+  if (!process.env.MONGODB_URI) {
+    throw new Error('MONGODB_URI environment variable is not set. Please check your .env file.');
+  }
+
+  connectingPromise = (async () => {
+    try {
+      const conn = await mongoose.connect(process.env.MONGODB_URI, {
+        maxPoolSize: 10,
+        minPoolSize: 1,
+        serverSelectionTimeoutMS: 30000,
+        socketTimeoutMS: 45000,
+        connectTimeoutMS: 30000,
+        heartbeatFrequencyMS: 15000,
+        retryWrites: true,
+        w: 'majority'
+      });
+
+      console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+      
+      // Create default admin if none exists
+      createDefaultAdmin().catch(err => console.error('Error creating default admin:', err));
+      
+      return conn.connection;
+    } catch (error) {
+      console.error('Database connection error:', error.message || error);
+      throw error;
+    } finally {
+      connectingPromise = null;
+    }
+  })();
+
+  return connectingPromise;
 };
 
 const createDefaultAdmin = async () => {
