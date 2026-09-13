@@ -30,26 +30,74 @@ const parseExcelFile = (buffer) => {
   if (data.length < 2) throw new Error('Excel must have at least one data row');
   
   const headers = data[0].map(h => h?.toString().toLowerCase().trim() || '');
-  const emailIdx = headers.findIndex(h => h.includes('email'));
-  const phoneIdx = headers.findIndex(h => h.includes('phone') || h.includes('mobile'));
   
-  if (emailIdx === -1) throw new Error('Excel must contain an "Email" column');
+  // Look for CC column specifically
+  const ccIdx = headers.findIndex(h => 
+    h === 'cc' || h === 'cc sender' || h === 'cc_sender' || h === 'cc email' || h === 'cc_email' || 
+    h === 'email (cc)' || h === 'email_cc' || h === 'cc recipients' || h.includes('carbon copy') || h === 'copy'
+  );
+  
+  // Look for Main / Primary Email column (ignoring CC column)
+  const emailIdx = headers.findIndex((h, idx) => 
+    idx !== ccIdx && (
+      h === 'main sender' || h === 'main_sender' || h === 'primary email' || h === 'primary_email' ||
+      h === 'email (to)' || h === 'email_to' || h === 'to' || h === 'to email' || h === 'main email' ||
+      h === 'email' || h.includes('email') || h.includes('mail')
+    )
+  );
+  
+  const typeIdx = headers.findIndex(h => h === 'type' || h === 'role' || h === 'recipient type' || h === 'category');
+  const phoneIdx = headers.findIndex(h => h.includes('phone') || h.includes('mobile') || h.includes('whatsapp'));
+  
+  if (emailIdx === -1 && ccIdx === -1) {
+    throw new Error('Excel must contain an "Email", "Main Sender", or "CC Sender" column');
+  }
   
   const records = [];
-  const seenEmails = new Set();
+  const seen = new Set();
   
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    if (!row?.[emailIdx]) continue;
+    if (!row || row.length === 0) continue;
     
-    const email = row[emailIdx].toString().trim().toLowerCase();
-    if (seenEmails.has(email)) continue;
+    const phone = phoneIdx !== -1 ? row[phoneIdx]?.toString().trim() : '';
+    const rowType = typeIdx !== -1 ? row[typeIdx]?.toString().toLowerCase().trim() : '';
+    const isRowCC = rowType.includes('cc') || rowType.includes('copy');
+
+    // 1. Primary / Main email from main email column
+    if (emailIdx !== -1 && row[emailIdx]) {
+      const emailVal = row[emailIdx].toString().trim().toLowerCase();
+      const emailList = emailVal.split(/[,;]+/).map(e => e.trim()).filter(Boolean);
+      for (const e of emailList) {
+        const itemType = isRowCC ? 'email_cc' : 'email';
+        const key = `${itemType}:${e}`;
+        if (!seen.has(key) && isValidEmail(e)) {
+          seen.add(key);
+          records.push({
+            type: itemType,
+            email: e,
+            phone: phone || ''
+          });
+        }
+      }
+    }
     
-    seenEmails.add(email);
-    records.push({
-      email,
-      phone: phoneIdx !== -1 ? row[phoneIdx]?.toString().trim() : ''
-    });
+    // 2. CC email from dedicated CC column
+    if (ccIdx !== -1 && row[ccIdx]) {
+      const ccVal = row[ccIdx].toString().trim().toLowerCase();
+      const ccList = ccVal.split(/[,;]+/).map(c => c.trim()).filter(Boolean);
+      for (const c of ccList) {
+        const key = `email_cc:${c}`;
+        if (!seen.has(key) && isValidEmail(c)) {
+          seen.add(key);
+          records.push({
+            type: 'email_cc',
+            email: c,
+            phone: ''
+          });
+        }
+      }
+    }
   }
   return records;
 };
@@ -76,6 +124,9 @@ export const uploadAnalyticsInvites = async (req, res) => {
         invalid.push(r);
       }
     });
+
+    const toCount = valid.filter(r => r.type !== 'email_cc').length;
+    const ccCount = valid.filter(r => r.type === 'email_cc').length;
     
     res.json({
       success: true,
@@ -83,7 +134,9 @@ export const uploadAnalyticsInvites = async (req, res) => {
         total: records.length,
         valid: valid.length,
         invalid: invalid.length,
-        preview: valid.slice(0, 10)
+        toCount,
+        ccCount,
+        preview: valid.slice(0, 50)
       }
     });
   } catch (error) {
@@ -127,7 +180,6 @@ export const sendAnalyticsInvites = async (req, res) => {
         }
       } catch (pdfError) {
         console.error('❌ Failed to generate PDF for attachment:', pdfError);
-        // Continue without attachment if generation fails
       }
     } else {
       console.log('ℹ️ PDF generation skipped:', { 
@@ -146,10 +198,22 @@ export const sendAnalyticsInvites = async (req, res) => {
     const formattedBaseUrl = singleBaseUrl.endsWith('/') ? singleBaseUrl : `${singleBaseUrl}/`;
     const inviteLink = `${formattedBaseUrl}forms/${formId}/analytics/login`;
     
+    // Extract CC emails to include on automated email delivery
+    const ccEmails = invites
+      .filter(r => (r.type === 'email_cc' || r.isCC) && r.email)
+      .map(r => r.email.toLowerCase().trim());
+    const uniqueCcEmails = Array.from(new Set(ccEmails));
+
+    // Determine target primary invites to send to
+    const primaryInvites = invites.filter(r => r.type !== 'email_cc' && !r.isCC);
+    const targetEmailInvites = primaryInvites.length > 0 ? primaryInvites : invites;
+
+    console.log(`[AUTOMAIL] Dispatching analytics invites: ${targetEmailInvites.length} primary recipients, ${uniqueCcEmails.length} CC recipients`);
+
     // Process invites in batches to avoid overloading and timeouts
     const batchSize = 10;
-    for (let i = 0; i < invites.length; i += batchSize) {
-      const batch = invites.slice(i, i + batchSize);
+    for (let i = 0; i < targetEmailInvites.length; i += batchSize) {
+      const batch = targetEmailInvites.slice(i, i + batchSize);
       const batchPromises = batch.map(async (inviteData) => {
         const email = inviteData.email ? inviteData.email.toLowerCase().trim() : null;
         const { phone } = inviteData;
@@ -172,18 +236,30 @@ export const sendAnalyticsInvites = async (req, res) => {
         let emailError = null;
 
         if (channels.includes('email') && email) {
-          console.log(`📧 Attempting email to: ${email}`);
-          const mailResult = await mailService.sendAnalyticsInvite(email, form.title, inviteLink, otp, tenant.name, customMessage, false, pdfAttachment, includeLink);
+          console.log(`📧 Attempting automated email to: ${email} with CC: [${uniqueCcEmails.join(', ')}]`);
+          // Automated mail dispatch via server mailService (SMTP/MailerSend) directly without Gmail app switching
+          const mailResult = await mailService.sendAnalyticsInvite(
+            email, 
+            form.title, 
+            inviteLink, 
+            otp, 
+            tenant?.name || '3W Inspection', 
+            customMessage, 
+            false, 
+            pdfAttachment, 
+            includeLink, 
+            uniqueCcEmails
+          );
           emailSent = mailResult.success;
           if (!emailSent) {
             emailError = mailResult.error;
-            console.error(`❌ Email failed for ${email}:`, emailError);
+            console.error(`❌ Automated email failed for ${email}:`, emailError);
           }
         }
         
         if (channels.includes('whatsapp') && phone) {
           console.log(`📱 Attempting WhatsApp to: ${phone}`);
-          const waResult = await WhatsAppService.sendAnalyticsInvite(phone, form.title, inviteLink, null, tenant.name, email, customMessage, false, includeLink);
+          const waResult = await WhatsAppService.sendAnalyticsInvite(phone, form.title, inviteLink, null, tenant?.name || '3W Inspection', email, customMessage, false, includeLink);
           whatsappSent = waResult.success;
           if (!whatsappSent) {
             console.error(`❌ WhatsApp failed for ${phone}:`, waResult.error);
@@ -192,7 +268,7 @@ export const sendAnalyticsInvites = async (req, res) => {
 
         if (channels.includes('sms') && phone) {
           console.log(`💬 Attempting SMS to: ${phone}`);
-          const smsResult = await smsService.sendFormInvite(phone, form.title, inviteLink, tenant.name);
+          const smsResult = await smsService.sendFormInvite(phone, form.title, inviteLink, tenant?.name || '3W Inspection');
           smsSent = smsResult.success;
           if (!smsSent) {
             console.error(`❌ SMS failed for ${phone}:`, smsResult.error);
@@ -218,6 +294,23 @@ export const sendAnalyticsInvites = async (req, res) => {
       const batchResults = await Promise.all(batchPromises);
       results.push(...batchResults.filter(r => r !== null));
     }
+
+    // Register invites for CC recipients so they also have valid login access
+    for (const ccEmail of uniqueCcEmails) {
+      try {
+        await AnalyticsInvite.create({
+          formId: form.id,
+          email: ccEmail,
+          phone: '',
+          otp: generateOTP(),
+          expiresAt,
+          status: 'sent',
+          tenantId: form.tenantId
+        });
+      } catch (ccErr) {
+        console.warn('Failed to record CC invite record:', ccErr.message);
+      }
+    }
     
     const sentCount = results.filter(r => r.status === 'sent').length;
     const allSuccessful = results.length > 0 && results.every(r => 
@@ -228,6 +321,11 @@ export const sendAnalyticsInvites = async (req, res) => {
 
     res.json({ 
       success: sentCount > 0, 
+      sent: sentCount,
+      failed: results.length - sentCount,
+      allSuccessful,
+      primarySent: targetEmailInvites.length,
+      ccCount: uniqueCcEmails.length,
       data: { 
         sent: sentCount,
         failed: results.length - sentCount,
@@ -235,10 +333,10 @@ export const sendAnalyticsInvites = async (req, res) => {
         details: results
       },
       message: allSuccessful 
-        ? `Successfully sent ${sentCount} invites` 
+        ? `Successfully sent ${sentCount} invites (with ${uniqueCcEmails.length} CC recipient${uniqueCcEmails.length === 1 ? '' : 's'})` 
         : (sentCount > 0 
           ? `Sent ${sentCount} invites, but ${results.length - sentCount} failed. Check server logs for details.` 
-          : "Failed to send any invites. This could be due to SMTP/WhatsApp service configuration issues.")
+          : 'Failed to send invites. Please verify email and channel configuration.')
     });
   } catch (error) {
     console.error('Send analytics invites error:', error);
