@@ -189,6 +189,12 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
     ? Math.min(100, Math.round((data.totalWorkingHours / data.targetMonthlyHours) * 100))
     : 0;
 
+  const MONTH_NAMES = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+  const displayMonthName = data?.monthName || MONTH_NAMES[currentMonth - 1] || "September";
+
   return (
     <div className="mb-6 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden transition-all">
       {/* Top Banner Row: Today's Status + Actions */}
@@ -201,7 +207,7 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
                 Daily Attendance & Monthly Working Hours
               </h3>
               <span className="px-2.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-200 border border-purple-200 dark:border-purple-700">
-                {data?.monthName || "Monthly"}
+                {displayMonthName}
               </span>
             </div>
             <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mt-1.5 flex items-center gap-2">
@@ -239,7 +245,7 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
               <ChevronLeft className="w-4 h-4" />
             </button>
             <span className="px-3 text-xs font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap min-w-[120px] text-center">
-              {data?.monthName || "Month"} {currentYear}
+              {displayMonthName} {currentYear}
             </span>
             <button
               onClick={handleNextMonth}
