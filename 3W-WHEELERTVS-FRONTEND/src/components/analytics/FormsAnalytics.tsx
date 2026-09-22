@@ -1424,7 +1424,13 @@ export default function FormsAnalytics() {
             if (!parent) return null;
 
             const formId = parent._id || parent.id;
-           const responseCount = actualResponseCounts[formId] || parent.responseCount || 0;
+            const responseCount = actualResponseCounts[formId] || actualResponseCounts[parent.id] || actualResponseCounts[parent._id] || parent.responseCount || 0;
+
+            const totalChildResponses = children.reduce((sum, c) => {
+              const cId = c._id || c.id;
+              const count = (cId && actualResponseCounts[cId]) || (c.id && actualResponseCounts[c.id]) || (c._id && actualResponseCounts[c._id]) || c.responseCount || 0;
+              return sum + count;
+            }, 0);
 
             const isLocationEnabled = parent.locationEnabled !== false;
 
@@ -1754,7 +1760,7 @@ export default function FormsAnalytics() {
                         title="Click to toggle follow-up forms"
                       >
                         <Layers className="w-3 h-3 text-purple-600" />
-                        <span>Child Forms ({children.length})</span>
+                        <span>Child Forms ({children.length}{totalChildResponses > 0 ? ` • ${totalChildResponses} resp` : ''})</span>
                         <ChevronDown
                           className={`w-3 h-3 text-purple-600 transition-transform duration-200 ${
                             expandedChildFormIds[formId] ? "rotate-180" : ""
@@ -1981,7 +1987,7 @@ export default function FormsAnalytics() {
                         }
                       >
                         <Layers className="w-3.5 h-3.5" />
-                        <span>Child Forms ({children.length})</span>
+                        <span>Child Forms ({children.length}{totalChildResponses > 0 ? ` • ${totalChildResponses} ${totalChildResponses === 1 ? 'resp' : 'resps'}` : ''})</span>
                         <ChevronDown
                           className={`w-3.5 h-3.5 transition-transform duration-300 ${
                             expandedChildFormIds[formId] ? "rotate-180" : ""
@@ -2036,10 +2042,14 @@ export default function FormsAnalytics() {
                           <Layers className="w-5 h-5 text-white" />
                         </div>
                         <div>
-                          <h4 className="text-base sm:text-lg font-semibold text-primary-800 dark:text-gray-100 flex items-center">
+                          <h4 className="text-base sm:text-lg font-semibold text-primary-800 dark:text-gray-100 flex items-center flex-wrap gap-2">
                             Child Forms
-                            <span className="ml-2 px-2.5 py-0.5 text-xs font-bold bg-gradient-to-r from-primary-500 to-purple-500 text-white rounded-full shadow-sm">
-                              {children.length}
+                            <span className="px-2.5 py-0.5 text-xs font-bold bg-gradient-to-r from-primary-500 to-purple-500 text-white rounded-full shadow-sm">
+                              {children.length} {children.length === 1 ? "Form" : "Forms"}
+                            </span>
+                            <span className="px-2.5 py-0.5 text-xs font-bold bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 rounded-full border border-purple-200 dark:border-purple-700 shadow-sm flex items-center gap-1">
+                              <Users className="w-3 h-3 text-purple-500" />
+                              {totalChildResponses} {totalChildResponses === 1 ? "response" : "responses"}
                             </span>
                           </h4>
                           <p className="text-xs text-primary-600 dark:text-gray-400 mt-0.5">
@@ -2089,7 +2099,7 @@ export default function FormsAnalytics() {
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4 pt-4 border-t border-purple-100 dark:border-gray-700 animate-fadeIn">
                       {children.map((child, index) => {
                         const childId = child._id || child.id;
-                        const childResponseCount = child.responseCount || 0;
+                        const childResponseCount = (childId && actualResponseCounts[childId]) || (child.id && actualResponseCounts[child.id]) || (child._id && actualResponseCounts[child._id]) || child.responseCount || 0;
                         
                         // Check if user can view this child form
                         const canViewChild = canViewForm(childId);

@@ -562,8 +562,9 @@ export const getAllForms = async (req, res) => {
     }
 
     const formsWithCounts = forms.map((form) => {
-      const lookupId = form.id || (form._id ? form._id.toString() : "");
-      const responseCount = responseCountsMap.get(lookupId) || 0;
+      const id1 = form.id;
+      const id2 = form._id ? form._id.toString() : "";
+      const responseCount = (id1 && responseCountsMap.get(id1)) || (id2 && responseCountsMap.get(id2)) || 0;
       return {
         ...form,
         responseCount
