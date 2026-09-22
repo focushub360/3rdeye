@@ -40,4 +40,6 @@ backups/
 uploads/
 test.txt
 test-*.cjs
-*.test.cjs
+*.test.cjs
+scratch/
+3w-wheeler-backend/scratch/

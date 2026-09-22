@@ -3375,7 +3375,7 @@ export const getQualitySummary = async (req, res) => {
     const { role, tenantId: userTenantId } = req.user;
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
-    const cacheKey = `quality_summary_${userTenantId || 'superadmin'}_${formId || 'all'}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v3_${userTenantId || 'superadmin'}_${formId || 'all'}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const cached = appCache.get(cacheKey);
     if (cached) {
       console.log(`[Quality Summary] Cache HIT (${cacheKey}) - returning in ${Date.now() - startTimer}ms`);
@@ -3412,8 +3412,16 @@ export const getQualitySummary = async (req, res) => {
       .select('id _id title sections tenantId')
       .lean();
 
+    const formTitleMap = {};
+    accessibleForms.forEach(f => {
+      const idStr = f.id ? f.id.toString() : '';
+      const mongoIdStr = f._id ? f._id.toString() : '';
+      if (idStr) formTitleMap[idStr] = f.title;
+      if (mongoIdStr) formTitleMap[mongoIdStr] = f.title;
+    });
+
     const questionTitleMap = {};
-    const formOptions = accessibleForms.map(f => {
+    accessibleForms.forEach(f => {
       (f.sections || []).forEach(sec => {
         (sec.questions || []).forEach(q => {
           if (q.id && q.text) {
@@ -3421,11 +3429,6 @@ export const getQualitySummary = async (req, res) => {
           }
         });
       });
-      return {
-        id: f.id || f._id.toString(),
-        _id: f._id.toString(),
-        title: f.title
-      };
     });
 
     // 3. Build response filter
@@ -3467,9 +3470,29 @@ export const getQualitySummary = async (req, res) => {
     const defectResponseIds = [];
     const rawResponsesMap = new Map();
 
+    // 5. Aggregate metrics (Inspectors, Forms, Daily)
+    const formMetricsMap = {};
+    accessibleForms.forEach(f => {
+      const fKey = f.id || f._id.toString();
+      const metricObj = {
+        id: f.id || f._id.toString(),
+        _id: f._id.toString(),
+        title: f.title,
+        totalChecked: 0,
+        acceptCount: 0,
+        defectCount: 0,
+        rework1Count: 0,
+        biwAcceptCount: 0,
+        biwDefectCount: 0,
+        inspectors: new Set(),
+        lastInspectionDate: null
+      };
+      formMetricsMap[fKey] = metricObj;
+      if (f.id && f._id && f.id !== f._id.toString()) {
+        formMetricsMap[f._id.toString()] = metricObj;
+      }
+    });
 
-
-    // 5. Aggregate metrics
     const inspectorMap = {};
     const dailyMap = {};
     const defectTypeMap = {};
@@ -3493,6 +3516,9 @@ export const getQualitySummary = async (req, res) => {
         if (tempAnswers.chassis_number) chassisNo = typeof tempAnswers.chassis_number === 'object' ? tempAnswers.chassis_number.v || tempAnswers.chassis_number.status : tempAnswers.chassis_number;
       }
 
+      const rawFormId = (r.formId || r.questionId)?.toString() || '';
+      const formTitle = formTitleMap[rawFormId] || formMetricsMap[rawFormId]?.title || 'Unknown Form';
+
       rawResponsesMap.set(r._id.toString(), {
         id: r._id.toString(),
         chassisNumber: chassisNo,
@@ -3500,7 +3526,9 @@ export const getQualitySummary = async (req, res) => {
         date: dateStr,
         status: r.status || 'pending',
         biwReviewStatus: r.biwReview?.status || 'Pending',
-        formId: r.formId || r.questionId,
+        formId: rawFormId,
+        formTitle: formTitle,
+        isDispatched: r.isDispatched || false,
         defects: [] // will be populated in phase 2 if defective
       });
 
@@ -3519,6 +3547,25 @@ export const getQualitySummary = async (req, res) => {
       } else {
         totalDefects++;
         defectResponseIds.push(r._id); // Save ID to fetch answers later
+      }
+
+      // Per-Form Metrics
+      const formKey = (r.formId || r.questionId)?.toString();
+      const formMetric = formMetricsMap[formKey];
+      if (formMetric) {
+        formMetric.totalChecked++;
+        if (isAccept) formMetric.acceptCount++;
+        else formMetric.defectCount++;
+        if (isRework1) formMetric.rework1Count++;
+
+        const biwStat = r.biwReview?.status;
+        if (biwStat === 'Accepted' || (!biwStat && isAccept)) formMetric.biwAcceptCount++;
+        else if (biwStat === 'Rejected' || biwStat === 'Reworked' || (!biwStat && isDefect)) formMetric.biwDefectCount++;
+
+        if (rawName && rawName !== 'Unknown Submitter') formMetric.inspectors.add(rawName);
+        if (dateStr && (!formMetric.lastInspectionDate || dateStr > formMetric.lastInspectionDate)) {
+          formMetric.lastInspectionDate = dateStr;
+        }
       }
 
       // Inspector map
@@ -3603,6 +3650,40 @@ export const getQualitySummary = async (req, res) => {
 
     // Convert rawResponsesMap to array for the payload
     const rawResponsesList = Array.from(rawResponsesMap.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    // Per-Form Summary List
+    const formsSummary = accessibleForms.map(f => {
+      const fKey = f.id || f._id.toString();
+      const m = formMetricsMap[fKey] || {};
+      const tChecked = m.totalChecked || 0;
+      const aCount = m.acceptCount || 0;
+      const dCount = m.defectCount || 0;
+      const aRate = tChecked > 0 ? Math.round((aCount / tChecked) * 10000) / 100 : 0;
+      const dRate = Math.max(0, Math.round((100 - aRate) * 100) / 100);
+      return {
+        id: f.id || f._id.toString(),
+        _id: f._id.toString(),
+        title: f.title,
+        totalChecked: tChecked,
+        acceptCount: aCount,
+        defectCount: dCount,
+        rework1Count: m.rework1Count || 0,
+        biwAcceptCount: m.biwAcceptCount || 0,
+        biwDefectCount: m.biwDefectCount || 0,
+        acceptRate: aRate,
+        defectRate: dRate,
+        totalInspectors: m.inspectors ? m.inspectors.size : 0,
+        lastInspectionDate: m.lastInspectionDate || null
+      };
+    }).sort((a, b) => b.totalChecked - a.totalChecked);
+
+    // Update formOptions with totalChecked counts
+    const formOptions = formsSummary.map(f => ({
+      id: f.id,
+      _id: f._id,
+      title: f.title,
+      totalChecked: f.totalChecked
+    }));
 
     // Inspector performance ratings
     let exemplaryCount = 0;
@@ -3693,6 +3774,7 @@ export const getQualitySummary = async (req, res) => {
           metCount,
           partiallyMetCount
         },
+        formsSummary,
         formOptions,
         inspectors: inspectorList,
         defectBreakdown,

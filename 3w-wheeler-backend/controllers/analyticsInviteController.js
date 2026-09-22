@@ -111,7 +111,13 @@ export const uploadAnalyticsInvites = async (req, res) => {
     const { formId } = req.params;
     if (!req.file) return res.status(400).json({ success: false, message: 'No file provided' });
     
-    const form = await Form.findOne({ id: formId });
+    const normalizedFormId = formId ? formId.toString().trim() : '';
+    const form = await Form.findOne({ 
+      $or: [
+        { id: normalizedFormId }, 
+        { _id: mongoose.Types.ObjectId.isValid(normalizedFormId) ? normalizedFormId : new mongoose.Types.ObjectId() }
+      ] 
+    });
     if (!form) return res.status(404).json({ success: false, message: 'Form not found' });
     
     const records = parseExcelFile(req.file.buffer);
@@ -147,23 +153,38 @@ export const uploadAnalyticsInvites = async (req, res) => {
 export const sendAnalyticsInvites = async (req, res) => {
   try {
     const { formId } = req.params;
-    const { invites, channels = ['email'], customMessage, pdfHtml, shareMode = 'both' } = req.body;
+    const {
+      invites,
+      channels = ['email'],
+      customMessage,
+      pdfHtml,
+      shareMode = 'excel',
+      excelBase64,
+      excelFileName
+    } = req.body;
     
     if (!Array.isArray(invites) || invites.length === 0) {
       return res.status(400).json({ success: false, message: 'Invites array is required' });
     }
     
-    const form = await Form.findOne({ id: formId });
+    const normalizedFormId = formId ? formId.toString().trim() : '';
+    const form = await Form.findOne({ 
+      $or: [
+        { id: normalizedFormId }, 
+        { _id: mongoose.Types.ObjectId.isValid(normalizedFormId) ? normalizedFormId : new mongoose.Types.ObjectId() }
+      ] 
+    });
     if (!form) return res.status(404).json({ success: false, message: 'Form not found' });
     
     const tenant = await Tenant.findById(form.tenantId);
 
-    const includeLink = shareMode === 'link' || shareMode === 'both';
-    const includePdf = shareMode === 'pdf' || shareMode === 'both';
+    const includeLink = shareMode === 'link' || shareMode === 'both' || shareMode === 'all';
+    const includePdf = shareMode === 'pdf' || shareMode === 'both' || shareMode === 'all';
+    const includeExcel = shareMode === 'excel' || shareMode === 'both' || shareMode === 'all' || !!excelBase64;
 
     // Handle PDF generation if pdfHtml is provided
     let pdfAttachment = null;
-    console.log('📩 SendAnalyticsInvites called with pdfHtml:', !!pdfHtml, pdfHtml?.length || 0, 'shareMode:', shareMode);
+    console.log('📩 SendAnalyticsInvites called with pdfHtml:', !!pdfHtml, 'excelBase64:', !!excelBase64, 'shareMode:', shareMode);
     
     if (pdfHtml && channels.includes('email') && includePdf) {
       try {
@@ -181,12 +202,26 @@ export const sendAnalyticsInvites = async (req, res) => {
       } catch (pdfError) {
         console.error('❌ Failed to generate PDF for attachment:', pdfError);
       }
-    } else {
-      console.log('ℹ️ PDF generation skipped:', { 
-        hasPdfHtml: !!pdfHtml, 
-        hasEmailChannel: channels.includes('email'), 
-        includePdf 
-      });
+    }
+
+    // Handle Excel attachment if excelBase64 is provided
+    let excelAttachment = null;
+    if (excelBase64 && channels.includes('email') && includeExcel) {
+      try {
+        console.log(`📊 Processing Excel base64 attachment... Length: ${excelBase64.length}`);
+        const excelBuffer = Buffer.from(excelBase64, 'base64');
+        if (excelBuffer && excelBuffer.length > 0) {
+          const safeTitle = (form.title || 'Responses').replace(/[^a-zA-Z0-9_-]/g, '_');
+          excelAttachment = {
+            filename: excelFileName || `${safeTitle}_Responses_${new Date().toISOString().slice(0, 10)}.xlsx`,
+            content: excelBuffer,
+            contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          };
+          console.log(`✅ Excel attachment created (${(excelBuffer.length / 1024).toFixed(2)} KB): ${excelAttachment.filename}`);
+        }
+      } catch (excelErr) {
+        console.error('❌ Failed to process Excel base64 attachment:', excelErr);
+      }
     }
     
     const results = [];
@@ -205,10 +240,10 @@ export const sendAnalyticsInvites = async (req, res) => {
     const uniqueCcEmails = Array.from(new Set(ccEmails));
 
     // Determine target primary invites to send to
-    const primaryInvites = invites.filter(r => r.type !== 'email_cc' && !r.isCC);
-    const targetEmailInvites = primaryInvites.length > 0 ? primaryInvites : invites;
+    const primaryInvites = invites.filter(r => r.type !== 'email_cc' && !r.isCC && r.email);
+    const targetEmailInvites = primaryInvites.length > 0 ? primaryInvites : invites.filter(r => r.email || r.phone);
 
-    console.log(`[AUTOMAIL] Dispatching analytics invites: ${targetEmailInvites.length} primary recipients, ${uniqueCcEmails.length} CC recipients`);
+    console.log(`[AUTOMAIL] Dispatching analytics invites: ${targetEmailInvites.length} primary recipient(s), ${uniqueCcEmails.length} CC recipient(s), Excel Attached: ${!!excelAttachment}`);
 
     // Process invites in batches to avoid overloading and timeouts
     const batchSize = 10;
@@ -221,7 +256,7 @@ export const sendAnalyticsInvites = async (req, res) => {
         
         // Create new invite for each request (allows duplicates)
         await AnalyticsInvite.create({
-          formId: form.id,
+          formId: form.id || form._id.toString(),
           email,
           phone, 
           otp, 
@@ -229,6 +264,20 @@ export const sendAnalyticsInvites = async (req, res) => {
           status: 'sent', 
           tenantId: form.tenantId 
         });
+
+        // Also ensure any CC emails have an invite record in database for OTP / login access
+        for (const ccEmail of uniqueCcEmails) {
+          if (ccEmail !== email) {
+            await AnalyticsInvite.create({
+              formId: form.id || form._id.toString(),
+              email: ccEmail,
+              otp,
+              expiresAt,
+              status: 'sent',
+              tenantId: form.tenantId
+            }).catch(err => console.warn('Could not store CC invite record:', err.message));
+          }
+        }
         
         let emailSent = false;
         let whatsappSent = false;
@@ -236,7 +285,9 @@ export const sendAnalyticsInvites = async (req, res) => {
         let emailError = null;
 
         if (channels.includes('email') && email) {
-          console.log(`📧 Attempting automated email to: ${email} with CC: [${uniqueCcEmails.join(', ')}]`);
+          // Never include the current recipient in their own CC list
+          const relevantCc = uniqueCcEmails.filter(c => c.toLowerCase() !== email.toLowerCase());
+          console.log(`📧 Attempting automated email to: ${email} with CC: [${relevantCc.join(', ')}]`);
           // Automated mail dispatch via server mailService (SMTP/MailerSend) directly without Gmail app switching
           const mailResult = await mailService.sendAnalyticsInvite(
             email, 
@@ -248,7 +299,8 @@ export const sendAnalyticsInvites = async (req, res) => {
             false, 
             pdfAttachment, 
             includeLink, 
-            uniqueCcEmails
+            relevantCc,
+            excelAttachment
           );
           emailSent = mailResult.success;
           if (!emailSent) {

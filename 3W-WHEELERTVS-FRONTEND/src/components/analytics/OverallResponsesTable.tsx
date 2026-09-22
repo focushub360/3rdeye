@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../api/client';
 import { useNotification } from '../../context/NotificationContext';
@@ -9,30 +9,103 @@ import {
   RefreshCw,
   Search,
   AlertTriangle,
-  Filter
+  Filter,
+  X,
+  RotateCcw,
+  Calendar,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface OverallResponsesTableProps {
   rawResponses?: any[];
-  formOptions?: Array<{ id: string; title: string }>;
+  formOptions?: Array<{ id: string; _id?: string; title: string; totalChecked?: number }>;
+  initialFormFilter?: string;
 }
 
-export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({ rawResponses = [], formOptions = [] }) => {
+export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({ 
+  rawResponses = [], 
+  formOptions = [],
+  initialFormFilter = 'all'
+}) => {
   const navigate = useNavigate();
   const { showSuccess, showError, showConfirm } = useNotification();
   
   const [search, setSearch] = useState('');
+  const [formFilter, setFormFilter] = useState(initialFormFilter);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [biwFilter, setBiwFilter] = useState('all');
+  const [dispatchFilter, setDispatchFilter] = useState('all');
+  const [datePreset, setDatePreset] = useState('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [page, setPage] = useState(1);
   const itemsPerPage = 50;
 
-  const formsMap = React.useMemo(() => {
+  // Keep in sync if initialFormFilter prop changes
+  useEffect(() => {
+    if (initialFormFilter && initialFormFilter !== 'all') {
+      setFormFilter(initialFormFilter);
+    }
+  }, [initialFormFilter]);
+
+  const formsMap = useMemo(() => {
     const map: Record<string, string> = {};
     formOptions.forEach(f => {
-      map[f.id] = f.title;
+      if (f.id) map[String(f.id)] = f.title;
+      if (f._id) map[String(f._id)] = f.title;
     });
     return map;
   }, [formOptions]);
+
+  const formatDateYMD = (d: Date): string => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const handlePresetChange = (preset: string) => {
+    setDatePreset(preset);
+    const today = new Date();
+    if (preset === 'all') {
+      setStartDate('');
+      setEndDate('');
+    } else if (preset === 'today') {
+      const s = formatDateYMD(today);
+      setStartDate(s);
+      setEndDate(s);
+    } else if (preset === 'yesterday') {
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      const s = formatDateYMD(y);
+      setStartDate(s);
+      setEndDate(s);
+    } else if (preset === '7d') {
+      const past = new Date();
+      past.setDate(past.getDate() - 7);
+      setStartDate(formatDateYMD(past));
+      setEndDate(formatDateYMD(today));
+    } else if (preset === '30d') {
+      const past = new Date();
+      past.setDate(past.getDate() - 30);
+      setStartDate(formatDateYMD(past));
+      setEndDate(formatDateYMD(today));
+    } else if (preset === 'thisMonth') {
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+      setStartDate(formatDateYMD(firstDay));
+      setEndDate(formatDateYMD(today));
+    }
+  };
+
+  const handleStartDateChange = (val: string) => {
+    setStartDate(val);
+    setDatePreset('custom');
+  };
+
+  const handleEndDateChange = (val: string) => {
+    setEndDate(val);
+    setDatePreset('custom');
+  };
 
   const handleDelete = (id: string) => {
     showConfirm(
@@ -52,7 +125,7 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({ ra
     );
   };
 
-  const getChassis = (r: Response) => {
+  const getChassis = (r: any) => {
     if (!r.answers) return 'N/A';
     if (r.answers.chassis_number) {
       const c = r.answers.chassis_number;
@@ -76,61 +149,259 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({ ra
     return String(val);
   };
 
-  const filteredResponses = rawResponses.filter(r => {
-    if (statusFilter !== 'all' && r.status !== statusFilter) return false;
-    
-    if (search) {
-      const s = search.toLowerCase();
-      const submitter = safeString(r.submittedBy).toLowerCase();
-      const chassis = safeString(r.chassisNumber).toLowerCase();
-      const title = safeString(formsMap[r.formId || '']).toLowerCase();
-      if (!submitter.includes(s) && !chassis.includes(s) && !title.includes(s)) return false;
-    }
-    return true;
-  });
+  const filteredResponses = useMemo(() => {
+    return rawResponses.filter(r => {
+      // 1. Form Filter
+      if (formFilter !== 'all') {
+        const rFormId = String(r.formId || r.questionId || '');
+        const rFormTitle = r.formTitle || formsMap[rFormId];
+        const selectedForm = formOptions.find(f => f.id === formFilter || f._id === formFilter);
+        const selectedTitle = selectedForm?.title;
 
-  // Reset to first page when filters change
-  React.useEffect(() => {
+        const matchesId = rFormId === formFilter;
+        const matchesTitle = selectedTitle && (rFormTitle === selectedTitle || formsMap[rFormId] === selectedTitle);
+        if (!matchesId && !matchesTitle) return false;
+      }
+
+      // 2. Status Filter
+      if (statusFilter !== 'all') {
+        const s = (r.status || '').toLowerCase();
+        if (s !== statusFilter.toLowerCase()) return false;
+      }
+
+      // 3. BIW Review Filter
+      if (biwFilter !== 'all') {
+        const b = (r.biwReviewStatus || r.biwReview?.status || 'Pending').toLowerCase();
+        if (b !== biwFilter.toLowerCase()) return false;
+      }
+
+      // 4. Dispatch Filter
+      if (dispatchFilter !== 'all') {
+        if (dispatchFilter === 'dispatched' && !r.isDispatched) return false;
+        if (dispatchFilter === 'pending' && r.isDispatched) return false;
+      }
+
+      // 5. Calendar / Date Range Filter
+      if (startDate || endDate) {
+        const rDateVal = r.createdAt || r.date;
+        if (!rDateVal) return false;
+        const rDate = new Date(rDateVal);
+        if (isNaN(rDate.getTime())) return false;
+
+        if (startDate) {
+          const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0);
+          if (rDate < start) return false;
+        }
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          if (rDate > end) return false;
+        }
+      }
+
+      // 6. Search Text Filter
+      if (search) {
+        const s = search.toLowerCase();
+        const submitter = safeString(r.submittedBy).toLowerCase();
+        const chassis = safeString(r.chassisNumber).toLowerCase();
+        const title = safeString(r.formTitle || formsMap[r.formId || ''] || formsMap[r.questionId || '']).toLowerCase();
+        if (!submitter.includes(s) && !chassis.includes(s) && !title.includes(s)) return false;
+      }
+
+      return true;
+    });
+  }, [rawResponses, formFilter, statusFilter, biwFilter, dispatchFilter, startDate, endDate, search, formsMap, formOptions]);
+
+  // Reset to first page when any filter changes
+  useEffect(() => {
     setPage(1);
-  }, [search, statusFilter]);
+  }, [search, formFilter, statusFilter, biwFilter, dispatchFilter, startDate, endDate]);
+
+  const hasActiveFilters = formFilter !== 'all' || 
+    statusFilter !== 'all' || 
+    biwFilter !== 'all' || 
+    dispatchFilter !== 'all' || 
+    search.trim() !== '' || 
+    Boolean(startDate) || 
+    Boolean(endDate);
+
+  const handleResetFilters = () => {
+    setSearch('');
+    setFormFilter('all');
+    setStatusFilter('all');
+    setBiwFilter('all');
+    setDispatchFilter('all');
+    setDatePreset('all');
+    setStartDate('');
+    setEndDate('');
+    setPage(1);
+  };
 
   const totalPages = Math.ceil(filteredResponses.length / itemsPerPage);
   const paginatedResponses = filteredResponses.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
-
-
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* Header Actions */}
-      <div className="p-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-50/50">
-        <div className="flex items-center gap-2 w-full max-w-2xl">
-          <div className="relative flex-1">
+      {/* Header Actions & Filters */}
+      <div className="p-4 border-b border-gray-200 bg-gray-50/70 flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Search */}
+          <div className="relative flex-1 min-w-[240px] max-w-md">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="Search chassis, submitter, form..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="pl-9 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 w-full"
+              className="pl-9 pr-8 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full bg-white shadow-xs"
             />
+            {search && (
+              <button 
+                onClick={() => setSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
-          <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white min-w-[150px]"
-          >
-            <option value="all">All Statuses</option>
-            <option value="Direct Ok">Direct Ok</option>
-            <option value="Rework 1">Rework 1</option>
-            <option value="Rework Accepted">Rework Accepted</option>
-            <option value="Accepted">Accepted</option>
-            <option value="Rejected">Rejected</option>
-            <option value="Pending Review">Pending Review</option>
-          </select>
+
+          {/* Counts & Reset */}
+          <div className="flex items-center gap-3">
+            {hasActiveFilters && (
+              <button
+                onClick={handleResetFilters}
+                className="flex items-center gap-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded-lg transition-colors shadow-xs"
+                title="Reset all active filters"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reset Filters
+              </button>
+            )}
+            <div className="text-xs text-gray-600 font-semibold flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg border border-gray-200 shadow-xs">
+              <Filter className="w-3.5 h-3.5 text-blue-600" />
+              <span>Showing <strong className="text-gray-900">{filteredResponses.length}</strong> of {rawResponses.length} Responses</span>
+            </div>
+          </div>
         </div>
-        <div className="text-sm text-gray-500 font-medium flex items-center gap-2">
-          <Filter className="w-4 h-4" />
-          Showing {filteredResponses.length} Responses
+
+        {/* Filter Dropdowns & Calendar Row */}
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          {/* 1. Form Filter Dropdown */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Form:</label>
+            <select
+              value={formFilter}
+              onChange={e => setFormFilter(e.target.value)}
+              className={`px-3 py-1.5 text-xs font-medium border rounded-lg focus:ring-2 focus:ring-blue-500 bg-white transition-all max-w-[230px] truncate shadow-xs ${formFilter !== 'all' ? 'border-blue-500 text-blue-700 bg-blue-50/50 font-bold' : 'border-gray-300 text-gray-700'}`}
+            >
+              <option value="all">All Forms ({formOptions.length})</option>
+              {formOptions.map(f => (
+                <option key={f.id || f._id} value={f.id || f._id}>
+                  {f.title} {f.totalChecked !== undefined ? `(${f.totalChecked})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* 2. Status Filter Dropdown */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Status:</label>
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              className={`px-3 py-1.5 text-xs font-medium border rounded-lg focus:ring-2 focus:ring-blue-500 bg-white transition-all shadow-xs ${statusFilter !== 'all' ? 'border-blue-500 text-blue-700 bg-blue-50/50 font-bold' : 'border-gray-300 text-gray-700'}`}
+            >
+              <option value="all">All Statuses</option>
+              <option value="Direct Ok">Direct Ok</option>
+              <option value="Rework 1">Rework 1</option>
+              <option value="Rework Accepted">Rework Accepted</option>
+              <option value="Accepted">Accepted</option>
+              <option value="Rejected">Rejected</option>
+              <option value="Pending Review">Pending Review</option>
+            </select>
+          </div>
+
+          {/* 3. BIW Review Filter Dropdown */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">BIW:</label>
+            <select
+              value={biwFilter}
+              onChange={e => setBiwFilter(e.target.value)}
+              className={`px-3 py-1.5 text-xs font-medium border rounded-lg focus:ring-2 focus:ring-blue-500 bg-white transition-all shadow-xs ${biwFilter !== 'all' ? 'border-blue-500 text-blue-700 bg-blue-50/50 font-bold' : 'border-gray-300 text-gray-700'}`}
+            >
+              <option value="all">All BIW Reviews</option>
+              <option value="Accepted">Accepted</option>
+              <option value="Rejected">Rejected</option>
+              <option value="Reworked">Reworked</option>
+              <option value="Pending">Pending</option>
+            </select>
+          </div>
+
+          {/* 4. Dispatch Filter Dropdown */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Dispatch:</label>
+            <select
+              value={dispatchFilter}
+              onChange={e => setDispatchFilter(e.target.value)}
+              className={`px-3 py-1.5 text-xs font-medium border rounded-lg focus:ring-2 focus:ring-blue-500 bg-white transition-all shadow-xs ${dispatchFilter !== 'all' ? 'border-blue-500 text-blue-700 bg-blue-50/50 font-bold' : 'border-gray-300 text-gray-700'}`}
+            >
+              <option value="all">All Dispatch</option>
+              <option value="dispatched">Dispatched</option>
+              <option value="pending">Not Dispatched</option>
+            </select>
+          </div>
+
+          {/* 5. Calendar Range Filter */}
+          <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-lg border border-gray-300 shadow-xs">
+            <Calendar className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Date:</label>
+            <select
+              value={datePreset}
+              onChange={e => handlePresetChange(e.target.value)}
+              className="text-xs font-medium text-gray-700 bg-transparent outline-none cursor-pointer pr-1"
+            >
+              <option value="all">All Dates</option>
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="7d">Last 7 Days</option>
+              <option value="30d">Last 30 Days</option>
+              <option value="thisMonth">This Month</option>
+              <option value="custom">Custom Range</option>
+            </select>
+
+            <div className="flex items-center gap-1 pl-1.5 border-l border-gray-200">
+              <input
+                type="date"
+                value={startDate}
+                onChange={e => handleStartDateChange(e.target.value)}
+                className="text-xs border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50/50"
+                title="Start Date"
+              />
+              <span className="text-xs text-gray-400 font-medium">to</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={e => handleEndDateChange(e.target.value)}
+                className="text-xs border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50/50"
+                title="End Date"
+              />
+              {(startDate || endDate) && (
+                <button
+                  onClick={() => {
+                    setStartDate('');
+                    setEndDate('');
+                    setDatePreset('all');
+                  }}
+                  className="p-0.5 text-gray-400 hover:text-red-500 rounded"
+                  title="Clear calendar filter"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -152,7 +423,9 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({ ra
           <tbody className="divide-y divide-gray-100">
             {paginatedResponses.map(r => {
               const rId = r.id || r._id!;
-              const formTitle = formsMap[r.formId || ''] || 'Unknown Form';
+              const formTitle = r.formTitle || formsMap[r.formId || ''] || formsMap[r.questionId || ''] || 'Unknown Form';
+              const targetForm = formOptions.find(f => f.title === formTitle || f.id === r.formId || f._id === r.formId);
+              const formFilterValue = targetForm ? (targetForm.id || targetForm._id) : (r.formId || r.questionId);
               return (
                 <tr key={rId} className="hover:bg-indigo-50/50 transition-colors">
                   <td className="px-4 py-3 whitespace-nowrap">
@@ -191,8 +464,16 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({ ra
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px] truncate" title={formTitle}>
-                    {formTitle}
+                  <td 
+                    className="px-4 py-3 font-medium text-gray-900 max-w-[220px] truncate cursor-pointer hover:text-blue-600 transition-colors" 
+                    title={`${formTitle} (Click to filter by this form)`}
+                    onClick={() => {
+                      if (formFilterValue) {
+                        setFormFilter(f => f === formFilterValue ? 'all' : formFilterValue);
+                      }
+                    }}
+                  >
+                    <span className="hover:underline">{formTitle}</span>
                   </td>
                   <td className="px-4 py-3 font-semibold text-indigo-700 whitespace-nowrap">
                     {safeString(r.chassisNumber)}

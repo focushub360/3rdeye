@@ -222,6 +222,33 @@ class ApiClient {
     return null;
   }
 
+  public invalidateFormsCache() {
+    // 1. Clear memory cache for forms, responses, and analytics
+    for (const key of Array.from(this.memoryCache.keys())) {
+      if (key.includes("/forms") || key.includes("/responses") || key.includes("/analytics")) {
+        this.memoryCache.delete(key);
+      }
+    }
+
+    // 2. Clear localStorage cache for forms, responses, and analytics
+    try {
+      if (typeof localStorage !== "undefined") {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (
+            key &&
+            key.startsWith("api_cache:") &&
+            (key.includes("/forms") || key.includes("/responses") || key.includes("/analytics"))
+          ) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach((k) => localStorage.removeItem(k));
+      }
+    } catch (_) {}
+  }
+
   public getResponseFromAnyCache(id: string): any | null {
     const TTL = 5 * 60 * 1000; // 5 mins
     const now = Date.now();
@@ -958,60 +985,76 @@ class ApiClient {
     return result.data;
   }
   async createForm(formData: any) {
-    return this.request<{ form: any }>("/forms", {
+    const res = await this.request<{ form: any }>("/forms", {
       method: "POST",
       body: JSON.stringify(formData),
     });
+    this.invalidateFormsCache();
+    return res;
   }
 
   async updateForm(id: string, formData: any) {
-    return this.request<{ form: any }>(`/forms/${id}`, {
+    const res = await this.request<{ form: any }>(`/forms/${id}`, {
       method: "PUT",
       body: JSON.stringify(formData),
     });
+    this.invalidateFormsCache();
+    return res;
   }
 
   async deleteForm(id: string) {
-    return this.request(`/forms/${id}`, {
+    const res = await this.request(`/forms/${id}`, {
       method: "DELETE",
     });
+    this.invalidateFormsCache();
+    return res;
   }
 
   async updateFormVisibility(id: string, isVisible: boolean) {
-    return this.request(`/forms/${id}/visibility`, {
+    const res = await this.request(`/forms/${id}/visibility`, {
       method: "PATCH",
       body: JSON.stringify({ isVisible }),
     });
+    this.invalidateFormsCache();
+    return res;
   }
 
   async updateFormLocationEnabled(id: string, locationEnabled: boolean) {
-    return this.request(`/forms/${id}/location`, {
+    const res = await this.request(`/forms/${id}/location`, {
       method: "PATCH",
       body: JSON.stringify({ locationEnabled }),
     });
+    this.invalidateFormsCache();
+    return res;
   }
 
   async updateFormActiveStatus(id: string, isActive: boolean) {
-    return this.request(`/forms/${id}/active`, {
+    const res = await this.request(`/forms/${id}/active`, {
       method: "PATCH",
       body: JSON.stringify({ isActive }),
     });
+    this.invalidateFormsCache();
+    return res;
   }
 
   async updateFormViewType(
     id: string,
     viewType: "section-wise" | "question-wise",
   ) {
-    return this.request(`/forms/${id}/view-type`, {
+    const res = await this.request(`/forms/${id}/view-type`, {
       method: "PATCH",
       body: JSON.stringify({ viewType }),
     });
+    this.invalidateFormsCache();
+    return res;
   }
 
   async duplicateForm(id: string) {
-    return this.request<{ form: any }>(`/forms/${id}/duplicate`, {
+    const res = await this.request<{ form: any }>(`/forms/${id}/duplicate`, {
       method: "POST",
     });
+    this.invalidateFormsCache();
+    return res;
   }
 
   async getAutoSendConfig(formId: string) {
@@ -1030,19 +1073,23 @@ class ApiClient {
 
   // Child Form Management (Parent-Child Relationships)
   async linkChildForm(parentFormId: string, childFormId: string) {
-    return this.request<{ parentForm: any; childForm: any }>(
+    const res = await this.request<{ parentForm: any; childForm: any }>(
       `/forms/${parentFormId}/child-forms`,
       {
         method: "POST",
         body: JSON.stringify({ childFormId }),
       },
     );
+    this.invalidateFormsCache();
+    return res;
   }
 
   async unlinkChildForm(parentFormId: string, childFormId: string) {
-    return this.request(`/forms/${parentFormId}/child-forms/${childFormId}`, {
+    const res = await this.request(`/forms/${parentFormId}/child-forms/${childFormId}`, {
       method: "DELETE",
     });
+    this.invalidateFormsCache();
+    return res;
   }
 
   async getChildForms(parentFormId: string) {
@@ -1070,6 +1117,10 @@ class ApiClient {
     return this.request<{ responses: any[]; pagination?: any }>(
       `/responses?${query.toString()}`, { timeout: 60000, forceNetwork: params?.forceNetwork }
     );
+  }
+
+  async getResponsesByForm(formId: string, options?: any) {
+    return this.getFormResponses(formId, options);
   }
 
   async getFormResponses(
@@ -1100,7 +1151,7 @@ class ApiClient {
     // need a multi-minute timeout - 30s is generous for a bounded batch
     // and fails fast if something's actually wrong, instead of the UI
     // silently hanging.
-    const timeout = 30000;
+    const timeout = 60000;
     return this.request<{ responses: any[]; form: any; pagination: any }>(
       `/responses/form/${formId}${queryString}`,
       { forceNetwork: options?.forceNetwork, timeout }
@@ -3129,14 +3180,17 @@ class ApiClient {
     channels: string[] = ["email"],
     customMessage?: string,
     pdfHtml?: string,
-    shareMode: string = "both",
+    shareMode: string = "excel",
+    excelBase64?: string,
+    excelFileName?: string,
   ) {
     console.log('📤 [API] sendAnalyticsInvites called with:', {
       formId,
       invitesCount: invites.length,
       channels,
       shareMode,
-      hasPdfHtml: !!pdfHtml
+      hasPdfHtml: !!pdfHtml,
+      hasExcelBase64: !!excelBase64
     });
 
     try {
@@ -3160,7 +3214,9 @@ class ApiClient {
           channels,
           customMessage,
           pdfHtml,
-          shareMode
+          shareMode,
+          excelBase64,
+          excelFileName,
         }),
       });
 

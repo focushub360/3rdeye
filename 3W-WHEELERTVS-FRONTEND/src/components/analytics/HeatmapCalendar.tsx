@@ -185,11 +185,12 @@ export default function HeatmapCalendar({
             ))}
           </div>
 
-          {/* Calendar Grid (Clean - No heatmap colors) */}
+          {/* Calendar Grid (With Day-wise Heatmap Colors) */}
           <div className="grid grid-cols-7 gap-1">
             {days.map((day, idx) => {
               const dateStr = format(day, dateFormat);
               const isCurrentMonth = isSameMonth(day, monthStart);
+              const count = responseCountsByDate?.[dateStr] || 0;
               
               const isStart = startStr === dateStr || tempStart === dateStr;
               const isEnd = endStr === dateStr;
@@ -204,30 +205,64 @@ export default function HeatmapCalendar({
                 }
               }
 
+              // Compute Day-wise Heatmap styling
+              let heatClasses = "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200";
+              if (isCurrentMonth && count > 0) {
+                if (count >= 5) {
+                  heatClasses = "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 font-bold border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-200 dark:hover:bg-emerald-900";
+                } else if (count >= 2) {
+                  heatClasses = "bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 font-semibold border border-amber-300 dark:border-amber-700 hover:bg-amber-200 dark:hover:bg-amber-900";
+                } else {
+                  heatClasses = "bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 font-medium border border-rose-300 dark:border-rose-700 hover:bg-rose-200 dark:hover:bg-rose-900";
+                }
+              }
+
               return (
                 <button
                   type="button"
                   key={idx}
                   onClick={() => handleDateClick(dateStr)}
                   className={`
-                    h-7 w-7 rounded-md flex items-center justify-center text-xs transition-all duration-150
-                    ${!isCurrentMonth ? 'opacity-25 text-gray-400' : 'text-gray-700 dark:text-gray-200'}
+                    h-7 w-7 rounded-md flex flex-col items-center justify-center text-xs transition-all duration-150 relative
+                    ${!isCurrentMonth ? 'opacity-25 text-gray-400' : ''}
                     ${isEdge 
-                      ? 'bg-indigo-600 text-white font-bold shadow-xs scale-105 z-10' 
+                      ? 'bg-indigo-600 !text-white font-bold shadow-xs scale-105 z-10 !border-indigo-600' 
                       : inRange 
                         ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-800 dark:text-indigo-200 font-medium' 
-                        : 'hover:bg-gray-100 dark:hover:bg-gray-700'}
+                        : heatClasses}
                   `}
-                  title={format(day, "MM/dd/yyyy")}
+                  title={`${format(day, "MM/dd/yyyy")}${count > 0 ? ` (${count} ${count === 1 ? 'submission' : 'submissions'})` : ' (0 submissions)'}`}
                 >
-                  {format(day, 'd')}
+                  <span className="leading-none">{format(day, 'd')}</span>
+                  {isCurrentMonth && count > 0 && !isEdge && (
+                    <span className="text-[8px] leading-none opacity-80 font-bold">{count}</span>
+                  )}
                 </button>
               );
             })}
           </div>
+
+          {/* Activity Heatmap Legend */}
+          <div className="mt-2.5 pt-2 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400 px-0.5">
+            <span className="font-semibold text-gray-600 dark:text-gray-300">Activity:</span>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span>5+</span>
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                <span>2-4</span>
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                <span>1</span>
+              </span>
+            </div>
+          </div>
           
           {/* Action Footer */}
-          <div className="mt-3 pt-2.5 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
+          <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
             <button
               type="button"
               onClick={() => {

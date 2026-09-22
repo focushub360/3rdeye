@@ -1050,33 +1050,82 @@ export const deleteForm = async (req, res) => {
     const form = await findFormByIdentifier(id);
 
     if (!form) {
+      // Check if this id exists as an orphaned child form in any parent's childForms
+      const cleaned = await Form.updateMany(
+        {},
+        { $pull: { childForms: { formId: id } } }
+      );
+      await Response.deleteMany({
+        $or: [{ questionId: id }, { formId: id }]
+      });
+      if (cleaned.modifiedCount > 0) {
+        return res.json({
+          success: true,
+          message: 'Unlinked and cleaned orphaned child form successfully'
+        });
+      }
+
       return res.status(404).json({
         success: false,
         message: 'Form not found'
       });
     }
 
-    // Check permissions
-    if (form.createdBy && req.user._id && form.createdBy.toString() !== req.user._id.toString() &&
-      req.user.role !== 'admin' && req.user.role !== 'superadmin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. You can only delete your own forms.'
-      });
+    const isSuperAdmin = req.user.role === 'superadmin';
+    const isAdmin = req.user.role === 'admin';
+    const formTenantIdStr = (form.tenantId?._id || form.tenantId)?.toString();
+    const userTenantIdStr = (req.user.tenantId?._id || req.user.tenantId)?.toString();
+    const formCreatorIdStr = (form.createdBy?._id || form.createdBy)?.toString();
+    const userIdStr = (req.user._id)?.toString();
+
+    // Check permissions: Non-admin/superadmin can only delete their own forms
+    if (!isAdmin && !isSuperAdmin) {
+      if (!formCreatorIdStr || formCreatorIdStr !== userIdStr) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. You can only delete your own forms.'
+        });
+      }
     }
 
-    // For admin, ensure they can only delete forms in their tenant
-    if (req.user.role === 'admin' && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. You can only delete forms in your organization.'
-      });
+    // For admin, ensure they can only delete forms in their tenant (if both tenant IDs are present)
+    if (isAdmin && !isSuperAdmin) {
+      if (formTenantIdStr && userTenantIdStr && formTenantIdStr !== userTenantIdStr) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. You can only delete forms in your organization.'
+        });
+      }
     }
 
-    // Delete related responses
-    await Response.deleteMany({ questionId: id });
+    // Form identifiers to purge across responses and references
+    const formIdentifiers = [
+      form._id ? form._id.toString() : null,
+      form.id ? form.id.toString() : null,
+      id ? id.toString() : null
+    ].filter(Boolean);
 
-    // Delete form using the form's _id (MongoDB ObjectId)
+    // 1. Delete all related responses matching either questionId or formId
+    await Response.deleteMany({
+      $or: [
+        { questionId: { $in: formIdentifiers } },
+        { formId: { $in: formIdentifiers } }
+      ]
+    });
+
+    // 2. Unlink this form from any parent form's childForms array
+    await Form.updateMany(
+      {},
+      { $pull: { childForms: { formId: { $in: formIdentifiers } } } }
+    );
+
+    // 3. If this was a parent form, unlink all child forms that pointed to it
+    await Form.updateMany(
+      { parentFormId: { $in: formIdentifiers } },
+      { $unset: { parentFormId: 1, parentFormTitle: 1 } }
+    );
+
+    // 4. Delete form using the form's _id (MongoDB ObjectId)
     await Form.findByIdAndDelete(form._id);
 
     res.json({

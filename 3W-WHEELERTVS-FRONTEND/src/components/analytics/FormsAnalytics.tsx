@@ -249,6 +249,7 @@ export default function FormsAnalytics() {
 
   const [actualResponseCounts, setActualResponseCounts] = useState<Record<string, number>>({});
   const [expandedChildFormIds, setExpandedChildFormIds] = useState<Record<string, boolean>>({});
+  const [deletingFormId, setDeletingFormId] = useState<string | null>(null);
 
   // Add Follow-up Form Modal state
   const [addFollowUpModalOpen, setAddFollowUpModalOpen] = useState(false);
@@ -408,7 +409,15 @@ export default function FormsAnalytics() {
 
   const deleteMutation = useMutation((id: string) => apiClient.deleteForm(id), {
     onSuccess: () => {
-      refetchForms();
+      refetchForms({ forceNetwork: true });
+      showSuccess("Form deleted successfully", "Success");
+    },
+    onError: (error: any) => {
+      console.error("Delete form error:", error);
+      showError(
+        typeof error === "string" ? error : error?.message || "Failed to delete form",
+        "Delete Failed"
+      );
     },
   });
 
@@ -792,16 +801,9 @@ export default function FormsAnalytics() {
         usedChildIds.add(childId);
 
         let child = existingChildrenMap.get(childId) || formsMap.get(childId);
-        if (!child) {
-          child = {
-            _id: childId,
-            id: childId,
-            title: childRef.formTitle || "Linked Form",
-            parentFormId: parent.id || parent._id || null,
-          } as FormItem;
+        if (child) {
+          orderedChildren.push(child);
         }
-
-        orderedChildren.push(child);
       });
 
       group.children.forEach((child) => {
@@ -828,8 +830,18 @@ export default function FormsAnalytics() {
     showConfirm(
       `Are you sure you want to delete "${title}"? This action cannot be undone.`,
       async () => {
-        await deleteMutation.mutate(id);
-        showSuccess("Form deleted successfully", "Success");
+        try {
+          setDeletingFormId(id);
+          const res = await deleteMutation.mutate(id);
+          if (res) {
+            await refetchForms({ forceNetwork: true });
+          }
+        } catch (err: any) {
+          console.error("Delete error:", err);
+          showError(err?.message || "Failed to delete form", "Delete Failed");
+        } finally {
+          setDeletingFormId(null);
+        }
       },
       "Delete Form",
       "Delete",
@@ -1573,6 +1585,28 @@ export default function FormsAnalytics() {
                             </div>
                             {isOwner && (
                               <>
+                                {canEdit && (
+                                  <button
+                                    onClick={() => {
+                                      setOpenMenuId(null);
+                                      handleOpenAddFollowUpModal(parent, children);
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-purple-700 hover:bg-purple-50 dark:text-purple-300 dark:hover:bg-purple-900/30 transition-colors"
+                                  >
+                                    <div className="p-1.5 bg-purple-100 dark:bg-purple-900/50 rounded-lg">
+                                      <Plus className="w-4 h-4 text-purple-600 dark:text-purple-300" />
+                                    </div>
+                                    <div className="text-left flex-1">
+                                      <div className="font-semibold text-purple-900 dark:text-purple-100">
+                                        Add Follow-up Form
+                                      </div>
+                                      <div className="text-[10px] text-purple-500 dark:text-purple-400">
+                                        Create or link follow-up {children.length + 1}
+                                      </div>
+                                    </div>
+                                  </button>
+                                )}
+
                                 <button
                                   onClick={() => handleManageChildForms(formId)}
                                   className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-primary-700 hover:bg-primary-50 transition-colors"
@@ -1956,18 +1990,6 @@ export default function FormsAnalytics() {
                       </button>
                     )}
 
-                    {isOwner && canEdit && (
-                      <button
-                        type="button"
-                        onClick={() => handleOpenAddFollowUpModal(parent, children)}
-                        className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 border border-purple-300 bg-purple-50 hover:bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800 shadow-sm cursor-pointer"
-                        title="Add follow-up form (e.g. Follow up 2, Follow up x2, 2nd Follow-up)"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>+ Follow-up</span>
-                      </button>
-                    )}
-
                     {isOwner && canDelete && (
                       <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
                         <button
@@ -1981,12 +2003,21 @@ export default function FormsAnalytics() {
                         </button>
                         <button
                           onClick={() => handleDelete(formId, parent.title)}
-                          className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-red-600 rounded-lg transition-colors hover:bg-red-700 flex items-center justify-center gap-1.5"
+                          className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-red-600 rounded-lg transition-colors hover:bg-red-700 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                           title="Delete form"
-                          disabled={deleteMutation.loading}
+                          disabled={deleteMutation.loading && deletingFormId === formId}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>Delete</span>
+                          {deleteMutation.loading && deletingFormId === formId ? (
+                            <>
+                              <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              <span>Deleting...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Delete</span>
+                            </>
+                          )}
                         </button>
                       </div>
                     )}
@@ -2194,10 +2225,15 @@ export default function FormsAnalytics() {
                                     onClick={() =>
                                       handleDelete(childId, child.title || "")
                                     }
-                                    className="p-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors flex items-center justify-center"
+                                    className="p-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                                     title="Delete"
+                                    disabled={deleteMutation.loading && deletingFormId === childId}
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    {deleteMutation.loading && deletingFormId === childId ? (
+                                      <div className="w-3.5 h-3.5 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    )}
                                   </button>
                                 )}
                               </div>
@@ -2774,6 +2810,7 @@ export default function FormsAnalytics() {
         }
         formId={shareAnalyticsModal.formId || ""}
         formTitle={shareAnalyticsModal.formTitle}
+        formSchema={forms.find((f: any) => f.id === shareAnalyticsModal.formId || f._id === shareAnalyticsModal.formId)}
       />
       <QualitySummaryModal
         isOpen={isQualitySummaryOpen}

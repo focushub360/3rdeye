@@ -5625,15 +5625,25 @@ export default function FormAnalyticsDashboard() {
 
   const responseCountsByDate = useMemo(() => {
     const counts: Record<string, number> = {};
-    baseFilteredResponses.forEach((response) => {
+    const dataset = (responses && responses.length > 0)
+      ? responses
+      : ((tableResponses && tableResponses.length > 0) ? tableResponses : baseFilteredResponses);
+
+    dataset.forEach((response) => {
       const timestamp = getResponseTimestamp(response);
       if (timestamp) {
-        const dateStr = new Date(timestamp).toISOString().split("T")[0];
-        counts[dateStr] = (counts[dateStr] || 0) + 1;
+        const d = parseResponseDate(timestamp);
+        if (d && !isNaN(d.getTime())) {
+          const yyyy = d.getFullYear();
+          const mm = String(d.getMonth() + 1).padStart(2, "0");
+          const dd = String(d.getDate()).padStart(2, "0");
+          const dateStr = `${yyyy}-${mm}-${dd}`;
+          counts[dateStr] = (counts[dateStr] || 0) + 1;
+        }
       }
     });
     return counts;
-  }, [baseFilteredResponses]);
+  }, [responses, tableResponses, baseFilteredResponses]);
 
   const availableStatuses = useMemo(() => {
     const statuses = new Set<string>();
@@ -14517,6 +14527,8 @@ export default function FormAnalyticsDashboard() {
         formId={shareAnalyticsModal.formId}
         formTitle={shareAnalyticsModal.formTitle}
         analyticsData={fullAnalyticsData}
+        responses={responses}
+        formSchema={form}
       />
 
       {/* Auto Send Modal */}

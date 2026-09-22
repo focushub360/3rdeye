@@ -1230,6 +1230,7 @@ export default function FormsManagementNew() {
             }}
             formId={selectedFormForShare.id || selectedFormForShare._id}
             formTitle={selectedFormForShare.title}
+            formSchema={selectedFormForShare}
           />
         )}
 

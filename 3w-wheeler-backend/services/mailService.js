@@ -126,7 +126,7 @@ class MailService {
   async _sendViaSMTP(mailOptions) {
     const result = await this.transporter.sendMail(mailOptions);
     // Never log the full subject/body — it may contain OTPs or sensitive data
-    console.log('✅ Email sent via SMTP. MessageId:', result.messageId, '| To:', mailOptions.to);
+    console.log('✅ Email sent via SMTP. MessageId:', result.messageId, '| To:', mailOptions.to, mailOptions.cc ? `| CC: ${mailOptions.cc}` : '');
     return { success: true, messageId: result.messageId };
   }
 
@@ -390,18 +390,18 @@ class MailService {
 
   async sendAnalyticsInvite(
     recipientEmail, formTitle, inviteLink, otp, tenantName,
-    customMessage, isOTPRequest = false, pdfAttachment = null, includeLink = true, ccEmails = []
+    customMessage, isOTPRequest = false, pdfAttachment = null, includeLink = true, ccEmails = [], excelAttachment = null
   ) {
     try {
-      console.log('📧 Sending analytics invite to:', recipientEmail, '| OTP request:', isOTPRequest);
+      console.log('📧 Sending analytics invite to:', recipientEmail, '| OTP request:', isOTPRequest, '| Attachments: PDF=', !!pdfAttachment, 'Excel=', !!excelAttachment);
 
       const body = `
         <p style="font-size: 16px; color: #111827; margin: 0 0 6px;">Hello,</p>
         <p style="font-size: 15px; color: #374151; margin: 0 0 20px;">
           ${isOTPRequest
             ? `Your verification code for <strong>${tenantName}</strong> analytics is below.`
-            : pdfAttachment && !includeLink
-              ? `Please find the analytics report for <strong>${formTitle}</strong> attached to this email.`
+            : (pdfAttachment || excelAttachment) && !includeLink
+              ? `Please find the inspection responses and analytics report for <strong>${formTitle}</strong> attached to this email.`
               : `You have been invited by <strong>${tenantName}</strong> to view the analytics for the following form:`
           }
         </p>
@@ -444,9 +444,17 @@ class MailService {
         </p>` : ''}
 
         ${pdfAttachment ? `
-        <div style="margin-top: 24px; padding: 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; text-align: center;">
+        <div style="margin-top: 16px; padding: 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; text-align: center;">
           <p style="font-size: 14px; color: #166534; margin: 0;">
-            📎 A PDF analytics report has been attached to this email.
+            📄 A PDF analytics report has been attached to this email.
+          </p>
+        </div>
+        ` : ''}
+
+        ${excelAttachment ? `
+        <div style="margin-top: 16px; padding: 14px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; text-align: center;">
+          <p style="font-size: 14px; color: #047857; margin: 0; font-weight: bold;">
+            📊 Inspection Responses Tab (.xlsx) has been attached to this email.
           </p>
         </div>
         ` : ''}
@@ -455,10 +463,10 @@ class MailService {
       // Subject: never include the raw OTP in the subject line (shows in logs)
       const subject = isOTPRequest
         ? `Your Verification Code — ${tenantName}`
-        : `📊 Analytics Dashboard Invite — ${formTitle}`;
+        : `📊 Inspection Responses & Analytics — ${formTitle}`;
 
       const html = this._baseWrapper(
-        isOTPRequest ? 'Email Verification' : 'Analytics Access Invited',
+        isOTPRequest ? 'Email Verification' : 'Inspection Responses & Analytics',
         '#2563eb', '#f5c518', body
       );
 
@@ -478,6 +486,13 @@ class MailService {
             attachments.push(new Attachment(
               pdfAttachment.content.toString('base64'),
               pdfAttachment.filename || 'Analytics_Report.pdf',
+              'attachment'
+            ));
+          }
+          if (excelAttachment) {
+            attachments.push(new Attachment(
+              excelAttachment.content.toString('base64'),
+              excelAttachment.filename || `${formTitle.replace(/[^a-zA-Z0-9_-]/g, '_')}_Responses.xlsx`,
               'attachment'
             ));
           }
@@ -507,17 +522,29 @@ class MailService {
       }
 
       // ── SMTP fallback ─────────────────────────────────────────────────────
-      return await this._sendViaSMTP({
-        from:    this.fromAddress,
-        to:      recipientEmail,
-        cc:      ccEmails && ccEmails.length > 0 ? ccEmails.join(',') : undefined,
-        subject,
-        html,
-        attachments: pdfAttachment ? [{
+      const smtpAttachments = [];
+      if (pdfAttachment) {
+        smtpAttachments.push({
           filename:    pdfAttachment.filename || 'Analytics_Report.pdf',
           content:     pdfAttachment.content,
           contentType: 'application/pdf',
-        }] : [],
+        });
+      }
+      if (excelAttachment) {
+        smtpAttachments.push({
+          filename:    excelAttachment.filename || `${formTitle.replace(/[^a-zA-Z0-9_-]/g, '_')}_Responses.xlsx`,
+          content:     excelAttachment.content,
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        });
+      }
+
+      return await this._sendViaSMTP({
+        from:        this.fromAddress,
+        to:          recipientEmail,
+        cc:          ccEmails && ccEmails.length > 0 ? ccEmails.join(',') : undefined,
+        subject,
+        html,
+        attachments: smtpAttachments,
       });
     } catch (error) {
       console.error('❌ sendAnalyticsInvite failed:', error.message);

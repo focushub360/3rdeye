@@ -548,7 +548,7 @@ export const createResponse = async (req, res) => {
     const formObj = form.toObject();
     const allQs = [];
 
-    // Recursive helper to collect all questions
+    // Recursive helper to collect all questions (used ONLY for initial collection)
     const collectFromQuestions = (questions) => {
       if (!Array.isArray(questions)) return;
       questions.forEach(q => {
@@ -567,65 +567,79 @@ export const createResponse = async (req, res) => {
     }
     if (formObj.followUpQuestions) {
       collectFromQuestions(formObj.followUpQuestions);
-    } console.log(`[RANK DEBUG] Calculating ranks for ${allQs.length} total questions in form ${questionId}`);
+    }
 
-    for (const question of allQs) {
-      const qId = question.id;
+    // Separate helper that collects question IDs WITHOUT mutating allQs
+    const collectExtraQuestionIds = (questions) => {
+      const ids = [];
+      if (!Array.isArray(questions)) return ids;
+      questions.forEach(q => {
+        if (q.id) ids.push(q.id);
+        if (q._id) ids.push(q._id.toString());
+        if (Array.isArray(q.followUpQuestions)) {
+          ids.push(...collectExtraQuestionIds(q.followUpQuestions));
+        }
+      });
+      return ids;
+    };
 
-      // Check for tracking (handle both boolean and string "true")
-      const isTrackingEnabled =
-        question.trackResponseRank === true ||
-        question.trackResponseRank === "true" ||
-        question.trackResponseQuestion === true ||
-        question.trackResponseQuestion === "true";
+    // Filter to only tracking-enabled questions and deduplicate by ID
+    const processedQIds = new Set();
+    const trackingQuestions = allQs.filter(q => {
+      const qId = q.id;
+      if (!qId || processedQIds.has(qId)) return false;
+      const isTracking =
+        q.trackResponseRank === true ||
+        q.trackResponseRank === "true" ||
+        q.trackResponseQuestion === true ||
+        q.trackResponseQuestion === "true";
+      if (isTracking) processedQIds.add(qId);
+      return isTracking;
+    });
 
-      if (isTrackingEnabled) {
-        // If trackResponseQuestion is enabled, we use the value from that field for ranking
+    console.log(`[RANK] ${allQs.length} questions in form, ${trackingQuestions.length} with tracking enabled`);
+
+    if (trackingQuestions.length > 0) {
+      // Fetch related forms ONCE (same for all questions in this form)
+      const { formIds, relatedForms } = await getRelatedFormsAndIds(form, questionId);
+      const extraQIds = [];
+      relatedForms.forEach(rf => {
+        (rf.sections || []).forEach(s => extraQIds.push(...collectExtraQuestionIds(s.questions)));
+        extraQIds.push(...collectExtraQuestionIds(rf.followUpQuestions));
+      });
+
+      // Build and run all rank queries in parallel
+      const rankPromises = trackingQuestions.map(async (question) => {
+        const qId = question.id;
         const trackingQId = `${qId}_tracking`;
         const rawAns = answers[qId] !== undefined ? answers[qId] : answers[trackingQId];
         const strAnswer = extractAnswerString(rawAns);
-        console.log(
-          `[RANK DEBUG] Question "${question.text}" (ID: ${qId}) HAS tracking enabled. TrackingField: ${trackingQId}, Answer: "${strAnswer}"`,
-        );
 
-        if (strAnswer !== "") {
-          const escapedAnswer = strAnswer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          const exactRegex = new RegExp(`^\\s*${escapedAnswer}\\s*$`, "i");
+        if (strAnswer === "") return;
 
-          const { formIds, relatedForms } = await getRelatedFormsAndIds(form, questionId);
-          const extraQIds = [];
-          relatedForms.forEach(rf => {
-            (rf.sections || []).forEach(s => collectFromQuestions(s.questions));
-            collectFromQuestions(rf.followUpQuestions);
-          });
-          const orConditions = buildChassisOrConditions(qId, trackingQId, strAnswer, extraQIds);
+        const orConditions = buildChassisOrConditions(qId, trackingQId, strAnswer, extraQIds);
 
-          // Count existing responses with the EXACT SAME answer for this form across related forms
-          const query = {
-            $or: [
-              { questionId: { $in: formIds } },
-              { formId: { $in: formIds } }
-            ],
-            $and: [
-              { $or: orConditions }
-            ],
-            isSectionSubmit: { $ne: true }
-          };
+        const query = {
+          $or: [
+            { questionId: { $in: formIds } },
+            { formId: { $in: formIds } }
+          ],
+          $and: [
+            { $or: orConditions }
+          ],
+          isSectionSubmit: { $ne: true }
+        };
 
-          try {
-            const count = await Response.countDocuments(query);
-            console.log(
-              `[RANK DEBUG] Found ${count} existing final responses for form ${questionId}, question ${qId}, trackingField ${trackingQId}, answer "${strAnswer}". New rank: ${count + 1}`,
-            );
-            responseRanks[qId] = count + 1;
-          } catch (countError) {
-            console.error(
-              `[RANK ERROR] Failed to count documents for question ${qId}:`,
-              countError,
-            );
-          }
+        try {
+          const count = await Response.countDocuments(query);
+          responseRanks[qId] = count + 1;
+        } catch (countError) {
+          console.error(`[RANK ERROR] Failed to count for question ${qId}:`, countError);
         }
-      }
+      });
+
+      await Promise.all(rankPromises);
+      console.log(`[RANK] Completed rank calculation for ${trackingQuestions.length} questions`);
     }
 
 
@@ -3117,8 +3131,11 @@ export const getResponsesByForm = async (req, res) => {
     const { page = 1, limit = 10000, status, includePartial = 'false' } = req.query;
 
     console.log('[getResponsesByForm] Looking for form with ID:', formId);
-    // Verify form exists
-    let formSearchQuery = { id: formId };
+    // Verify form exists - support either string id or mongo _id in a single lookup
+    const isObjectId = mongoose.Types.ObjectId.isValid(formId);
+    let formSearchQuery = isObjectId
+      ? { $or: [{ id: formId }, { _id: new mongoose.Types.ObjectId(formId) }] }
+      : { id: formId };
 
     // If not superadmin and not admin and not guest, check if form belongs to or is shared with this tenant
     if (req.user.role !== 'superadmin' && req.user.role !== 'admin' && !req.user.isGuest && req.user.tenantId) {
@@ -3128,23 +3145,26 @@ export const getResponsesByForm = async (req, res) => {
         : null;
       const tenantValues = [tenantIdStr, tenantIdObj].filter(Boolean);
 
-      formSearchQuery.$or = [
+      const tenantOr = [
         { tenantId: { $in: tenantValues } },
         { sharedWithTenants: { $in: tenantValues } },
         { "chassisTenantAssignments.assignedTenants": tenantIdStr }
       ];
+
+      if (formSearchQuery.$or) {
+        formSearchQuery = {
+          $and: [
+            { $or: formSearchQuery.$or },
+            { $or: tenantOr }
+          ]
+        };
+      } else {
+        formSearchQuery.$or = tenantOr;
+      }
     }
 
     let form = await Form.findOne(formSearchQuery);
-    console.log('[getResponsesByForm] Form found by id query:', !!form);
-
-    if (!form && mongoose.Types.ObjectId.isValid(formId)) {
-      console.log('[getResponsesByForm] Trying to find by _id:', formId);
-      const alternateQuery = { _id: formId };
-      if (formSearchQuery.$or) alternateQuery.$or = formSearchQuery.$or;
-      form = await Form.findOne(alternateQuery);
-      console.log('[getResponsesByForm] Form found by _id query:', !!form);
-    }
+    console.log('[getResponsesByForm] Form found:', !!form);
 
     if (!form) {
       console.log('[getResponsesByForm] Form not found with query:', JSON.stringify(formSearchQuery));
@@ -3166,7 +3186,7 @@ export const getResponsesByForm = async (req, res) => {
     );
 
     // Build response query: include the form itself and any linked child follow-up forms by default
-    const targetQuestionIds = [form.id, form._id.toString()];
+    const targetQuestionIds = [form.id, form._id ? form._id.toString() : null].filter(Boolean);
 
     // When scope is not strictly 'main', include linked child follow-up forms so recent submissions show by default
     if (req.query.scope !== 'main') {
@@ -3179,8 +3199,9 @@ export const getResponsesByForm = async (req, res) => {
       }
 
       try {
+        const parentIdentifiers = [form.id, form._id ? form._id.toString() : null].filter(Boolean);
         const dbChildForms = await Form.find({
-          parentFormId: { $in: [form.id, form._id.toString()] }
+          parentFormId: { $in: parentIdentifiers }
         }).select('id _id').lean();
 
         dbChildForms.forEach(cf => {
@@ -3282,11 +3303,6 @@ export const getResponsesByForm = async (req, res) => {
         .populate('createdBy', 'username firstName lastName email');
     }
 
-    // .lean() skips Mongoose document hydration (getters/setters/change
-    // tracking) since this endpoint only ever reads the data. For the
-    // analytics path (up to 10k docs per request) this is the single
-    // biggest win available here. Combined with the count query, both run
-    // in parallel instead of as two sequential round trips to Mongo.
     const responsesPromise = responsesQuery
         .sort(options.sort)
         .limit(options.limit * 1)
@@ -3299,9 +3315,6 @@ export const getResponsesByForm = async (req, res) => {
         : Response.countDocuments(query);
 
     const [responsesRaw, total] = await Promise.all([responsesPromise, countPromise]);
-    // .lean() returns Mongoose Map fields as native JS Map objects.
-    // The frontend accesses answers via response.answers[key] which only
-    // works on plain objects, so convert Maps to plain objects here.
     let responses = responsesRaw;
     if (isAnalytics) {
       responses = responsesRaw.map(r => {
@@ -3314,19 +3327,12 @@ export const getResponsesByForm = async (req, res) => {
 
     console.log('[GET RESPONSES] Query:', JSON.stringify(query));
     console.log('[GET RESPONSES] Responses found:', responses.length);
-    if (responses.length > 0) {
-      console.log('[GET RESPONSES] First response createdBy:', responses[0].createdBy);
-      console.log('[GET RESPONSES] First response submittedBy:', responses[0].submittedBy);
-    }
 
     let reviewsByResponse = {};
     let messagesByResponse = {};
 
-    if (!isAnalytics) {
-      // Fetch reviews and chat messages for these responses to show in the
-      // "Review" column. These two lookups don't depend on each other, so
-      // run them concurrently instead of one after the other.
-      const responseIds = responses.map(r => r.id);
+    if (!isAnalytics && responses.length > 0) {
+      const responseIds = responses.flatMap(r => [r.id, r._id ? r._id.toString() : null]).filter(Boolean);
       const [reviews, chatMessages] = await Promise.all([
         Review.find({ responseId: { $in: responseIds } })
           .populate('reviewerId', 'firstName lastName email username')
@@ -3339,44 +3345,20 @@ export const getResponsesByForm = async (req, res) => {
           .lean(),
       ]);
 
-      // Group reviews and messages by responseId
       reviewsByResponse = reviews.reduce((acc, r) => {
         if (!acc[r.responseId]) {
-          acc[r.responseId] = r; // Keep latest review
+          acc[r.responseId] = r;
         }
         return acc;
       }, {});
 
       messagesByResponse = chatMessages.reduce((acc, m) => {
         if (!acc[m.responseId]) {
-          acc[m.responseId] = m; // Keep latest message with contexts
+          acc[m.responseId] = m;
         }
         return acc;
       }, {});
     }
-
-    // Calculate Parent <-> Child Form follow-up status for each chassis
-    const parentFormIdStr = form.parentFormId ? form.parentFormId.toString() : null;
-    const isChildForm = Boolean(parentFormIdStr);
-
-    // Resolve child form IDs from form definition or DB
-    let childFormIds = (form.childForms || []).map(cf => cf.formId).filter(Boolean);
-    try {
-      const parentIdentifiers = [form.id, form._id ? form._id.toString() : null].filter(Boolean);
-      const dbChildren = await Form.find({
-        parentFormId: { $in: parentIdentifiers }
-      }).select('id _id').lean();
-      dbChildren.forEach(dc => {
-        if (dc.id) childFormIds.push(dc.id);
-        if (dc._id) childFormIds.push(dc._id.toString());
-      });
-      childFormIds = Array.from(new Set(childFormIds.filter(Boolean)));
-    } catch (e) {}
-
-    const isParentForm = childFormIds.length > 0;
-
-    const parentChassisMap = new Map(); // normalizedChassis -> { hasResponse, responseCount, latestCreatedAt, status, submittedBy, responseId, chassis }
-    const childChassisMap = new Map();  // normalizedChassis -> { hasResponse, responseCount, latestCreatedAt, status, submittedBy, responseId, chassis }
 
     // Helper to safely extract chassis from any response document
     const getChassisFromDoc = (doc) => {
@@ -3396,85 +3378,123 @@ export const getResponsesByForm = async (req, res) => {
       return val ? String(val).trim() : null;
     };
 
-    // If this is a child form, or if child responses might be present, fetch parent responses to build parentChassisMap
-    if (isChildForm || isParentForm) {
-      const parentFormIds = parentFormIdStr ? [parentFormIdStr] : [form.id, form._id ? form._id.toString() : null].filter(Boolean);
-      try {
-        if (parentFormIdStr) {
-          const pDoc = await Form.findOne({
+    // Calculate Parent <-> Child Form follow-up status for each chassis
+    const parentFormIdStr = form.parentFormId ? form.parentFormId.toString() : null;
+    const isChildForm = Boolean(parentFormIdStr);
+
+    let childFormIds = (form.childForms || []).map(cf => cf.formId || cf.id || cf._id?.toString()).filter(Boolean);
+    const isParentForm = childFormIds.length > 0;
+
+    const parentChassisMap = new Map();
+    const childChassisMap = new Map();
+
+    // Only query parent/child matches if we have responses on this page and this form has parent/child relationships
+    if (!isAnalytics && responses.length > 0 && (isChildForm || isParentForm)) {
+      const pageChassisList = responses.map(r => getChassisFromDoc(r)).filter(Boolean);
+      const pageChassisSet = new Set(pageChassisList.map(c => c.toLowerCase().trim()));
+
+      if (pageChassisSet.size > 0) {
+        const chassisStrings = Array.from(pageChassisSet);
+        const matchPromises = [];
+
+        if (isChildForm || isParentForm) {
+          const parentFormIds = parentFormIdStr ? [parentFormIdStr] : [form.id, form._id ? form._id.toString() : null].filter(Boolean);
+          const parentQuery = {
+            questionId: { $in: parentFormIds },
+            isSectionSubmit: { $ne: true },
             $or: [
-              { id: parentFormIdStr },
-              { _id: mongoose.Types.ObjectId.isValid(parentFormIdStr) ? new mongoose.Types.ObjectId(parentFormIdStr) : null }
-            ].filter(Boolean)
-          }).select('id _id').lean();
-          if (pDoc) {
-            if (pDoc.id) parentFormIds.push(pDoc.id);
-            if (pDoc._id) parentFormIds.push(pDoc._id.toString());
-          }
+              { chassisNumber: { $in: chassisStrings } },
+              { 'answers.chassis_number': { $in: chassisStrings } },
+              { 'answers.chassisNumber': { $in: chassisStrings } },
+              { 'answers.id_number': { $in: chassisStrings } },
+              { 'answers.idNumber': { $in: chassisStrings } },
+              { 'answers.Chassis / VIN': { $in: chassisStrings } },
+              { 'answers.Chassis No': { $in: chassisStrings } },
+              { 'answers.CHASSIS NUMBER': { $in: chassisStrings } }
+            ]
+          };
+
+          matchPromises.push(
+            Response.find(parentQuery)
+              .select('answers createdAt id _id status submittedBy chassisNumber')
+              .sort({ createdAt: -1 })
+              .limit(100)
+              .lean()
+              .then(parentResponses => {
+                parentResponses.forEach(pr => {
+                  const pVal = getChassisFromDoc(pr);
+                  if (pVal) {
+                    const norm = pVal.toLowerCase().trim();
+                    if (!parentChassisMap.has(norm)) {
+                      parentChassisMap.set(norm, {
+                        hasResponse: true,
+                        responseCount: 1,
+                        latestCreatedAt: pr.createdAt,
+                        status: pr.status || 'Accepted',
+                        submittedBy: pr.submittedBy || 'Inspector',
+                        responseId: pr.id || (pr._id ? pr._id.toString() : null),
+                        chassis: pVal
+                      });
+                    } else {
+                      const cur = parentChassisMap.get(norm);
+                      cur.responseCount++;
+                    }
+                  }
+                });
+              })
+              .catch(err => console.warn('[getResponsesByForm] Error fetching parent responses for matching:', err))
+          );
         }
-      } catch (err) {}
 
-      try {
-        const parentResponses = await Response.find({
-          questionId: { $in: parentFormIds },
-          isSectionSubmit: { $ne: true }
-        }).select('answers createdAt id _id status submittedBy chassisNumber').lean();
+        if (isParentForm && childFormIds.length > 0) {
+          const childQuery = {
+            questionId: { $in: childFormIds },
+            isSectionSubmit: { $ne: true },
+            $or: [
+              { chassisNumber: { $in: chassisStrings } },
+              { 'answers.chassis_number': { $in: chassisStrings } },
+              { 'answers.chassisNumber': { $in: chassisStrings } },
+              { 'answers.id_number': { $in: chassisStrings } },
+              { 'answers.idNumber': { $in: chassisStrings } },
+              { 'answers.Chassis / VIN': { $in: chassisStrings } },
+              { 'answers.Chassis No': { $in: chassisStrings } },
+              { 'answers.CHASSIS NUMBER': { $in: chassisStrings } }
+            ]
+          };
 
-        parentResponses.forEach(pr => {
-          const pVal = getChassisFromDoc(pr);
-          if (pVal) {
-            const norm = pVal.toLowerCase().trim();
-            if (!parentChassisMap.has(norm)) {
-              parentChassisMap.set(norm, {
-                hasResponse: true,
-                responseCount: 1,
-                latestCreatedAt: pr.createdAt,
-                status: pr.status || 'Accepted',
-                submittedBy: pr.submittedBy || 'Inspector',
-                responseId: pr.id || (pr._id ? pr._id.toString() : null),
-                chassis: pVal
-              });
-            } else {
-              const cur = parentChassisMap.get(norm);
-              cur.responseCount++;
-            }
-          }
-        });
-      } catch (err) {
-        console.warn('[getResponsesByForm] Error fetching parent responses for matching:', err);
-      }
-    }
+          matchPromises.push(
+            Response.find(childQuery)
+              .select('answers createdAt id _id status submittedBy chassisNumber')
+              .sort({ createdAt: -1 })
+              .limit(100)
+              .lean()
+              .then(childResponses => {
+                childResponses.forEach(cr => {
+                  const cVal = getChassisFromDoc(cr);
+                  if (cVal) {
+                    const norm = cVal.toLowerCase().trim();
+                    if (!childChassisMap.has(norm)) {
+                      childChassisMap.set(norm, {
+                        hasResponse: true,
+                        responseCount: 1,
+                        latestCreatedAt: cr.createdAt,
+                        status: cr.status || 'Direct Ok',
+                        submittedBy: cr.submittedBy || 'Inspector',
+                        responseId: cr.id || (cr._id ? cr._id.toString() : null),
+                        chassis: cVal
+                      });
+                    } else {
+                      const cur = childChassisMap.get(norm);
+                      cur.responseCount++;
+                    }
+                  }
+                });
+              })
+              .catch(err => console.warn('[getResponsesByForm] Error fetching child responses for matching:', err))
+          );
+        }
 
-    // If this is a parent form (or has child forms), fetch child responses to build childChassisMap
-    if (isParentForm && childFormIds.length > 0) {
-      try {
-        const childResponses = await Response.find({
-          questionId: { $in: childFormIds },
-          isSectionSubmit: { $ne: true }
-        }).select('answers createdAt id _id status submittedBy chassisNumber').lean();
-
-        childResponses.forEach(cr => {
-          const cVal = getChassisFromDoc(cr);
-          if (cVal) {
-            const norm = cVal.toLowerCase().trim();
-            if (!childChassisMap.has(norm)) {
-              childChassisMap.set(norm, {
-                hasResponse: true,
-                responseCount: 1,
-                latestCreatedAt: cr.createdAt,
-                status: cr.status || 'Direct Ok',
-                submittedBy: cr.submittedBy || 'Inspector',
-                responseId: cr.id || (cr._id ? cr._id.toString() : null),
-                chassis: cVal
-              });
-            } else {
-              const cur = childChassisMap.get(norm);
-              cur.responseCount++;
-            }
-          }
-        });
-      } catch (err) {
-        console.warn('[getResponsesByForm] Error fetching child responses for matching:', err);
+        await Promise.all(matchPromises);
       }
     }
 
