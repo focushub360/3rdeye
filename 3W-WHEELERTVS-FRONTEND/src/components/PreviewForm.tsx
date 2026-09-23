@@ -2176,7 +2176,7 @@ export default function PreviewForm({
 
       {/* Main Content */}
       <div className="relative py-8">
-        <div className="mx-auto max-w-4xl px-4 sm:px-8">
+        <div className="mx-auto max-w-7xl px-4 sm:px-8">
           <div className="w-full min-w-0 space-y-6">
             {/* Chassis Number Selection (If enabled and at first section and not a shared form) */}
               {chassisNumbers.length > 0 && currentSectionIndex === 0 && (
