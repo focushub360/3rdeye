@@ -861,72 +861,6 @@ export default function QuestionRenderer({
   };
 
   const renderFollowUpParentStatusCard = () => {
-    if (!effectiveTrackingValue || typeof effectiveTrackingValue !== "string" || effectiveTrackingValue.trim().length === 0) return null;
-
-    if (loadingRank) {
-      return (
-        <div className="mt-2.5 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 text-slate-600 dark:text-slate-400 text-xs flex items-center gap-2 animate-pulse">
-          <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
-          <span className="font-medium">Checking parent inspection history for "{effectiveTrackingValue}"...</span>
-        </div>
-      );
-    }
-
-    if (parentMatchInfo?.isParentLinked || (parentMatchInfo?.exists && parentMatchInfo?.attemptsCount > 0)) {
-      const historyItems = (rankHistory && rankHistory.length > 0) ? rankHistory : (parentMatchInfo.history || []);
-      const totalAttempts = (parentMatchInfo.attemptsCount || 0) + 1;
-
-      if (historyItems.length === 0) return null;
-
-      return (
-        <div className="mt-3 p-3 rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-900/40 shadow-xs flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
-          <span className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wide mr-1">PROGRESSION:</span>
-          {historyItems.map((hist: any, idx: number) => {
-            const sStr = String(hist.status || "").toLowerCase().trim();
-            const isRej = sStr.includes("reject");
-            const isAccepted = sStr.includes("accept") || sStr.includes("direct ok") || sStr.includes("ok") || sStr === "verified";
-            const chipStyle = isRej
-              ? "bg-rose-50 text-rose-800 border border-rose-300/80 dark:bg-rose-950/60 dark:text-rose-200 dark:border-rose-800"
-              : isAccepted
-                ? "bg-emerald-50 text-emerald-800 border border-emerald-300/80 dark:bg-emerald-950/60 dark:text-emerald-200 dark:border-emerald-800"
-                : "bg-amber-50 text-amber-800 border border-amber-300/80 dark:bg-amber-950/60 dark:text-amber-200 dark:border-amber-800";
-
-            return (
-              <React.Fragment key={`hist-${hist.rank || idx}`}>
-                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-extrabold shadow-2xs ${chipStyle}`}>
-                  <span>Attempt #{hist.rank}:</span>
-                  <span className="font-bold">{hist.status || 'Recorded'}</span>
-                </span>
-                {idx < historyItems.length - 1 && (
-                  <span className="text-slate-400 dark:text-slate-500 font-bold text-xs">→</span>
-                )}
-              </React.Fragment>
-            );
-          })}
-          <span className="text-slate-400 dark:text-slate-500 font-bold text-xs">→</span>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-300/80 dark:bg-indigo-950/60 dark:text-indigo-200 dark:border-indigo-800 shadow-2xs">
-            Attempt #{totalAttempts}: Current (Follow-up)
-          </span>
-        </div>
-      );
-    }
-
-    if (parentMatchInfo?.color === 'orange' || (parentMatchInfo && !parentMatchInfo.exists)) {
-      return (
-        <div className="mt-2.5 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 text-slate-700 dark:text-slate-300 text-xs flex items-center justify-between gap-2 shadow-2xs">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
-            <span className="font-medium text-slate-600 dark:text-slate-400">
-              New Entry: Not linked to any prior parent inspection record.
-            </span>
-          </div>
-          <span className="text-[10px] font-semibold px-2 py-0.5 bg-slate-200/70 dark:bg-slate-800 rounded text-slate-700 dark:text-slate-300">
-            Initial Attempt #1
-          </span>
-        </div>
-      );
-    }
-
     return null;
   };
 
@@ -1934,7 +1868,6 @@ export default function QuestionRenderer({
       <div className="mt-2">
         {renderTrackingInput()}
         <div className="mt-4">{renderInput()}</div>
-        {renderFollowUpParentStatusCard()}
       </div>
       {activeError && (
         <p className="text-[10px] font-bold text-red-500 mt-1 animate-in fade-in slide-in-from-top-1">
