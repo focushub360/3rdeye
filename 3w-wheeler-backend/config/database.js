@@ -1,3 +1,5 @@
+import mongoose from 'mongoose';
+
 // Global connection cache across serverless function invocations
 let cached = global.mongoose;
 
