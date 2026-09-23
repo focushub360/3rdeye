@@ -6653,68 +6653,82 @@ export default function FormAnalyticsDashboard() {
                 <Doughnut data={data} options={options} />
               </div>
 
-              {/* Stats summary - these 4 mirror the pie slices above and
-                  sum to 100% of responses */}
-              <div className="mt-4 grid grid-cols-5 gap-1 sm:gap-2">
-                {/* Direct Ok */}
-                <div className="text-center p-1 bg-green-50/50 dark:bg-green-900/10 rounded-lg">
+              {/* Stats summary - Total Submissions, Direct Ok, Rework Accepted, Rework, Rejected, and Dispatched */}
+              <div className="mt-4 grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-6 gap-1.5 sm:gap-2">
+                {/* Total Submissions */}
+                <div className="text-center p-1.5 bg-purple-50/60 dark:bg-purple-900/15 rounded-lg border border-purple-100/60 dark:border-purple-800/30 shadow-xs">
+                  <div className="text-[10px] sm:text-xs font-bold text-purple-600 dark:text-purple-400">
+                    100%
+                  </div>
+                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Total Submissions">
+                    Total Submissions
+                  </div>
+                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
+                    ({totalPieChartData.counts.total})
+                  </div>
+                </div>
+
+                {/* Direct Ok / Accepted */}
+                <div className="text-center p-1.5 bg-green-50/60 dark:bg-green-900/15 rounded-lg border border-green-100/60 dark:border-green-800/30 shadow-xs">
                   <div className="text-[10px] sm:text-xs font-bold text-green-600 dark:text-green-400">
                     {totalPieChartData.directOk}%
                   </div>
-                  <div className="text-[9px] font-medium text-gray-700 dark:text-gray-300 truncate">
+                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Direct Ok / Accepted">
                     Direct Ok
                   </div>
-                  <div className="text-[8px] text-gray-600 dark:text-gray-500">
+                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
                     ({totalPieChartData.counts.directOk})
                   </div>
                 </div>
 
-                {/* Rework Completed */}
-                <div className="text-center p-1 bg-blue-50/50 dark:bg-blue-900/10 rounded-lg">
+                {/* Rework Accepted */}
+                <div className="text-center p-1.5 bg-blue-50/60 dark:bg-blue-900/15 rounded-lg border border-blue-100/60 dark:border-blue-800/30 shadow-xs">
                   <div className="text-[10px] sm:text-xs font-bold text-blue-600 dark:text-blue-400">
                     {totalPieChartData.reworkCompleted}%
                   </div>
-                  <div className="text-[9px] font-medium text-gray-700 dark:text-gray-300 truncate">
-                    Rework Comp
+                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Rework Accepted">
+                    Rework Accepted
                   </div>
-                  <div className="text-[8px] text-gray-600 dark:text-gray-500">
+                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
                     ({totalPieChartData.counts.reworkCompleted})
                   </div>
                 </div>
 
+                {/* Ongoing Rework */}
+                <div className="text-center p-1.5 bg-amber-50/60 dark:bg-amber-900/15 rounded-lg border border-amber-100/60 dark:border-amber-800/30 shadow-xs">
+                  <div className="text-[10px] sm:text-xs font-bold text-amber-600 dark:text-amber-400">
+                    {totalPieChartData.na}%
+                  </div>
+                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Ongoing Rework">
+                    Rework
+                  </div>
+                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
+                    ({totalPieChartData.counts.na})
+                  </div>
+                </div>
+
                 {/* Rejected */}
-                <div className="text-center p-1 bg-red-50/50 dark:bg-red-900/10 rounded-lg">
+                <div className="text-center p-1.5 bg-red-50/60 dark:bg-red-900/15 rounded-lg border border-red-100/60 dark:border-red-800/30 shadow-xs">
                   <div className="text-[10px] sm:text-xs font-bold text-red-600 dark:text-red-400">
                     {totalPieChartData.no}%
                   </div>
-                  <div className="text-[9px] font-medium text-gray-700 dark:text-gray-300 truncate">
+                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Rejected">
                     Rejected
                   </div>
-                  <div className="text-[8px] text-gray-600 dark:text-gray-500">
+                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
                     ({totalPieChartData.counts.no})
                   </div>
                 </div>
 
-                {/* Ongoing Rework */}
-                <div className="text-center p-1 bg-amber-50/50 dark:bg-amber-900/10 rounded-lg">
-                  <div className="text-[10px] sm:text-xs font-bold text-amber-600 dark:text-amber-400">
-                    {totalPieChartData.na}%
-                  </div>
-                  <div className="text-[9px] font-medium text-gray-700 dark:text-gray-300 truncate">
-                    Rework
-                  </div>
-                  <div className="text-[8px] text-gray-600 dark:text-gray-500">
-                    ({totalPieChartData.counts.na})
-                  </div>
-                </div>
-                <div className="text-center p-1 bg-amber-50/50 dark:bg-amber-900/10 rounded-lg">
-                  <div className="text-[10px] sm:text-xs font-bold text-amber-600 dark:text-amber-400">
+                {/* Dispatched */}
+                <div className="text-center p-1.5 bg-indigo-50/60 dark:bg-indigo-900/15 rounded-lg border border-indigo-100/60 dark:border-indigo-800/30 shadow-xs">
+                  <div className="text-[10px] sm:text-xs font-bold text-indigo-600 dark:text-indigo-400">
                     {totalPieChartData.dispatched}%
                   </div>
-                  <div className="text-[9px] font-medium text-gray-700 dark:text-gray-300 truncate">
-                    Dispatched{" "}
+                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Dispatched">
+                    Dispatched
                   </div>
-                  <div className="text-[8px] text-gray-600 dark:text-gray-500">
+                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
                     ({totalPieChartData.counts.dispatched})
                   </div>
                 </div>
@@ -10615,26 +10629,26 @@ export default function FormAnalyticsDashboard() {
                   <>
                     {/* Overall Inspection Statistics Summary Bar */}
                     <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 p-3 sm:p-4 mb-4">
-                      <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-4 gap-4 items-center">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
-                            <BarChart3 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">
-                              Summary
-                            </p>
-                            <p className="text-sm font-bold text-gray-900 dark:text-white">
-                              Performance
-                            </p>
+                      <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 items-center">
+                        {/* Total Submissions */}
+                        <div className="flex flex-col p-2.5 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-100 dark:border-purple-900/20">
+                          <span className="text-[10px] text-purple-700 dark:text-purple-400 font-bold uppercase truncate" title="Total Submissions">
+                            Total Submissions
+                          </span>
+                          <div className="flex items-baseline justify-between mt-0.5">
+                            <span className="text-lg font-black text-purple-600 dark:text-purple-400">
+                              {totalPieChartData.counts.total || activeTotalResponsesCount}
+                            </span>
+                            <BarChart3 className="w-4 h-4 text-purple-500" />
                           </div>
                         </div>
 
-                        <div className="flex flex-col p-2 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-900/20">
-                          <span className="text-[10px] text-green-700 dark:text-green-400 font-bold uppercase">
-                            {complianceLabels.yes}
+                        {/* Direct Ok / Accepted */}
+                        <div className="flex flex-col p-2.5 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-900/20">
+                          <span className="text-[10px] text-green-700 dark:text-green-400 font-bold uppercase truncate" title="Accepted / Direct OK">
+                            {complianceLabels.yes || "Direct Ok"}
                           </span>
-                          <div className="flex items-baseline justify-between">
+                          <div className="flex items-baseline justify-between mt-0.5">
                             <span className="text-lg font-black text-green-600 dark:text-green-400">
                               {inspectionStats.accepted}
                             </span>
@@ -10642,11 +10656,38 @@ export default function FormAnalyticsDashboard() {
                           </div>
                         </div>
 
-                        <div className="flex flex-col p-2 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20">
-                          <span className="text-[10px] text-red-700 dark:text-red-400 font-bold uppercase">
-                            {complianceLabels.no}
+                        {/* Rework Accepted */}
+                        <div className="flex flex-col p-2.5 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/20">
+                          <span className="text-[10px] text-blue-700 dark:text-blue-400 font-bold uppercase truncate" title="Rework Accepted">
+                            Rework Accepted
                           </span>
-                          <div className="flex items-baseline justify-between">
+                          <div className="flex items-baseline justify-between mt-0.5">
+                            <span className="text-lg font-black text-blue-600 dark:text-blue-400">
+                              {inspectionStats.reworkCompleted}
+                            </span>
+                            <CheckCircle className="w-4 h-4 text-blue-500" />
+                          </div>
+                        </div>
+
+                        {/* Ongoing Rework */}
+                        <div className="flex flex-col p-2.5 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-100 dark:border-amber-900/20">
+                          <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase truncate" title="Ongoing Rework">
+                            {complianceLabels.na || "Rework"}
+                          </span>
+                          <div className="flex items-baseline justify-between mt-0.5">
+                            <span className="text-lg font-black text-amber-500 dark:text-amber-400">
+                              {inspectionStats.reworked}
+                            </span>
+                            <RotateCcw className="w-4 h-4 text-amber-500" />
+                          </div>
+                        </div>
+
+                        {/* Rejected */}
+                        <div className="flex flex-col p-2.5 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20">
+                          <span className="text-[10px] text-red-700 dark:text-red-400 font-bold uppercase truncate" title="Rejected">
+                            {complianceLabels.no || "Rejected"}
+                          </span>
+                          <div className="flex items-baseline justify-between mt-0.5">
                             <span className="text-lg font-black text-red-600 dark:text-red-400">
                               {inspectionStats.rejected}
                             </span>
@@ -10654,17 +10695,16 @@ export default function FormAnalyticsDashboard() {
                           </div>
                         </div>
 
-                        <div className="flex flex-col p-2 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-100 dark:border-amber-900/20">
-                          <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase">
-                            {complianceLabels.na}
+                        {/* Dispatched */}
+                        <div className="flex flex-col p-2.5 bg-indigo-50 dark:bg-indigo-900/10 rounded-lg border border-indigo-100 dark:border-indigo-900/20">
+                          <span className="text-[10px] text-indigo-700 dark:text-indigo-400 font-bold uppercase truncate" title="Dispatched">
+                            Dispatched
                           </span>
-                          <div className="flex items-baseline justify-between">
-                            <span className="text-lg font-black text-amber-500 dark:text-amber-400">
-                              {inspectionStats.reworked}
+                          <div className="flex items-baseline justify-between mt-0.5">
+                            <span className="text-lg font-black text-indigo-600 dark:text-indigo-400">
+                              {inspectionStats.dispatched}
                             </span>
-                            <span className="text-amber-500 text-sm font-bold">
-                              ⚠
-                            </span>
+                            <Send className="w-4 h-4 text-indigo-500" />
                           </div>
                         </div>
                       </div>
