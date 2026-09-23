@@ -713,7 +713,7 @@ export default function QuestionRenderer({
 
     if (isRootChassisCard) return null;
 
-    if (!hasRanked && !hasPrevious) return null;
+    if (!suggestedMatches || !Array.isArray(suggestedMatches) || suggestedMatches.length === 0) return null;
 
     const formatSuggestionValue = (val: any) => {
       if (val === null || val === undefined) return "";
@@ -782,12 +782,12 @@ export default function QuestionRenderer({
             <span>Previous Attempt History</span>
           </div>
           <span className="text-[10px] font-bold text-slate-400">
-            {suggestedMatches!.length} record{suggestedMatches!.length > 1 ? "s" : ""}
+            {suggestedMatches.length} record{suggestedMatches.length > 1 ? "s" : ""}
           </span>
         </div>
 
         <div className="divide-y divide-slate-200/60 dark:divide-slate-800/60">
-          {suggestedMatches!.map((match, idx) => {
+          {suggestedMatches.map((match, idx) => {
             const displayVal = formatSuggestionValue(match.value);
             const isMatchApplied = (() => {
               if (typeof match.value === "object") {
