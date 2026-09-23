@@ -38,6 +38,8 @@ import {
   Layout,
   Split,
   History,
+  LogIn,
+  AlertCircle,
 } from "lucide-react";
 import ImportHistoryModal from "../history/ImportHistoryModal";
 import { QualitySummaryModal } from "./QualitySummaryModal";
@@ -1155,19 +1157,59 @@ export default function FormsAnalytics() {
   const isDataLoading = loading || !formsData;
   const combinedError = error;
 
+  const isAuthError = Boolean(
+    combinedError &&
+    (String(combinedError).toLowerCase().includes("invalid token") ||
+      String(combinedError).toLowerCase().includes("jwt expired") ||
+      String(combinedError).toLowerCase().includes("unauthorized") ||
+      String(combinedError).toLowerCase().includes("401") ||
+      String(combinedError).toLowerCase().includes("not authorized"))
+  );
+
   if (combinedError) {
     return (
       <div className="p-6">
-        <div className="text-center py-12">
-          <p className="text-red-600">Error loading analytics data: {combinedError}</p>
-          <button
-            onClick={() => {
-              refetchForms();
-            }}
-            className="mt-4 btn-primary"
-          >
-            Try Again
-          </button>
+        <div className="text-center py-12 max-w-md mx-auto">
+          <div className={`rounded-2xl p-6 mb-4 border shadow-sm ${
+            isAuthError 
+              ? "bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800/40" 
+              : "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800/40"
+          }`}>
+            {isAuthError ? (
+              <LogIn className="w-12 h-12 text-blue-600 dark:text-blue-400 mx-auto mb-4" />
+            ) : (
+              <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            )}
+            <h3 className="text-base font-bold text-gray-900 dark:text-white mb-2">
+              {isAuthError ? "Session Expired" : "Error Loading Analytics"}
+            </h3>
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
+              {isAuthError
+                ? "Your login session has expired. Please log in again to continue managing forms."
+                : String(combinedError)}
+            </p>
+          </div>
+
+          <div className="flex gap-3 justify-center flex-wrap">
+            {isAuthError ? (
+              <button
+                onClick={() => {
+                  window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+                }}
+                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-2 transition-all shadow-md cursor-pointer"
+              >
+                <LogIn className="w-4 h-4" />
+                Log In Again
+              </button>
+            ) : (
+              <button
+                onClick={() => refetchForms({ forceNetwork: true })}
+                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-all shadow-md cursor-pointer"
+              >
+                Try Again
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
