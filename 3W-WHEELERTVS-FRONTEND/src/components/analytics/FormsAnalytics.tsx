@@ -2064,20 +2064,6 @@ export default function FormsAnalytics() {
                       </button>
 
                       <div className="flex items-center gap-2 pr-1">
-                        {isOwner && canEdit && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenAddFollowUpModal(parent, children);
-                            }}
-                            className="px-3 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700 shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
-                            title="Add next follow-up form"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>Add Follow-up Form</span>
-                          </button>
-                        )}
                         <span className="hidden sm:inline-block text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/60 px-2.5 py-1 rounded-md border border-purple-200 dark:border-purple-700">
                           {expandedChildFormIds[formId] ? "Hide Forms" : "Show Forms"}
                         </span>
