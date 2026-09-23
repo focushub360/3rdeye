@@ -7169,19 +7169,19 @@ export default function FormAnalyticsDashboard() {
         const isDark = document.documentElement.classList.contains("dark");
 
         // 1. Percentage: e.g. "69%"
-        ctx.font = "bold 15px Inter, system-ui, -apple-system, sans-serif";
+        ctx.font = "bold 16px Inter, system-ui, -apple-system, sans-serif";
         ctx.fillStyle = isDark ? "#34d399" : "#059669";
-        ctx.fillText(`${addedOkPercent}%`, x, y - 13);
+        ctx.fillText(`${addedOkPercent}%`, x, y - 11);
 
         // 2. Center label: "Total OK"
         ctx.font = "bold 9px Inter, system-ui, -apple-system, sans-serif";
         ctx.fillStyle = isDark ? "#94a3b8" : "#64748b";
-        ctx.fillText("Total OK", x, y + 1);
+        ctx.fillText("Total OK", x, y + 2);
 
-        // 3. Numbers breakdown: e.g. "138 + 78 (216)"
-        ctx.font = "bold 8.5px Inter, system-ui, -apple-system, sans-serif";
+        // 3. Just total number: e.g. "(216)"
+        ctx.font = "bold 10px Inter, system-ui, -apple-system, sans-serif";
         ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
-        ctx.fillText(`${directOkCount} + ${reworkCompCount} (${addedOkCount})`, x, y + 14);
+        ctx.fillText(`(${addedOkCount})`, x, y + 15);
 
         ctx.restore();
       },
