@@ -664,10 +664,9 @@ export default function FormsAnalytics() {
     if (!visibleForms.length) return;
     const counts: Record<string, number> = {};
     for (const form of visibleForms) {
-      const formId = form._id || form.id;
-      if (formId) {
-        counts[formId] = form.responseCount || 0;
-      }
+      const c = form.responseCount || 0;
+      if (form._id) counts[form._id] = c;
+      if (form.id) counts[form.id] = c;
     }
     setActualResponseCounts(counts);
   }, [visibleForms]);
