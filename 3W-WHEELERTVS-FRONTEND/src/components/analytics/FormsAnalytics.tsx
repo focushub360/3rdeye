@@ -2030,8 +2030,8 @@ export default function FormsAnalytics() {
                   </div>
                 </div>
 
-                {children.length > 0 && (
-                  <div className={`border-t border-neutral-200 dark:border-gray-700 mt-6 bg-gradient-to-r from-primary-50/30 to-purple-50/30 -mx-6 px-6 rounded-b-lg transition-all ${expandedChildFormIds[formId] ? "pt-4 pb-6" : "py-3"}`}>
+                {children.length > 0 && expandedChildFormIds[formId] && (
+                  <div className="border-t border-neutral-200 dark:border-gray-700 mt-6 bg-gradient-to-r from-primary-50/30 to-purple-50/30 -mx-6 px-6 pt-4 pb-6 rounded-b-lg transition-all animate-fadeIn">
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between p-2 rounded-xl bg-purple-100/40 dark:bg-purple-900/20 gap-2">
                       <button
                         type="button"
@@ -2055,9 +2055,7 @@ export default function FormsAnalytics() {
                           <p className="text-xs text-primary-600 dark:text-gray-400 mt-0.5">
                             Connected follow-up forms &bull;{" "}
                             <span className="font-medium text-purple-600 dark:text-purple-400">
-                              {expandedChildFormIds[formId]
-                                ? "Click to collapse"
-                                : "Click dropdown icon to expand"}
+                              Click to collapse
                             </span>
                           </p>
                         </div>
@@ -2065,24 +2063,19 @@ export default function FormsAnalytics() {
 
                       <div className="flex items-center gap-2 pr-1">
                         <span className="hidden sm:inline-block text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/60 px-2.5 py-1 rounded-md border border-purple-200 dark:border-purple-700">
-                          {expandedChildFormIds[formId] ? "Hide Forms" : "Show Forms"}
+                          Hide Forms
                         </span>
                         <button
                           type="button"
                           onClick={() => toggleChildForms(formId)}
                           className="p-2 rounded-full bg-purple-100 dark:bg-purple-800 text-purple-700 dark:text-purple-200 hover:bg-purple-200 dark:group-hover:bg-purple-700 transition-colors shadow-sm"
                         >
-                          <ChevronDown
-                            className={`w-5 h-5 transition-transform duration-300 ${
-                              expandedChildFormIds[formId] ? "rotate-180" : ""
-                            }`}
-                          />
+                          <ChevronDown className="w-5 h-5 transition-transform duration-300 rotate-180" />
                         </button>
                       </div>
                     </div>
 
-                    {expandedChildFormIds[formId] && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4 pt-4 border-t border-purple-100 dark:border-gray-700 animate-fadeIn">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4 pt-4 border-t border-purple-100 dark:border-gray-700 animate-fadeIn">
                       {children.map((child, index) => {
                         const childId = child._id || child.id;
                         const childResponseCount = (childId && actualResponseCounts[childId]) || (child.id && actualResponseCounts[child.id]) || (child._id && actualResponseCounts[child._id]) || child.responseCount || 0;
