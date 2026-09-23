@@ -705,6 +705,25 @@ export default function QuestionRenderer({
   const renderSuggestions = () => {
     if (readOnly) return null;
 
+    // Do not show amber suggestion boxes on chassis / tracking question fields where Progression timeline is shown
+    const isTrackedIdentifier =
+      isQuestionTrackingEnabled ||
+      isRankTrackingEnabled ||
+      question.type === "chassis" ||
+      question.type === "chassisWithZone" ||
+      question.type === "chassisWithoutZone" ||
+      question.type === "chassis-with-zone" ||
+      question.type === "chassis-without-zone" ||
+      Boolean(
+        question.text && (
+          question.text.toLowerCase().includes("chassis") ||
+          question.text.toLowerCase().includes("id number") ||
+          question.text.toLowerCase().includes("vin")
+        )
+      );
+
+    if (isTrackedIdentifier) return null;
+
     if (!hasRanked && !hasPrevious) return null;
 
     const formatSuggestionValue = (val: any) => {
