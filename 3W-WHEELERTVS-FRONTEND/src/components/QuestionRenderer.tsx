@@ -20,6 +20,7 @@ import {
   Link2,
   RotateCcw,
   History,
+  Check,
 } from "lucide-react";
 import type { FollowUpQuestion } from "../types";
 import { useTheme } from "../context/ThemeContext";
@@ -759,54 +760,94 @@ export default function QuestionRenderer({
       return String(val);
     };
 
-    return (
-      <div className="mt-2 space-y-2 animate-in fade-in slide-in-from-top-1 duration-300">
-        {hasRanked && (
-          <div className="space-y-1.5">
-            {suggestedMatches!.map((match, idx) => {
-              const displayVal = formatSuggestionValue(match.value);
-              const isMatchApplied = (() => {
-                if (typeof match.value === "object") {
-                  return JSON.stringify(value) === JSON.stringify(match.value);
-                }
-                return String(value || "").trim().toLowerCase() === String(match.value || "").trim().toLowerCase();
-              })();
+    const getStatusBadgeStyle = (statusStr: string) => {
+      const s = String(statusStr || "").toLowerCase().trim();
+      if (s.includes("reject")) {
+        return "bg-rose-50 text-rose-700 border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/60";
+      }
+      if (s.includes("rework") && !s.includes("accept") && !s.includes("completed")) {
+        return "bg-amber-50 text-amber-700 border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60";
+      }
+      if (s.includes("accept") || s.includes("direct ok") || s.includes("ok") || s.includes("completed")) {
+        return "bg-emerald-50 text-emerald-700 border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60";
+      }
+      return "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700";
+    };
 
+    return (
+      <div className="mt-3 overflow-hidden rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-900/40 shadow-xs backdrop-blur-xs transition-all animate-in fade-in slide-in-from-top-1 duration-200">
+        <div className="flex items-center justify-between px-3.5 py-2 border-b border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-slate-950/50">
+          <div className="flex items-center gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-300">
+            <History className="w-3.5 h-3.5 text-indigo-500" />
+            <span>Previous Attempt History</span>
+          </div>
+          <span className="text-[10px] font-bold text-slate-400">
+            {suggestedMatches!.length} record{suggestedMatches!.length > 1 ? "s" : ""}
+          </span>
+        </div>
+
+        <div className="divide-y divide-slate-200/60 dark:divide-slate-800/60">
+          {suggestedMatches!.map((match, idx) => {
+            const displayVal = formatSuggestionValue(match.value);
+            const isMatchApplied = (() => {
+              if (typeof match.value === "object") {
+                return JSON.stringify(value) === JSON.stringify(match.value);
+              }
               return (
-                <div
-                  key={idx}
-                  className="p-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/20 text-xs shadow-2xs"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-                    <span className="font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5 text-[11px]">
-                      <RotateCcw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                      Previous Attempt #{match.rank || 1} Recorded Response:
+                String(value || "").trim().toLowerCase() ===
+                String(match.value || "").trim().toLowerCase()
+              );
+            })();
+
+            return (
+              <div
+                key={idx}
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-3.5 py-2.5 hover:bg-white/50 dark:hover:bg-slate-800/30 transition-colors"
+              >
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200/60 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-800/50 shadow-2xs">
+                    Attempt #{match.rank || 1}
+                  </span>
+
+                  {match.status && (
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border shadow-2xs ${getStatusBadgeStyle(
+                        match.status
+                      )}`}
+                    >
+                      {match.status}
                     </span>
-                    {match.status && (
-                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800 shadow-2xs">
-                        {match.status}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 mt-1">
-                    <div className="font-semibold text-slate-800 dark:text-slate-200">
-                      {displayVal}
-                    </div>
-                    {!readOnly && onChange && !isMatchApplied && (
+                  )}
+
+                  <span className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 truncate">
+                    {displayVal}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-center">
+                  {isMatchApplied ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-md">
+                      <Check className="w-3 h-3" />
+                      <span>Current</span>
+                    </span>
+                  ) : (
+                    !readOnly &&
+                    onChange && (
                       <button
                         type="button"
                         onClick={() => onChange(match.value)}
-                        className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-600 hover:bg-amber-700 text-white transition-all shadow-2xs hover:scale-102 active:scale-98"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 rounded-lg shadow-2xs hover:scale-102 active:scale-98 transition-all"
                       >
-                        Apply Previous Answer
+                        <RotateCcw className="w-3 h-3 text-indigo-500" />
+                        <span>Use This</span>
                       </button>
-                    )}
-                  </div>
+                    )
+                  )}
                 </div>
-              );
-            })}
-          </div>
-        )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   };

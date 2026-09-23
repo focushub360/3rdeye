@@ -773,7 +773,6 @@ const ChassisWithoutZone: React.FC<ChassisWithoutZoneProps> = ({
               </button>
             );})}
           </div>
-          {renderFieldSuggestions('status', statusValue, handleStatusChange)}
 
           {/* Evidence Upload for Accepted Status */}
           {statusValue === 'Accepted' && (

@@ -850,7 +850,6 @@ const ChassisWithZone: React.FC<ChassisWithZoneProps> = ({
               </button>
             );})}
           </div>
-          {renderFieldSuggestions('status', statusValue, handleStatusChange)}
 
           {/* Evidence Upload for Accepted Status with Camera Option */}
           {statusValue === 'Accepted' && (
