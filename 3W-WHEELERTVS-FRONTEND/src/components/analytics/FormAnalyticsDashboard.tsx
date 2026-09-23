@@ -6897,27 +6897,58 @@ export default function FormAnalyticsDashboard() {
     let reworkCompleted = 0;
     let dispatched = 0;
 
+    // Group responses by unique tracked item (e.g. chassis number) so each unit is evaluated by its latest status
+    const itemGroups: Record<string, Response[]> = {};
+
     filteredResponses.forEach((response) => {
-      const status = responseStatuses[response.id];
+      let itemId = `resp-${response.id}`;
+      if (chassisQuestionId && response.answers) {
+        const ans = response.answers[chassisQuestionId];
+        if (ans) {
+          itemId = typeof ans === "object" ? (ans.chassisNumber || JSON.stringify(ans)) : String(ans);
+        } else {
+          const cVal = response.answers.chassis_number || response.answers.chassisNumber;
+          if (cVal) itemId = String(cVal);
+        }
+      } else if (response.answers?.chassis_number || response.answers?.chassisNumber) {
+        itemId = String(response.answers.chassis_number || response.answers.chassisNumber);
+      }
+
+      if (!itemGroups[itemId]) {
+        itemGroups[itemId] = [];
+      }
+      itemGroups[itemId].push(response);
+    });
+
+    Object.values(itemGroups).forEach((group) => {
+      // Sort responses chronologically (oldest to newest) to get the latest attempt
+      const sortedGroup = [...group].sort((a, b) => {
+        const tA = new Date(getResponseTimestamp(a) || 0).getTime();
+        const tB = new Date(getResponseTimestamp(b) || 0).getTime();
+        return tA - tB;
+      });
+
+      const latestResponse = sortedGroup[sortedGroup.length - 1];
+      const status = responseStatuses[latestResponse.id] || responseStatuses[(latestResponse as any)._id] || (latestResponse as any).status;
+
       if (status === "Direct Ok" || status === "Accepted") {
         accepted++;
-      } else if (status === "Rework Accepted") {
+      } else if (status === "Rework Accepted" || status === "Rework Completed") {
         reworkCompleted++;
-      } else if (status && status.startsWith("Rework")) {
-        reworked++;
       } else if (status === "Rejected") {
         rejected++;
+      } else if (status && status.startsWith("Rework")) {
+        reworked++;
       }
-      // Dispatch is tracked independently of status - a response can be
-      // Direct Ok (or any other status) AND already dispatched, so this
-      // is counted separately rather than as a mutually-exclusive bucket.
-      if (response.isDispatched) {
+
+      // Track if any response in this item's history is marked as dispatched
+      if (sortedGroup.some((r) => r.isDispatched)) {
         dispatched++;
       }
     });
 
     return { accepted, rejected, reworked, reworkCompleted, dispatched };
-  }, [filteredResponses, responseStatuses]);
+  }, [filteredResponses, responseStatuses, chassisQuestionId]);
 
   const totalPieChartData = useMemo(() => {
     const directOk = inspectionStats.accepted;
