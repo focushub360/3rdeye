@@ -3280,12 +3280,12 @@ export const getResponsesByForm = async (req, res) => {
     let responsesQuery = Response.find(query);
     if (isAnalytics) {
       responsesQuery = responsesQuery.select(
-        '_id id questionId formId status answers submissionMetadata responseRanks createdAt timestamp submittedBy createdBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt'
+        '_id id questionId formId status answers submissionMetadata responseRanks chassisNumber batchId notes score parentResponseId submitterContact inviteId createdAt timestamp submittedBy createdBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt'
       );
     } else {
       responsesQuery = responsesQuery
         .select(
-          '_id id questionId formId status answers submissionMetadata responseRanks createdAt timestamp submittedBy createdBy assignedTo verifiedBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt'
+          '_id id questionId formId status answers submissionMetadata responseRanks chassisNumber batchId notes score parentResponseId submitterContact inviteId createdAt timestamp submittedBy createdBy assignedTo verifiedBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt'
         )
         .populate('assignedTo', 'username firstName lastName email')
         .populate('verifiedBy', 'username firstName lastName email')
