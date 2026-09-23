@@ -3375,7 +3375,7 @@ export const getQualitySummary = async (req, res) => {
     const { role, tenantId: userTenantId } = req.user;
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
-    const cacheKey = `quality_summary_v4_${userTenantId || 'superadmin'}_${formId || 'all'}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v5_${userTenantId || 'superadmin'}_${formId || 'all'}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const cached = appCache.get(cacheKey);
     if (cached) {
       console.log(`[Quality Summary] Cache HIT (${cacheKey}) - returning in ${Date.now() - startTimer}ms`);
@@ -3467,7 +3467,6 @@ export const getQualitySummary = async (req, res) => {
       .lean()
       .maxTimeMS(60000);
 
-    const defectResponseIds = [];
     const rawResponsesMap = new Map();
 
     // 5. Aggregate metrics (Inspectors, Forms, Daily)
@@ -3504,20 +3503,21 @@ export const getQualitySummary = async (req, res) => {
     responses.forEach(r => {
       totalChecked++;
       const rawName = (r.submittedBy || 'Unknown Submitter').trim().replace(/\s+/g, ' ');
-      const dateStr = r.createdAt ? new Date(r.createdAt).toISOString().split('T')[0] : 'Unknown Date';
+      const fullIsoDate = r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString();
+      const dateStr = fullIsoDate.split('T')[0];
 
-      let isDefect = false;
-      let isRework1 = false;
-
-      // Extract Chassis Number and Part Description / VIN
+      // Extract Chassis Number, Part Description, and scan for answer defects
       let chassisNo = 'N/A';
       let chassisVin = '-';
+      const responseDefects = [];
 
       if (r.answers && typeof r.answers === 'object') {
         const tempAnswers = r.answers instanceof Map ? Object.fromEntries(r.answers) : r.answers;
         
         for (const [key, val] of Object.entries(tempAnswers)) {
-          if (val && typeof val === 'object') {
+          if (!val) continue;
+
+          if (typeof val === 'object') {
             if (val.chassisNumber && (chassisNo === 'N/A' || !chassisNo)) {
               chassisNo = String(val.chassisNumber).trim();
             }
@@ -3527,13 +3527,26 @@ export const getQualitySummary = async (req, res) => {
             if (val.v && (chassisNo === 'N/A' || !chassisNo)) {
               chassisNo = String(val.v).trim();
             }
+            if (val.status) {
+              const st = String(val.status).trim().toLowerCase();
+              if (st === 'rework' || st === 'reworked' || st === 'defect' || st === 'defect found' || st === 'rejected' || st === 'no' || st === 'not ok') {
+                const qTitle = questionTitleMap[key] || key;
+                responseDefects.push(qTitle);
+              }
+            }
           } else if (typeof val === 'string' && val.trim()) {
             const kLow = key.toLowerCase();
+            const valTrim = val.trim();
             if ((kLow === 'chassis' || kLow === 'chassis_number' || kLow === 'chassisnumber' || kLow.includes('chassis') || kLow.includes('vin') || kLow.includes('id number') || kLow.includes('id_number')) && (chassisNo === 'N/A' || !chassisNo)) {
-              chassisNo = val.trim();
-            }
-            if ((kLow === 'dealername' || kLow.includes('dealer') || kLow.includes('part') || kLow.includes('model') || kLow.includes('description')) && (chassisVin === '-' || !chassisVin)) {
-              chassisVin = val.trim();
+              chassisNo = valTrim;
+            } else if ((kLow === 'dealername' || kLow.includes('dealer') || kLow.includes('part') || kLow.includes('model') || kLow.includes('description')) && (chassisVin === '-' || !chassisVin)) {
+              chassisVin = valTrim;
+            } else {
+              const vLow = valTrim.toLowerCase();
+              if (vLow === 'rework' || vLow === 'reworked' || vLow === 'defect' || vLow === 'defect found' || vLow === 'rejected' || vLow === 'no' || vLow === 'not ok') {
+                const qTitle = questionTitleMap[key] || key;
+                responseDefects.push(qTitle);
+              }
             }
           }
         }
@@ -3554,6 +3567,47 @@ export const getQualitySummary = async (req, res) => {
 
       if (chassisVin === chassisNo) chassisVin = '-';
 
+      // Compute dynamic status accurately
+      let dynamicStatus = 'Direct Ok';
+      const rawStatus = (r.status || '').trim();
+
+      if (rawStatus === 'Accepted' || rawStatus === 'Direct Ok' || rawStatus === 'Rework Accepted') {
+        dynamicStatus = rawStatus;
+      } else if (rawStatus === 'Rejected' || rawStatus === 'Rework 1' || rawStatus === 'Rework 2') {
+        dynamicStatus = rawStatus;
+      } else if (r.biwReview?.status === 'Rejected') {
+        dynamicStatus = 'Rejected';
+      } else if (responseDefects.length > 0) {
+        dynamicStatus = 'Rework 1';
+      } else if (r.biwReview?.status === 'Accepted') {
+        dynamicStatus = 'Accepted';
+      } else {
+        dynamicStatus = 'Direct Ok';
+      }
+
+      let isDefect = false;
+      let isRework1 = false;
+
+      if (dynamicStatus === 'Rejected' || dynamicStatus === 'Rework 1' || dynamicStatus === 'Rework 2' || dynamicStatus === 'Rework' || responseDefects.length > 0) {
+        isDefect = true;
+        if (dynamicStatus === 'Rework 1') {
+          isRework1 = true;
+          totalRework1++;
+        }
+      }
+
+      const isAccept = !isDefect;
+      if (isAccept) {
+        totalAccepted++;
+      } else {
+        totalDefects++;
+      }
+
+      // Aggregate defect types
+      responseDefects.forEach(dt => {
+        defectTypeMap[dt] = (defectTypeMap[dt] || 0) + 1;
+      });
+
       const rawFormId = (r.formId || r.questionId)?.toString() || '';
       const formTitle = formTitleMap[rawFormId] || formMetricsMap[rawFormId]?.title || 'Unknown Form';
 
@@ -3563,31 +3617,15 @@ export const getQualitySummary = async (req, res) => {
         chassisVin: chassisVin,
         partDescription: chassisVin,
         submittedBy: rawName,
-        date: dateStr,
-        status: r.status || 'pending',
-        biwReviewStatus: r.biwReview?.status || 'Pending',
+        date: fullIsoDate,
+        createdAt: fullIsoDate,
+        status: dynamicStatus,
+        biwReviewStatus: r.biwReview?.status || (dynamicStatus === 'Direct Ok' || dynamicStatus === 'Accepted' ? 'Accepted' : 'Pending'),
         formId: rawFormId,
         formTitle: formTitle,
-        isDispatched: r.isDispatched || false,
-        defects: [] // will be populated in phase 2 if defective
+        isDispatched: Boolean(r.isDispatched),
+        defects: responseDefects
       });
-
-      // Check basic status
-      if (r.status && (r.status.toLowerCase().includes('rework') || r.status.toLowerCase().includes('reject'))) {
-        isDefect = true;
-      }
-      if (r.status === 'Rework 1') {
-        isRework1 = true;
-        totalRework1++;
-      }
-
-      const isAccept = !isDefect;
-      if (isAccept) {
-        totalAccepted++;
-      } else {
-        totalDefects++;
-        defectResponseIds.push(r._id); // Save ID to fetch answers later
-      }
 
       // Per-Form Metrics
       const formKey = (r.formId || r.questionId)?.toString();
@@ -3627,6 +3665,10 @@ export const getQualitySummary = async (req, res) => {
       else insp.defectCount++;
       if (isRework1) insp.rework1Count++;
 
+      responseDefects.forEach(dt => {
+        insp.defectBreakdown[dt] = (insp.defectBreakdown[dt] || 0) + 1;
+      });
+
       // BIW review status
       const biwStat = r.biwReview?.status;
       if (biwStat === 'Accepted') insp.biwAcceptCount++;
@@ -3650,43 +3692,6 @@ export const getQualitySummary = async (req, res) => {
       else dObj.defectCount++;
       if (isRework1) dObj.reworkCount++;
     });
-
-    // 5.5 Fetch answers ONLY for defective responses to build defect breakdown
-    if (defectResponseIds.length > 0) {
-      console.log(`[Quality Summary] Fetching answers for ${defectResponseIds.length} defective responses...`);
-      const defectiveResponses = await Response.find({ _id: { $in: defectResponseIds } })
-        .select('submittedBy answers')
-        .lean()
-        .maxTimeMS(60000);
-
-      defectiveResponses.forEach(r => {
-        const rawName = (r.submittedBy || 'Unknown Submitter').trim().replace(/\s+/g, ' ');
-        const answersObj = r.answers instanceof Map ? Object.fromEntries(r.answers) : r.answers;
-        const insp = inspectorMap[rawName];
-        
-        if (answersObj && insp) {
-          for (const [k, v] of Object.entries(answersObj)) {
-            if (!v || k === 'chassis_number' || k.includes('id_number')) continue;
-            let s = '';
-            if (typeof v === 'object' && v.status) s = String(v.status).trim();
-            else if (typeof v === 'string') s = v.trim();
-
-            const sl = s.toLowerCase();
-            if (sl === 'rework' || sl === 'reworked' || sl === 'defect' || sl === 'defect found' || sl === 'rejected' || sl === 'no') {
-              const qTitle = questionTitleMap[k] || k;
-              defectTypeMap[qTitle] = (defectTypeMap[qTitle] || 0) + 1;
-              insp.defectBreakdown[qTitle] = (insp.defectBreakdown[qTitle] || 0) + 1;
-              
-              // Add to raw response defects
-              const rawRes = rawResponsesMap.get(r._id.toString());
-              if (rawRes) {
-                rawRes.defects.push(qTitle);
-              }
-            }
-          }
-        }
-      });
-    }
 
     // Convert rawResponsesMap to array for the payload
     const rawResponsesList = Array.from(rawResponsesMap.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());

@@ -515,21 +515,28 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
                     {safeString(r.submittedBy) || 'Unknown'}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
-                      r.status === 'Accepted' || r.status === 'Direct Ok' ? 'bg-green-50 text-green-700 border-green-200' :
-                      r.status === 'Rejected' ? 'bg-red-50 text-red-700 border-red-200' :
-                      r.status === 'Rework 1' || r.status === 'Rework Accepted' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
-                      'bg-gray-50 text-gray-700 border-gray-200'
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${
+                      r.status === 'Accepted' || r.status === 'Direct Ok' || r.status === 'Rework Accepted'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                        : r.status === 'Rejected'
+                          ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800'
+                          : r.status?.includes('Rework')
+                            ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                            : 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700'
                     }`}>
-                      {safeString(r.status) || 'Pending'}
+                      {safeString(r.status) || 'Direct Ok'}
                     </span>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     {r.biwReviewStatus ? (
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
-                        r.biwReviewStatus === 'Accepted' ? 'bg-green-50 text-green-700 border-green-200' :
-                        r.biwReviewStatus === 'Rejected' ? 'bg-red-50 text-red-700 border-red-200' :
-                        'bg-yellow-50 text-yellow-700 border-yellow-200'
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${
+                        r.biwReviewStatus === 'Accepted'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                          : r.biwReviewStatus === 'Rejected'
+                            ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800'
+                            : r.biwReviewStatus === 'Reworked'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                              : 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-300 dark:border-yellow-800'
                       }`}>
                         {safeString(r.biwReviewStatus)}
                       </span>
@@ -538,7 +545,12 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
                     )}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">
-                    {new Date(r.date).toLocaleString()}
+                    {(() => {
+                      const dVal = r.date || r.createdAt;
+                      if (!dVal) return '-';
+                      const dt = new Date(dVal);
+                      return !isNaN(dt.getTime()) ? dt.toLocaleString() : String(dVal);
+                    })()}
                   </td>
                 </tr>
               );
@@ -546,7 +558,7 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
             
             {filteredResponses.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
+                <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
                   <AlertTriangle className="w-8 h-8 text-gray-300 mx-auto mb-3" />
                   <p className="text-base font-medium">No responses found</p>
                   <p className="text-sm mt-1">Adjust your filters or search query.</p>
