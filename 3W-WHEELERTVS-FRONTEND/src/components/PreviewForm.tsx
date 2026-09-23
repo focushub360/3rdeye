@@ -2176,11 +2176,9 @@ export default function PreviewForm({
 
       {/* Main Content */}
       <div className="relative py-8">
-        <div className="mx-auto max-w-7xl px-4 sm:px-8">
-          <div className="flex flex-col lg:flex-row gap-6 items-start">
-            {/* Form Column */}
-            <div className="flex-1 w-full min-w-0 space-y-6">
-              {/* Chassis Number Selection (If enabled and at first section and not a shared form) */}
+        <div className="mx-auto max-w-4xl px-4 sm:px-8">
+          <div className="w-full min-w-0 space-y-6">
+            {/* Chassis Number Selection (If enabled and at first section and not a shared form) */}
               {chassisNumbers.length > 0 && currentSectionIndex === 0 && (
                 <div className={`p-6 sm:p-8 rounded-2xl border-2 ${darkMode ? "bg-purple-500/5 border-purple-500/20" : "bg-purple-50 border-purple-100"} shadow-sm relative overflow-hidden group`}>
                   <div className="absolute top-0 right-0 p-4 opacity-10 font-bold">
@@ -2323,29 +2321,8 @@ export default function PreviewForm({
                 </div>
               </form>
             </div>
-
-            {/* Assistant Sidebar */}
-            {activeTrackQuestion && suggestedAnswers && !suggestedAnswers._no_match && (
-              <div className="hidden lg:block w-[380px] sticky top-24 animate-in fade-in slide-in-from-right-4 duration-500 z-20">
-                <div className={`rounded-2xl border ${darkMode ? "border-slate-800 bg-slate-900/40" : "border-slate-200 bg-white shadow-xl shadow-slate-200/50"} overflow-hidden backdrop-blur-sm`}>
-                  <div className={`border-b ${darkMode ? "border-slate-800 bg-slate-900/60" : "border-slate-50 bg-slate-50/80"} px-6 py-4`}>
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-lg ${darkMode ? "bg-blue-500/20" : "bg-blue-50"}`}>
-                        <Sparkles className="h-4 w-4 text-blue-500" />
-                      </div>
-                      <div>
-                        <span className={`text-xs font-bold uppercase tracking-wider ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Assistant</span>
-                        <h3 className={`text-sm font-bold ${darkMode ? "text-white" : "text-slate-900"}`}>Found Records!</h3>
-                      </div>
-                    </div>
-                  </div>
-                  {renderAssistantContent()}
-                </div>
-              </div>
-            )}
           </div>
         </div>
-      </div>
 
       {/* Sticky Bottom Navigation */}
       <div
@@ -2425,55 +2402,6 @@ export default function PreviewForm({
           </div>
         </div>
       </div>
-      {/* Mobile Assistant Toggle */}
-      {activeTrackQuestion && suggestedAnswers && !suggestedAnswers._no_match && (
-        <button
-          onClick={() => setShowMobileAssistant(true)}
-          className="lg:hidden fixed bottom-24 right-6 z-50 p-4 rounded-full bg-blue-600 text-white shadow-2xl shadow-blue-500/40 animate-bounce transition-transform active:scale-95"
-        >
-          <Sparkles className="h-6 w-6" />
-          {suggestedAnswers && Array.isArray(suggestedAnswers) && suggestedAnswers.length > 0 && (
-            <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold ring-2 ring-white">
-              {suggestedAnswers.length}
-            </span>
-          )}
-        </button>
-      )}
-
-      {/* Mobile Assistant Modal */}
-      {showMobileAssistant && (
-        <div className="lg:hidden fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div
-            className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-300"
-            onClick={() => setShowMobileAssistant(false)}
-          />
-          <div className={`relative w-full sm:max-w-lg max-h-[90vh] overflow-hidden rounded-t-3xl sm:rounded-3xl border-t sm:border border-slate-200 dark:border-slate-800 ${darkMode ? "bg-slate-900 shadow-2xl shadow-black" : "bg-white shadow-2xl"} animate-in slide-in-from-bottom-full duration-500 flex flex-col`}>
-            {/* Modal Header */}
-            <div className={`p-4 border-b flex items-center justify-between sticky top-0 z-10 ${darkMode ? "bg-slate-900/95 border-slate-800" : "bg-white/95 border-slate-100"} backdrop-blur-md`}>
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${darkMode ? "bg-blue-500/20" : "bg-blue-50"}`}>
-                  <Sparkles className="h-4 w-4 text-blue-500" />
-                </div>
-                <div>
-                  <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Assistant</span>
-                  <h3 className={`text-sm font-black ${darkMode ? "text-white" : "text-slate-900"}`}>Historical Records</h3>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowMobileAssistant(false)}
-                className={`p-2 rounded-xl transition-colors ${darkMode ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-500"}`}
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
-              {renderAssistantContent()}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
