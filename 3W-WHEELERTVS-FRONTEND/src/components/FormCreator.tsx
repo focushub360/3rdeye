@@ -952,90 +952,41 @@ export default function FormCreator() {
       return;
     }
 
-    // Validate each section has required fields
-    for (const section of form.sections) {
+    // Auto-heal sections, questions, and follow-ups: ensure valid IDs and required defaults
+    form.sections.forEach((section, sIdx) => {
       if (!section.id) {
-        showError("All sections must have an ID", "Validation Error");
-        return;
+        section.id = crypto.randomUUID();
       }
       if (!section.title || !section.title.trim()) {
-        showError("All sections must have a title", "Validation Error");
-        return;
+        section.title = `Section ${sIdx + 1}`;
       }
 
-      // Validate questions in each section
-      for (const question of section.questions) {
+      (section.questions || []).forEach((question, qIdx) => {
         if (!question.id) {
-          showError(
-            `Question in section "${section.title}" is missing an ID`,
-            "Validation Error"
-          );
-          return;
+          question.id = crypto.randomUUID();
         }
-
-        const questionHasText = Boolean(question.text && question.text.trim());
-        const questionHasImage = Boolean(
-          question.imageUrl && question.imageUrl.trim()
-        );
-        const questionLabel = question.text?.trim() || "Image question";
-
-        if (!questionHasText && !questionHasImage) {
-          showError(
-            `Question in section "${section.title}" must include text or an image`,
-            "Validation Error"
-          );
-          return;
-        }
-
         if (!question.type) {
-          showError(
-            `Question "${questionLabel}" in section "${section.title}" is missing a type`,
-            "Validation Error"
-          );
-          return;
+          question.type = "text";
+        }
+        if (!question.text && !question.imageUrl) {
+          question.text = `Question ${qIdx + 1}`;
         }
 
-        if (
-          question.followUpQuestions &&
-          question.followUpQuestions.length > 0
-        ) {
-          for (const followUp of question.followUpQuestions) {
+        if (question.followUpQuestions && question.followUpQuestions.length > 0) {
+          question.followUpQuestions.forEach((followUp, fIdx) => {
             if (!followUp.id) {
-              showError(
-                `Follow-up question for "${questionLabel}" is missing an ID`,
-                "Validation Error"
-              );
-              return;
+              followUp.id = crypto.randomUUID();
             }
-
-            const followUpHasText = Boolean(
-              followUp.text && followUp.text.trim()
-            );
-            const followUpHasImage = Boolean(
-              followUp.imageUrl && followUp.imageUrl.trim()
-            );
-
-            if (!followUpHasText && !followUpHasImage) {
-              showError(
-                `Follow-up question for "${questionLabel}" must include text or an image`,
-                "Validation Error"
-              );
-              return;
-            }
-
-            const followUpLabel = followUp.text?.trim() || "Image question";
-
             if (!followUp.type) {
-              showError(
-                `Follow-up question "${followUpLabel}" is missing a type`,
-                "Validation Error"
-              );
-              return;
+              followUp.type = "text";
             }
-          }
+            if (!followUp.text && !followUp.imageUrl) {
+              followUp.text = `Follow-up ${fIdx + 1}`;
+            }
+          });
         }
-      }
-    }
+      });
+    });
 
     // Flatten follow-up questions into section questions array (recursively)
     const formToSave = {

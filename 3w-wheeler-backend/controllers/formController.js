@@ -483,8 +483,11 @@ export const getAllForms = async (req, res) => {
     ]);
 
     const formIdsForCounts = forms
-      .map((form) => form.id || (form._id ? form._id.toString() : null))
-      .filter((id) => Boolean(id));
+      .flatMap((form) => [
+        form.id ? form.id.toString() : null,
+        form._id ? form._id.toString() : null
+      ])
+      .filter(Boolean);
 
     let responseCountsMap = new Map();
     if (formIdsForCounts.length > 0) {
@@ -495,7 +498,9 @@ export const getAllForms = async (req, res) => {
       const normalFormIds = [];
 
       for (const form of forms) {
-        const formId = form.id || (form._id ? form._id.toString() : '');
+        const id1 = form.id ? form.id.toString() : '';
+        const id2 = form._id ? form._id.toString() : '';
+        const formId = id1 || id2;
         if (!formId) continue;
 
         const tenantIdStr = typeof form.tenantId === 'object' && form.tenantId ? form.tenantId._id?.toString() : form.tenantId?.toString();
@@ -507,33 +512,62 @@ export const getAllForms = async (req, res) => {
         );
 
         if (!isOwner && !isShared && hasChassisShare) {
-          chassisSharedFormIds.push({ form, formId, chassisAssignments });
+          chassisSharedFormIds.push({ form, formId, id1, id2, chassisAssignments });
         } else {
-          normalFormIds.push(formId);
+          if (id1) normalFormIds.push(id1);
+          if (id2 && id2 !== id1) normalFormIds.push(id2);
         }
       }
 
-      // ✅ Fast path: use aggregation to get counts (no document loading)
+      // ✅ Fast path: use aggregation to get counts matching both questionId & formId (string and ObjectId)
       if (normalFormIds.length > 0) {
+        const matchIds = [];
+        normalFormIds.forEach((strId) => {
+          matchIds.push(strId);
+          if (mongoose.Types.ObjectId.isValid(strId)) {
+            matchIds.push(new mongoose.Types.ObjectId(strId));
+          }
+        });
+
         const countAgg = await Response.aggregate([
           {
             $match: {
-              questionId: { $in: normalFormIds },
+              $or: [
+                { questionId: { $in: matchIds } },
+                { formId: { $in: matchIds } }
+              ],
               isSectionSubmit: { $ne: true }
             }
           },
           {
+            $project: {
+              targetId: {
+                $cond: [
+                  { $and: [{ $ne: ["$formId", null] }, { $ne: ["$formId", ""] }] },
+                  { $toString: "$formId" },
+                  { $toString: "$questionId" }
+                ]
+              },
+              altId: { $toString: "$questionId" }
+            }
+          },
+          {
             $group: {
-              _id: '$questionId',
+              _id: "$targetId",
+              altId: { $first: "$altId" },
               count: { $sum: 1 }
             }
           }
         ]);
-        countAgg.forEach(({ _id, count }) => responseCountsMap.set(_id, count));
+
+        countAgg.forEach(({ _id, altId, count }) => {
+          if (_id) responseCountsMap.set(_id, (responseCountsMap.get(_id) || 0) + count);
+          if (altId && altId !== _id) responseCountsMap.set(altId, (responseCountsMap.get(altId) || 0) + count);
+        });
       }
 
-      // Chassis-shared forms: targeted countDocuments per chassis set (avoids loading answers)
-      for (const { form, formId, chassisAssignments } of chassisSharedFormIds) {
+      // Chassis-shared forms: targeted countDocuments per chassis set
+      for (const { form, formId, id1, id2, chassisAssignments } of chassisSharedFormIds) {
         const myChassis = chassisAssignments
           .filter(a => a.assignedTenants?.includes(currentTenantId))
           .map(a => a.chassisNumber)
@@ -545,24 +579,40 @@ export const getAllForms = async (req, res) => {
             || form.followUpQuestions?.find(q => q.type === 'chassisNumber');
           const chassisFieldId = chassisQuestion?.id || 'chassis_number';
 
+          const checkIds = [id1, id2].filter(Boolean);
+          const checkMatchIds = [];
+          checkIds.forEach(i => {
+            checkMatchIds.push(i);
+            if (mongoose.Types.ObjectId.isValid(i)) checkMatchIds.push(new mongoose.Types.ObjectId(i));
+          });
+
           // Count only responses whose chassis answer matches assigned chassis numbers
           const filteredCount = await Response.countDocuments({
-            questionId: formId,
-            isSectionSubmit: { $ne: true },
             $or: [
-              { [`answers.${chassisFieldId}`]: { $in: myChassis } },
-              { [`answers.chassis_number`]: { $in: myChassis } }
+              { questionId: { $in: checkMatchIds } },
+              { formId: { $in: checkMatchIds } }
+            ],
+            isSectionSubmit: { $ne: true },
+            $and: [
+              {
+                $or: [
+                  { [`answers.${chassisFieldId}`]: { $in: myChassis } },
+                  { [`answers.chassis_number`]: { $in: myChassis } }
+                ]
+              }
             ]
           });
-          responseCountsMap.set(formId, filteredCount);
+          if (id1) responseCountsMap.set(id1, filteredCount);
+          if (id2) responseCountsMap.set(id2, filteredCount);
         } else {
-          responseCountsMap.set(formId, 0);
+          if (id1) responseCountsMap.set(id1, 0);
+          if (id2) responseCountsMap.set(id2, 0);
         }
       }
     }
 
     const formsWithCounts = forms.map((form) => {
-      const id1 = form.id;
+      const id1 = form.id ? form.id.toString() : "";
       const id2 = form._id ? form._id.toString() : "";
       const responseCount = (id1 && responseCountsMap.get(id1)) || (id2 && responseCountsMap.get(id2)) || 0;
       return {
@@ -1997,6 +2047,20 @@ export const getChildForms = async (req, res) => {
       for (const childRef of parentForm.childForms) {
         const childForm = await findFormByIdentifier(childRef.formId);
         if (childForm) {
+          const cIds = [childForm.id, childForm._id?.toString()].filter(Boolean);
+          const cMatchIds = [];
+          cIds.forEach(cid => {
+            cMatchIds.push(cid);
+            if (mongoose.Types.ObjectId.isValid(cid)) cMatchIds.push(new mongoose.Types.ObjectId(cid));
+          });
+          const cCount = await Response.countDocuments({
+            $or: [
+              { questionId: { $in: cMatchIds } },
+              { formId: { $in: cMatchIds } }
+            ],
+            isSectionSubmit: { $ne: true }
+          });
+
           childFormDetails.push({
             id: childForm.id,
             _id: childForm._id,
@@ -2004,7 +2068,8 @@ export const getChildForms = async (req, res) => {
             description: childForm.description,
             isVisible: childForm.isVisible,
             isActive: childForm.isActive,
-            order: childRef.order
+            order: childRef.order,
+            responseCount: cCount
           });
         }
       }
