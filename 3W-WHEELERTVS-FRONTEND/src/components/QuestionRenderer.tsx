@@ -64,6 +64,16 @@ interface QuestionRendererProps {
   onPreviousAnswersChange?: (answers: string[]) => void;
 }
 
+const isImageFile = (filename: string): boolean => {
+  if (!filename || typeof filename !== "string") return false;
+  return (
+    /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(filename) ||
+    filename.startsWith("data:image/") ||
+    filename.includes("cloudinary.com") ||
+    filename.includes("/api/files/")
+  );
+};
+
 const getRankStyle = (answer: any, darkMode: boolean = false) => {
   if (answer === null || answer === undefined) return "";
   // Ensure we stringify object/array answers for consistent hashing
