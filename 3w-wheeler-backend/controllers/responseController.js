@@ -3275,6 +3275,8 @@ export const getResponsesByForm = async (req, res) => {
       sort: { createdAt: -1 }
     };
 
+    const isAnalytics = req.query.analytics === 'true';
+
     let responsesQuery = Response.find(query);
     if (isAnalytics) {
       responsesQuery = responsesQuery.select(
