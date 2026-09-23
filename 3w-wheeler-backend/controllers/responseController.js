@@ -1771,15 +1771,20 @@ export const getRank = async (req, res) => {
     const lastBiwReviewed = [...sortedResponses].reverse().find(r => r.biwReview && r.biwReview.status);
 
     // Determine parent/child relationship and compute follow-up badge info
-    const currentFormIdStr = (form.id || form._id?.toString() || formId).toString();
-    const parentForm = relatedForms.find(rf => {
-      const rfIdStr = (rf.id || rf._id?.toString() || '').toString();
-      return rfIdStr !== currentFormIdStr && (
-        form.parentFormId === rf.id ||
-        form.parentFormId === rf._id?.toString() ||
-        rf.childForms?.some(cf => cf.formId === form.id || cf.formId === form._id?.toString() || cf.formId === formId)
-      );
-    });
+    let parentForm = null;
+    if (form.parentFormId) {
+      parentForm = await Form.findOne({
+        $or: [
+          { id: form.parentFormId },
+          ...(mongoose.Types.ObjectId.isValid(form.parentFormId) ? [{ _id: form.parentFormId }] : [])
+        ]
+      }).select('id _id title childForms').lean();
+    }
+    if (!parentForm) {
+      parentForm = await Form.findOne({
+        'childForms.formId': { $in: [form.id, form._id?.toString(), formId] }
+      }).select('id _id title childForms').lean();
+    }
 
     const isChildForm = Boolean(form.parentFormId || parentForm);
     const isParentForm = Boolean(form.childForms && form.childForms.length > 0);
