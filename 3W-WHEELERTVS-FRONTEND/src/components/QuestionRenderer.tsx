@@ -18,6 +18,8 @@ import {
   Loader2,
   Upload,
   Link2,
+  RotateCcw,
+  History,
 } from "lucide-react";
 import type { FollowUpQuestion } from "../types";
 import { useTheme } from "../context/ThemeContext";
