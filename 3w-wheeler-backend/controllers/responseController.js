@@ -3209,11 +3209,11 @@ export const getResponsesByForm = async (req, res) => {
       a => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr)
     );
 
-    // Build response query: include the form itself and any linked child follow-up forms by default
+    // Build response query: strictly isolate responses to this form alone
     const targetQuestionIds = [form.id, form._id ? form._id.toString() : null].filter(Boolean);
 
-    // When scope is not strictly 'main', include linked child follow-up forms so recent submissions show by default
-    if (req.query.scope !== 'main') {
+    // Only include linked child follow-up forms if explicitly requested via scope='all' or includeChildren='true'
+    if (req.query.scope === 'all' || req.query.includeChildren === 'true') {
       if (form.childForms && form.childForms.length > 0) {
         form.childForms.forEach(cf => {
           if (cf.formId) targetQuestionIds.push(cf.formId);
