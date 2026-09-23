@@ -874,105 +874,39 @@ export default function QuestionRenderer({
 
     if (parentMatchInfo?.isParentLinked || (parentMatchInfo?.exists && parentMatchInfo?.attemptsCount > 0)) {
       const historyItems = (rankHistory && rankHistory.length > 0) ? rankHistory : (parentMatchInfo.history || []);
-      const days = parentMatchInfo.daysElapsed ?? 0;
       const totalAttempts = (parentMatchInfo.attemptsCount || 0) + 1;
 
+      if (historyItems.length === 0) return null;
+
       return (
-        <div className="mt-3 p-4 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/90 text-slate-900 dark:text-slate-100 animate-in fade-in slide-in-from-top-1 duration-200 shadow-xs">
-          {/* Header */}
-          <div className="flex flex-wrap items-center justify-between gap-2.5 mb-2.5">
-            <div className="flex items-center gap-2">
-              <span className="flex h-2.5 w-2.5 relative shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-600"></span>
-              </span>
-              <span className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Link2 className="w-4 h-4 text-slate-600 dark:text-slate-300 stroke-[2.5]" />
-                <span className="font-semibold text-slate-700 dark:text-slate-300">Parent Form:</span>
-                <span className="font-extrabold text-slate-950 dark:text-white underline decoration-slate-400">
-                  {parentMatchInfo.parentFormTitle || "Main Inspection Form"}
+        <div className="mt-3 p-3 rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-900/40 shadow-xs flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+          <span className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wide mr-1">PROGRESSION:</span>
+          {historyItems.map((hist: any, idx: number) => {
+            const sStr = String(hist.status || "").toLowerCase().trim();
+            const isRej = sStr.includes("reject");
+            const isAccepted = sStr.includes("accept") || sStr.includes("direct ok") || sStr.includes("ok") || sStr === "verified";
+            const chipStyle = isRej
+              ? "bg-rose-50 text-rose-800 border border-rose-300/80 dark:bg-rose-950/60 dark:text-rose-200 dark:border-rose-800"
+              : isAccepted
+                ? "bg-emerald-50 text-emerald-800 border border-emerald-300/80 dark:bg-emerald-950/60 dark:text-emerald-200 dark:border-emerald-800"
+                : "bg-amber-50 text-amber-800 border border-amber-300/80 dark:bg-amber-950/60 dark:text-amber-200 dark:border-amber-800";
+
+            return (
+              <React.Fragment key={`hist-${hist.rank || idx}`}>
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-extrabold shadow-2xs ${chipStyle}`}>
+                  <span>Attempt #{hist.rank}:</span>
+                  <span className="font-bold">{hist.status || 'Recorded'}</span>
                 </span>
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold px-3 py-1 rounded-lg bg-slate-200 text-slate-900 border border-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600 shadow-2xs">
-                {parentMatchInfo.attemptsCount} {parentMatchInfo.attemptsCount === 1 ? 'Parent Attempt' : 'Parent Attempts'}
-              </span>
-              <span className="text-xs font-bold px-3 py-1 rounded-lg bg-indigo-100 text-indigo-950 border border-indigo-300 dark:bg-indigo-950 dark:text-indigo-200 dark:border-indigo-700 shadow-2xs">
-                Follow-up Attempt #{totalAttempts}
-              </span>
-            </div>
-          </div>
-
-          {/* Details */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-300 dark:border-slate-700 text-xs">
-            <div className="flex flex-wrap items-center gap-4 text-slate-800 dark:text-slate-200 font-semibold">
-              {parentMatchInfo.lastSubmittedBy && (
-                <span className="flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-slate-700 dark:text-slate-300 stroke-[2.5]" />
-                  <span className="text-slate-600 dark:text-slate-400">Inspector:</span>
-                  <strong className="text-slate-950 dark:text-white font-extrabold">{parentMatchInfo.lastSubmittedBy}</strong>
-                </span>
-              )}
-              {parentMatchInfo.lastCreatedAt && (
-                <span className="flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-slate-700 dark:text-slate-300 stroke-[2.5]" />
-                  <strong className="text-slate-900 dark:text-slate-100 font-bold">{new Date(parentMatchInfo.lastCreatedAt).toLocaleDateString()}</strong>
-                  {days > 0 && <span className="font-bold text-slate-600 dark:text-slate-400">({days}d ago)</span>}
-                </span>
-              )}
-            </div>
-
-            {parentMatchInfo.lastStatus && (() => {
-              const s = parentMatchInfo.lastStatus.toLowerCase();
-              const isRej = s.includes('reject');
-              const isRew = s.includes('rework');
-              const statusStyle = isRej
-                ? 'bg-rose-100 text-rose-950 border-2 border-rose-400 dark:bg-rose-950 dark:text-rose-200 dark:border-rose-700'
-                : isRew
-                  ? 'bg-amber-100 text-amber-950 border-2 border-amber-400 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-700'
-                  : 'bg-emerald-100 text-emerald-950 border-2 border-emerald-400 dark:bg-emerald-950 dark:text-emerald-200 dark:border-emerald-700';
-
-              return (
-                <span className={`px-3 py-1 rounded-lg font-extrabold text-xs shadow-2xs ${statusStyle}`}>
-                  Status: {parentMatchInfo.lastStatus}
-                </span>
-              );
-            })()}
-          </div>
-
-          {/* Sequence Timeline */}
-          {historyItems.length > 0 && (
-            <div className="mt-2.5 pt-2.5 border-t border-slate-300 dark:border-slate-700 flex flex-wrap items-center gap-2">
-              <span className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wide mr-1">PROGRESSION:</span>
-              {historyItems.map((hist: any, idx: number) => {
-                const sStr = String(hist.status || "").toLowerCase().trim();
-                const isRej = sStr.includes("reject");
-                const isAccepted = sStr.includes("accept") || sStr.includes("direct ok") || sStr.includes("ok") || sStr === "verified";
-                const chipStyle = isRej
-                  ? "bg-rose-100 text-rose-950 border-2 border-rose-400 dark:bg-rose-950 dark:text-rose-200 dark:border-rose-700"
-                  : isAccepted
-                    ? "bg-emerald-100 text-emerald-950 border-2 border-emerald-400 dark:bg-emerald-950 dark:text-emerald-200 dark:border-emerald-700"
-                    : "bg-amber-100 text-amber-950 border-2 border-amber-400 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-700";
-
-                return (
-                  <React.Fragment key={`hist-${hist.rank || idx}`}>
-                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-extrabold shadow-2xs ${chipStyle}`}>
-                      <span>Attempt #{hist.rank}:</span>
-                      <span className="font-bold">{hist.status || 'Recorded'}</span>
-                    </span>
-                    {idx < historyItems.length - 1 && (
-                      <span className="text-slate-500 dark:text-slate-400 font-extrabold text-sm">→</span>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-              <span className="text-slate-500 dark:text-slate-400 font-extrabold text-sm">→</span>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-extrabold bg-indigo-100 text-indigo-950 border-2 border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200 dark:border-indigo-600 shadow-2xs">
-                Attempt #{totalAttempts}: Current (Follow-up)
-              </span>
-            </div>
-          )}
+                {idx < historyItems.length - 1 && (
+                  <span className="text-slate-400 dark:text-slate-500 font-bold text-xs">→</span>
+                )}
+              </React.Fragment>
+            );
+          })}
+          <span className="text-slate-400 dark:text-slate-500 font-bold text-xs">→</span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-300/80 dark:bg-indigo-950/60 dark:text-indigo-200 dark:border-indigo-800 shadow-2xs">
+            Attempt #{totalAttempts}: Current (Follow-up)
+          </span>
         </div>
       );
     }
