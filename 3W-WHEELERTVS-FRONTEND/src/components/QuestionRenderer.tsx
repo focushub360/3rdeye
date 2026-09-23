@@ -800,44 +800,6 @@ export default function QuestionRenderer({
             })}
           </div>
         )}
-
-        {hasPrevious && !hasRanked && (
-          <div className="mt-2 space-y-2 border border-gray-200 dark:border-gray-800 rounded-lg p-2.5 bg-gray-50 dark:bg-gray-900/50">
-            <span className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1.5">
-              <History className="w-3 h-3" /> Previous Answers
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {previousAnswers.map((prevAns, idx) => {
-                const ansStr = String(prevAns);
-                const isImg = isImageFile(ansStr) || (ansStr.startsWith("http") && (ansStr.includes("cloudinary.com/") || ansStr.includes("/api/files/")));
-                return (
-                  <div key={idx} className="relative group cursor-pointer" onClick={() => {
-                    if (!readOnly && onChange) {
-                      onChange(prevAns);
-                    }
-                  }}>
-                    {isImg ? (
-                      <div className={`w-16 h-16 rounded overflow-hidden border-2 transition-all ${String(value) === ansStr ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'}`}>
-                        <img src={ansStr} alt={`Previous answer ${idx + 1}`} className="w-full h-full object-cover" />
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        className={`text-xs px-2.5 py-1.5 rounded-md border font-medium transition-colors ${
-                          String(value) === ansStr
-                            ? "bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300"
-                            : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-indigo-300 dark:hover:border-indigo-600"
-                        }`}
-                      >
-                        {ansStr}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
     );
   };
