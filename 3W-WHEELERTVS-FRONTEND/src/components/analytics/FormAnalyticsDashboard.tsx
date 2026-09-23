@@ -7143,7 +7143,7 @@ export default function FormAnalyticsDashboard() {
           },
         },
       },
-      cutout: "60%",
+      cutout: "64%",
       interaction: {
         mode: "nearest" as const,
         intersect: true,
@@ -7168,15 +7168,20 @@ export default function FormAnalyticsDashboard() {
 
         const isDark = document.documentElement.classList.contains("dark");
 
-        // Center added up percentage: e.g. "90.9%"
-        ctx.font = "bold 16px Inter, system-ui, -apple-system, sans-serif";
+        // 1. Percentage: e.g. "69%"
+        ctx.font = "bold 15px Inter, system-ui, -apple-system, sans-serif";
         ctx.fillStyle = isDark ? "#34d399" : "#059669";
-        ctx.fillText(`${addedOkPercent}%`, x, y - 7);
+        ctx.fillText(`${addedOkPercent}%`, x, y - 13);
 
-        // Center label: "Total OK"
+        // 2. Center label: "Total OK"
         ctx.font = "bold 9px Inter, system-ui, -apple-system, sans-serif";
         ctx.fillStyle = isDark ? "#94a3b8" : "#64748b";
-        ctx.fillText("Total OK", x, y + 9);
+        ctx.fillText("Total OK", x, y + 1);
+
+        // 3. Numbers breakdown: e.g. "138 + 78 (216)"
+        ctx.font = "bold 8.5px Inter, system-ui, -apple-system, sans-serif";
+        ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
+        ctx.fillText(`${directOkCount} + ${reworkCompCount} (${addedOkCount})`, x, y + 14);
 
         ctx.restore();
       },
