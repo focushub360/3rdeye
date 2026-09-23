@@ -143,6 +143,30 @@ const getRelatedFormIds = async (form, baseFormId) => {
   return formIds;
 };
 
+const getThisFormIds = (form, baseFormId) => {
+  const formIds = [
+    form.id,
+    form._id ? form._id.toString() : null,
+    baseFormId
+  ].filter(Boolean);
+  return Array.from(new Set(formIds));
+};
+
+const getThisFormExtraQuestionIds = (form) => {
+  const extraQIds = [];
+  const collectQ = (qs) => {
+    (qs || []).forEach(q => {
+      if (q.id) extraQIds.push(q.id);
+      if (q._id) extraQIds.push(q._id.toString());
+      if (q.text) extraQIds.push(q.text);
+      if (q.followUpQuestions) collectQ(q.followUpQuestions);
+    });
+  };
+  (form.sections || []).forEach(s => collectQ(s.questions));
+  collectQ(form.followUpQuestions);
+  return Array.from(new Set(extraQIds));
+};
+
 const buildChassisOrConditions = (questionId, trackingQId, strAnswer, extraQuestionIds = []) => {
   const trimmed = String(strAnswer || '').trim();
   if (!trimmed) return [];
@@ -600,13 +624,9 @@ export const createResponse = async (req, res) => {
     console.log(`[RANK] ${allQs.length} questions in form, ${trackingQuestions.length} with tracking enabled`);
 
     if (trackingQuestions.length > 0) {
-      // Fetch related forms ONCE (same for all questions in this form)
-      const { formIds, relatedForms } = await getRelatedFormsAndIds(form, questionId);
-      const extraQIds = [];
-      relatedForms.forEach(rf => {
-        (rf.sections || []).forEach(s => extraQIds.push(...collectExtraQuestionIds(s.questions)));
-        extraQIds.push(...collectExtraQuestionIds(rf.followUpQuestions));
-      });
+      // Scope rank stamping strictly to this form alone
+      const formIds = getThisFormIds(form, questionId);
+      const extraQIds = getThisFormExtraQuestionIds(form);
 
       // Build and run all rank queries in parallel
       const rankPromises = trackingQuestions.map(async (question) => {
@@ -1663,23 +1683,9 @@ export const getRank = async (req, res) => {
       });
     }
 
-    // Count existing final responses with the EXACT SAME answer for this form across tenant/parent/child forms
-    const { formIds, relatedForms } = await getRelatedFormsAndIds(form, formId);
-
-    // Collect all question IDs from all related forms to match chassis/identification keys
-    const extraQIds = [];
-    const collectQ = (qs) => {
-      (qs || []).forEach(q => {
-        if (q.id) extraQIds.push(q.id);
-        if (q._id) extraQIds.push(q._id.toString());
-        if (q.text) extraQIds.push(q.text);
-        if (q.followUpQuestions) collectQ(q.followUpQuestions);
-      });
-    };
-    relatedForms.forEach(rf => {
-      (rf.sections || []).forEach(s => collectQ(s.questions));
-      collectQ(rf.followUpQuestions);
-    });
+    // Count existing final responses with the EXACT SAME answer for THIS form alone (isolated rank tracking)
+    const formIds = getThisFormIds(form, formId);
+    const extraQIds = getThisFormExtraQuestionIds(form);
 
     const orConditions = buildChassisOrConditions(questionId, trackingQId, strAnswer, extraQIds);
 
@@ -1947,22 +1953,9 @@ export const getSuggestedAnswers = async (req, res) => {
       });
     }
 
-    const { formIds, relatedForms } = await getRelatedFormsAndIds(form, formId);
-
-    // Collect all question IDs from all related forms to match chassis/identification keys
-    const extraQIds = [];
-    const collectQ = (qs) => {
-      (qs || []).forEach(q => {
-        if (q.id) extraQIds.push(q.id);
-        if (q._id) extraQIds.push(q._id.toString());
-        if (q.text) extraQIds.push(q.text);
-        if (q.followUpQuestions) collectQ(q.followUpQuestions);
-      });
-    };
-    relatedForms.forEach(rf => {
-      (rf.sections || []).forEach(s => collectQ(s.questions));
-      collectQ(rf.followUpQuestions);
-    });
+    // Get previous responses for THIS form alone (isolated suggestion tracking)
+    const formIds = getThisFormIds(form, formId);
+    const extraQIds = getThisFormExtraQuestionIds(form);
 
     const orConditions = buildChassisOrConditions(questionId, trackingQId, strAnswer, extraQIds);
 
