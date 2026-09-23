@@ -1,6 +1,9 @@
-import mongoose from 'mongoose';
+// Global connection cache across serverless function invocations
+let cached = global.mongoose;
 
-let connectingPromise = null;
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
 
 // Add connection event listeners once
 mongoose.connection.on('connected', () => {
@@ -14,49 +17,52 @@ mongoose.connection.on('disconnected', () => {
 });
 
 const connectDB = async () => {
-  // 1 = connected
-  if (mongoose.connection.readyState === 1) {
-    return mongoose.connection;
-  }
-
-  // If already connecting (2), wait for existing connection promise
-  if (connectingPromise) {
-    return connectingPromise;
-  }
-
   // Check if MONGODB_URI is available
   if (!process.env.MONGODB_URI) {
     throw new Error('MONGODB_URI environment variable is not set. Please check your .env file.');
   }
 
-  connectingPromise = (async () => {
-    try {
-      const conn = await mongoose.connect(process.env.MONGODB_URI, {
-        maxPoolSize: 10,
-        minPoolSize: 1,
-        serverSelectionTimeoutMS: 30000,
-        socketTimeoutMS: 45000,
-        connectTimeoutMS: 30000,
-        heartbeatFrequencyMS: 15000,
-        retryWrites: true,
-        w: 'majority'
-      });
+  // 1 = connected
+  if (mongoose.connection.readyState === 1) {
+    return mongoose.connection;
+  }
 
+  if (cached.conn && cached.conn.readyState === 1) {
+    return cached.conn;
+  }
+
+  if (!cached.promise) {
+    const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+    const opts = {
+      maxPoolSize: isServerless ? 2 : 10,
+      minPoolSize: 0,
+      maxIdleTimeMS: 5000,
+      serverSelectionTimeoutMS: 15000,
+      socketTimeoutMS: 30000,
+      connectTimeoutMS: 15000,
+      heartbeatFrequencyMS: 15000,
+      retryWrites: true,
+      w: 'majority'
+    };
+
+    cached.promise = mongoose.connect(process.env.MONGODB_URI, opts).then((conn) => {
       console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
-      
-      // Create default admin if none exists
       createDefaultAdmin().catch(err => console.error('Error creating default admin:', err));
-      
       return conn.connection;
-    } catch (error) {
-      console.error('Database connection error:', error.message || error);
-      throw error;
-    } finally {
-      connectingPromise = null;
-    }
-  })();
+    }).catch((err) => {
+      cached.promise = null;
+      console.error('Database connection error:', err.message || err);
+      throw err;
+    });
+  }
 
-  return connectingPromise;
+  try {
+    cached.conn = await cached.promise;
+    return cached.conn;
+  } catch (error) {
+    cached.promise = null;
+    throw error;
+  }
 };
 
 const createDefaultAdmin = async () => {
