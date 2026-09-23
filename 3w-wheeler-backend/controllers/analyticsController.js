@@ -3680,7 +3680,6 @@ export const getQualitySummary = async (req, res) => {
         defectTypeMap[dt] = (defectTypeMap[dt] || 0) + 1;
       });
 
-      const rawFormId = (r.formId || r.questionId)?.toString() || '';
       const formTitle = formTitleMap[rawFormId] || formMetricsMap[rawFormId]?.title || 'Unknown Form';
 
       rawResponsesMap.set(r._id.toString(), {
