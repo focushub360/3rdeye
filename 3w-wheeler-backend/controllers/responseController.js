@@ -1907,6 +1907,8 @@ export const getSuggestedAnswers = async (req, res) => {
         success: false,
         message: 'Form not found'
       });
+    }
+
     // Find the specific question to check for tracking configuration
     let trackingQId = questionId;
     const findQuestion = (questions) => {
