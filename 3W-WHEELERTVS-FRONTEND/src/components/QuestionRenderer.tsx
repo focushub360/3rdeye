@@ -705,24 +705,12 @@ export default function QuestionRenderer({
   const renderSuggestions = () => {
     if (readOnly) return null;
 
-    // Do not show amber suggestion boxes on chassis / tracking question fields where Progression timeline is shown
-    const isTrackedIdentifier =
-      isQuestionTrackingEnabled ||
-      isRankTrackingEnabled ||
-      question.type === "chassis" ||
-      question.type === "chassisWithZone" ||
-      question.type === "chassisWithoutZone" ||
-      question.type === "chassis-with-zone" ||
-      question.type === "chassis-without-zone" ||
-      Boolean(
-        question.text && (
-          question.text.toLowerCase().includes("chassis") ||
-          question.text.toLowerCase().includes("id number") ||
-          question.text.toLowerCase().includes("vin")
-        )
-      );
+    // Only suppress amber boxes on the root chassis question that already displays the Progression timeline card
+    const isRootChassisCard =
+      (Boolean(parentMatchInfo) || (Boolean(rankHistory && rankHistory.length > 0) && (question.id === "chassis" || question.text?.toLowerCase() === "chassis number" || question.text?.toLowerCase() === "chassis / vin" || question.text?.toLowerCase() === "id number"))) &&
+      (question.id === "chassis" || question.type === "chassis" || question.text?.toLowerCase() === "chassis number" || question.text?.toLowerCase() === "chassis / vin" || question.text?.toLowerCase() === "id number" || question.text?.toLowerCase() === "select chassis number");
 
-    if (isTrackedIdentifier) return null;
+    if (isRootChassisCard) return null;
 
     if (!hasRanked && !hasPrevious) return null;
 
