@@ -126,31 +126,38 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
   };
 
   const getChassisNumber = (r: any) => {
-    if (r.chassisNumber && r.chassisNumber !== 'N/A') return String(r.chassisNumber);
+    if (r.chassisNumber && r.chassisNumber !== 'N/A' && r.chassisNumber !== '-') return String(r.chassisNumber);
     if (!r.answers) return 'N/A';
     const ans = r.answers;
+    
+    // First scan answers for identification/chassis/id number keys
+    for (const key in ans) {
+      const k = key.toLowerCase();
+      if (k.includes('identification') || k.includes('chassis') || k.includes('id number') || k.includes('id_number') || k.includes('vin')) {
+        const c = ans[key];
+        if (typeof c === 'object' && c) {
+          const val = c.chassisNumber || c.v || c.status || c.id;
+          if (val && val !== 'N/A') return String(val);
+        } else if (typeof c === 'string' && c.trim()) {
+          return c.trim();
+        }
+      }
+    }
+
     if (ans.chassis_number) {
       const c = ans.chassis_number;
-      if (typeof c === 'object') return c.chassisNumber || c.v || c.status || 'N/A';
+      if (typeof c === 'object' && c) return String(c.chassisNumber || c.v || c.status || 'N/A');
       return String(c);
     }
     if (ans.chassis) {
       const c = ans.chassis;
-      if (typeof c === 'object') return c.chassisNumber || c.v || 'N/A';
+      if (typeof c === 'object' && c) return String(c.chassisNumber || c.v || 'N/A');
       return String(c);
     }
     if (ans.id_number) {
       const c = ans.id_number;
-      if (typeof c === 'object') return c.chassisNumber || c.v || 'N/A';
+      if (typeof c === 'object' && c) return String(c.chassisNumber || c.v || 'N/A');
       return String(c);
-    }
-    for (const key in ans) {
-      const k = key.toLowerCase();
-      if (k === 'chassis' || k.includes('chassis') || k.includes('id number') || k.includes('vin')) {
-        const c = ans[key];
-        if (typeof c === 'object') return c.chassisNumber || c.v || c.status || 'N/A';
-        return String(c);
-      }
     }
     return 'N/A';
   };
@@ -160,10 +167,16 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
     if (r.partDescription && r.partDescription !== 'N/A' && r.partDescription !== '-') return String(r.partDescription);
     if (!r.answers) return '-';
     const ans = r.answers;
-    if (ans.dealerName) return String(ans.dealerName);
-    if (ans.chassis && typeof ans.chassis === 'object' && ans.chassis.partDescription) return String(ans.chassis.partDescription);
-    if (ans.part_description) return String(ans.part_description);
-    if (ans['Chassis / VIN']) return String(ans['Chassis / VIN']);
+    if (ans.dealerName) return String(ans.dealerName).trim();
+    if (ans.chassis && typeof ans.chassis === 'object' && ans.chassis.partDescription) return String(ans.chassis.partDescription).trim();
+    if (ans.part_description) return String(ans.part_description).trim();
+    if (ans['Chassis / VIN']) return String(ans['Chassis / VIN']).trim();
+    
+    const chNum = getChassisNumber(r);
+    if (ans.chassis_number && String(ans.chassis_number).trim() !== chNum) {
+      const c = ans.chassis_number;
+      return typeof c === 'object' && c ? String(c.partDescription || c.chassisNumber || '-') : String(c).trim();
+    }
     return '-';
   };
 
