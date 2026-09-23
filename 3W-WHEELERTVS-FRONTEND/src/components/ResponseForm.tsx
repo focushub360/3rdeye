@@ -314,61 +314,64 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
     });
   };
 
-  const handleTrackingChange = async (
+  const trackingDebounceRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const handleTrackingChange = (
     questionId: string,
     searchValue: string,
   ) => {
-    if (!searchValue || searchValue.trim().length < 3) {
+    if (trackingDebounceRef.current) {
+      clearTimeout(trackingDebounceRef.current);
+    }
+
+    if (!searchValue || searchValue.trim().length < 2) {
       setSuggestedAnswers(null);
       setLastSuggestionSource(null);
-      return;
-    }
-
-    if (
-      fetchingSuggestionsForId === questionId &&
-      lastSuggestionSource?.split(":")[1] === searchValue
-    ) {
-      return;
-    }
-
-    try {
-      setFetchingSuggestionsForId(questionId);
-
-      const result = await apiClient.getSuggestedAnswers(
-        id!,
-        questionId,
-        searchValue,
-        tenantSlug!,
-      );
-
-      setLastSuggestionSource(`${questionId}:${searchValue}`);
-
-      if (result && result.suggestedAnswers) {
-        const suggestions = result.suggestedAnswers;
-        const suggestionsArray = Array.isArray(suggestions)
-          ? suggestions
-          : [suggestions];
-        const firstRecord = Array.isArray(suggestions)
-          ? suggestions[0]?.answers
-          : suggestions;
-
-        const nonEmptyAnswersCount = Object.values(firstRecord || {}).filter(
-          (v) => v !== null && v !== undefined && String(v).trim() !== "",
-        ).length;
-
-        setSuggestedAnswers(suggestions);
-        if (nonEmptyAnswersCount > 0) {
-          setSelectedRank(1);
-          // Do not auto-apply previous answers: previous attempt data is displayed below each question as reference
-        }
-      } else {
-        setSuggestedAnswers({ _no_match: true });
-      }
-    } catch (err) {
-      console.warn("[Suggestions] Failed to fetch suggestions:", err);
-    } finally {
       setFetchingSuggestionsForId(null);
+      return;
     }
+
+    const searchKey = `${questionId}:${searchValue.trim()}`;
+    if (lastSuggestionSource === searchKey) {
+      return;
+    }
+
+    trackingDebounceRef.current = setTimeout(async () => {
+      try {
+        setFetchingSuggestionsForId(questionId);
+
+        const result = await apiClient.getSuggestedAnswers(
+          id!,
+          questionId,
+          searchValue.trim(),
+          tenantSlug!,
+        );
+
+        setLastSuggestionSource(searchKey);
+
+        if (result && result.suggestedAnswers) {
+          const suggestions = result.suggestedAnswers;
+          const firstRecord = Array.isArray(suggestions)
+            ? suggestions[0]?.answers
+            : suggestions;
+
+          const nonEmptyAnswersCount = Object.values(firstRecord || {}).filter(
+            (v) => v !== null && v !== undefined && String(v).trim() !== "",
+          ).length;
+
+          setSuggestedAnswers(suggestions);
+          if (nonEmptyAnswersCount > 0) {
+            setSelectedRank(1);
+          }
+        } else {
+          setSuggestedAnswers({ _no_match: true });
+        }
+      } catch (err) {
+        console.warn("[Suggestions] Failed to fetch suggestions:", err);
+      } finally {
+        setFetchingSuggestionsForId(null);
+      }
+    }, 200);
   };
 
   const getAvailableSections = () => {

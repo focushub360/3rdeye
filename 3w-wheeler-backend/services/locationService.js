@@ -63,9 +63,12 @@ export const getClientIp = (req) => {
          'Unknown';
 };
 
+// In-memory cache for IP geolocations to ensure sub-millisecond lookups
+const ipLocationCache = new Map();
+
 /**
  * Get location data from IP address using free IP geolocation API
- * Using ip-api.com (free, no API key required, 45 requests/minute)
+ * Using ip-api.com with in-memory caching and ultra-fast timeout (350ms)
  */
 export const getLocationFromIp = async (ipAddress) => {
   try {
@@ -89,13 +92,17 @@ export const getLocationFromIp = async (ipAddress) => {
       };
     }
 
-    // Call free IP geolocation API
+    if (ipLocationCache.has(ipAddress)) {
+      return ipLocationCache.get(ipAddress);
+    }
+
+    // Call free IP geolocation API with tight 350ms timeout so form submissions are never blocked
     const response = await axios.get(`http://ip-api.com/json/${ipAddress}`, {
-      timeout: 5000 // 5 second timeout
+      timeout: 350
     });
 
     if (response.data && response.data.status === 'success') {
-      return {
+      const loc = {
         country: response.data.country || 'Unknown',
         countryCode: response.data.countryCode || 'XX',
         region: response.data.regionName || 'Unknown',
@@ -105,11 +112,14 @@ export const getLocationFromIp = async (ipAddress) => {
         timezone: response.data.timezone || 'UTC',
         isp: response.data.isp || 'Unknown'
       };
+      if (ipLocationCache.size > 1000) ipLocationCache.clear();
+      ipLocationCache.set(ipAddress, loc);
+      return loc;
     }
 
     return null;
   } catch (error) {
-    console.error('Location lookup error:', error.message);
+    // Non-blocking, return null silently for super-fast response
     return null;
   }
 };

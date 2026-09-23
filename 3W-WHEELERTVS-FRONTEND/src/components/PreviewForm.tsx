@@ -889,7 +889,7 @@ export default function PreviewForm({
         if (fetchingSuggestionsForId !== currentFetchSource) {
           fetchSuggestions(normalizedQId, value);
         }
-      }, 800);
+      }, 200);
     }
   };
 

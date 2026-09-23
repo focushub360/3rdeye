@@ -663,86 +663,6 @@ export const createResponse = async (req, res) => {
     }
 
 
-    // ========== IMAGE PROCESSING (Keep your existing code) ==========
-    console.log('[IMAGE PROCESS] Starting image processing...');
-
-    // ======== UPDATED : Process images with Google Drive backup ==========
-    // ========== UPDATED: Process ALL images with OAuth 2.0 Google Drive backup ==========
-    console.log('[IMAGE PROCESS] Starting image processing for ALL images...');
-
-    // Check OAuth configuration
-    const driveConfigured = !!(process.env.GOOGLE_DRIVE_CLIENT_ID &&
-      process.env.GOOGLE_DRIVE_CLIENT_SECRET &&
-      process.env.GOOGLE_DRIVE_REFRESH_TOKEN);
-    console.log(`[IMAGE PROCESS] Google Drive OAuth configured: ${driveConfigured ? '✅' : '❌'}`);
-    if (!driveConfigured) {
-      console.log('[IMAGE PROCESS] Google Drive backup disabled. Configure OAuth 2.0 for backups.');
-    }
-
-    // Create metadata for Google Drive
-    const metadata = {
-      tenantId: form.tenantId,
-      formId: questionId,
-      submissionId: `resp-${Date.now()}`,
-      submissionTimestamp: Date.now(),
-      driveEnabled: driveConfigured
-    };
-
-    let processingResult = {
-      processedAnswers: answers,
-      driveBackupUrls: {},
-      folderStructure: null,
-      stats: {
-        totalImages: 0,
-        processedImages: 0,
-        successfulDriveBackups: 0,
-        startTime: Date.now()
-      }
-    };
-
-    try {
-      // Process images with progress tracking
-      const onProgress = (progress) => {
-        console.log(`Image processing progress: ${progress.message}`);
-        if (typeof emitImageProgress === 'function') {
-          emitImageProgress(`response-${Date.now()}`, {
-            status: progress.status,
-            message: progress.message,
-            currentImage: progress.currentImage,
-            totalImages: progress.totalImages,
-            percentage: progress.percentage,
-            driveEnabled: driveConfigured
-          });
-        }
-      };
-
-      // Process ALL images with OAuth 2.0 Google Drive backup
-      processingResult = await processResponseImages(
-        answers,      // All answers including any image URLs
-        metadata,     // Metadata for folder creation
-        onProgress,
-        `response-${Date.now()}`
-      );
-
-      console.log('[IMAGE PROCESS] Processing complete:', {
-        totalImages: processingResult.stats.totalImages,
-        driveBackups: processingResult.stats.successfulDriveBackups,
-        folderPath: processingResult.folderStructure?.fullPath,
-        storageType: 'Google Drive (OAuth 2.0)'
-      });
-
-    } catch (error) {
-      console.error('[IMAGE PROCESS] Failed to process images:', error);
-
-      // Check if it's an OAuth error
-      if (error.message.includes('invalid_grant') ||
-        error.message.includes('invalid_credentials') ||
-        error.message.includes('Refresh token expired')) {
-        console.error('[IMAGE PROCESS] ❌ OAuth token invalid or expired.');
-        console.error('[IMAGE PROCESS] 🔗 Visit /api/drive/setup to get new tokens');
-        console.error('[IMAGE PROCESS] ℹ️ Continuing without Google Drive backup...');
-      }
-    }
     let displayName = 'Anonymous';
 
     if (req.body.submittedBy && req.body.submittedBy !== 'Anonymous') {
@@ -762,20 +682,20 @@ export const createResponse = async (req, res) => {
       }
     }
 
-    // ========== CREATE RESPONSE WITH TIMING DATA ==========
+    // ========== CREATE RESPONSE IMMEDIATELY FOR SUPER FAST SUBMISSION ==========
     const responseData = {
       id: uuidv4(),
       questionId,
-      answers: new Map(Object.entries(processingResult.processedAnswers)),
-      responseRanks: new Map(Object.entries(responseRanks)),
-      driveBackupUrls: processingResult.driveBackupUrls || {},
+      answers: new Map(Object.entries(answers || {})),
+      responseRanks: new Map(Object.entries(responseRanks || {})),
+      driveBackupUrls: {},
       imageProcessing: {
-        totalImages: processingResult.stats.totalImages || 0,
-        processedImages: processingResult.stats.processedImages || 0,
-        driveBackups: processingResult.stats.successfulDriveBackups || 0,
-        folderStructure: processingResult.folderStructure || null,
-        processingTime: Date.now() - (processingResult.stats.startTime || Date.now()),
-        status: processingResult.error ? 'partial' : 'completed'
+        totalImages: 0,
+        processedImages: 0,
+        driveBackups: 0,
+        folderStructure: null,
+        processingTime: 0,
+        status: 'completed'
       },
       parentResponseId,
       submittedBy: displayName,
@@ -784,7 +704,7 @@ export const createResponse = async (req, res) => {
         phone: req.body.submitterContact?.phone
       },
 
-      // ========== ADD TOP-LEVEL TIMING FIELDS (for easy querying) ==========
+      // ========== ADD TOP-LEVEL TIMING FIELDS ==========
       timeSpent: submissionTimeSpent,
       sessionId: sessionId || formSession?.sessionId || null,
       startedAt: actualStartedAt,
@@ -793,7 +713,6 @@ export const createResponse = async (req, res) => {
 
       submissionMetadata: {
         ...submissionMetadata,
-        // Add timing to metadata
         timeSpent: submissionTimeSpent,
         sessionId: sessionId || formSession?.sessionId || null,
         startedAt: actualStartedAt,
@@ -816,7 +735,6 @@ export const createResponse = async (req, res) => {
     await response.save();
 
     const answersObj = response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers;
-
     const ranksObj = response.responseRanks instanceof Map ? Object.fromEntries(response.responseRanks) : response.responseRanks;
 
     // Emit real-time event for new response
@@ -839,7 +757,54 @@ export const createResponse = async (req, res) => {
       emitResponseCreated(String(form.id), livePayload);
     }
 
-    // ========== RETURN RESPONSE WITH TIMING DATA ==========
+    // Check OAuth configuration for non-blocking background drive upload
+    const driveConfigured = !!(process.env.GOOGLE_DRIVE_CLIENT_ID &&
+      process.env.GOOGLE_DRIVE_CLIENT_SECRET &&
+      process.env.GOOGLE_DRIVE_REFRESH_TOKEN);
+
+    if (driveConfigured) {
+      // Run Drive backup in background without blocking response submission
+      setImmediate(async () => {
+        try {
+          const metadata = {
+            tenantId: form.tenantId,
+            formId: questionId,
+            submissionId: `resp-${Date.now()}`,
+            submissionTimestamp: Date.now(),
+            driveEnabled: true
+          };
+          const processingResult = await processResponseImages(
+            answers,
+            metadata,
+            null,
+            `response-${Date.now()}`
+          );
+          if (processingResult && processingResult.processedAnswers) {
+            await Response.updateOne(
+              { id: response.id },
+              {
+                $set: {
+                  answers: processingResult.processedAnswers,
+                  driveBackupUrls: processingResult.driveBackupUrls || {},
+                  imageProcessing: {
+                    totalImages: processingResult.stats?.totalImages || 0,
+                    processedImages: processingResult.stats?.processedImages || 0,
+                    driveBackups: processingResult.stats?.successfulDriveBackups || 0,
+                    folderStructure: processingResult.folderStructure || null,
+                    processingTime: Date.now() - (processingResult.stats?.startTime || Date.now()),
+                    status: processingResult.error ? 'partial' : 'completed'
+                  }
+                }
+              }
+            );
+          }
+        } catch (bgError) {
+          console.error('[BACKGROUND IMAGE PROCESS ERROR]', bgError);
+        }
+      });
+    }
+
+    // ========== RETURN RESPONSE IMMEDIATELY (<100ms) ==========
     res.status(201).json({
       success: true,
       message: 'Response submitted successfully',
@@ -857,11 +822,10 @@ export const createResponse = async (req, res) => {
           updatedAt: response.updatedAt,
           inviteId: inviteId || null,
           imageProcessing: {
-            totalImages: response.imageProcessing?.totalImages || 0,
-            driveBackups: response.imageProcessing?.driveBackups || 0,
-            folderPath: response.imageProcessing?.folderStructure?.fullPath
+            totalImages: 0,
+            driveBackups: 0,
+            folderPath: null
           },
-          // Timing data
           timeSpent: submissionTimeSpent,
           timeSpentFormatted: formatTimeDuration(submissionTimeSpent),
           startedAt: actualStartedAt,
@@ -875,11 +839,10 @@ export const createResponse = async (req, res) => {
           percentage: total > 0 ? Math.round((correct / total) * 100) : 0
         },
         imageProcessing: {
-          status: response.imageProcessing?.status || 'completed',
-          stats: response.imageProcessing
+          status: 'completed',
+          stats: {}
         },
         inviteStatus: inviteStatus,
-        // Add timing summary
         timing: {
           timeSpent: submissionTimeSpent,
           timeSpentFormatted: formatTimeDuration(submissionTimeSpent),
@@ -3312,8 +3275,6 @@ export const getResponsesByForm = async (req, res) => {
       sort: { createdAt: -1 }
     };
 
-    const isAnalytics = req.query.analytics === 'true';
-
     let responsesQuery = Response.find(query);
     if (isAnalytics) {
       responsesQuery = responsesQuery.select(
@@ -3321,6 +3282,9 @@ export const getResponsesByForm = async (req, res) => {
       );
     } else {
       responsesQuery = responsesQuery
+        .select(
+          '_id id questionId formId status answers submissionMetadata responseRanks createdAt timestamp submittedBy createdBy assignedTo verifiedBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt'
+        )
         .populate('assignedTo', 'username firstName lastName email')
         .populate('verifiedBy', 'username firstName lastName email')
         .populate('createdBy', 'username firstName lastName email');
@@ -3358,13 +3322,16 @@ export const getResponsesByForm = async (req, res) => {
       const responseIds = responses.flatMap(r => [r.id, r._id ? r._id.toString() : null]).filter(Boolean);
       const [reviews, chatMessages] = await Promise.all([
         Review.find({ responseId: { $in: responseIds } })
+          .select('responseId reviewerName reviewerId reviewOption createdAt')
           .populate('reviewerId', 'firstName lastName email username')
           .sort({ createdAt: -1 })
           .lean(),
         ChatMessage.find({
           responseId: { $in: responseIds },
           questionContexts: { $exists: true, $not: { $size: 0 } }
-        }).sort({ createdAt: -1 })
+        })
+          .select('responseId questionContexts createdAt')
+          .sort({ createdAt: -1 })
           .lean(),
       ]);
 

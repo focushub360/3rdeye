@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   useParams,
   useNavigate,
@@ -7,11 +7,9 @@ import {
 } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import CameraCapture from "../forms/CameraCapture";
-import StatusMultiSelect from "./StatusMultiSelect";
 import {
   exportDashboardToPDF,
   exportFormAnalyticsToPDF,
-  exportDashboardToPPT,
 } from "../../utils/formanalyticsexport";
 import {
   Users as UsersIcon,
@@ -51,11 +49,6 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
-  FileSpreadsheet,
-  LogIn,
-  Link2,
-  CheckCircle2,
-  AlertTriangle,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Pie, Doughnut, Radar } from "react-chartjs-2";
@@ -86,9 +79,6 @@ import FilePreview from "../FilePreview";
 import TableColumnFilter from "./TableColumnFilter";
 import ShareAnalyticsModal from "./ShareAnalyticsModal";
 import AutoSendModal from "../forms/AutoSendModal";
-import HeatmapCalendar from "./HeatmapCalendar";
-import { io, Socket } from "socket.io-client";
-import FollowUpResponsesTab from "./FollowUpResponsesTab";
 
 import { useTheme } from "../../context/ThemeContext";
 
@@ -159,40 +149,9 @@ interface Response {
   };
 }
 
-export const parseResponseDate = (raw: any): Date | null => {
-  if (!raw) return null;
-  if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw;
-  if (typeof raw === 'string') {
-    const yearMatch = raw.match(/^\+?0*(\d{4,6})/);
-    if (yearMatch) {
-      const num = parseInt(yearMatch[1], 10);
-      if (num > 3000 && num < 60000) {
-        return new Date((num - 25569) * 86400 * 1000);
-      }
-    }
-    const num = Number(raw);
-    if (!isNaN(num) && num > 30000 && num < 60000) {
-      return new Date((num - 25569) * 86400 * 1000);
-    }
-  }
-  if (typeof raw === 'number' && raw > 30000 && raw < 60000) {
-    return new Date((raw - 25569) * 86400 * 1000);
-  }
-  const d = new Date(raw);
-  if (!isNaN(d.getTime())) {
-    if (d.getFullYear() > 3000 && d.getFullYear() < 60000) {
-      return new Date((d.getFullYear() - 25569) * 86400 * 1000);
-    }
-    return d;
-  }
-  return null;
-};
-
-// Helper function to get the timestamp from response (handles both timestamp and createdAt, with Excel serial date fix)
+// Helper function to get the timestamp from response (handles both timestamp and createdAt)
 const getResponseTimestamp = (response: Response): string | undefined => {
-  const raw = response.timestamp || response.createdAt;
-  const d = parseResponseDate(raw);
-  return d ? d.toISOString() : (raw ? String(raw) : undefined);
+  return response.timestamp || response.createdAt;
 };
 
 interface Section {
@@ -234,20 +193,6 @@ interface Form {
   followUpQuestions?: FollowUpQuestion[];
   parentFormId?: string;
   parentFormTitle?: string;
-  childForms?: Array<{
-    formId: string;
-    formTitle: string;
-    order?: number;
-    _id?: string;
-    id?: string;
-    responseCount?: number;
-  }>;
-  parentForm?: {
-    _id: string;
-    id: string;
-    title: string;
-    responseCount?: number;
-  };
   chassisNumbers?: ChassisNumberEntry[];
   tenantId?: string | { _id?: string; toString?: () => string };
 }
@@ -2265,26 +2210,6 @@ export default function FormAnalyticsDashboard() {
   const [selectedQuestionIndex, setSelectedQuestionIndex] = useState<
     number | null
   >(null);
-  const [showExportDropdown, setShowExportDropdown] = useState(false);
-  const exportDropdownRef = useRef<HTMLDivElement>(null);
-  const [isExportingExcel, setIsExportingExcel] = useState(false);
-  const [isExportingPPT, setIsExportingPPT] = useState(false);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        exportDropdownRef.current &&
-        !exportDropdownRef.current.contains(event.target as Node)
-      ) {
-        setShowExportDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
-
   const { darkMode } = useTheme();
   const { user } = useAuth();
   const isInspector = user?.role === "inspector";
@@ -2466,9 +2391,7 @@ export default function FormAnalyticsDashboard() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const batchIdParam = searchParams.get("batchId");
-  const uploadOnlyParam = searchParams.get("uploadOnly") === "true";
+  const [searchParams] = useSearchParams();
 
   // Permission check for analytics tabs
   const hasTabPermission = (tabName: string): boolean => {
@@ -2489,7 +2412,6 @@ export default function FormAnalyticsDashboard() {
       section: "sections",
       overall: "overall",
       responses: "response",
-      followup: "response",
       preview: "preview",
     };
     const suffix = suffixMap[tabName];
@@ -2583,12 +2505,9 @@ export default function FormAnalyticsDashboard() {
 
   const [tvsReviews, setTvsReviews] = useState<any[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
-  const [analyticsView, setAnalyticsView] = useState<"responses" | "dashboard" | "followup">(() => {
+  const [analyticsView, setAnalyticsView] = useState<"responses" | "dashboard">(() => {
     const tabParam = new URLSearchParams(window.location.search).get("tab");
-    if (tabParam === "followup" || tabParam === "responses") {
-      return "responses";
-    }
-    if (tabParam && ["dashboard"].includes(tabParam)) {
+    if (tabParam && ["responses", "dashboard"].includes(tabParam)) {
       return tabParam as any;
     }
     return "dashboard";
@@ -2596,10 +2515,7 @@ export default function FormAnalyticsDashboard() {
 
   useEffect(() => {
     const tabParam = searchParams.get("tab");
-    if (tabParam === "followup" || tabParam === "responses") {
-      setAnalyticsView("responses");
-      setActiveTab("responses");
-    } else if (tabParam && ["dashboard"].includes(tabParam)) {
+    if (tabParam && ["responses", "dashboard"].includes(tabParam)) {
       setAnalyticsView(tabParam as any);
       setActiveTab(tabParam as any);
     }
@@ -2676,7 +2592,7 @@ export default function FormAnalyticsDashboard() {
       }
     });
 
-    return opts.sort((a, b) => String(a?.label ?? "").localeCompare(String(b?.label ?? "")));
+    return opts.sort((a, b) => a.label.localeCompare(b.label));
   }, [form, responses]);
 
   const handleStartChassisEdit = (response: Response) => {
@@ -3177,7 +3093,7 @@ export default function FormAnalyticsDashboard() {
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const tabParam = searchParams.get("tab");
-    if (tabParam && ["question", "section", "table", "responses", "dashboard", "comparison", "overall", "followup"].includes(tabParam)) {
+    if (tabParam && ["question", "section", "table", "responses", "dashboard", "comparison", "overall"].includes(tabParam)) {
       if (hasTabPermission(tabParam)) {
         setAnalyticsView(tabParam as any);
       }
@@ -3204,7 +3120,7 @@ export default function FormAnalyticsDashboard() {
     // If URL has a specific valid tab param, let the sync effect handle it
     const searchParams = new URLSearchParams(location.search);
     const tabParam = searchParams.get("tab");
-    if (tabParam && ["question", "section", "table", "responses", "dashboard", "comparison", "overall", "followup"].includes(tabParam)) {
+    if (tabParam && ["question", "section", "table", "responses", "dashboard", "comparison", "overall"].includes(tabParam)) {
       return;
     }
 
@@ -3380,48 +3296,13 @@ export default function FormAnalyticsDashboard() {
   const [columnFilters, setColumnFilters] = useState<
     Record<string, string[] | null>
   >({});
-  const [headerFilters, setHeaderFilters] = useState({
-    submittedBy: "",
-    status: "",
-    chassis: "",
-    timestamp: ""
-  });
   const [tableSort, setTableSort] = useState<{
     columnId: string;
     direction: "asc" | "desc";
-  } | null>({ columnId: "__timestamp", direction: "desc" });
+  } | null>(null);
   const [selectedResponsesSectionIds, setSelectedResponsesSectionIds] =
     useState<string[]>([]);
   const [showResponsesFilter, setShowResponsesFilter] = useState(false);
-  const [showParentMatchColumn, setShowParentMatchColumn] = useState<boolean>(() => {
-    try {
-      const isChild = Boolean(form?.parentForm || form?.parentFormId);
-      const formKey = form?.id || form?._id || "default";
-      const saved = localStorage.getItem(`show_parent_match_${formKey}`);
-      if (saved !== null) {
-        return saved === "true";
-      }
-      return isChild;
-    } catch {
-      return false;
-    }
-  });
-
-  useEffect(() => {
-    if (!form) return;
-    try {
-      const isChild = Boolean(form?.parentForm || form?.parentFormId);
-      const formKey = form?.id || form?._id || "default";
-      const saved = localStorage.getItem(`show_parent_match_${formKey}`);
-      if (saved !== null) {
-        setShowParentMatchColumn(saved === "true");
-      } else {
-        setShowParentMatchColumn(isChild);
-      }
-    } catch {
-      setShowParentMatchColumn(false);
-    }
-  }, [form?.id, form?._id, form?.parentForm, form?.parentFormId]);
   const [editingResponseId, setEditingResponseId] = useState<string | null>(
     null,
   );
@@ -3463,13 +3344,8 @@ export default function FormAnalyticsDashboard() {
   // Lazy-loading-by-tab state. Nothing in `loadedTabs` fires on mount —
   // each tab's data is fetched the first time the user actually views it.
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "question" | "section" | "overall" | "responses" | "followup"
+    "dashboard" | "question" | "section" | "overall" | "responses"
   >("dashboard");
-
-  const totalFollowUpCount = useMemo(() => {
-    if (!form?.childForms || form.childForms.length === 0) return 0;
-    return form.childForms.reduce((sum: number, cf: any) => sum + (cf.responseCount || 0), 0);
-  }, [form?.childForms]);
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
   // Server-side paginated data for the Responses tab (replaces the old
   // client-side slice of the full `responses` array).
@@ -3494,108 +3370,6 @@ export default function FormAnalyticsDashboard() {
       return JSON.stringify(value);
     }
     return String(value);
-  };
-
-  // Helper to compute Parent/Follow-up matching status and color coding
-  const computeParentMatch = (response: any) => {
-    // 1. If backend already provided rich followUpStatus, prioritize it
-    const fs = response?.followUpStatus;
-    if (fs) {
-      if (fs.status === "matched") {
-        const isParentMatch = fs.matchType === "parent";
-        return {
-          status: "matched",
-          badgeText: isParentMatch ? "✓ Parent Matched" : "✓ Follow-up Done",
-          badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
-          icon: CheckCircle2,
-          subText: isParentMatch
-            ? (fs.parentStatus ? `Status: ${fs.parentStatus}` : "Linked to Parent")
-            : (fs.followUpStatus ? `Status: ${fs.followUpStatus}` : "Follow-up Complete"),
-          tooltip: fs.details || (isParentMatch
-            ? `Matched parent chassis "${fs.matchedChassis || ""}" (Status: ${fs.parentStatus || "Accepted"}) by ${fs.parentSubmittedBy || "Inspector"}`
-            : `Follow-up completed for chassis "${fs.matchedChassis || ""}" by ${fs.followUpSubmittedBy || "Inspector"}`)
-        };
-      }
-
-      if (fs.status === "unmatched") {
-        return {
-          status: "unmatched",
-          badgeText: "⚠ No Parent Match",
-          badgeClasses: "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100",
-          icon: AlertTriangle,
-          subText: "Standalone Follow-up",
-          tooltip: fs.details || `Chassis "${fs.matchedChassis || ""}" has not been inspected in the parent form yet`
-        };
-      }
-
-      if (fs.status === "pending") {
-        return {
-          status: "pending",
-          badgeText: fs.badgeText || "⏳ Pending Follow-up",
-          badgeClasses: "bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-800 hover:bg-sky-100",
-          icon: Clock,
-          subText: fs.daysElapsed !== undefined ? `Day ${fs.daysElapsed + 1}/10` : "Active window",
-          tooltip: fs.details || "Follow-up inspection is currently pending within active 10-day window"
-        };
-      }
-
-      if (fs.status === "overdue") {
-        return {
-          status: "overdue",
-          badgeText: fs.badgeText || "✕ Overdue",
-          badgeClasses: "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800 hover:bg-rose-100",
-          icon: XCircle,
-          subText: fs.daysElapsed !== undefined ? `Overdue ${fs.daysElapsed}d` : "Overdue",
-          tooltip: fs.details || "Follow-up inspection has exceeded the 10-day window"
-        };
-      }
-    }
-
-    // 2. Client-side fallback matching logic
-    const chassisVal = getChassisDisplayValue(
-      response.answers?.chassis_number ||
-      response.answers?.chassisNumber ||
-      response.answers?.id_number ||
-      response.answers?.idNumber ||
-      response.answers?.["ID number"] ||
-      response.answers?.["Chassis / VIN"] ||
-      (chassisQuestionId ? response.answers?.[chassisQuestionId] : "") ||
-      response.chassisNumber
-    );
-
-    if (!chassisVal || chassisVal === "-") {
-      return {
-        status: "none",
-        badgeText: "-",
-        badgeClasses: "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700",
-        icon: Link2,
-        subText: "",
-        tooltip: "No chassis specified on this response"
-      };
-    }
-
-    const isChild = Boolean(form?.parentForm || form?.parentFormId);
-
-    if (isChild) {
-      const parentFormTitle = form?.parentForm?.title || "Parent Inspection Form";
-      return {
-        status: "unmatched",
-        badgeText: "⚠ No Parent Match",
-        badgeClasses: "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100",
-        icon: AlertTriangle,
-        subText: "Standalone Follow-up",
-        tooltip: `Chassis "${chassisVal}" has no recorded match in ${parentFormTitle}`
-      };
-    }
-
-    return {
-      status: "standalone",
-      badgeText: "Main Record",
-      badgeClasses: "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700",
-      icon: Link2,
-      subText: "Direct Inspection",
-      tooltip: `Standard parent inspection record for chassis "${chassisVal}"`
-    };
   };
 
   // BIW Review — a second, independent accept/reject/rework check that any
@@ -3722,15 +3496,13 @@ export default function FormAnalyticsDashboard() {
 
   // Initialize performance score for current user if not exists
   useEffect(() => {
-    if (user?._id) {
-      setPerformanceScores((prev) => {
-        if (!prev[user._id]) {
-          return { ...prev, [user._id]: 100 };
-        }
-        return prev;
-      });
+    if (user?._id && !performanceScores[user._id]) {
+      setPerformanceScores((prev) => ({
+        ...prev,
+        [user._id]: 100, // Start with 100%
+      }));
     }
-  }, [user?._id]);
+  }, [user?._id, performanceScores]);
 
   // Review system for peer evaluation
   const [selectedReviewOptions, setSelectedReviewOptions] = useState<
@@ -3971,12 +3743,7 @@ export default function FormAnalyticsDashboard() {
       }
     } catch (error: any) {
       console.error("❌ Review submission error:", error);
-      if (error?.message?.includes("already reviewed")) {
-        showToast("Review already recorded for this response", "info");
-        await fetchChatHistory(responseId);
-      } else {
-        showToast(error.message || "Failed to submit review", "error");
-      }
+      showToast(error.message || "Failed to submit review", "error");
     }
   };
 
@@ -4324,32 +4091,12 @@ export default function FormAnalyticsDashboard() {
       });
 
       if (formData && formData.form) {
-        let loadedForm = { ...formData.form };
-        if (!loadedForm.sections || loadedForm.sections.length === 0) {
-          const defaultQuestions = loadedForm.followUpQuestions && loadedForm.followUpQuestions.length > 0
-            ? loadedForm.followUpQuestions
-            : [
-                {
-                  id: loadedForm.id || loadedForm._id,
-                  text: loadedForm.title || "Follow-up Response",
-                  type: "text",
-                }
-              ];
+        setForm(formData.form);
+        console.log("[ANALYTICS DEBUG] Form fetched:", formData.form?.title);
 
-          loadedForm.sections = [
-            {
-              id: "section-default",
-              title: loadedForm.title || "Inspection Questions",
-              questions: defaultQuestions,
-            },
-          ];
-        }
-        setForm(loadedForm);
-        console.log("[ANALYTICS DEBUG] Form fetched:", loadedForm?.title);
-
-        if (loadedForm?.sections && loadedForm.sections.length > 0) {
+        if (formData.form?.sections && formData.form.sections.length > 0) {
           setSelectedResponsesSectionIds(
-            loadedForm.sections.map((s: any) => s.id),
+            formData.form.sections.map((s: Section) => s.id),
           );
         }
       }
@@ -4381,32 +4128,14 @@ export default function FormAnalyticsDashboard() {
     // SWR: Check if we have recent analytics data for this form to display instantly
     const cached = formAnalyticsMemoryCache.get(id);
     if (cached && Date.now() - cached.timestamp < 180000) {
-      let cachedForm = cached.form ? { ...cached.form } : null;
-      if (cachedForm && (!cachedForm.sections || cachedForm.sections.length === 0)) {
-        cachedForm.sections = [
-          {
-            id: "section-default",
-            title: cachedForm.title || "Inspection Questions",
-            questions: cachedForm.followUpQuestions && cachedForm.followUpQuestions.length > 0
-              ? cachedForm.followUpQuestions
-              : [
-                  {
-                    id: cachedForm.id || cachedForm._id,
-                    text: cachedForm.title || "Follow-up Response",
-                    type: "text",
-                  }
-                ],
-          },
-        ];
-      }
-      setForm(cachedForm);
+      setForm(cached.form);
       setResponses(cached.responses);
       setTableResponses(cached.tableResponses);
       setLoading(false);
       setAnalyticsResponsesLoading(false);
-      if (cachedForm?.sections && cachedForm.sections.length > 0) {
+      if (cached.form?.sections && cached.form.sections.length > 0) {
         setSelectedResponsesSectionIds(
-          cachedForm.sections.map((s: any) => s.id),
+          cached.form.sections.map((s: Section) => s.id),
         );
       }
       // Revalidate in background
@@ -4489,234 +4218,31 @@ export default function FormAnalyticsDashboard() {
   // Responses tab, instead of slicing an already-loaded full dataset in
   // memory. This is the server-side pagination required for large
   // (2000+) response forms.
-  const fetchResponsesPage = async (page: number, silent: boolean = false) => {
+  const fetchResponsesPage = async (page: number) => {
     if (!id) return;
-    if (!silent) setLoadingTable(true);
+    setLoadingTable(true);
     try {
       const data = await apiClient.getFormResponses(id, {
         page: page,
         limit: responsesPageSize,
         analytics: false,
         forceNetwork: true,
-        batchId: batchIdParam || undefined,
-        uploadOnly: uploadOnlyParam || undefined,
       });
       setTableResponses(data.responses || []);
       setTotalResponsesCount(data.pagination?.totalResponses || 0);
     } catch (err) {
       console.error("Error fetching responses page:", err);
-      if (!silent) showToast("Failed to load responses. Please try again.", "error");
+      showToast("Failed to load responses. Please try again.", "error");
     } finally {
-      if (!silent) setLoadingTable(false);
+      setLoadingTable(false);
     }
   };
-
-  // Dynamic question auto-discovery: If any response row has answer keys that are not
-  // registered in form.sections, inject them into form.sections so a column is always rendered!
-  useEffect(() => {
-    if (!form || !tableResponses || tableResponses.length === 0) return;
-
-    const existingQuestionIds = new Set<string>();
-    (form.sections || []).forEach((sec: any) => {
-      (sec.questions || []).forEach((q: any) => existingQuestionIds.add(q.id));
-    });
-
-    const missingQuestionKeys = new Set<string>();
-    const systemKeys = new Set([
-      "chassis_number",
-      "chassisNumber",
-      "id_number",
-      "idNumber",
-      "Chassis / VIN",
-      "_id",
-      "id",
-      "batchId",
-      "status",
-      "biw_review_status",
-    ]);
-
-    tableResponses.forEach((r) => {
-      if (r.answers && typeof r.answers === "object") {
-        Object.keys(r.answers).forEach((k) => {
-          if (!systemKeys.has(k) && !existingQuestionIds.has(k)) {
-            missingQuestionKeys.add(k);
-          }
-        });
-      }
-    });
-
-    if (missingQuestionKeys.size > 0) {
-      setForm((prevForm: any) => {
-        if (!prevForm) return prevForm;
-        const updatedSections = [...(prevForm.sections || [])];
-        if (updatedSections.length === 0) {
-          updatedSections.push({
-            id: "section-default",
-            title: prevForm.title || "Inspection Questions",
-            questions: [],
-          });
-        }
-        const targetSec = {
-          ...updatedSections[0],
-          questions: [...(updatedSections[0].questions || [])],
-        };
-        missingQuestionKeys.forEach((k) => {
-          const isMatchingFormId = k === prevForm.id || k === prevForm._id;
-          targetSec.questions.push({
-            id: k,
-            text: isMatchingFormId
-              ? (prevForm.title || "Follow-up Response")
-              : `Question (${k.slice(0, 8)})`,
-            type: "text",
-          });
-        });
-        updatedSections[0] = targetSec;
-        return { ...prevForm, sections: updatedSections };
-      });
-
-      setSelectedResponsesSectionIds((prev) => {
-        const secId = form.sections?.[0]?.id || "section-default";
-        return prev.includes(secId) ? prev : [...prev, secId];
-      });
-    }
-  }, [form?.sections, tableResponses]);
-
-  // ── Real-time Socket & Auto-Refresh for Recent Uploads ─────────────
-  useEffect(() => {
-    if (!id) return;
-
-    const getSocketUrl = (): string => {
-      if (import.meta.env.VITE_SOCKET_URL) {
-        return import.meta.env.VITE_SOCKET_URL;
-      }
-      const hostname = window.location.hostname;
-      if (hostname === "localhost" || hostname === "127.0.0.1") {
-        return "http://localhost:5000";
-      }
-      if (hostname.includes("staging") || hostname.includes("render")) {
-        return "https://threew-wheeler-backend.onrender.com";
-      }
-      return "https://3wheelertvsbackend.focusengineeringapp.com";
-    };
-
-    let socket: Socket | null = null;
-    try {
-      socket = io(getSocketUrl(), {
-        reconnection: true,
-        reconnectionDelay: 2000,
-        reconnectionAttempts: 10,
-        transports: ["websocket", "polling"],
-        withCredentials: true,
-      });
-
-      socket.on("connect", () => {
-        console.log("✅ [ANALYTICS] Connected to socket server, joining room for form:", id);
-        socket?.emit("join-form-analytics", id);
-        if (form && (form as any)._id && String((form as any)._id) !== String(id)) {
-          socket?.emit("join-form-analytics", String((form as any)._id));
-        }
-        if (form && form.id && String(form.id) !== String(id)) {
-          socket?.emit("join-form-analytics", String(form.id));
-        }
-      });
-
-      let liveRefreshTimeout: any = null;
-      const handleLiveResponseCreated = (data: any) => {
-        console.log("🔔 [ANALYTICS LIVE] New response received:", data);
-        const newResp = data?.response || data;
-        if (!newResp) return;
-
-        // 1. Immediately inject the new response into the table state so it appears instantaneously
-        setTableResponses((prev) => {
-          const respId = newResp.id || newResp._id;
-          if (prev.some((r) => (r.id || r._id) === respId)) return prev;
-          return [newResp, ...prev];
-        });
-
-        // 2. Increment response counts immediately
-        setTotalResponsesCount((prev) => prev + 1);
-
-        // 3. Update full analytics dataset
-        setResponses((prev) => {
-          const respId = newResp.id || newResp._id;
-          if (prev.some((r) => (r.id || r._id) === respId)) return prev;
-          return [newResp, ...prev];
-        });
-
-        // 4. Debounced sync from server so bursts don't flood the network
-        if (liveRefreshTimeout) clearTimeout(liveRefreshTimeout);
-        liveRefreshTimeout = setTimeout(() => {
-          fetchResponsesPage(responsesPage, true);
-          if (activeTab === "dashboard") {
-            fetchSummary();
-            fetchPerformanceTable();
-          }
-        }, 250);
-      };
-
-      const handleLiveResponseUpdated = (data: any) => {
-        console.log("🔔 [ANALYTICS LIVE] Response updated:", data);
-        const updatedResp = data?.response || data;
-        if (!updatedResp) return;
-        const targetId = updatedResp.id || updatedResp._id;
-
-        setTableResponses((prev) =>
-          prev.map((r) => ((r.id || r._id) === targetId ? { ...r, ...updatedResp } : r))
-        );
-        setResponses((prev) =>
-          prev.map((r) => ((r.id || r._id) === targetId ? { ...r, ...updatedResp } : r))
-        );
-      };
-
-      const handleLiveResponseDeleted = (data: any) => {
-        console.log("🔔 [ANALYTICS LIVE] Response deleted:", data);
-        const deletedId = data?.responseId || data?.id;
-        if (!deletedId) return;
-
-        setTableResponses((prev) => prev.filter((r) => (r.id || r._id) !== deletedId));
-        setResponses((prev) => prev.filter((r) => (r.id || r._id) !== deletedId));
-        setTotalResponsesCount((prev) => Math.max(0, prev - 1));
-      };
-
-      socket.on("response-created", handleLiveResponseCreated);
-      socket.on("response-updated", handleLiveResponseUpdated);
-      socket.on("response-deleted", handleLiveResponseDeleted);
-      socket.on("batch-imported", (batchData: any) => {
-        console.log("🔔 [ANALYTICS LIVE] Batch imported event received:", batchData);
-        // Instantly reload page 1 to display the newly imported batch
-        fetchResponsesPage(1, false);
-        fetchFullAnalyticsResponses();
-        if (activeTab === "dashboard") {
-          fetchSummary();
-          fetchPerformanceTable();
-        }
-      });
-
-    } catch (e) {
-      console.warn("Socket initialization error in Analytics:", e);
-    }
-
-    // Smart background polling fallback every 10 seconds when tab is active
-    const pollInterval = setInterval(() => {
-      if (document.visibilityState === "visible") {
-        fetchResponsesPage(responsesPage, true);
-      }
-    }, 10000);
-
-    return () => {
-      clearInterval(pollInterval);
-      if (socket) {
-        socket.emit("leave-form-analytics", id);
-        socket.disconnect();
-      }
-    };
-  }, [id, responsesPage, responsesPageSize, activeTab]);
 
   // Keep activeTab in sync with analyticsView (existing tab buttons already
   // set analyticsView; this propagates that choice into the lazy-loading
   // tab tracker below without needing to touch every button's onClick).
   useEffect(() => {
-    const knownTabs = ["dashboard", "responses", "followup"] as const;
+    const knownTabs = ["dashboard", "responses"] as const;
     const tab = (knownTabs as readonly string[]).includes(analyticsView)
       ? (analyticsView as typeof activeTab)
       : "dashboard";
@@ -4747,14 +4273,14 @@ export default function FormAnalyticsDashboard() {
   // would spin on "Loading…" forever. Kick it off here too, the same way
   // the other tabs already do.
   useEffect(() => {
-    if (activeTab === "responses" && id) {
-      fetchResponsesPage(responsesPage);
+    if (activeTab === "responses" && !loadedTabs.has("responses") && id) {
+      fetchResponsesPage(1);
       if (!loadedTabs.has("dashboard") && responses.length === 0) {
         fetchFullAnalyticsResponses();
       }
       setLoadedTabs((prev) => new Set(prev).add("responses"));
     }
-  }, [activeTab, id, batchIdParam, uploadOnlyParam, responsesPage, responsesPageSize]);
+  }, [activeTab, id, loadedTabs]);
 
   // Page / page-size changes on an already-loaded Responses tab re-fetch
   // from the server instead of re-slicing an in-memory array.
@@ -4967,13 +4493,17 @@ export default function FormAnalyticsDashboard() {
 
           const answer = response.answers?.[columnId];
           if (answer === null || answer === undefined) {
-            return allowedValues.includes("No Response") || allowedValues.includes("");
+            return allowedValues.includes("No Response");
           }
           const answerValues = extractAnswerValues(answer);
-          const allowedLowerSet = new Set(allowedValues.map((av) => String(av ?? "").trim().toLowerCase()));
-          return answerValues.some((v) => {
-            const vLower = String(v ?? "").trim().toLowerCase();
-            return allowedLowerSet.has(vLower);
+          return answerValues.some(v => {
+            if (!v) return false;
+            const vLower = v.toLowerCase();
+            return allowedValues.some(av => {
+              if (!av) return false;
+              const avLower = av.toLowerCase();
+              return vLower === avLower || vLower.includes(avLower) || avLower.includes(vLower);
+            });
           });
         });
       });
@@ -5018,7 +4548,7 @@ export default function FormAnalyticsDashboard() {
         }
       }
     }
-    // Priority 3: Specifically Chassis Number / Chassis No (NOT 'Selected Chassis')
+    // Priority 3: Chassis Number / Chassis No questions
     for (const section of form.sections) {
       if (section.questions) {
         for (const q of section.questions) {
@@ -5029,7 +4559,7 @@ export default function FormAnalyticsDashboard() {
         }
       }
     }
-    // Priority 4: Other chassis questions excluding 'selected'
+    // Priority 4: Other questions mentioning chassis
     for (const section of form.sections) {
       if (section.questions) {
         for (const q of section.questions) {
@@ -5040,18 +4570,98 @@ export default function FormAnalyticsDashboard() {
         }
       }
     }
-    // Priority 5: Any question mentioning chassis
+    // Priority 5: ID Number / VIN / Serial Number / Vehicle Number questions
     for (const section of form.sections) {
       if (section.questions) {
         for (const q of section.questions) {
           const t = q.text?.toLowerCase() || "";
-          if (t.includes("chassis")) {
+          if (
+            t.includes("id number") ||
+            t.includes("id_number") ||
+            t.includes("id no") ||
+            t.includes("identification") ||
+            t.includes("vin") ||
+            t.includes("serial") ||
+            t.includes("vehicle")
+          ) {
             return q.id;
           }
         }
       }
     }
     return null;
+  }, [form]);
+
+  // Robust helper to extract a normalized chassis / vehicle / item identifier from any response
+  const getChassisOrItemId = useCallback((r: any, trackingQId: string | null): string => {
+    if (!r) return "unknown";
+
+    // 1. Explicit tracking question answer
+    if (trackingQId && r.answers && r.answers[trackingQId] !== undefined && r.answers[trackingQId] !== null && r.answers[trackingQId] !== "") {
+      const ans = r.answers[trackingQId];
+      const val = typeof ans === "object" ? (ans.chassisNumber || ans.value || ans.label || JSON.stringify(ans)) : String(ans).trim();
+      if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) return val.toLowerCase();
+    }
+
+    // 2. Direct chassis/id properties
+    if (r.chassisNumber && typeof r.chassisNumber === "string" && r.chassisNumber.trim() !== "") {
+      return r.chassisNumber.trim().toLowerCase();
+    }
+
+    // 3. Known answers key variants
+    if (r.answers) {
+      const directKeys = [
+        "chassis_number", "chassisNumber", "chassis", "Chassis", "CHASSIS",
+        "id_number", "idNumber", "ID NUMBER", "ID Number", "Id Number", "id_no", "ID No", "ID NO",
+        "Chassis / VIN", "Chassis Number", "VIN", "vin", "Serial Number", "serialNumber"
+      ];
+      for (const k of directKeys) {
+        if (r.answers[k] !== undefined && r.answers[k] !== null && r.answers[k] !== "") {
+          const v = r.answers[k];
+          const val = typeof v === "object" ? (v.chassisNumber || v.value || v.label || JSON.stringify(v)) : String(v).trim();
+          if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) return val.toLowerCase();
+        }
+      }
+    }
+
+    // 4. Scan form questions for any chassis/ID/VIN/tracking question
+    if (form?.sections && r.answers) {
+      for (const section of form.sections) {
+        if (section.questions) {
+          for (const q of section.questions) {
+            const t = (q.text || "").toLowerCase();
+            const isTrackOrId =
+              q.trackResponseRank === true || q.trackResponseRank === "true" ||
+              q.type === "chassis" || q.type === "chassisWithZone" || q.type === "chassisWithoutZone" ||
+              t.includes("chassis") || t.includes("id number") || t.includes("id_number") || t.includes("id no") || t.includes("vin") || t.includes("serial");
+
+            if (isTrackOrId && r.answers[q.id] !== undefined && r.answers[q.id] !== null && r.answers[q.id] !== "") {
+              const ans = r.answers[q.id];
+              const val = typeof ans === "object" ? (ans.chassisNumber || ans.value || ans.label || JSON.stringify(ans)) : String(ans).trim();
+              if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) {
+                return val.toLowerCase();
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 5. Scan any answer whose key name suggests an ID or chassis
+    if (r.answers) {
+      for (const [key, val] of Object.entries(r.answers)) {
+        if (!val || typeof val === "object" || (typeof val !== "string" && typeof val !== "number")) continue;
+        const strVal = String(val).trim();
+        if (!strVal || strVal === "No response" || strVal === "-" || strVal.startsWith("data:image") || strVal.length > 60) continue;
+        const kLower = key.toLowerCase();
+        if (kLower.includes("chassis") || kLower.includes("id") || kLower.includes("vin") || kLower.includes("serial")) {
+          return strVal.toLowerCase();
+        }
+      }
+    }
+
+    const fallbackId = r.id || r._id || "unknown";
+    return `untracked-${fallbackId}`;
   }, [form]);
 
   // Fast, single-response status estimate — used ONLY by the Responses tab
@@ -5149,23 +4759,7 @@ export default function FormAnalyticsDashboard() {
     });
 
     sortedResponses.forEach((r) => {
-      let itemId = "unknown";
-      if (chassisQuestionId) {
-        const answer = r.answers[chassisQuestionId];
-        if (answer) {
-          if (typeof answer === "object") {
-            itemId = answer.chassisNumber || JSON.stringify(answer);
-          } else {
-            itemId = String(answer);
-          }
-        } else {
-          // If tracking question is present but not answered, treat as unique to avoid mixing un-tracked items
-          itemId = `untracked-${r.id}`;
-        }
-      } else {
-        // NO Tracking ID means no grouping for reworks - treat each as unique
-        itemId = `response-${r.id}`;
-      }
+      const itemId = getChassisOrItemId(r, chassisQuestionId);
 
       if (!itemGroups[itemId]) {
         itemGroups[itemId] = [];
@@ -5235,15 +4829,13 @@ export default function FormAnalyticsDashboard() {
           });
         }
 
-        const rank = chassisQuestionId
-          ? r.responseRanks?.[chassisQuestionId]
-          : null;
+        const rank = (chassisQuestionId && r.responseRanks?.[chassisQuestionId]) || (index + 1);
 
         let calculatedStatus = "-";
         if (isRejected) {
           calculatedStatus = "Rejected";
         } else if (isRework) {
-          if (chassisQuestionId && groupId !== `untracked-${r.id}` && groupId !== `untracked-${r._id}`) {
+          if (!groupId.startsWith("untracked-")) {
             reworkCount++;
             hasBeenReworked = true;
             calculatedStatus = `Rework ${reworkCount}`;
@@ -5251,8 +4843,6 @@ export default function FormAnalyticsDashboard() {
             calculatedStatus = "Rework 1";
           }
         } else if (isAccepted) {
-          // If rank is 1, it's definitely the first time this item is seen
-          // If no rank but index 0, assume it's the first time in the current view
           if (rank === 1 || (index === 0 && !hasBeenReworked)) {
             calculatedStatus = "Direct Ok";
           } else if ((rank && rank > 1) || hasBeenReworked) {
@@ -5263,24 +4853,26 @@ export default function FormAnalyticsDashboard() {
         }
 
         if (r.id) statuses[r.id] = calculatedStatus;
-        if (r._id) statuses[r._id] = calculatedStatus;
+        if ((r as any)._id) statuses[(r as any)._id] = calculatedStatus;
       });
     });
 
     return statuses;
-  }, [baseFilteredResponses, chassisQuestionId]);
+  }, [baseFilteredResponses, chassisQuestionId, getChassisOrItemId]);
 
   // Status for the Responses tab table only: instant estimate from each
   // row's own persisted rank (computeFastRowStatus, defined above), upgraded
   // to the fully-accurate group-computed value from `responseStatuses` the
-  // moment that's ready.
+  // moment that's ready. Depends only on `tableResponses` (the fast
+  // paginated 20-row fetch), so it's available immediately instead of
+  // waiting on the full analytics response set.
   const tableDisplayStatuses = useMemo(() => {
     const map: Record<string, string> = {};
     tableResponses.forEach((r) => {
-      const respId = r.id || r._id;
-      const status = responseStatuses[r.id] || responseStatuses[r._id] || (respId ? responseStatuses[respId] : null) || computeFastRowStatus(r, chassisQuestionId);
+      const respId = r.id || (r as any)._id;
+      const status = responseStatuses[r.id] || responseStatuses[(r as any)._id] || (respId ? responseStatuses[respId] : null) || computeFastRowStatus(r, chassisQuestionId);
       if (r.id) map[r.id] = status;
-      if (r._id) map[r._id] = status;
+      if ((r as any)._id) map[(r as any)._id] = status;
     });
     return map;
   }, [tableResponses, responseStatuses, chassisQuestionId]);
@@ -5302,21 +4894,7 @@ export default function FormAnalyticsDashboard() {
     });
 
     sorted.forEach((r) => {
-      let itemId = "unknown";
-      if (chassisQuestionId && r.answers) {
-        const ans = r.answers[chassisQuestionId];
-        if (ans) {
-          itemId = typeof ans === "object" ? (ans.chassisNumber || JSON.stringify(ans)) : String(ans);
-        } else {
-          const cVal = r.answers.chassis_number || r.answers.chassisNumber;
-          if (cVal) itemId = String(cVal);
-          else itemId = `untracked-${r.id}`;
-        }
-      } else if (r.answers?.chassis_number || r.answers?.chassisNumber) {
-        itemId = String(r.answers.chassis_number || r.answers.chassisNumber);
-      } else {
-        itemId = `response-${r.id}`;
-      }
+      const itemId = getChassisOrItemId(r, chassisQuestionId);
 
       if (!itemGroups[itemId]) {
         itemGroups[itemId] = [];
@@ -5332,29 +4910,31 @@ export default function FormAnalyticsDashboard() {
 
       itemGroups[itemId].push(r);
       const attemptNumber = itemGroups[itemId].length;
-      const persistedRank = (chassisQuestionId && r.responseRanks?.[chassisQuestionId]) || (r.responseRanks && typeof r.responseRanks === 'object' ? Object.values(r.responseRanks).find(v => typeof v === 'number' && v > 0) : null);
-        ranks[r.id] = (typeof persistedRank === 'number' && persistedRank > 0) ? persistedRank : attemptNumber;
+      const persistedRank = (chassisQuestionId && r.responseRanks?.[chassisQuestionId]) || (r.responseRanks && typeof r.responseRanks === 'object' ? Object.values(r.responseRanks).find((v: any) => typeof v === 'number' && v > 0) : null);
+      const finalRank = (typeof persistedRank === 'number' && persistedRank > 0) ? persistedRank : attemptNumber;
+      if (r.id) ranks[r.id] = finalRank;
+      if ((r as any)._id) ranks[(r as any)._id] = finalRank;
     });
 
     return ranks;
-  }, [responses, tableResponses, chassisQuestionId]);
+  }, [responses, tableResponses, chassisQuestionId, getChassisOrItemId]);
 
   // Distinct filter options for Time Taken attempt rank & status color
   const attemptRankFilterOptions = useMemo(() => {
     const opts = new Set<string>();
     const dataset = responses.length > 0 ? responses : tableResponses;
     dataset.forEach((r) => {
-      const rowStatus = tableDisplayStatuses[r.id] || responseStatuses[r.id] || "Pending Review";
+      const respId = r.id || (r as any)._id;
+      const rowStatus = tableDisplayStatuses[respId] || responseStatuses[respId] || "Pending Review";
+      const rank = chassisAttemptRanks[respId] || 1;
       
-      let label = "Attempt 1 (Gray - Pending)";
+      let label = `Attempt ${rank} (Gray - Pending)`;
       if (rowStatus === "Rejected") {
-        label = "Attempt 1 (Red - Rejected)";
+        label = `Attempt ${rank} (Red - Rejected)`;
       } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted" && rowStatus !== "Rework Completed") {
-        const match = rowStatus.match(/\d+/);
-        const num = match ? parseInt(match[0], 10) : 1;
-        label = `Attempt ${num} (Yellow - Rework)`;
+        label = `Attempt ${rank} (Yellow - Rework)`;
       } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted" || rowStatus === "Rework Completed" || rowStatus === "Verified") {
-        label = "Attempt 1 (Green - Accepted)";
+        label = `Attempt ${rank} (Green - Accepted)`;
       }
       opts.add(label);
     });
@@ -5368,7 +4948,7 @@ export default function FormAnalyticsDashboard() {
     }
 
     return Array.from(opts).sort((a, b) => String(a ?? "").localeCompare(String(b ?? ""), undefined, { numeric: true }));
-  }, [responses, tableResponses, tableDisplayStatuses, responseStatuses]);
+  }, [responses, tableResponses, tableDisplayStatuses, responseStatuses, chassisAttemptRanks]);
 
   const fetchChatHistory = async (responseId: string) => {
     try {
@@ -5623,37 +5203,6 @@ export default function FormAnalyticsDashboard() {
     }
   };
 
-  const responseCountsByDate = useMemo(() => {
-    const counts: Record<string, number> = {};
-    const dataset = (responses && responses.length > 0)
-      ? responses
-      : ((tableResponses && tableResponses.length > 0) ? tableResponses : baseFilteredResponses);
-
-    dataset.forEach((response) => {
-      const timestamp = getResponseTimestamp(response);
-      if (timestamp) {
-        const d = parseResponseDate(timestamp);
-        if (d && !isNaN(d.getTime())) {
-          const yyyy = d.getFullYear();
-          const mm = String(d.getMonth() + 1).padStart(2, "0");
-          const dd = String(d.getDate()).padStart(2, "0");
-          const dateStr = `${yyyy}-${mm}-${dd}`;
-          counts[dateStr] = (counts[dateStr] || 0) + 1;
-        }
-      }
-    });
-    return counts;
-  }, [responses, tableResponses, baseFilteredResponses]);
-
-  const availableStatuses = useMemo(() => {
-    const statuses = new Set<string>();
-    baseFilteredResponses.forEach((r) => {
-      const s = tableDisplayStatuses[r.id] || responseStatuses[r.id] || "Pending Review";
-      statuses.add(s);
-    });
-    return Array.from(statuses).sort();
-  }, [baseFilteredResponses, tableDisplayStatuses, responseStatuses]);
-
   const filteredResponses = useMemo(() => {
     let result = baseFilteredResponses;
 
@@ -5728,97 +5277,33 @@ export default function FormAnalyticsDashboard() {
       });
     }
 
-    // 3.5. Ensure all historical attempts for matched chassis are included
-    if (chassisQuestionId) {
-      const matchedChassisIds = new Set<string>();
-      result.forEach((r) => {
-        const ans = r.answers?.[chassisQuestionId];
-        if (ans) {
-          const itemId = typeof ans === "object" ? (ans.chassisNumber || JSON.stringify(ans)) : String(ans);
-          matchedChassisIds.add(itemId.toLowerCase().trim());
-        }
-      });
-
-      if (matchedChassisIds.size > 0) {
-        // Optimization: create a Set of original result IDs for fast lookup
-        const originalResultIds = new Set(result.map(r => r.id));
-        
-        result = baseFilteredResponses.filter((r) => {
-          const ans = r.answers?.[chassisQuestionId];
-          if (ans) {
-            const itemId = typeof ans === "object" ? (ans.chassisNumber || JSON.stringify(ans)) : String(ans);
-            if (matchedChassisIds.has(itemId.toLowerCase().trim())) {
-              return true; // Include this historical attempt
-            }
-          }
-          // If it doesn't have a chassis ID, keep it ONLY if it was originally in the filtered result
-          return originalResultIds.has(r.id);
-        });
-      }
-    }
-
     // 4. __attemptRank column filter (moved here from baseFilteredResponses to avoid TDZ)
     const attemptRankFilterValues = columnFilters["__attemptRank"];
     if (attemptRankFilterValues && attemptRankFilterValues.length > 0) {
       result = result.filter((response) => {
+        const rank = chassisAttemptRanks[response.id] || (response.responseRanks && chassisQuestionId ? response.responseRanks[chassisQuestionId] : 1);
         const rowStatus = tableDisplayStatuses[response.id] || responseStatuses[response.id] || "Pending Review";
-        let label = "Attempt 1 (Gray - Pending)";
+        let colorLabel = "Green - Accepted";
         if (rowStatus === "Rejected") {
-          label = "Attempt 1 (Red - Rejected)";
-        } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted" && rowStatus !== "Rework Completed") {
-          const match = rowStatus.match(/\d+/);
-          const num = match ? parseInt(match[0], 10) : 1;
-          label = `Attempt ${num} (Yellow - Rework)`;
-        } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted" || rowStatus === "Rework Completed" || rowStatus === "Verified") {
-          label = "Attempt 1 (Green - Accepted)";
+          colorLabel = "Red - Rejected";
+        } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
+          colorLabel = "Amber - Rework";
+        } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
+          colorLabel = "Green - Accepted";
+        } else {
+          colorLabel = "Gray - Pending";
         }
-        
-        const legacyAmberLabel = label.replace("Yellow", "Amber");
-        
+        const fullLabel = `Attempt ${rank} (${colorLabel})`;
         return (
-          attemptRankFilterValues.includes(label) ||
-          attemptRankFilterValues.includes(legacyAmberLabel)
+          attemptRankFilterValues.includes(fullLabel) ||
+          attemptRankFilterValues.includes(`Attempt ${rank}`) ||
+          attemptRankFilterValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
         );
       });
-    }
-
-    // 5. Header Search Bars Filters
-    if (headerFilters.submittedBy) {
-      const term = headerFilters.submittedBy.toLowerCase().trim();
-      result = result.filter(r => (r.submittedBy || r.createdBy || "Anonymous").toLowerCase().includes(term));
-    }
-    if (headerFilters.status) {
-      const selectedStatuses = headerFilters.status.split(',').map(s => s.toLowerCase().trim());
-      result = result.filter(r => {
-         const rowStatus = (tableDisplayStatuses[r.id] || responseStatuses[r.id] || "Pending Review").toLowerCase();
-         return selectedStatuses.some(s => rowStatus.includes(s) || rowStatus === s);
-      });
-    }
-    if (headerFilters.chassis) {
-      const term = headerFilters.chassis.toLowerCase().trim();
-      result = result.filter(r => {
-        const val = getChassisDisplayValue(
-          r.answers?.chassis_number || (chassisQuestionId ? r.answers?.[chassisQuestionId] : "")
-        );
-        return val.toLowerCase().includes(term);
-      });
-    }
-    if (headerFilters.timestamp) {
-       const selectedDate = headerFilters.timestamp; // "YYYY-MM-DD" or "YYYY-MM-DD,YYYY-MM-DD"
-       result = result.filter(r => {
-          const timestamp = getResponseTimestamp(r);
-          if (!timestamp) return false;
-          const rDate = new Date(timestamp).toISOString().split("T")[0];
-          if (selectedDate.includes(',')) {
-            const [start, end] = selectedDate.split(',');
-            return rDate >= start && rDate <= end;
-          }
-          return rDate === selectedDate;
-       });
     }
 
     return result;
-  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, responsesSearchTerm, responseStatuses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, chassisQuestionId, headerFilters]);
+  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, responsesSearchTerm, responseStatuses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, chassisQuestionId]);
 
   useEffect(() => {
     setResponsesPage(1);
@@ -5831,13 +5316,9 @@ export default function FormAnalyticsDashboard() {
       responsesSearchTerm.trim() !== "" ||
       dateFilter.type !== "all" ||
       selectedInspectorForTrend !== "Overall" ||
-      tableSort !== null ||
-      headerFilters.submittedBy !== "" ||
-      headerFilters.status !== "" ||
-      headerFilters.chassis !== "" ||
-      headerFilters.timestamp !== ""
+      tableSort !== null
     );
-  }, [columnFilters, responsesSearchTerm, dateFilter, selectedInspectorForTrend, tableSort, headerFilters]);
+  }, [columnFilters, responsesSearchTerm, dateFilter, selectedInspectorForTrend, tableSort]);
 
   // Sort helper function that handles natural alphanumeric sorting
   const sortResponses = (list: Response[]) => {
@@ -5858,17 +5339,15 @@ export default function FormAnalyticsDashboard() {
         const valB = getChassisDisplayValue(
           b.answers?.chassis_number || (chassisQuestionId ? b.answers?.[chassisQuestionId] : "")
         );
-        const cmp = String(valA || "").localeCompare(String(valB || ""), undefined, { numeric: true, sensitivity: "base" });
+        const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
         return isAsc ? cmp : -cmp;
       }
 
       // Timestamp sorting
       if (columnId === "timestamp" || columnId === "__timestamp") {
-        const timeA = getResponseTimestamp(a);
-        const timeB = getResponseTimestamp(b);
-        const tA = timeA ? new Date(timeA).getTime() : 0;
-        const tB = timeB ? new Date(timeB).getTime() : 0;
-        return isAsc ? tA - tB : tB - tA;
+        const timeA = getResponseTimestamp(a) || 0;
+        const timeB = getResponseTimestamp(b) || 0;
+        return isAsc ? timeA - timeB : timeB - timeA;
       }
 
       // Time Taken sorting
@@ -5885,20 +5364,12 @@ export default function FormAnalyticsDashboard() {
         return isAsc ? rankA - rankB : rankB - rankA;
       }
 
-      // Parent Match sorting
-      if (columnId === "__parentMatch") {
-        const matchA = computeParentMatch(a).badgeText;
-        const matchB = computeParentMatch(b).badgeText;
-        const cmp = String(matchA).localeCompare(String(matchB));
-        return isAsc ? cmp : -cmp;
-      }
-
       // Generic question answer sorting
       const ansA = a.answers?.[columnId];
       const ansB = b.answers?.[columnId];
       const valA = extractAnswerValues(ansA).join(" ");
       const valB = extractAnswerValues(ansB).join(" ");
-      const cmp = String(valA || "").localeCompare(String(valB || ""), undefined, { numeric: true, sensitivity: "base" });
+      const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
       return isAsc ? cmp : -cmp;
     });
   };
@@ -5946,30 +5417,33 @@ export default function FormAnalyticsDashboard() {
             if (rowStatus === "Rejected") {
               colorLabel = "Red - Rejected";
             } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
-              colorLabel = "Yellow - Rework";
+              colorLabel = "Amber - Rework";
             } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
               colorLabel = "Green - Accepted";
             } else {
               colorLabel = "Gray - Pending";
             }
             const fullLabel = `Attempt ${rank} (${colorLabel})`;
-            const legacyAmberLabel = `Attempt ${rank} (Amber - Rework)`;
             return (
               allowedValues.includes(fullLabel) ||
-              (colorLabel === "Yellow - Rework" && allowedValues.includes(legacyAmberLabel)) ||
-              allowedValues.includes(`Attempt ${rank}`)
+              allowedValues.includes(`Attempt ${rank}`) ||
+              allowedValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
             );
           }
 
           const answer = response.answers?.[columnId];
           if (answer === null || answer === undefined) {
-            return allowedValues.includes("No Response") || allowedValues.includes("");
+            return allowedValues.includes("No Response");
           }
           const answerValues = extractAnswerValues(answer);
-          const allowedLowerSet = new Set(allowedValues.map((av) => String(av ?? "").trim().toLowerCase()));
-          return answerValues.some((v) => {
-            const vLower = String(v ?? "").trim().toLowerCase();
-            return allowedLowerSet.has(vLower);
+          return answerValues.some(v => {
+            if (!v) return false;
+            const vLower = v.toLowerCase();
+            return allowedValues.some(av => {
+              if (!av) return false;
+              const avLower = av.toLowerCase();
+              return vLower === avLower || vLower.includes(avLower) || avLower.includes(vLower);
+            });
           });
         });
       });
@@ -6085,8 +5559,7 @@ export default function FormAnalyticsDashboard() {
       rejected,
       recentResponses,
       responseTrend,
-      dateRange,
-      countsData: counts,
+      dateRange, // ← Use this instead of last30Days
       percentageData,
     };
   }, [filteredResponses, dateFilter.startDate, dateFilter.endDate, dateFilter.type]);
@@ -6172,11 +5645,9 @@ export default function FormAnalyticsDashboard() {
 
     sets.forEach((set, qId) => {
       const sorted = Array.from(set).sort((a, b) => {
-        const strA = String(a ?? "");
-        const strB = String(b ?? "");
-        if (strA === "") return 1;
-        if (strB === "") return -1;
-        return strA.localeCompare(strB, undefined, { numeric: true, sensitivity: "base" });
+        if (a === "") return 1;
+        if (b === "") return -1;
+        return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
       });
       map.set(qId, sorted);
     });
@@ -6206,11 +5677,9 @@ export default function FormAnalyticsDashboard() {
       }
     });
     return Array.from(values).sort((a, b) => {
-      const strA = String(a ?? "");
-      const strB = String(b ?? "");
-      if (strA === "") return 1;
-      if (strB === "") return -1;
-      return strA.localeCompare(strB, undefined, { numeric: true, sensitivity: "base" });
+      if (a === "") return 1;
+      if (b === "") return -1;
+      return a.localeCompare(b);
     });
   };
 
@@ -6793,15 +6262,63 @@ export default function FormAnalyticsDashboard() {
 
 
 
-  const visibleDashboardSectionStats = useMemo(() => {
-    return dashboardSectionPerformanceStats.filter((stat) =>
-      selectedSectionIds.includes(stat.id),
-    );
-  }, [dashboardSectionPerformanceStats, selectedSectionIds]);
+  const visibleDashboardSectionStats = useMemo(
+    () =>
+      dashboardSectionPerformanceStats.filter((stat) =>
+        selectedSectionIds.includes(stat.id),
+      ),
+    [dashboardSectionPerformanceStats, selectedSectionIds],
+  );
 
-  const sectionSummaryRows = useMemo(() => {
-    return visibleDashboardSectionStats
-      .map((stat) => {
+  const sectionSummaryRows = useMemo(
+    () =>
+      visibleDashboardSectionStats
+        .map((stat) => {
+          const rowYesCount = stat.yes + (stat.accepted || 0);
+          const rowNoCount = stat.no + (stat.rejected || 0);
+          const rowNaCount = stat.na + (stat.rework || 0);
+
+          const yesPercent = stat.total ? (rowYesCount / stat.total) * 100 : 0;
+          const noPercent = stat.total ? (rowNoCount / stat.total) * 100 : 0;
+          const naPercent = stat.total ? (rowNaCount / stat.total) * 100 : 0;
+
+          return {
+            id: stat.id,
+            title: stat.title,
+            yesPercent,
+            yesCount: rowYesCount,
+            noPercent,
+            noCount: rowNoCount,
+            naPercent,
+            naCount: rowNaCount,
+            total: stat.total,
+          };
+        })
+        // Sort by Yes percentage in descending order
+        .sort((a, b) => b.yesPercent - a.yesPercent),
+    [visibleDashboardSectionStats],
+  );
+
+  const summaryTotals = useMemo(() => {
+    return sectionSummaryRows.reduce(
+      (acc, row) => ({
+        total: acc.total + row.total,
+        yesCount: acc.yesCount + (row.yesCount || 0),
+        noCount: acc.noCount + (row.noCount || 0),
+        naCount: acc.naCount + (row.naCount || 0),
+      }),
+      {
+        total: 0,
+        yesCount: 0,
+        noCount: 0,
+        naCount: 0,
+      },
+    );
+  }, [sectionSummaryRows]);
+
+  const qualitySectionSummaryRows = useMemo(
+    () =>
+      qualitySectionPerformanceStats.map((stat) => {
         const rowYesCount = stat.yes + (stat.accepted || 0);
         const rowNoCount = stat.no + (stat.rejected || 0);
         const rowNaCount = stat.na + (stat.rework || 0);
@@ -6821,51 +6338,9 @@ export default function FormAnalyticsDashboard() {
           naCount: rowNaCount,
           total: stat.total,
         };
-      })
-      // Sort by Yes percentage in descending order
-      .sort((a, b) => b.yesPercent - a.yesPercent);
-  }, [visibleDashboardSectionStats]);
-
-  const summaryTotals = useMemo(() => {
-    return sectionSummaryRows.reduce(
-      (acc, row) => ({
-        total: acc.total + row.total,
-        yesCount: acc.yesCount + (row.yesCount || 0),
-        noCount: acc.noCount + (row.noCount || 0),
-        naCount: acc.naCount + (row.naCount || 0),
       }),
-      {
-        total: 0,
-        yesCount: 0,
-        noCount: 0,
-        naCount: 0,
-      },
-    );
-  }, [sectionSummaryRows]);
-
-  const qualitySectionSummaryRows = useMemo(() => {
-    return qualitySectionPerformanceStats.map((stat) => {
-      const rowYesCount = stat.yes + (stat.accepted || 0);
-      const rowNoCount = stat.no + (stat.rejected || 0);
-      const rowNaCount = stat.na + (stat.rework || 0);
-
-      const yesPercent = stat.total ? (rowYesCount / stat.total) * 100 : 0;
-      const noPercent = stat.total ? (rowNoCount / stat.total) * 100 : 0;
-      const naPercent = stat.total ? (rowNaCount / stat.total) * 100 : 0;
-
-      return {
-        id: stat.id,
-        title: stat.title,
-        yesPercent,
-        yesCount: rowYesCount,
-        noPercent,
-        noCount: rowNoCount,
-        naPercent,
-        naCount: rowNaCount,
-        total: stat.total,
-      };
-    });
-  }, [qualitySectionPerformanceStats]);
+    [qualitySectionPerformanceStats],
+  );
 
   const uniqueInspectors = useMemo(() => {
     // Combine inspectors from responses, inspectorSummary, and allInspectors (Role-based)
@@ -6897,58 +6372,27 @@ export default function FormAnalyticsDashboard() {
     let reworkCompleted = 0;
     let dispatched = 0;
 
-    // Group responses by unique tracked item (e.g. chassis number) so each unit is evaluated by its latest status
-    const itemGroups: Record<string, Response[]> = {};
-
     filteredResponses.forEach((response) => {
-      let itemId = `resp-${response.id}`;
-      if (chassisQuestionId && response.answers) {
-        const ans = response.answers[chassisQuestionId];
-        if (ans) {
-          itemId = typeof ans === "object" ? (ans.chassisNumber || JSON.stringify(ans)) : String(ans);
-        } else {
-          const cVal = response.answers.chassis_number || response.answers.chassisNumber;
-          if (cVal) itemId = String(cVal);
-        }
-      } else if (response.answers?.chassis_number || response.answers?.chassisNumber) {
-        itemId = String(response.answers.chassis_number || response.answers.chassisNumber);
-      }
-
-      if (!itemGroups[itemId]) {
-        itemGroups[itemId] = [];
-      }
-      itemGroups[itemId].push(response);
-    });
-
-    Object.values(itemGroups).forEach((group) => {
-      // Sort responses chronologically (oldest to newest) to get the latest attempt
-      const sortedGroup = [...group].sort((a, b) => {
-        const tA = new Date(getResponseTimestamp(a) || 0).getTime();
-        const tB = new Date(getResponseTimestamp(b) || 0).getTime();
-        return tA - tB;
-      });
-
-      const latestResponse = sortedGroup[sortedGroup.length - 1];
-      const status = responseStatuses[latestResponse.id] || responseStatuses[(latestResponse as any)._id] || (latestResponse as any).status;
-
+      const status = responseStatuses[response.id];
       if (status === "Direct Ok" || status === "Accepted") {
         accepted++;
-      } else if (status === "Rework Accepted" || status === "Rework Completed") {
+      } else if (status === "Rework Accepted") {
         reworkCompleted++;
-      } else if (status === "Rejected") {
-        rejected++;
       } else if (status && status.startsWith("Rework")) {
         reworked++;
+      } else if (status === "Rejected") {
+        rejected++;
       }
-
-      // Track if any response in this item's history is marked as dispatched
-      if (sortedGroup.some((r) => r.isDispatched)) {
+      // Dispatch is tracked independently of status - a response can be
+      // Direct Ok (or any other status) AND already dispatched, so this
+      // is counted separately rather than as a mutually-exclusive bucket.
+      if (response.isDispatched) {
         dispatched++;
       }
     });
 
     return { accepted, rejected, reworked, reworkCompleted, dispatched };
-  }, [filteredResponses, responseStatuses, chassisQuestionId]);
+  }, [filteredResponses, responseStatuses]);
 
   const totalPieChartData = useMemo(() => {
     const directOk = inspectionStats.accepted;
@@ -7086,14 +6530,6 @@ export default function FormAnalyticsDashboard() {
 
 
   const OverallQualityPieChart = () => {
-    const totalCount = totalPieChartData.counts.total;
-    const directOkCount = totalPieChartData.counts.directOk;
-    const reworkCompCount = totalPieChartData.counts.reworkCompleted;
-    const addedOkCount = directOkCount + reworkCompCount;
-    const addedOkPercent = totalCount > 0
-      ? Number(((addedOkCount / totalCount) * 100).toFixed(1))
-      : 0;
-
     // NOTE: Dispatched is intentionally NOT one of the doughnut slices.
     // Direct Ok / Rework Completed / Rejected / Ongoing Rework are
     // mutually exclusive and sum to 100% of responses, so they make a
@@ -7165,56 +6601,13 @@ export default function FormAnalyticsDashboard() {
 
               return `${label}: ${value}% (${count} responses)`;
             },
-            afterBody: function () {
-              return [
-                "",
-                `Total OK (Direct + Rework): ${addedOkPercent}% (${addedOkCount} of ${totalCount})`
-              ];
-            },
           },
         },
       },
-      cutout: "64%",
+      cutout: "60%",
       interaction: {
         mode: "nearest" as const,
         intersect: true,
-      },
-    };
-
-    const centerTextPlugin = {
-      id: "doughnutCenterText",
-      afterDraw(chart: any) {
-        if (!totalCount) return;
-        const meta = chart.getDatasetMeta(0);
-        const { left, right, top, bottom } = chart.chartArea || {};
-        const fallbackX = (left + right) / 2;
-        const fallbackY = (top + bottom) / 2;
-        const x = meta?.data?.[0]?.x ?? fallbackX;
-        const y = meta?.data?.[0]?.y ?? fallbackY;
-
-        const ctx = chart.ctx;
-        ctx.save();
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-
-        const isDark = document.documentElement.classList.contains("dark");
-
-        // 1. Percentage: e.g. "69%"
-        ctx.font = "bold 16px Inter, system-ui, -apple-system, sans-serif";
-        ctx.fillStyle = isDark ? "#34d399" : "#059669";
-        ctx.fillText(`${addedOkPercent}%`, x, y - 11);
-
-        // 2. Center label: "Total OK"
-        ctx.font = "bold 9px Inter, system-ui, -apple-system, sans-serif";
-        ctx.fillStyle = isDark ? "#94a3b8" : "#64748b";
-        ctx.fillText("Total OK", x, y + 2);
-
-        // 3. Just total number: e.g. "(216)"
-        ctx.font = "bold 10px Inter, system-ui, -apple-system, sans-serif";
-        ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
-        ctx.fillText(`(${addedOkCount})`, x, y + 15);
-
-        ctx.restore();
       },
     };
 
@@ -7256,7 +6649,8 @@ export default function FormAnalyticsDashboard() {
           ) : (
             <>
               <div style={{ height: "200px", position: "relative" }}>
-                <Doughnut data={data} options={options} plugins={[centerTextPlugin]} />
+                {/* Only change needed here - use Doughnut instead of Pie */}
+                <Doughnut data={data} options={options} />
               </div>
 
               {/* Stats summary - these 4 mirror the pie slices above and
@@ -8817,89 +8211,9 @@ export default function FormAnalyticsDashboard() {
     }
   };
 
-  const handleExportToPPT = async () => {
+  const handleExportToExcel = () => {
     try {
-      setIsExportingPPT(true);
-      showToast("Generating PPT report...", "info");
-
-      const success = await exportDashboardToPPT(
-        form?.title || "Form Analytics",
-        {
-          total: analytics.total,
-          pending: analytics.pending,
-          verified: analytics.verified,
-          rejected: analytics.rejected,
-        }
-      );
-
-      if (success) {
-        showToast("PPT report generated successfully!", "success");
-      } else {
-        showToast("Failed to generate PPT. Please try again.", "error");
-      }
-    } catch (error) {
-      console.error("Error downloading PPT:", error);
-      showToast("Failed to generate PPT. Please try again.", "error");
-    } finally {
-      setIsExportingPPT(false);
-    }
-  };
-
-  const handleExportToExcel = async (
-    mode: "full" | "consolidated" | "standard" = "full",
-  ) => {
-    setIsExportingExcel(true);
-    setShowExportDropdown(false);
-    try {
-      showToast("Generating Excel report...", "info");
-
-      // 1. Fetch all tenant messages to match up with chassis
-      let tenantMessages: any[] = [];
-      try {
-        const msgRes: any = await apiClient.request<any[]>("/messages/tenant-messages");
-        tenantMessages = Array.isArray(msgRes)
-          ? msgRes
-          : Array.isArray(msgRes?.data)
-            ? msgRes.data
-            : [];
-      } catch (e) {
-        console.warn("Could not fetch tenant messages for export:", e);
-      }
-
-      // Map messages by Response ID and by Chassis Number
-      const messagesByResponseId: Record<string, any[]> = {};
-      const messagesByChassis: Record<string, any[]> = {};
-
-      tenantMessages.forEach((msg) => {
-        const respId =
-          typeof msg.responseId === "object"
-            ? msg.responseId?.id || msg.responseId?._id
-            : msg.responseId;
-        if (respId) {
-          if (!messagesByResponseId[respId]) messagesByResponseId[respId] = [];
-          messagesByResponseId[respId].push(msg);
-        }
-
-        // Try extracting chassis number
-        let chassisNo = "";
-        if (typeof msg.responseId === "object" && msg.responseId?.answers?.chassis_number) {
-          chassisNo = getChassisDisplayValue(msg.responseId.answers.chassis_number);
-        }
-        if (!chassisNo && respId) {
-          const matchedResp = responses.find((r) => r.id === respId || (r as any)._id === respId);
-          if (matchedResp?.answers?.chassis_number) {
-            chassisNo = getChassisDisplayValue(matchedResp.answers.chassis_number);
-          }
-        }
-        if (chassisNo) {
-          const cleanChassis = String(chassisNo).trim().toUpperCase();
-          if (!messagesByChassis[cleanChassis]) messagesByChassis[cleanChassis] = [];
-          messagesByChassis[cleanChassis].push(msg);
-        }
-      });
-
-      // Prepare question headers
-      const questionHeaders: string[] = [];
+      const headerRow: any[] = ["Timestamp", "Submitted By", "Status", "Chassis Number", "Dispatched", "Dispatched At"];
       const columnInfo: Array<{
         questionId: string;
         isFollowUp: boolean;
@@ -8910,7 +8224,7 @@ export default function FormAnalyticsDashboard() {
         if (selectedResponsesSectionIds.includes(section.id)) {
           section.questions?.forEach((q: any) => {
             const isFollowUp = q.parentId || q.showWhen?.questionId;
-            questionHeaders.push(q.text || "Question");
+            headerRow.push(q.text || "Question");
             columnInfo.push({
               questionId: q.id,
               isFollowUp: !!isFollowUp,
@@ -8920,114 +8234,32 @@ export default function FormAnalyticsDashboard() {
         }
       });
 
-      // Create Workbook
-      const wb = XLSX.utils.book_new();
-
-      // ==========================================
-      // SHEET 1: RESPONSES SHEET
-      // ==========================================
-      const respBaseHeaders = [
-        "Timestamp",
-        "Submitted By",
-        "Status",
-        "Chassis Number",
-        "BIW Review",
-        "Reviewed By",
-        "Rework Reason / Remark",
-        "Dispatched",
-        "Dispatched By",
-        "Dispatched At",
-      ];
-
-      // If consolidated mode, also add Chat History column
-      const respHeaderRow = mode === "consolidated"
-        ? [...respBaseHeaders, "Matched Chat / Discussion", ...questionHeaders]
-        : [...respBaseHeaders, ...questionHeaders];
-
-      const respWsData: any[][] = [respHeaderRow];
+      const wsData: any[][] = [headerRow];
 
       responses.forEach((response: Response) => {
-        const chassisVal = getChassisDisplayValue(response.answers?.chassis_number) || "-";
-        const cleanChassisKey = String(chassisVal).trim().toUpperCase();
-
-        // Get review details
-        const localReview = reviewedBy[response.id];
-        const legacyServerReview = (response as any).review;
-        let reviewStatus = "No review yet";
-        let reviewerName = "-";
-        let reasonStr = "";
-
-        if (localReview) {
-          reviewStatus = localReview.option || localReview.status || "No review yet";
-          reviewerName = localReview.reviewer || localReview.name || "-";
-          reasonStr = (localReview as any).reason || (localReview as any).remark || (localReview as any).reworkReason || (localReview as any).note || "";
-        } else if (legacyServerReview) {
-          reviewStatus = legacyServerReview.status || "No review yet";
-          reviewerName = legacyServerReview.reviewer || legacyServerReview.name || "-";
-          reasonStr = legacyServerReview.reason || legacyServerReview.remark || legacyServerReview.reworkReason || legacyServerReview.note || "";
-        }
-
-        const reworkOrReviewReason =
-          reasonStr ||
-          (response as any).reworkReason ||
-          (response as any).reworkNote ||
-          (response as any).review?.remark ||
-          (response as any).review?.reason ||
-          (response as any).biwReview?.remark ||
-          (response as any).biwReview?.reason ||
-          "-";
-
-        const respMsgs = messagesByResponseId[response.id] || (cleanChassisKey ? messagesByChassis[cleanChassisKey] : []) || [];
-        const chatTranscriptStr = respMsgs.length > 0
-          ? respMsgs
-              .map(
-                (m: any) =>
-                  `[${m.createdAt ? new Date(m.createdAt).toLocaleDateString("en-US") : ""}] ${m.from?.name || m.from?.username || "Reviewer"}: ${m.message || ""}`,
-              )
-              .join("\n")
-          : "-";
-
         const rowData: any[] = [
           getResponseTimestamp(response)
             ? new Date(getResponseTimestamp(response)!).toLocaleDateString("en-US")
             : "-",
           response.submittedBy || response.createdBy || "Anonymous",
           responseStatuses[response.id] || "-",
-          chassisVal,
-          reviewStatus,
-          reviewerName,
-          reworkOrReviewReason,
+          getChassisDisplayValue(response.answers?.chassis_number),
           response.isDispatched ? "Yes" : "No",
-          response.dispatchedByName || "-",
           response.dispatchedAt
             ? new Date(response.dispatchedAt).toLocaleString("en-US")
             : "-",
         ];
 
-        if (mode === "consolidated") {
-          rowData.push(chatTranscriptStr);
-        }
-
         columnInfo.forEach(({ questionId }) => {
           const answer = response.answers?.[questionId];
+          // For complex objects like chassis, stringify appropriately using JSON.stringify for now
+          // or just standard string if it's simpler
           let answerStr = "-";
           if (answer !== undefined && answer !== null) {
             if (typeof answer === "object") {
+              // Special handling for objects to make them readable in Excel
               if (answer.status) {
-                answerStr = answer.status;
-                if (answer.remark) answerStr += ` (${answer.remark})`;
-              } else if (answer.zonesData) {
-                const defectList: string[] = [];
-                Object.entries(answer.zonesData).forEach(([zName, zData]: [string, any]) => {
-                  if (zData?.categories) {
-                    zData.categories.forEach((cat: any) => {
-                      (cat.defects || []).forEach((d: any) => {
-                        defectList.push(`${zName} > ${cat.name}: ${d.name} ${d.details?.remark ? `(${d.details.remark})` : ''}`);
-                      });
-                    });
-                  }
-                });
-                answerStr = defectList.length > 0 ? defectList.join("; ") : "Inspection OK";
+                answerStr = answer.status; // just show the status for inspection fields
               } else {
                 answerStr = JSON.stringify(answer);
               }
@@ -9038,274 +8270,221 @@ export default function FormAnalyticsDashboard() {
           rowData.push(answerStr);
         });
 
-        respWsData.push(rowData);
+        wsData.push(rowData);
       });
 
-      const respWs = XLSX.utils.aoa_to_sheet(respWsData);
-      respWs["!cols"] = [
-        { wch: 16 }, // Timestamp
-        { wch: 22 }, // Submitted By
-        { wch: 18 }, // Status
-        { wch: 18 }, // Chassis Number
-        { wch: 16 }, // BIW Review
-        { wch: 20 }, // Reviewed By
-        { wch: 30 }, // Rework Reason
-        { wch: 14 }, // Dispatched
-        { wch: 20 }, // Dispatched By
-        { wch: 22 }, // Dispatched At
-        ...(mode === "consolidated" ? [{ wch: 45 }] : []),
-        ...columnInfo.map(() => ({ wch: 30 })),
+      // Add Overall Inspection Statistics Summary Rows
+      const statsHeaderRow: any[] = [
+        "Overall Inspection Statistics",
+        "",
+        "",
+        "",
+      ];
+      const statsDataRow: any[] = [
+        `Total Accepted: ${inspectionStats.accepted}`,
+        `Total Rejected: ${inspectionStats.rejected}`,
+        `Total Reworked: ${inspectionStats.reworked}`,
+        ``,
       ];
 
-      XLSX.utils.book_append_sheet(wb, respWs, "Responses");
+      wsData.push([]); // Empty spacing row
+      const statsHeaderIdx = wsData.length;
+      wsData.push(statsHeaderRow);
+      const statsDataIdx = wsData.length;
+      wsData.push(statsDataRow);
 
-      // ==========================================
-      // SHEET 2: REWORK & DEFECTS SHEET (For 'full' mode)
-      // ==========================================
-      if (mode === "full") {
-        const reworkHeaders = [
-          "Chassis Number",
-          "Attempt / Status",
-          "Inspector",
-          "Timestamp",
-          "BIW Review Status",
-          "Reviewed By",
-          "Rework Reason / Remarks",
-          "Defects & Zones Identified",
-          "Is Dispatched",
-        ];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-        const reworkRows: any[][] = [reworkHeaders];
+      const headerFill = { fgColor: { rgb: "FF4F46E5" } };
+      const headerFont = { color: { rgb: "FFFFFFFF" }, bold: true };
 
-        responses.forEach((response) => {
-          const status = responseStatuses[response.id] || "";
-          const localReview = reviewedBy[response.id];
-          const legacyServerReview = (response as any).review;
-          const reviewStatus = localReview?.option || localReview?.status || legacyServerReview?.status || "";
-          const reviewerName = localReview?.reviewer || localReview?.name || legacyServerReview?.reviewer || legacyServerReview?.name || "-";
-          const reworkReason =
-            (localReview as any)?.reason ||
-            (localReview as any)?.remark ||
-            (localReview as any)?.reworkReason ||
-            (legacyServerReview as any)?.reason ||
-            (legacyServerReview as any)?.remark ||
-            (response as any).reworkReason ||
-            (response as any).reworkNote ||
-            (response as any).biwReview?.remark ||
-            "-";
-
-          // Extract all structured defects across questions
-          const defectDetails: string[] = [];
-          if (response.answers) {
-            Object.entries(response.answers).forEach(([qId, ans]: [string, any]) => {
-              if (ans && typeof ans === "object") {
-                if (ans.zonesData) {
-                  Object.entries(ans.zonesData).forEach(([zName, zData]: [string, any]) => {
-                    if (zData?.categories) {
-                      zData.categories.forEach((cat: any) => {
-                        (cat.defects || []).forEach((d: any) => {
-                          defectDetails.push(`[${zName}] ${cat.name}: ${d.name} ${d.details?.remark ? `(${d.details.remark})` : ''}`);
-                        });
-                      });
-                    }
-                  });
-                } else if (ans.categories) {
-                  ans.categories.forEach((cat: any) => {
-                    (cat.defects || []).forEach((d: any) => {
-                      defectDetails.push(`${cat.name}: ${d.name} ${d.details?.remark ? `(${d.details.remark})` : ''}`);
-                    });
-                  });
-                } else if (ans.status === "NG" || ans.status === "Rework" || ans.status === "Rejected") {
-                  defectDetails.push(`Status: ${ans.status} ${ans.remark ? `(${ans.remark})` : ''}`);
-                }
-              }
-            });
-          }
-
-          const isReworkOrRejected =
-            status.toLowerCase().includes("rework") ||
-            status.toLowerCase().includes("rejected") ||
-            reviewStatus.toLowerCase().includes("rework") ||
-            reviewStatus.toLowerCase().includes("rejected") ||
-            reworkReason !== "-";
-
-          if (isReworkOrRejected || defectDetails.length > 0) {
-            reworkRows.push([
-              getChassisDisplayValue(response.answers?.chassis_number) || "-",
-              status || "-",
-              response.submittedBy || response.createdBy || "Anonymous",
-              getResponseTimestamp(response)
-                ? new Date(getResponseTimestamp(response)!).toLocaleString("en-US")
-                : "-",
-              reviewStatus || "Pending Review",
-              reviewerName,
-              reworkReason,
-              defectDetails.length > 0 ? defectDetails.join("\n") : "No specific zone defect logged",
-              response.isDispatched ? "Yes" : "No",
-            ]);
-          }
-        });
-
-        const reworkWs = XLSX.utils.aoa_to_sheet(reworkRows);
-        reworkWs["!cols"] = [
-          { wch: 18 }, // Chassis Number
-          { wch: 18 }, // Status
-          { wch: 22 }, // Inspector
-          { wch: 22 }, // Timestamp
-          { wch: 18 }, // BIW Review
-          { wch: 20 }, // Reviewed By
-          { wch: 35 }, // Rework Reason
-          { wch: 45 }, // Defects
-          { wch: 14 }, // Dispatched
-        ];
-        XLSX.utils.book_append_sheet(wb, reworkWs, "Rework & Defects");
-
-        // ==========================================
-        // SHEET 3: CHAT & FEEDBACK LOG SHEET
-        // ==========================================
-        const chatHeaders = [
-          "Chassis Number",
-          "Sender Name",
-          "Sender Email",
-          "Date & Time",
-          "Message Content",
-          "Referenced Defect / Question Context",
-        ];
-
-        const chatRows: any[][] = [chatHeaders];
-
-        tenantMessages.forEach((msg: any) => {
-          let chassisNo = "";
-          if (typeof msg.responseId === "object" && msg.responseId?.answers?.chassis_number) {
-            chassisNo = getChassisDisplayValue(msg.responseId.answers.chassis_number);
-          }
-          if (!chassisNo) {
-            const respId = typeof msg.responseId === "object" ? msg.responseId?.id || msg.responseId?._id : msg.responseId;
-            const matchedResp = responses.find((r) => r.id === respId || (r as any)._id === respId);
-            if (matchedResp?.answers?.chassis_number) {
-              chassisNo = getChassisDisplayValue(matchedResp.answers.chassis_number);
-            }
-          }
-
-          let contextStr = "-";
-          if (msg.questionTitles && msg.questionTitles.length > 0) {
-            contextStr = msg.questionTitles.join(", ");
-          } else if (msg.questionContexts && msg.questionContexts.length > 0) {
-            contextStr = msg.questionContexts.map((c: any) => c.title || c.questionId).join(", ");
-          }
-
-          chatRows.push([
-            chassisNo || "General / Unassigned",
-            msg.from?.name || msg.from?.username || msg.from?.email || "Inspector",
-            msg.from?.email || "-",
-            msg.createdAt ? new Date(msg.createdAt).toLocaleString("en-US") : "-",
-            msg.message || "-",
-            contextStr,
-          ]);
-        });
-
-        const chatWs = XLSX.utils.aoa_to_sheet(chatRows);
-        chatWs["!cols"] = [
-          { wch: 20 }, // Chassis Number
-          { wch: 22 }, // Sender Name
-          { wch: 25 }, // Sender Email
-          { wch: 22 }, // Date & Time
-          { wch: 50 }, // Message Content
-          { wch: 35 }, // Defect Context
-        ];
-        XLSX.utils.book_append_sheet(wb, chatWs, "Chat & Feedback Log");
-
-        // ==========================================
-        // SHEET 4: CHASSIS SUMMARY SHEET
-        // ==========================================
-        const chassisSummaryHeaders = [
-          "Chassis Number",
-          "Total Attempts",
-          "Initial Status",
-          "Latest Status",
-          "Latest BIW Review",
-          "Reviewed By",
-          "Rework Remarks / Reason",
-          "Matched Chat Messages",
-          "Dispatched",
-          "Dispatched At",
-        ];
-
-        // Group responses by chassis
-        const chassisMap = new Map<string, Response[]>();
-        responses.forEach((r) => {
-          const cNum = getChassisDisplayValue(r.answers?.chassis_number) || "Unknown Chassis";
-          if (!chassisMap.has(cNum)) chassisMap.set(cNum, []);
-          chassisMap.get(cNum)!.push(r);
-        });
-
-        const summaryRows: any[][] = [chassisSummaryHeaders];
-
-        chassisMap.forEach((rList, cNum) => {
-          const sortedList = [...rList].sort((a, b) => {
-            const tA = new Date(getResponseTimestamp(a) || 0).getTime();
-            const tB = new Date(getResponseTimestamp(b) || 0).getTime();
-            return tA - tB;
-          });
-
-          const firstResp = sortedList[0];
-          const latestResp = sortedList[sortedList.length - 1];
-
-          const cleanKey = String(cNum).trim().toUpperCase();
-          const relatedMsgs = messagesByChassis[cleanKey] || [];
-
-          const latestLocalReview = reviewedBy[latestResp.id];
-          const latestServerReview = (latestResp as any).review;
-          const latestReviewStatus = latestLocalReview?.option || latestLocalReview?.status || latestServerReview?.status || "No review yet";
-          const latestReviewer = latestLocalReview?.reviewer || latestLocalReview?.name || latestServerReview?.reviewer || latestServerReview?.name || "-";
-          const latestReworkReason =
-            (latestLocalReview as any)?.reason ||
-            (latestLocalReview as any)?.remark ||
-            (latestServerReview as any)?.reason ||
-            (latestServerReview as any)?.remark ||
-            (latestResp as any).reworkReason ||
-            (latestResp as any).biwReview?.remark ||
-            "-";
-
-          summaryRows.push([
-            cNum,
-            sortedList.length,
-            responseStatuses[firstResp.id] || firstResp.status || "-",
-            responseStatuses[latestResp.id] || latestResp.status || "-",
-            latestReviewStatus,
-            latestReviewer,
-            latestReworkReason,
-            relatedMsgs.length > 0 ? `${relatedMsgs.length} message(s)` : "No chat",
-            latestResp.isDispatched ? "Yes" : "No",
-            latestResp.dispatchedAt ? new Date(latestResp.dispatchedAt).toLocaleString("en-US") : "-",
-          ]);
-        });
-
-        const summaryWs = XLSX.utils.aoa_to_sheet(summaryRows);
-        summaryWs["!cols"] = [
-          { wch: 20 }, // Chassis Number
-          { wch: 15 }, // Total Attempts
-          { wch: 18 }, // Initial Status
-          { wch: 18 }, // Latest Status
-          { wch: 18 }, // BIW Review
-          { wch: 20 }, // Reviewed By
-          { wch: 35 }, // Rework Remarks
-          { wch: 22 }, // Chat Messages
-          { wch: 14 }, // Dispatched
-          { wch: 22 }, // Dispatched At
-        ];
-        XLSX.utils.book_append_sheet(wb, summaryWs, "Chassis Summary");
+      // Style Header Row
+      for (let i = 0; i < headerRow.length; i++) {
+        const cellRef = XLSX.utils.encode_cell({ r: 0, c: i });
+        ws[cellRef].s = {
+          fill: headerFill,
+          font: headerFont,
+          alignment: {
+            horizontal: "center",
+            vertical: "center",
+            wrapText: true,
+          },
+          border: {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
+          },
+        };
       }
 
-      // Write file
-      const fileName = `${form?.title || "inspection"}-${mode === "full" ? "Complete-Report" : mode === "consolidated" ? "Consolidated" : "Responses"}-${new Date().toLocaleDateString("en-CA")}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-      showToast("Excel workbook downloaded successfully!", "success");
+      // Style Common Answer Row
+      for (let i = 0; i < headerRow.length; i++) {
+        const cellRef = XLSX.utils.encode_cell({ r: 1, c: i });
+        ws[cellRef].s = {
+          fill: { fgColor: { rgb: "FFF3F4F6" } }, // Light gray background
+          font: { italic: true, bold: i === 0 },
+          alignment: {
+            horizontal: i === 0 ? "left" : "center",
+            vertical: "center",
+            wrapText: true,
+          },
+          border: {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
+          },
+        };
+      }
+
+      // Style response rows
+      const lastResponseRowIdx = responses.length + 1;
+      for (let rowIdx = 1; rowIdx < lastResponseRowIdx; rowIdx++) {
+        const response = responses[rowIdx - 1];
+
+        // Style Timestamp column
+        const timeCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 0 });
+        ws[timeCellRef].s = {
+          fill: { fgColor: { rgb: "FFF9FAFB" } },
+          font: { bold: false },
+          alignment: { horizontal: "center", vertical: "center" },
+          border: {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
+          },
+        };
+
+        // Style Submitted By column
+        const submittedByCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 1 });
+        ws[submittedByCellRef].s = {
+          fill: { fgColor: { rgb: "FFF9FAFB" } },
+          font: { bold: false },
+          alignment: { horizontal: "left", vertical: "center" },
+          border: {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
+          },
+        };
+
+        // Style Status column
+        const statusCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 2 });
+        const currentStatus = responseStatuses[response.id] || "-";
+        let statusBgColor = "FFF9FAFB"; // Default
+
+        if (
+          currentStatus === "Direct Ok" ||
+          currentStatus === "Rework Accepted" ||
+          currentStatus === "Accepted"
+        ) {
+          statusBgColor = "FFDCFCE7"; // green-100
+        } else if (currentStatus.includes("Rework")) {
+          statusBgColor = "FFFEF3C7"; // amber-100
+        } else if (currentStatus === "Rejected") {
+          statusBgColor = "FFFEE2E2"; // red-100
+        }
+
+        ws[statusCellRef].s = {
+          fill: { fgColor: { rgb: statusBgColor } },
+          font: { bold: true },
+          alignment: { horizontal: "center", vertical: "center" },
+          border: {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
+          },
+        };
+
+        // Style Chassis Number column
+        const chassisCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 3 });
+        ws[chassisCellRef].s = {
+          fill: { fgColor: { rgb: "FFF9FAFB" } },
+          font: { bold: false },
+          alignment: { horizontal: "left", vertical: "center" },
+          border: {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
+          },
+        };
+
+        // Style Question columns
+        for (let colIdx = 0; colIdx < columnInfo.length; colIdx++) {
+          const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx + 4 });
+          const info = columnInfo[colIdx];
+          const answer = response.answers?.[info.questionId];
+
+          const bgColor = info.isFollowUp ? "FFE9D5FF" : "FFFFFFFF";
+
+          ws[cellRef].s = {
+            fill: { fgColor: { rgb: bgColor } },
+            alignment: { vertical: "center", wrapText: true },
+            border: {
+              top: { style: "thin" },
+              left: { style: "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
+            },
+          };
+        }
+      }
+
+      // Style Stats Header Row
+      for (let i = 0; i < 4; i++) {
+        const cellRef = XLSX.utils.encode_cell({ r: statsHeaderIdx, c: i });
+        ws[cellRef].s = {
+          fill: { fgColor: { rgb: "FF4F46E5" } },
+          font: { color: { rgb: "FFFFFFFF" }, bold: true },
+          alignment: { horizontal: "center", vertical: "center" },
+          border: {
+            top: { style: "medium" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
+          },
+        };
+      }
+
+      // Style Stats Data Row
+      for (let i = 0; i < 4; i++) {
+        const cellRef = XLSX.utils.encode_cell({ r: statsDataIdx, c: i });
+        ws[cellRef].s = {
+          fill: { fgColor: { rgb: "FFE0E7FF" } }, // Indigo 100
+          font: { bold: true, color: { rgb: "FF3730A3" } }, // Indigo 800
+          alignment: { horizontal: "center", vertical: "center" },
+          border: {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "medium" },
+            right: { style: "thin" },
+          },
+        };
+      }
+
+      ws["!cols"] = [
+        { wch: 22 }, // Timestamp
+        { wch: 25 }, // Submitted By
+        { wch: 15 }, // Status
+        { wch: 18 }, // Chassis Number
+        ...columnInfo.map(() => ({ wch: 35 })),
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Responses");
+      XLSX.writeFile(
+        wb,
+        `${form?.title || "responses"}-${new Date().toLocaleDateString("en-CA")}.xlsx`,
+      );
+      showToast("Excel report generated successfully!", "success");
     } catch (error) {
       console.error("Error exporting to Excel:", error);
       showToast("Failed to export to Excel. Please try again.", "error");
-    } finally {
-      setIsExportingExcel(false);
     }
   };
 
@@ -9469,7 +8648,6 @@ export default function FormAnalyticsDashboard() {
           borderColor: "rgb(21, 128, 61)",
           borderWidth: 1,
           stack: "stack1",
-          maxBarThickness: 60,
         },
         {
           label: "Rejected",
@@ -9478,7 +8656,6 @@ export default function FormAnalyticsDashboard() {
           borderColor: "rgb(185, 28, 28)",
           borderWidth: 1,
           stack: "stack1",
-          maxBarThickness: 60,
         },
         {
           label: "Reworked",
@@ -9609,7 +8786,6 @@ export default function FormAnalyticsDashboard() {
           borderWidth: 1,
           stack: "stack1",
           minBarLength: 0,
-          maxBarThickness: 60,
         },
         {
           label: "Rejected",
@@ -9619,7 +8795,6 @@ export default function FormAnalyticsDashboard() {
           borderWidth: 1,
           stack: "stack1",
           minBarLength: 0,
-          maxBarThickness: 60,
         },
         {
           label: "Reworked",
@@ -9629,7 +8804,6 @@ export default function FormAnalyticsDashboard() {
           borderWidth: 1,
           stack: "stack1",
           minBarLength: 0,
-          maxBarThickness: 60,
         },
       ],
     };
@@ -10585,16 +9759,7 @@ export default function FormAnalyticsDashboard() {
   }
 
   if (error) {
-    const errorMsg =
-      typeof error === "string"
-        ? error
-        : (error as any)?.message || String(error || "");
-    const isTimeoutError = errorMsg.includes('timeout') || errorMsg.includes('too long');
-    const isAuthError =
-      errorMsg.toLowerCase().includes("no token") ||
-      errorMsg.toLowerCase().includes("no auth token") ||
-      errorMsg.toLowerCase().includes("jwt expired") ||
-      (errorMsg.toLowerCase().includes("unauthorized") && !errorMsg.toLowerCase().includes("organization"));
+    const isTimeoutError = error.includes('timeout') || error.includes('too long');
 
     return (
       <div className="p-6">
@@ -10602,13 +9767,11 @@ export default function FormAnalyticsDashboard() {
           <div className={`rounded-lg p-6 mb-4 ${isTimeoutError ? 'bg-amber-50 dark:bg-amber-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
             {isTimeoutError ? (
               <Clock className="w-12 h-12 text-amber-500 mx-auto mb-4" />
-            ) : isAuthError ? (
-              <LogIn className="w-12 h-12 text-blue-600 dark:text-blue-400 mx-auto mb-4" />
             ) : (
               <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
             )}
-            <p className={`font-medium ${isTimeoutError ? 'text-yellow-800 dark:text-yellow-400' : isAuthError ? 'text-blue-700 dark:text-blue-300' : 'text-red-600 dark:text-red-400'}`}>
-              {isAuthError ? "Session Expired: Your login token has expired or is missing. Please log in again to access form responses." : errorMsg}
+            <p className={`font-medium ${isTimeoutError ? 'text-amber-700 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
+              {error}
             </p>
             {isTimeoutError && (
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
@@ -10616,48 +9779,31 @@ export default function FormAnalyticsDashboard() {
                 You can try again or view the data with limited functionality.
               </p>
             )}
-            {isAuthError && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Clicking &quot;Log In Again&quot; will take you to login and return you directly back to this table.
-              </p>
-            )}
           </div>
 
           <div className="flex gap-3 justify-center flex-wrap">
-            {isAuthError ? (
-              <button
-                onClick={() => {
-                  window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`;
-                }}
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold flex items-center gap-2 transition-colors cursor-pointer shadow-md"
-              >
-                <LogIn className="w-4 h-4" />
-                Log In Again
-              </button>
-            ) : (
-              <button
-                onClick={handleRetry}
-                disabled={isRetrying || loading}
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors cursor-pointer"
-              >
-                {isRetrying || loading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    <RotateCcw className="w-4 h-4" />
-                    Retry
-                  </>
-                )}
-              </button>
-            )}
+            <button
+              onClick={handleRetry}
+              disabled={isRetrying || loading}
+              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+            >
+              {isRetrying || loading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="w-4 h-4" />
+                  Retry
+                </>
+              )}
+            </button>
 
             {!isGuest && (
               <button
                 onClick={() => navigate(-1)}
-                className="px-6 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                className="px-6 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
                 Go Back
               </button>
@@ -10751,110 +9897,77 @@ export default function FormAnalyticsDashboard() {
     >
       {/* Header with Tabs - Single Row */}
       {form && (
-        <>
-          {/* Linked Parent Form Banner (if this form is a follow-up form) */}
-          {form.parentForm && (
-            <div className="mb-2 px-3.5 py-2.5 bg-gradient-to-r from-indigo-50 via-purple-50 to-blue-50 dark:from-indigo-950/40 dark:via-purple-950/40 dark:to-blue-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-              <div className="flex items-center gap-2.5">
-                <span className="px-2 py-0.5 rounded-md bg-indigo-600 text-white text-[11px] font-black uppercase tracking-wide">
-                  Follow-up Form
-                </span>
-                <span className="text-xs sm:text-sm font-bold text-gray-800 dark:text-gray-200">
-                  Parent Inspection Form: <strong>{form.parentForm.title}</strong>
-                </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  ({form.parentForm.responseCount ?? 0} parent records)
-                </span>
-              </div>
+        <div className="bg-white dark:bg-gray-900 p-3 sm:p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 flex flex-col lg:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2 sm:gap-4 w-full lg:w-auto">
+            {!isGuest && (
               <button
-                type="button"
-                onClick={() => navigate(`/forms/${form.parentForm?._id || form.parentForm?.id}/analytics?tab=${analyticsView === "followup" ? "responses" : analyticsView}`)}
-                className="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 rounded-lg text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer w-fit"
+                onClick={() => navigate(-1)}
+                className="p-1.5 sm:p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                title="Go back"
               >
-                <span>← Switch to Parent Form Analytics ({form.parentForm.responseCount ?? 0})</span>
+                <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
-            </div>
-          )}
+            )}
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white truncate max-w-[200px] sm:max-w-md">
+              {form?.title || "Form"}
+            </h1>
+          </div>
 
-          <div className="bg-white dark:bg-gray-900 p-3 sm:p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 flex flex-col lg:flex-row items-center justify-between gap-4">
-            <div className="flex flex-col gap-1 w-full lg:w-auto">
-              <div className="flex items-center gap-2 sm:gap-4">
-                {!isGuest && (
-                  <button
-                    onClick={() => navigate(-1)}
-                    className="p-1.5 sm:p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                    title="Go back"
-                  >
-                    <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
-                  </button>
-                )}
-                <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white truncate max-w-[200px] sm:max-w-md">
-                  {form?.title || "Form"}
-                </h1>
-              </div>
-
-              {/* Form Ecosystem Switcher Pills (Main Form + Follow-up Forms) */}
-              {form.childForms && form.childForms.length > 0 && (
-                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {}}
-                    className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-xs font-bold border border-blue-200 dark:border-blue-800 flex items-center gap-1.5 shrink-0 cursor-default"
-                  >
-                    <span>📋 Main Form</span>
-                    <span className="px-1.5 py-0.2 rounded-full bg-blue-200/70 dark:bg-blue-800 text-blue-800 dark:text-blue-200 text-[10px]">
-                      {analytics.total}
-                    </span>
-                  </button>
-                  {form.childForms.map((cf: any, idx: number) => (
-                    <button
-                      key={cf.formId || idx}
-                      type="button"
-                      onClick={() => navigate(`/forms/${cf._id || cf.formId}/analytics?tab=${analyticsView === "followup" ? "responses" : analyticsView}`)}
-                      className="px-2.5 py-1 rounded-lg bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-gray-600 dark:text-gray-400 hover:text-indigo-700 dark:hover:text-indigo-300 text-xs font-bold border border-gray-200 dark:border-gray-700 hover:border-indigo-200 dark:hover:border-indigo-800 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
-                      title={`Switch to ${cf.formTitle || 'Follow-up Form'}`}
-                    >
-                      <Reply className="w-3 h-3 text-indigo-500" />
-                      <span>{cf.formTitle || `Follow-up #${idx + 1}`}</span>
-                      <span className="px-1.5 py-0.2 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold">
-                        {cf.responseCount ?? 0}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Tabs - Center */}
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 lg:pb-0 max-w-full no-scrollbar">
-              <>
-                {hasTabPermission("dashboard") && (
-                  <button
-                    onClick={() => setAnalyticsView("dashboard")}
-                    className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "dashboard"
-                      ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
-                      : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
-                      }`}
-                  >
-                    <BarChart3 className="w-4 h-4" />
-                    Dashboard
-                  </button>
-                )}
-              </>
-
-              {hasTabPermission("responses") && (
+          {/* Tabs - Center */}
+          <div className="flex items-center gap-1 overflow-x-auto pb-1 lg:pb-0 max-w-full no-scrollbar">
+            <>
+              {hasTabPermission("dashboard") && (
                 <button
-                  onClick={() => setAnalyticsView("responses")}
-                  className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "responses"
+                  onClick={() => setAnalyticsView("dashboard")}
+                  className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "dashboard"
                     ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
                     : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
                     }`}
                 >
-                  <UsersIcon className="w-4 h-4" />
-                  Responses
+                  <BarChart3 className="w-4 h-4" />
+                  Dashboard
                 </button>
               )}
-            </div>
+
+              {/* <button
+                  onClick={() => setAnalyticsView("table")}
+                  className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${
+                    analyticsView === "table"
+                      ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
+                      : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
+                  }`}
+                >
+                  <Table className="w-4 h-4" />
+                  Table
+                </button> */}
+            </>
+
+            {hasTabPermission("responses") && (
+              <button
+                onClick={() => setAnalyticsView("responses")}
+                className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "responses"
+                  ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
+                  : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
+                  }`}
+              >
+                <UsersIcon className="w-4 h-4" />
+                Responses
+              </button>
+            )}
+            {/* {!isInspector && !isGuest && (
+              <button
+                onClick={() => setAnalyticsView("comparison")}
+                className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${
+                  analyticsView === "comparison"
+                    ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
+                    : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
+                }`}
+              >
+                <UsersIcon className="w-4 h-4" />
+                Comparison
+              </button>
+            )} */}
+          </div>
 
           {/* Refresh Button - Only for Dashboard */}
 
@@ -10957,20 +10070,8 @@ export default function FormAnalyticsDashboard() {
                   </>
                 )}
                 <button
-                  onClick={handleExportToPPT}
-                  disabled={isExportingPPT || isExporting || isExportingExcel}
-                  className="p-1.5 sm:p-2 text-gray-500 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded-lg transition-colors disabled:opacity-50"
-                  title="Export to PPT"
-                >
-                  {isExportingPPT ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
-                  ) : (
-                    <Download className="w-4 h-4" />
-                  )}
-                </button>
-                <button
                   onClick={handleExportToPDF}
-                  disabled={isExportingPPT || isExporting || isExportingExcel}
+                  disabled={isExporting}
                   className="p-1.5 sm:p-2 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
                   title="Export to PDF"
                 >
@@ -10982,15 +10083,11 @@ export default function FormAnalyticsDashboard() {
                 </button>
                 <button
                   onClick={handleExportToExcel}
-                  disabled={isExportingPPT || isExporting || isExportingExcel}
+                  disabled={isExporting}
                   className="p-1.5 sm:p-2 text-gray-500 hover:text-green-600 dark:text-gray-400 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors disabled:opacity-50"
                   title="Export to Excel"
                 >
-                  {isExportingExcel ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-green-500" />
-                  ) : (
-                    <Table className="w-4 h-4" />
-                  )}
+                  <Table className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -11004,8 +10101,7 @@ export default function FormAnalyticsDashboard() {
             )}
           </div>
         </div>
-      </>
-    )}
+      )}
 
       {/* Dashboard View - Always render for PDF export capability, but hide if not active */}
       {(analyticsView === "dashboard" || isExporting) && (
@@ -11017,40 +10113,6 @@ export default function FormAnalyticsDashboard() {
           }
           aria-hidden={analyticsView !== "dashboard"}
         >
-          {/* Inspection Ecosystem Dashboard Banner (when form has follow-up forms) */}
-          {form?.childForms && form.childForms.length > 0 && (
-            <div className="p-3.5 sm:p-4 bg-gradient-to-r from-blue-50/90 via-indigo-50/90 to-purple-50/90 dark:from-blue-950/40 dark:via-indigo-950/40 dark:to-purple-950/40 rounded-2xl border border-blue-200/80 dark:border-blue-800/60 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-2xs shrink-0">
-                  <BarChart3 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                    <span>Inspection Ecosystem Dashboard</span>
-                    <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 text-[11px] font-black">
-                      Active: Main Form
-                    </span>
-                  </h4>
-                  <p className="text-xs text-gray-600 dark:text-gray-400">
-                    Viewing metrics for <strong>{form.title}</strong> ({analytics.total} records). Switch below to view Follow-up inspection dashboard without fail.
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {form.childForms.map((cf: any, idx: number) => (
-                  <button
-                    key={cf.formId || idx}
-                    type="button"
-                    onClick={() => navigate(`/forms/${cf._id || cf.formId}/analytics?tab=dashboard`)}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <TrendingUp className="w-3.5 h-3.5" />
-                    <span>View {cf.formTitle || `Follow-up #${idx + 1}`} Dashboard ({cf.responseCount ?? 0}) ↗</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
           {responses.length === 0 && isChartLoading && !isExporting ? (
             <div className="space-y-6 animate-pulse">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full">
@@ -11132,8 +10194,8 @@ export default function FormAnalyticsDashboard() {
                               ),
                               datasets: [
                                 {
-                                  label: "Responses",
-                                  data: analytics.countsData,
+                                  label: "Responses %",
+                                  data: analytics.percentageData,
                                   borderColor: "rgb(59, 130, 246)",
                                   backgroundColor: "rgba(59, 130, 246, 0.1)",
                                   fill: true,
@@ -11144,15 +10206,6 @@ export default function FormAnalyticsDashboard() {
                                   pointBorderColor: "#fff",
                                   pointBorderWidth: 2,
                                   borderWidth: 2,
-                                  datalabels: {
-                                    color: "#374151",
-                                    font: { weight: "bold" as const, size: 9 },
-                                    formatter: (value: number) => {
-                                      return value > 0 ? value : "";
-                                    },
-                                    align: "top",
-                                    offset: 4,
-                                  },
                                 },
                               ],
                             }}
@@ -11199,6 +10252,7 @@ export default function FormAnalyticsDashboard() {
                               scales: {
                                 y: {
                                   beginAtZero: true,
+                                  max: 100,
                                   grid: {
                                     color: "rgba(0, 0, 0, 0.05)",
                                     drawBorder: false,
@@ -11206,7 +10260,9 @@ export default function FormAnalyticsDashboard() {
                                   ticks: {
                                     color: "rgb(107, 114, 128)",
                                     font: { size: 10 },
-                                    stepSize: 1,
+                                    callback: function (value) {
+                                      return value + "%";
+                                    },
                                   },
                                 },
                                 x: {
@@ -11271,45 +10327,12 @@ export default function FormAnalyticsDashboard() {
           {analyticsView === "responses" && (
             <div className="space-y-4 sm:space-y-6">
               <div className="card p-3 sm:p-6">
-                {(batchIdParam || uploadOnlyParam) && (
-                  <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl flex items-center justify-between gap-3 text-xs sm:text-sm shadow-2xs">
-                    <div className="flex items-center gap-2 text-blue-800 dark:text-blue-300 font-bold">
-                      <FileSpreadsheet className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                      <span>Filtered to Uploaded Data ({activeTotalResponsesCount} records)</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newParams = new URLSearchParams(searchParams);
-                        newParams.delete("batchId");
-                        newParams.delete("uploadOnly");
-                        setSearchParams(newParams);
-                      }}
-                      className="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-300 dark:border-gray-600 font-bold text-xs cursor-pointer flex items-center gap-1.5 transition-colors shadow-2xs"
-                    >
-                      <X className="w-3.5 h-3.5 text-red-500" />
-                      <span>Show All Form Responses</span>
-                    </button>
-                  </div>
-                )}
-
-
-
                 <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex flex-col">
-                    <div className="flex items-center gap-2.5">
-                      <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                        <Table className="w-5 h-5 text-indigo-600" />
-                        {batchIdParam || uploadOnlyParam ? "Uploaded Responses (Excel Import)" : "All Responses"}
-                      </h3>
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50">
-                        <span className="relative flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                        </span>
-                        Auto-syncing
-                      </span>
-                    </div>
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                      <Table className="w-5 h-5 text-indigo-600" />
+                      All Responses
+                    </h3>
                     <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
                       {isLoadingTableResponses
                         ? "Loading…"
@@ -11391,32 +10414,6 @@ export default function FormAnalyticsDashboard() {
                         </button>
                       </div>
                     )}
-                    {/* Checkbox option to toggle Parent Match column */}
-                    <label
-                      title="Toggle Parent Match column visibility (Optional)"
-                      className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold border transition-all cursor-pointer select-none ${
-                        showParentMatchColumn
-                          ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700 shadow-2xs"
-                          : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/60"
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={showParentMatchColumn}
-                        onChange={(e) => {
-                          const nextVal = e.target.checked;
-                          setShowParentMatchColumn(nextVal);
-                          try {
-                            const formKey = form?.id || form?._id || "default";
-                            localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
-                          } catch (err) {}
-                        }}
-                        className="w-3.5 h-3.5 text-indigo-600 rounded accent-indigo-600 cursor-pointer"
-                      />
-                      <Link2 className={`w-3.5 h-3.5 ${showParentMatchColumn ? "text-indigo-600 dark:text-indigo-400" : "text-gray-400"}`} />
-                      <span className="hidden sm:inline">Parent Match</span>
-                    </label>
-
                     <button
                       onClick={() =>
                         setShowResponsesFilter(!showResponsesFilter)
@@ -11439,91 +10436,14 @@ export default function FormAnalyticsDashboard() {
                       <span className="hidden xs:inline">Filter Sections</span>
                       <span className="xs:hidden">Filter</span>
                     </button>
-                    <div className="relative" ref={exportDropdownRef}>
-                      <button
-                        onClick={() => setShowExportDropdown((prev) => !prev)}
-                        disabled={(Boolean(form?.sections && form.sections.length > 0 && selectedResponsesSectionIds.length === 0)) || isExportingExcel}
-                        className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm"
-                        title="Download Excel Report"
-                      >
-                        {isExportingExcel ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Download className="w-4 h-4" />
-                        )}
-                        <span className="hidden xs:inline">Export</span>
-                        <ChevronDown className="w-3.5 h-3.5 opacity-80" />
-                      </button>
-
-                      {showExportDropdown && (
-                        <div className="absolute right-0 mt-2 w-72 sm:w-80 rounded-xl shadow-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-                          <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                              Excel Export Presets
-                            </span>
-                          </div>
-
-                          {/* Option 1: Complete Multi-Tab Workbook */}
-                          <button
-                            onClick={() => handleExportToExcel("full")}
-                            className="w-full px-3.5 py-2.5 text-left hover:bg-emerald-50 dark:hover:bg-emerald-950/30 flex items-start gap-3 transition-colors group"
-                          >
-                            <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 mt-0.5">
-                              <FileSpreadsheet className="w-4 h-4" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
-                                  Complete Multi-Tab Report
-                                </span>
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300">
-                                  Recommended
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                Separate tabs: Responses, Rework & Defects, Chassis Chat Log, and Summary.
-                              </p>
-                            </div>
-                          </button>
-
-                          {/* Option 2: Consolidated Sheet */}
-                          <button
-                            onClick={() => handleExportToExcel("consolidated")}
-                            className="w-full px-3.5 py-2.5 text-left hover:bg-blue-50 dark:hover:bg-blue-950/30 flex items-start gap-3 transition-colors group"
-                          >
-                            <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 mt-0.5">
-                              <Table className="w-4 h-4" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                                Consolidated (Single Sheet)
-                              </span>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                Form answers plus matched Rework reasons and Chat discussions per row.
-                              </p>
-                            </div>
-                          </button>
-
-                          {/* Option 3: Standard Export */}
-                          <button
-                            onClick={() => handleExportToExcel("standard")}
-                            className="w-full px-3.5 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/50 flex items-start gap-3 transition-colors group"
-                          >
-                            <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 mt-0.5">
-                              <Download className="w-4 h-4" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white">
-                                Standard Responses Export
-                              </span>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                Clean export of current filtered table columns.
-                              </p>
-                            </div>
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <button
+                      onClick={() => handleExportToExcel()}
+                      disabled={selectedResponsesSectionIds.length === 0}
+                      className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span className="hidden xs:inline">Export</span>
+                    </button>
                     {selectedResponseIds.length > 0 && !isGuest && (
                       <>
                         <button
@@ -11549,7 +10469,7 @@ export default function FormAnalyticsDashboard() {
                           {isBulkBiwUpdating ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
-                            <X className="w-4 h-4" />
+                            <XCircle className="w-4 h-4" />
                           )}
                           <span className="hidden md:inline">BIW Reject</span>
                           <span className="md:hidden">Reject</span>
@@ -11557,13 +10477,13 @@ export default function FormAnalyticsDashboard() {
                         <button
                           onClick={() => handleBulkBiwReviewUpdate("Reworked")}
                           disabled={isBulkBiwUpdating}
-                          className="px-3 sm:px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2 animate-in fade-in zoom-in-95 duration-150"
-                          title="Bulk Mark as Reworked (BIW Review)"
+                          className="px-3 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2 animate-in fade-in zoom-in-95 duration-150"
+                          title="Bulk Rework (BIW Review)"
                         >
                           {isBulkBiwUpdating ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
-                            <RefreshCw className="w-4 h-4" />
+                            <RotateCcw className="w-4 h-4" />
                           )}
                           <span className="hidden md:inline">BIW Rework</span>
                           <span className="md:hidden">Rework</span>
@@ -11685,41 +10605,13 @@ export default function FormAnalyticsDashboard() {
                               No sections available
                             </p>
                           )}
-
-                          {/* Optional Columns section */}
-                          <div className="pt-2.5 mt-2 border-t border-gray-200 dark:border-gray-700">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 block px-2 mb-1.5">
-                              Optional Columns
-                            </span>
-                            <label className="flex items-center gap-3 p-2 rounded-lg hover:bg-indigo-50/60 dark:hover:bg-indigo-950/30 cursor-pointer transition-colors group">
-                              <input
-                                type="checkbox"
-                                checked={showParentMatchColumn}
-                                onChange={(e) => {
-                                  const nextVal = e.target.checked;
-                                  setShowParentMatchColumn(nextVal);
-                                  try {
-                                    const formKey = form?.id || form?._id || "default";
-                                    localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
-                                  } catch (err) {}
-                                }}
-                                className="w-4 h-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-indigo-600"
-                              />
-                              <div className="flex items-center gap-2">
-                                <Link2 className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                                <span className="text-xs font-semibold text-gray-900 dark:text-gray-200">
-                                  Parent Match
-                                </span>
-                              </div>
-                            </label>
-                          </div>
                         </div>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {(!form?.sections || form.sections.length === 0 || selectedResponsesSectionIds.length > 0) ? (
+                {selectedResponsesSectionIds.length > 0 ? (
                   <>
                     {/* Overall Inspection Statistics Summary Bar */}
                     <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 p-3 sm:p-4 mb-4">
@@ -11744,7 +10636,7 @@ export default function FormAnalyticsDashboard() {
                           </span>
                           <div className="flex items-baseline justify-between">
                             <span className="text-lg font-black text-green-600 dark:text-green-400">
-                              {inspectionStats.accepted + inspectionStats.reworkCompleted}
+                              {inspectionStats.accepted}
                             </span>
                             <CheckCircle className="w-4 h-4 text-green-500" />
                           </div>
@@ -11762,15 +10654,15 @@ export default function FormAnalyticsDashboard() {
                           </div>
                         </div>
 
-                        <div className="flex flex-col p-2 bg-yellow-50 dark:bg-yellow-900/10 rounded-lg border border-yellow-200 dark:border-yellow-900/20">
-                          <span className="text-[10px] text-yellow-800 dark:text-yellow-400 font-bold uppercase">
+                        <div className="flex flex-col p-2 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-100 dark:border-amber-900/20">
+                          <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase">
                             {complianceLabels.na}
                           </span>
                           <div className="flex items-baseline justify-between">
-                            <span className="text-lg font-black text-yellow-600 dark:text-yellow-400">
+                            <span className="text-lg font-black text-amber-500 dark:text-amber-400">
                               {inspectionStats.reworked}
                             </span>
-                            <span className="text-yellow-600 text-sm font-bold">
+                            <span className="text-amber-500 text-sm font-bold">
                               ⚠
                             </span>
                           </div>
@@ -11832,79 +10724,54 @@ export default function FormAnalyticsDashboard() {
                               </div>
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              <div className="flex flex-col gap-2">
-                                <span>Submitted by</span>
-                                <input
-                                  type="text"
-                                  placeholder="Search name..."
-                                  value={headerFilters.submittedBy}
-                                  onChange={(e) => setHeaderFilters(prev => ({ ...prev, submittedBy: e.target.value }))}
-                                  className="w-full px-2 py-1 text-xs font-normal border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                                />
-                              </div>
+                              Submitted by
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-32 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              <div className="flex flex-col gap-2">
-                                <span>Status</span>
-                                <StatusMultiSelect
-                                  options={availableStatuses}
-                                  selectedValues={headerFilters.status}
-                                  onChange={(newValues) => setHeaderFilters(prev => ({ ...prev, status: newValues }))}
-                                />
-                              </div>
+                              Status
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              <div className="flex flex-col gap-2">
-                                <div className="flex items-center justify-between gap-1.5">
-                                  <div
-                                    onClick={() => {
-                                      setTableSort((prev) =>
-                                        prev?.columnId === "__chassisNumber"
-                                          ? prev.direction === "asc"
-                                            ? { columnId: "__chassisNumber", direction: "desc" }
-                                            : null
-                                          : { columnId: "__chassisNumber", direction: "asc" }
-                                      );
-                                    }}
-                                    className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                                    title="Click to sort Chassis Ascending / Descending"
-                                  >
-                                    <span>Selected Chassis</span>
-                                    {tableSort?.columnId === "__chassisNumber" ? (
-                                      tableSort.direction === "asc" ? (
-                                        <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                                      ) : (
-                                        <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                                      )
+                              <div className="flex items-center justify-between gap-1.5">
+                                <div
+                                  onClick={() => {
+                                    setTableSort((prev) =>
+                                      prev?.columnId === "__chassisNumber"
+                                        ? prev.direction === "asc"
+                                          ? { columnId: "__chassisNumber", direction: "desc" }
+                                          : null
+                                        : { columnId: "__chassisNumber", direction: "asc" }
+                                    );
+                                  }}
+                                  className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                  title="Click to sort Chassis Ascending / Descending"
+                                >
+                                  <span>Selected Chassis</span>
+                                  {tableSort?.columnId === "__chassisNumber" ? (
+                                    tableSort.direction === "asc" ? (
+                                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                                     ) : (
-                                      <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
-                                    )}
-                                  </div>
-                                  {canBulkSelectResponses && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleAutoFillAllChassis();
-                                      }}
-                                      disabled={isAutoFillingChassis || !chassisMasterOptions.length}
-                                      title="Auto-fill every response with no chassis number using the first option"
-                                      className="p-1 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed normal-case tracking-normal"
-                                    >
-                                      {isAutoFillingChassis ? (
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                      ) : (
-                                        <CheckCircle className="w-3.5 h-3.5" />
-                                      )}
-                                    </button>
+                                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    )
+                                  ) : (
+                                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
                                   )}
                                 </div>
-                                <input
-                                  type="text"
-                                  placeholder="Search chassis..."
-                                  value={headerFilters.chassis}
-                                  onChange={(e) => setHeaderFilters(prev => ({ ...prev, chassis: e.target.value }))}
-                                  className="w-full px-2 py-1 text-xs font-normal border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                                />
+                                {canBulkSelectResponses && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleAutoFillAllChassis();
+                                    }}
+                                    disabled={isAutoFillingChassis || !chassisMasterOptions.length}
+                                    title="Auto-fill every response with no chassis number using the first option"
+                                    className="p-1 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed normal-case tracking-normal"
+                                  >
+                                    {isAutoFillingChassis ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <CheckCircle className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                )}
                               </div>
                             </th>
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
@@ -11992,37 +10859,30 @@ export default function FormAnalyticsDashboard() {
                                 </select>
                               </div>
                             </th>
-                            <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              <div className="flex flex-col gap-2">
-                                <div
-                                  onClick={() => {
-                                    setTableSort((prev) =>
-                                      prev?.columnId === "__timestamp"
-                                        ? prev.direction === "asc"
-                                          ? { columnId: "__timestamp", direction: "desc" }
-                                          : null
-                                        : { columnId: "__timestamp", direction: "asc" }
-                                    );
-                                  }}
-                                  className="flex items-center justify-between gap-2 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                                  title="Click to sort by Timestamp"
-                                >
-                                  <span>Timestamp</span>
-                                  {tableSort?.columnId === "__timestamp" ? (
-                                    tableSort.direction === "asc" ? (
-                                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                                    ) : (
-                                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                                    )
+                            <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
+                              <div
+                                onClick={() => {
+                                  setTableSort((prev) =>
+                                    prev?.columnId === "__timestamp"
+                                      ? prev.direction === "asc"
+                                        ? { columnId: "__timestamp", direction: "desc" }
+                                        : null
+                                      : { columnId: "__timestamp", direction: "asc" }
+                                  );
+                                }}
+                                className="flex items-center justify-between gap-2 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                title="Click to sort by Timestamp"
+                              >
+                                <span>Timestamp</span>
+                                {tableSort?.columnId === "__timestamp" ? (
+                                  tableSort.direction === "asc" ? (
+                                    <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                                   ) : (
-                                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 opacity-40 hover:opacity-100" />
-                                  )}
-                                </div>
-                                <HeatmapCalendar
-                                  selectedDate={headerFilters.timestamp}
-                                  onSelectDate={(date) => setHeaderFilters(prev => ({ ...prev, timestamp: date }))}
-                                  responseCountsByDate={responseCountsByDate}
-                                />
+                                    <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                                  )
+                                ) : (
+                                  <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 opacity-40 hover:opacity-100" />
+                                )}
                               </div>
                             </th>
 
@@ -12068,38 +10928,6 @@ export default function FormAnalyticsDashboard() {
                                 />
                               </div>
                             </th>
-                            {/* Parent Match Column Header */}
-                            {showParentMatchColumn && (
-                              <th className="text-center px-4 py-3 font-semibold text-xs uppercase tracking-wider border border-gray-200 dark:border-gray-700 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-200 min-w-36 whitespace-nowrap">
-                                <div className="flex items-center justify-center gap-1.5">
-                                  <span
-                                    onClick={() => {
-                                      setTableSort((prev) =>
-                                        prev?.columnId === "__parentMatch"
-                                          ? prev.direction === "asc"
-                                            ? { columnId: "__parentMatch", direction: "desc" }
-                                            : null
-                                          : { columnId: "__parentMatch", direction: "asc" }
-                                      );
-                                    }}
-                                    className="cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center justify-center gap-1.5"
-                                    title="Click to sort by Parent Match status"
-                                  >
-                                    <Link2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                                    <span>Parent Match</span>
-                                    {tableSort?.columnId === "__parentMatch" && (
-                                      <span className="text-indigo-600 dark:text-indigo-400">
-                                        {tableSort.direction === "asc" ? (
-                                          <ArrowUp className="w-3.5 h-3.5" />
-                                        ) : (
-                                          <ArrowDown className="w-3.5 h-3.5" />
-                                        )}
-                                      </span>
-                                    )}
-                                  </span>
-                                </div>
-                              </th>
-                            )}
                             {form?.sections?.map(
                               (section: Section) =>
                                 selectedResponsesSectionIds.includes(
@@ -12362,13 +11190,13 @@ export default function FormAnalyticsDashboard() {
                                         const dispatchDate = response.dispatchedAt ? new Date(response.dispatchedAt) : null;
                                         return (
                                           <div className="flex flex-col items-center justify-center text-xs text-center gap-0.5">
-                                            <div className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-800 rounded-full font-bold text-[11px]">
-                                              <CheckCircle className="w-3 h-3" />
-                                              <span>Dispatched</span>
+                                            <div className="flex items-center text-green-600 font-medium">
+                                              <CheckCircle className="w-3.5 h-3.5 mr-1" />
+                                              <span>Enabled</span>
                                             </div>
                                             {response.dispatchedByName ? (
                                               <span className="text-gray-600 dark:text-gray-300 text-[10px] font-semibold whitespace-nowrap">
-                                                by {response.dispatchedByName}
+                                                {response.dispatchedByName}
                                               </span>
                                             ) : (
                                               <span className="text-gray-400 text-[10px] italic">Unknown user</span>
@@ -12420,27 +11248,24 @@ export default function FormAnalyticsDashboard() {
                                         It self-upgrades to the fully-accurate value once the
                                         full set finishes loading in the background. */}
                                     {(() => {
-                                      const rawStatus = tableDisplayStatuses[response.id] || tableDisplayStatuses[response._id] || responseStatuses[response.id] || responseStatuses[response._id];
-                                      const rowStatus = (rawStatus && rawStatus !== "-" && rawStatus !== "Pending Review") ? rawStatus : computeFastRowStatus(response, chassisQuestionId);
-                                      const displayLabel = (rowStatus && rowStatus !== "-") ? rowStatus : (response.status === "pending" || !response.status ? "Direct Ok" : response.status);
-
+                                      const rowStatus = tableDisplayStatuses[response.id];
                                       return (
                                         <span
-                                          className={`px-2.5 py-1 rounded-full text-xs font-semibold ${displayLabel === "Rejected"
-                                            ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800"
-                                            : displayLabel?.includes("Rework") &&
-                                              displayLabel !== "Rework Accepted"
-                                              ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-800"
-                                              : displayLabel === "Direct Ok" ||
-                                                displayLabel === "Rework Accepted" ||
-                                                displayLabel === "Accepted" ||
-                                                displayLabel === "Rework Completed" ||
-                                                displayLabel === "Verified"
-                                                ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-800"
-                                                : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-700"
+                                          className={`px-2 py-1 rounded-full text-xs ${rowStatus === "Rejected"
+                                            ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300"
+                                            : rowStatus?.includes("Rework") &&
+                                              rowStatus !== "Rework Accepted"
+                                              ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                                              : rowStatus === "Direct Ok" ||
+                                                rowStatus === "Rework Accepted" ||
+                                                rowStatus === "Accepted"
+                                                ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                                                : rowStatus === "Pending Review"
+                                                  ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
+                                                  : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
                                             }`}
                                         >
-                                          {displayLabel}
+                                          {rowStatus || "Pending Review"}
                                         </span>
                                       );
                                     })()}
@@ -12486,21 +11311,11 @@ export default function FormAnalyticsDashboard() {
                                       </div>
                                     ) : (
                                       <div className="flex items-center gap-1.5 group">
-                                        <span className="font-semibold text-gray-900 dark:text-white">
-                                          {getChassisDisplayValue(
-                                            response.answers?.chassis_number ||
-                                            response.answers?.chassisNumber ||
-                                            response.answers?.id_number ||
-                                            response.answers?.idNumber ||
-                                            response.answers?.["ID number"] ||
-                                            response.answers?.["Chassis / VIN"] ||
-                                            (chassisQuestionId ? response.answers?.[chassisQuestionId] : "")
-                                          )}
-                                        </span>
+                                        <span>{getChassisDisplayValue(response.answers?.chassis_number)}</span>
                                         <button
                                           onClick={() => handleStartChassisEdit(response)}
                                           title="Edit Chassis"
-                                          className="p-1 text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded transition-all opacity-0 group-hover:opacity-100 cursor-pointer"
+                                          className="p-1 text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded transition-all opacity-0 group-hover:opacity-100"
                                         >
                                           <Edit className="w-3.5 h-3.5" />
                                         </button>
@@ -12516,7 +11331,6 @@ export default function FormAnalyticsDashboard() {
                                         status: any;
                                         reviewer: any;
                                         flaggedQuestions: any[];
-                                        reason?: string;
                                       } | null = null;
 
                                       if (localReview) {
@@ -12524,14 +11338,12 @@ export default function FormAnalyticsDashboard() {
                                           status: localReview.option || localReview.status,
                                           reviewer: localReview.reviewer || localReview.name,
                                           flaggedQuestions: localReview.flaggedQuestions || [],
-                                          reason: (localReview as any).reason || (localReview as any).remark || (localReview as any).reworkReason || (localReview as any).note,
                                         };
                                       } else if (legacyServerReview) {
                                         reviewObj = {
                                           status: legacyServerReview.status,
                                           reviewer: legacyServerReview.reviewer || legacyServerReview.name,
                                           flaggedQuestions: legacyServerReview.flaggedQuestions || [],
-                                          reason: legacyServerReview.reason || legacyServerReview.remark || legacyServerReview.reworkReason || legacyServerReview.note,
                                         };
                                       }
 
@@ -12539,17 +11351,9 @@ export default function FormAnalyticsDashboard() {
                                         reviewObj.reviewer = "Reviewer";
                                       }
 
-                                      const reworkOrReviewReason =
-                                        reviewObj?.reason ||
-                                        (response as any).reworkReason ||
-                                        (response as any).reworkNote ||
-                                        (response as any).review?.remark ||
-                                        (response as any).review?.reason ||
-                                        (response as any).biwReview?.remark ||
-                                        (response as any).biwReview?.reason;
-
                                       return reviewObj ? (
-                                        <div className="flex flex-col gap-1.5">
+
+                                        <div className="flex flex-col gap-1">
                                           <div className="flex items-center gap-2">
                                             <span
                                               className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${String(reviewObj.status)
@@ -12572,17 +11376,6 @@ export default function FormAnalyticsDashboard() {
                                               </span>
                                             </span>
                                           </div>
-
-                                          {/* Rework / Review Reason */}
-                                          {reworkOrReviewReason && (
-                                            <div className="mt-0.5 px-2 py-1 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded text-xs text-amber-900 dark:text-amber-200">
-                                              <span className="font-bold text-[10px] uppercase text-amber-700 dark:text-amber-400 block mb-0.5">
-                                                {String(reviewObj.status).toLowerCase().includes("rework") ? "Rework Reason:" : "Reason / Remark:"}
-                                              </span>
-                                              <span className="italic break-words">{reworkOrReviewReason}</span>
-                                            </div>
-                                          )}
-
                                           {reviewObj.flaggedQuestions &&
                                             reviewObj.flaggedQuestions.length >
                                             0 && (
@@ -12602,19 +11395,9 @@ export default function FormAnalyticsDashboard() {
                                             )}
                                         </div>
                                       ) : (
-                                        <div className="flex flex-col gap-1">
-                                          <span className="text-gray-400 italic text-xs">
-                                            No review yet
-                                          </span>
-                                          {reworkOrReviewReason && (
-                                            <div className="mt-0.5 px-2 py-1 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded text-xs text-amber-900 dark:text-amber-200">
-                                              <span className="font-bold text-[10px] uppercase text-amber-700 dark:text-amber-400 block mb-0.5">
-                                                Rework Reason:
-                                              </span>
-                                              <span className="italic break-words">{reworkOrReviewReason}</span>
-                                            </div>
-                                          )}
-                                        </div>
+                                        <span className="text-gray-400 italic text-xs">
+                                          No review yet
+                                        </span>
                                       );
                                     })()}
                                   </td>
@@ -12741,49 +11524,41 @@ export default function FormAnalyticsDashboard() {
                                       );
                                     })()}
                                   </td>
-                                  <td className="px-6 py-3 text-sm border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
-                                    {(() => {
-                                      const ts = getResponseTimestamp(response);
-                                      if (!ts) return <span className="text-gray-400">-</span>;
-                                      const d = new Date(ts);
-                                      if (isNaN(d.getTime())) return <span>{String(ts)}</span>;
-                                      const mm = String(d.getMonth() + 1).padStart(2, "0");
-                                      const dd = String(d.getDate()).padStart(2, "0");
-                                      const yyyy = d.getFullYear();
-                                      const timeStr = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
-                                      return (
-                                        <div className="flex flex-col">
-                                          <span className="font-semibold text-gray-800 dark:text-gray-200">{`${mm}/${dd}/${yyyy}`}</span>
-                                          <span className="text-[11px] text-gray-400 font-normal">{timeStr}</span>
-                                        </div>
-                                      );
-                                    })()}
+                                  <td className="px-6 py-3 text-sm text-gray-600 dark:text-gray-400 font-medium border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
+                                    {getResponseTimestamp(response)
+                                      ? new Date(
+                                        getResponseTimestamp(response)!,
+                                      ).toLocaleDateString("en-US")
+                                      : "-"}
                                   </td>
 
-                                  <td className="px-6 py-3 text-sm text-center font-bold text-blue-600 dark:text-blue-400 border border-gray-200 dark:border-gray-700 whitespace-nowrap">
+                                  <td className="px-4 py-3 text-sm text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                     {(() => {
-                                      const rawTime =
-                                        response.timeSpent ??
-                                        response.totalTimeSpent ??
-                                        response.submissionMetadata?.timeSpent;
                                       const timeSpent =
-                                        rawTime !== undefined && rawTime !== null
-                                          ? Number(rawTime)
-                                          : null;
-
+                                        response.timeSpent ??
+                                        response.totalTimeSpent;
+                                      const respId = response.id || (response as any)._id;
+                                      const rank =
+                                        chassisAttemptRanks[respId] ||
+                                        (response.responseRanks && typeof response.responseRanks === 'object'
+                                          ? (chassisQuestionId && response.responseRanks[chassisQuestionId]) || Object.values(response.responseRanks).find((v: any) => typeof v === 'number' && v > 0)
+                                          : null) ||
+                                        1;
                                       const rowStatus =
-                                        tableDisplayStatuses[response.id] ||
-                                        responseStatuses[response.id] ||
+                                        tableDisplayStatuses[respId] ||
+                                        responseStatuses[respId] ||
                                         "Pending Review";
 
-                                      const getBadgeInfo = (status: string) => {
+                                      const getRankBadgeClass = (status: string) => {
                                         if (status === "Rejected") {
-                                          return { num: 1, classes: "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700" };
+                                          return "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700";
                                         }
-                                        if (status?.includes("Rework") && status !== "Rework Accepted" && status !== "Rework Completed") {
-                                          const match = status.match(/\d+/);
-                                          const num = match ? parseInt(match[0], 10) : 1;
-                                          return { num, classes: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700" };
+                                        if (
+                                          status?.includes("Rework") &&
+                                          status !== "Rework Accepted" &&
+                                          status !== "Rework Completed"
+                                        ) {
+                                          return "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700";
                                         }
                                         if (
                                           status === "Direct Ok" ||
@@ -12792,69 +11567,40 @@ export default function FormAnalyticsDashboard() {
                                           status === "Rework Completed" ||
                                           status === "Verified"
                                         ) {
-                                          return { num: 1, classes: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700" };
+                                          return "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700";
                                         }
-                                        return { num: 1, classes: "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600" };
+                                        return "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600";
                                       };
-
-                                      const badgeInfo = getBadgeInfo(rowStatus);
 
                                       return (
                                         <div className="flex items-center justify-center gap-2">
                                           {/* Time Taken duration */}
-                                          {timeSpent !== null && timeSpent > 0 ? (
+                                          {timeSpent !== undefined &&
+                                          timeSpent !== null &&
+                                          timeSpent > 0 ? (
                                             <div className="flex items-center gap-1 font-bold text-blue-600 dark:text-blue-400">
-                                              <Clock className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                              <Clock className="w-3.5 h-3.5 text-blue-500" />
                                               <span>
-                                                {timeSpent >= 60
+                                                {timeSpent > 60
                                                   ? `${Math.floor(timeSpent / 60)}m ${timeSpent % 60}s`
                                                   : `${timeSpent}s`}
                                               </span>
                                             </div>
                                           ) : (
-                                            <span className="text-gray-400 font-normal">-</span>
+                                            <span className="text-gray-400 text-xs">-</span>
                                           )}
 
-                                          {/* Sequence Badge */}
+                                          {/* Chassis Attempt Rank Badge (1, 2, etc.) placed AFTER time taken with status-based color */}
                                           <span
-                                            title={`Status: ${rowStatus}`}
-                                            className={`text-[11px] font-extrabold min-w-[22px] h-[22px] px-1.5 rounded-full flex items-center justify-center border shadow-xs ${badgeInfo.classes}`}
+                                            title={`Chassis inspection attempt #${rank} (${rowStatus})`}
+                                            className={`text-[11px] font-extrabold min-w-[22px] h-[22px] px-1.5 rounded-full flex items-center justify-center border shadow-xs ${getRankBadgeClass(rowStatus)}`}
                                           >
-                                            {badgeInfo.num}
+                                            {rank}
                                           </span>
                                         </div>
                                       );
                                     })()}
                                   </td>
-                                  {/* Parent Match Status Cell */}
-                                  {showParentMatchColumn && (
-                                    <td className="px-3 py-3 border border-gray-200 dark:border-gray-700 min-w-36 whitespace-nowrap text-center bg-indigo-50/20 dark:bg-indigo-950/10">
-                                      {(() => {
-                                        const matchInfo = computeParentMatch(response);
-                                        const IconComponent = matchInfo.icon;
-                                        return (
-                                          <div className="flex flex-col items-center justify-center gap-1 group relative">
-                                            <span
-                                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border shadow-2xs transition-all ${matchInfo.badgeClasses}`}
-                                              title={matchInfo.tooltip}
-                                            >
-                                              <IconComponent className="w-3.5 h-3.5 shrink-0" />
-                                              <span>{matchInfo.badgeText}</span>
-                                            </span>
-
-                                            {matchInfo.subText && (
-                                              <span
-                                                className="text-[10px] text-gray-500 dark:text-gray-400 font-medium max-w-[130px] truncate block"
-                                                title={matchInfo.tooltip}
-                                              >
-                                                {matchInfo.subText}
-                                              </span>
-                                            )}
-                                          </div>
-                                        );
-                                      })()}
-                                    </td>
-                                  )}
                                   {form?.sections?.map(
                                     (section: Section) =>
                                       selectedResponsesSectionIds.includes(
@@ -13016,11 +11762,6 @@ export default function FormAnalyticsDashboard() {
                                 <td className="px-4 py-4 border border-gray-200 dark:border-gray-700">
                                   <div className="w-16 h-4 bg-gray-200 dark:bg-gray-700 rounded mx-auto"></div>
                                 </td>
-                                {showParentMatchColumn && (
-                                  <td className="px-4 py-4 border border-gray-200 dark:border-gray-700">
-                                    <div className="w-20 h-4 bg-gray-200 dark:bg-gray-700 rounded mx-auto"></div>
-                                  </td>
-                                )}
                                 {form?.sections?.map(
                                   (section: Section) =>
                                     selectedResponsesSectionIds.includes(section.id) &&
@@ -13036,7 +11777,7 @@ export default function FormAnalyticsDashboard() {
                             <tr>
                               <td
                                 colSpan={
-                                  (showParentMatchColumn ? 11 : 10) +
+                                  9 +
                                   (form?.sections?.reduce(
                                     (acc: number, sec: Section) =>
                                       selectedResponsesSectionIds.includes(
@@ -13064,24 +11805,6 @@ export default function FormAnalyticsDashboard() {
                 )}
               </div>
             </div>
-          )}
-
-          {/* Follow-up Data Response Tab */}
-          {analyticsView === "followup" && (
-            <FollowUpResponsesTab
-              parentForm={form}
-              onOpenResponseDetails={(resp) => {
-                setSelectedResponse(resp);
-                setSelectedFormForModal(form);
-              }}
-              onSwitchToMainResponses={() => setAnalyticsView("responses")}
-              onNavigateToChildDashboard={(childId) => {
-                navigate(`/forms/${childId}/analytics?tab=dashboard`);
-              }}
-              onDeleteResponse={async (respId) => {
-                await apiClient.deleteResponse(respId);
-              }}
-            />
           )}
         </>
       )}
@@ -14563,8 +13286,6 @@ export default function FormAnalyticsDashboard() {
         formId={shareAnalyticsModal.formId}
         formTitle={shareAnalyticsModal.formTitle}
         analyticsData={fullAnalyticsData}
-        responses={responses}
-        formSchema={form}
       />
 
       {/* Auto Send Modal */}
