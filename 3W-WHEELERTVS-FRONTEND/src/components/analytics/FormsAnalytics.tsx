@@ -2248,8 +2248,7 @@ export default function FormsAnalytics() {
                           </p>
                         </div>
                       )}
-                      </div>
-                    )}
+                    </div>
                   </div>
                 )}
               </div>
