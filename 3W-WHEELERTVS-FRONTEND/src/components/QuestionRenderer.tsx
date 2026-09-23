@@ -1709,18 +1709,17 @@ export default function QuestionRenderer({
       ) : null}
       {showLabel ? (
         <label
-          className={`block font-bold text-[13px] tracking-tight ${darkMode ? "text-white/90" : "text-slate-900"}`}
+          className={`block font-bold text-[13px] tracking-tight mb-1.5 ${darkMode ? "text-white/90" : "text-slate-900"}`}
         >
-          <div className="flex items-center gap-2">
-            {questionText}
+          <div className="flex flex-wrap items-center gap-2">
+            <span>{questionText}</span>
             {question.required && <span className="text-red-500">*</span>}
-          </div>
-          {loadingRank && (
-            <span className="ml-2 inline-flex items-center">
-              <span className="animate-spin h-3 w-3 border-2 border-blue-500 border-t-transparent rounded-full"></span>
-            </span>
-          )}
-          {typeof rank === "number" && rank > 0 && (() => {
+            {loadingRank && (
+              <span className="inline-flex items-center">
+                <span className="animate-spin h-3 w-3 border-2 border-blue-500 border-t-transparent rounded-full"></span>
+              </span>
+            )}
+            {typeof rank === "number" && rank > 0 && (() => {
             const isParentFollowUp = Boolean(parentMatchInfo?.isParentLinked || (parentMatchInfo?.exists && parentMatchInfo?.attemptsCount > 0));
             const statusLower = (previousStatus || "").toLowerCase().trim();
 
@@ -1808,10 +1807,7 @@ export default function QuestionRenderer({
               );
             };
 
-            // If follow-up parent card exists, let the bottom card display the full progression cleanly
-            if (isParentFollowUp) {
-              return renderActionIcons();
-            }
+            // Rank badges & action icons
 
             if (rank === 1 && historyItems.length === 0) {
               return (
@@ -1911,6 +1907,7 @@ export default function QuestionRenderer({
               </div>
             );
           })()}
+          </div>
         </label>
       ) : null}
       {question.description ? (
