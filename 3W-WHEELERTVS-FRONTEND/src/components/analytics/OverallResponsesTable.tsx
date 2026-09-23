@@ -343,24 +343,6 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
             </select>
           </div>
 
-          {/* 2. Status Filter Dropdown */}
-          <div className="flex items-center gap-1.5">
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Status:</label>
-            <select
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
-              className={`px-3 py-1.5 text-xs font-medium border rounded-lg focus:ring-2 focus:ring-blue-500 bg-white transition-all shadow-xs ${statusFilter !== 'all' ? 'border-blue-500 text-blue-700 bg-blue-50/50 font-bold' : 'border-gray-300 text-gray-700'}`}
-            >
-              <option value="all">All Statuses</option>
-              <option value="Direct Ok">Direct Ok</option>
-              <option value="Rework 1">Rework 1</option>
-              <option value="Rework Accepted">Rework Accepted</option>
-              <option value="Accepted">Accepted</option>
-              <option value="Rejected">Rejected</option>
-              <option value="Pending Review">Pending Review</option>
-            </select>
-          </div>
-
           {/* 3. BIW Review Filter Dropdown */}
           <div className="flex items-center gap-1.5">
             <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">BIW:</label>
@@ -454,7 +436,6 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
               <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Chassis Number</th>
               <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Chassis / VIN</th>
               <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Submitted By</th>
-              <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Status</th>
               <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">BIW Review</th>
               <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Timestamp</th>
             </tr>
@@ -528,19 +509,6 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
                     {safeString(r.submittedBy) || 'Unknown'}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${
-                      r.status === 'Accepted' || r.status === 'Direct Ok' || r.status === 'Rework Accepted'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
-                        : r.status === 'Rejected'
-                          ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800'
-                          : r.status?.includes('Rework')
-                            ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
-                            : 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700'
-                    }`}>
-                      {safeString(r.status) || 'Direct Ok'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
                     {r.biwReviewStatus ? (
                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${
                         r.biwReviewStatus === 'Accepted'
@@ -571,7 +539,7 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
             
             {filteredResponses.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
+                <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
                   <AlertTriangle className="w-8 h-8 text-gray-300 mx-auto mb-3" />
                   <p className="text-base font-medium">No responses found</p>
                   <p className="text-sm mt-1">Adjust your filters or search query.</p>

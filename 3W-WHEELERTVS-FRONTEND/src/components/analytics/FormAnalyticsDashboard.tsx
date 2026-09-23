@@ -15,6 +15,9 @@ import {
   Users as UsersIcon,
   Search,
   CheckCircle,
+  CheckCircle2,
+  AlertTriangle,
+  Link2,
   Clock,
   XCircle,
   BarChart3,
@@ -2502,6 +2505,15 @@ export default function FormAnalyticsDashboard() {
   const [autoOpenSectionId, setAutoOpenSectionId] = useState<string | null>(
     null,
   );
+
+  const [showParentMatchColumn, setShowParentMatchColumn] = useState<boolean>(() => {
+    try {
+      const formKey = id || "default";
+      const saved = localStorage.getItem(`show_parent_match_${formKey}`);
+      if (saved !== null) return saved === "true";
+    } catch (err) {}
+    return true; // Default to true for follow-up and parent matching visibility
+  });
 
   const [tvsReviews, setTvsReviews] = useState<any[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
@@ -5320,6 +5332,71 @@ export default function FormAnalyticsDashboard() {
     );
   }, [columnFilters, responsesSearchTerm, dateFilter, selectedInspectorForTrend, tableSort]);
 
+  // Helper to compute Parent/Follow-up matching status and color coding
+  const computeParentMatch = (response: any) => {
+    // 1. If backend already provided rich followUpStatus, prioritize it
+    const fs = response?.followUpStatus;
+    if (fs) {
+      if (fs.status === "matched") {
+        const isParentMatch = fs.matchType === "parent";
+        return {
+          status: "matched",
+          badgeText: isParentMatch ? "✓ Parent Matched" : "✓ Follow-up Done",
+          badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
+          icon: CheckCircle2,
+          subText: isParentMatch
+            ? (fs.parentStatus ? `Status: ${fs.parentStatus}` : "Linked to Parent")
+            : (fs.followUpStatus ? `Status: ${fs.followUpStatus}` : "Follow-up Complete"),
+          tooltip: fs.details || (isParentMatch
+            ? `Matched parent chassis "${fs.matchedChassis || ""}" (Status: ${fs.parentStatus || "Accepted"}) by ${fs.parentSubmittedBy || "Inspector"}`
+            : `Follow-up completed for chassis "${fs.matchedChassis || ""}" by ${fs.followUpSubmittedBy || "Inspector"}`)
+        };
+      }
+
+      if (fs.status === "unmatched") {
+        return {
+          status: "unmatched",
+          badgeText: "⚠ No Parent Match",
+          badgeClasses: "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100",
+          icon: AlertTriangle,
+          subText: "Standalone Follow-up",
+          tooltip: fs.details || `Chassis "${fs.matchedChassis || ""}" has not been inspected in the parent form yet`
+        };
+      }
+
+      if (fs.status === "pending") {
+        return {
+          status: "pending",
+          badgeText: fs.badgeText || "⏳ Pending Follow-up",
+          badgeClasses: "bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-800 hover:bg-sky-100",
+          icon: Clock,
+          subText: fs.daysElapsed !== undefined ? `Day ${fs.daysElapsed + 1}/10` : "Active window",
+          tooltip: fs.details || "Follow-up inspection is currently pending within active 10-day window"
+        };
+      }
+
+      if (fs.status === "overdue") {
+        return {
+          status: "overdue",
+          badgeText: fs.badgeText || "✕ Overdue",
+          badgeClasses: "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800 hover:bg-rose-100",
+          icon: XCircle,
+          subText: `${fs.daysElapsed || 0} days`,
+          tooltip: fs.details || `Follow-up overdue by ${fs.daysElapsed || 0} days`
+        };
+      }
+    }
+
+    return {
+      status: "standalone",
+      badgeText: "Main Record",
+      badgeClasses: "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600",
+      icon: CheckCircle2,
+      subText: "Standard",
+      tooltip: "Standard inspection submission"
+    };
+  };
+
   // Sort helper function that handles natural alphanumeric sorting
   const sortResponses = (list: Response[]) => {
     if (!tableSort) return list;
@@ -5362,6 +5439,14 @@ export default function FormAnalyticsDashboard() {
         const rankA = chassisAttemptRanks[a.id] || (a.responseRanks && chassisQuestionId ? a.responseRanks[chassisQuestionId] : 1);
         const rankB = chassisAttemptRanks[b.id] || (b.responseRanks && chassisQuestionId ? b.responseRanks[chassisQuestionId] : 1);
         return isAsc ? rankA - rankB : rankB - rankA;
+      }
+
+      // Parent Match sorting
+      if (columnId === "__parentMatch") {
+        const matchA = computeParentMatch(a).badgeText;
+        const matchB = computeParentMatch(b).badgeText;
+        const cmp = String(matchA).localeCompare(String(matchB));
+        return isAsc ? cmp : -cmp;
       }
 
       // Generic question answer sorting
@@ -10429,6 +10514,26 @@ export default function FormAnalyticsDashboard() {
                       </div>
                     )}
                     <button
+                      onClick={() => {
+                        const nextVal = !showParentMatchColumn;
+                        setShowParentMatchColumn(nextVal);
+                        try {
+                          const formKey = id || form?._id || "default";
+                          localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
+                        } catch (err) {}
+                      }}
+                      className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 flex items-center gap-1.5 border shadow-xs ${
+                        showParentMatchColumn
+                          ? "bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500 ring-2 ring-indigo-400 ring-offset-2 dark:ring-offset-gray-900"
+                          : "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700"
+                      }`}
+                      title="Toggle Parent Match / Follow-up Status Column"
+                    >
+                      <Link2 className="w-3.5 h-3.5" />
+                      <span className="hidden xs:inline">Parent Match</span>
+                      <span className="xs:hidden">Match</span>
+                    </button>
+                    <button
                       onClick={() =>
                         setShowResponsesFilter(!showResponsesFilter)
                       }
@@ -10619,6 +10724,30 @@ export default function FormAnalyticsDashboard() {
                               No sections available
                             </p>
                           )}
+
+                          <div className="pt-2 border-t border-gray-200 dark:border-gray-700 mt-2">
+                            <label className="flex items-center gap-3 p-2 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/30 cursor-pointer transition-colors group">
+                              <input
+                                type="checkbox"
+                                checked={showParentMatchColumn}
+                                onChange={(e) => {
+                                  const nextVal = e.target.checked;
+                                  setShowParentMatchColumn(nextVal);
+                                  try {
+                                    const formKey = id || form?._id || "default";
+                                    localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
+                                  } catch (err) {}
+                                }}
+                                className="w-4 h-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-indigo-600"
+                              />
+                              <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                                <Link2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                                <span className="text-xs font-bold text-gray-900 dark:text-gray-200 block truncate">
+                                  Parent Match Column
+                                </span>
+                              </div>
+                            </label>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -10814,6 +10943,37 @@ export default function FormAnalyticsDashboard() {
                                 )}
                               </div>
                             </th>
+                            {showParentMatchColumn && (
+                              <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-44 whitespace-nowrap bg-indigo-50/60 dark:bg-indigo-950/20">
+                                <div
+                                  onClick={() => {
+                                    setTableSort((prev) =>
+                                      prev?.columnId === "__parentMatch"
+                                        ? prev.direction === "asc"
+                                          ? { columnId: "__parentMatch", direction: "desc" }
+                                          : null
+                                        : { columnId: "__parentMatch", direction: "asc" }
+                                    );
+                                  }}
+                                  className="flex items-center justify-between gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                  title="Click to sort by Parent Match status"
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    <Link2 className="w-3.5 h-3.5 text-indigo-500" />
+                                    <span>Parent Match</span>
+                                  </div>
+                                  {tableSort?.columnId === "__parentMatch" ? (
+                                    tableSort.direction === "asc" ? (
+                                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    ) : (
+                                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    )
+                                  ) : (
+                                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
+                                  )}
+                                </div>
+                              </th>
+                            )}
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
                               Review
                             </th>
@@ -11362,6 +11522,31 @@ export default function FormAnalyticsDashboard() {
                                       </div>
                                     )}
                                   </td>
+                                  {showParentMatchColumn && (
+                                    <td className="px-4 py-3 text-xs border border-gray-200 dark:border-gray-700 min-w-44 whitespace-nowrap bg-indigo-50/20 dark:bg-indigo-950/10">
+                                      {(() => {
+                                        const pm = computeParentMatch(response);
+                                        const Icon = pm.icon || CheckCircle2;
+                                        return (
+                                          <div className="flex flex-col gap-0.5" title={pm.tooltip}>
+                                            <div className="flex items-center gap-1.5">
+                                              <span
+                                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border transition-colors shadow-2xs ${pm.badgeClasses}`}
+                                              >
+                                                <Icon className="w-3 h-3 shrink-0" />
+                                                <span>{pm.badgeText}</span>
+                                              </span>
+                                            </div>
+                                            {pm.subText && (
+                                              <span className="text-[10px] text-gray-500 dark:text-gray-400 pl-0.5 font-medium truncate max-w-[170px]">
+                                                {pm.subText}
+                                              </span>
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
+                                    </td>
+                                  )}
                                   <td className="px-6 py-3 text-sm border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50/50 dark:bg-gray-800/30">
                                     {(() => {
                                       const localReview = reviewedBy[response.id];
@@ -11793,6 +11978,11 @@ export default function FormAnalyticsDashboard() {
                                 <td className="px-6 py-4 border border-gray-200 dark:border-gray-700">
                                   <div className="w-24 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
                                 </td>
+                                {showParentMatchColumn && (
+                                  <td className="px-4 py-4 border border-gray-200 dark:border-gray-700">
+                                    <div className="w-24 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                                  </td>
+                                )}
                                 <td className="px-4 py-4 border border-gray-200 dark:border-gray-700">
                                   <div className="w-20 h-4 bg-gray-200 dark:bg-gray-700 rounded mx-auto"></div>
                                 </td>
@@ -11817,7 +12007,7 @@ export default function FormAnalyticsDashboard() {
                             <tr>
                               <td
                                 colSpan={
-                                  9 +
+                                  (showParentMatchColumn ? 10 : 9) +
                                   (form?.sections?.reduce(
                                     (acc: number, sec: Section) =>
                                       selectedResponsesSectionIds.includes(
