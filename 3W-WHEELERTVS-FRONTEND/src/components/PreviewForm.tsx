@@ -985,18 +985,6 @@ export default function PreviewForm({
           setGlobalRankAnswers(suggestions[0].answers || null);
           setGlobalRank(suggestions[0].rank || 1);
           showSuccess(`${totalAnswersCount} previous records found!`);
-
-          // If trackResponseRank is enabled for this question, auto-apply the first record to the whole form
-          const triggeringQ = allFormQuestions.find(
-            (q) => (q.id || (q as any)._id) === questionId,
-          );
-          if (
-            triggeringQ &&
-            (triggeringQ.trackResponseRank === true ||
-              String(triggeringQ.trackResponseRank) === "true")
-          ) {
-            applySuggestions(suggestions[0].answers, undefined, 1);
-          }
         } else {
           setSuggestedAnswers({ _no_match: true });
           setGlobalRankAnswers(null);
@@ -2138,6 +2126,9 @@ export default function PreviewForm({
                     setSuggestedAnswers(null);
                     setLastSuggestionSource(null);
                     setSelectedRank(null);
+                    setGlobalRankAnswers(null);
+                    setGlobalRank(null);
+                    setAnswers({});
                   }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all border ${darkMode
                       ? "bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20"

@@ -1023,6 +1023,7 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
                       setSuggestedAnswers(null);
                       setLastSuggestionSource(null);
                       setSelectedRank(null);
+                      setAnswers({});
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-amber-100 transition-all border border-amber-100"
                   >
