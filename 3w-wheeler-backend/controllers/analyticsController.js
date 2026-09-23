@@ -3375,7 +3375,7 @@ export const getQualitySummary = async (req, res) => {
     const { role, tenantId: userTenantId } = req.user;
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
-    const cacheKey = `quality_summary_v3_${userTenantId || 'superadmin'}_${formId || 'all'}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v4_${userTenantId || 'superadmin'}_${formId || 'all'}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const cached = appCache.get(cacheKey);
     if (cached) {
       console.log(`[Quality Summary] Cache HIT (${cacheKey}) - returning in ${Date.now() - startTimer}ms`);
@@ -3461,9 +3461,9 @@ export const getQualitySummary = async (req, res) => {
       }
     }
 
-    // 4. Fetch responses WITHOUT the massive 'answers' payload first (but include chassis_number)
+    // 4. Fetch responses
     const responses = await Response.find(responseFilter)
-      .select('submittedBy status biwReview createdAt questionId formId isDispatched answers.chassis_number')
+      .select('submittedBy status biwReview createdAt questionId formId isDispatched answers')
       .lean()
       .maxTimeMS(60000);
 
@@ -3509,12 +3509,50 @@ export const getQualitySummary = async (req, res) => {
       let isDefect = false;
       let isRework1 = false;
 
-      // Store basic info for the raw responses table
+      // Extract Chassis Number and Part Description / VIN
       let chassisNo = 'N/A';
+      let chassisVin = '-';
+
       if (r.answers && typeof r.answers === 'object') {
         const tempAnswers = r.answers instanceof Map ? Object.fromEntries(r.answers) : r.answers;
-        if (tempAnswers.chassis_number) chassisNo = typeof tempAnswers.chassis_number === 'object' ? tempAnswers.chassis_number.v || tempAnswers.chassis_number.status : tempAnswers.chassis_number;
+        
+        for (const [key, val] of Object.entries(tempAnswers)) {
+          if (val && typeof val === 'object') {
+            if (val.chassisNumber && (chassisNo === 'N/A' || !chassisNo)) {
+              chassisNo = String(val.chassisNumber).trim();
+            }
+            if (val.partDescription && (chassisVin === '-' || !chassisVin)) {
+              chassisVin = String(val.partDescription).trim();
+            }
+            if (val.v && (chassisNo === 'N/A' || !chassisNo)) {
+              chassisNo = String(val.v).trim();
+            }
+          } else if (typeof val === 'string' && val.trim()) {
+            const kLow = key.toLowerCase();
+            if ((kLow === 'chassis' || kLow === 'chassis_number' || kLow === 'chassisnumber' || kLow.includes('chassis') || kLow.includes('vin') || kLow.includes('id number') || kLow.includes('id_number')) && (chassisNo === 'N/A' || !chassisNo)) {
+              chassisNo = val.trim();
+            }
+            if ((kLow === 'dealername' || kLow.includes('dealer') || kLow.includes('part') || kLow.includes('model') || kLow.includes('description')) && (chassisVin === '-' || !chassisVin)) {
+              chassisVin = val.trim();
+            }
+          }
+        }
+
+        if (chassisNo === 'N/A') {
+          if (tempAnswers.chassis_number) chassisNo = typeof tempAnswers.chassis_number === 'object' ? (tempAnswers.chassis_number.chassisNumber || tempAnswers.chassis_number.v || tempAnswers.chassis_number.status || 'N/A') : String(tempAnswers.chassis_number);
+          else if (tempAnswers.chassis) chassisNo = typeof tempAnswers.chassis === 'object' ? (tempAnswers.chassis.chassisNumber || tempAnswers.chassis.v || 'N/A') : String(tempAnswers.chassis);
+          else if (tempAnswers.id_number) chassisNo = typeof tempAnswers.id_number === 'object' ? (tempAnswers.id_number.chassisNumber || tempAnswers.id_number.v || 'N/A') : String(tempAnswers.id_number);
+        }
+
+        if (chassisVin === '-') {
+          if (tempAnswers.dealerName) chassisVin = String(tempAnswers.dealerName);
+          else if (tempAnswers.chassis && typeof tempAnswers.chassis === 'object' && tempAnswers.chassis.partDescription) chassisVin = String(tempAnswers.chassis.partDescription);
+          else if (tempAnswers.part_description) chassisVin = String(tempAnswers.part_description);
+          else if (tempAnswers['Chassis / VIN']) chassisVin = String(tempAnswers['Chassis / VIN']);
+        }
       }
+
+      if (chassisVin === chassisNo) chassisVin = '-';
 
       const rawFormId = (r.formId || r.questionId)?.toString() || '';
       const formTitle = formTitleMap[rawFormId] || formMetricsMap[rawFormId]?.title || 'Unknown Form';
@@ -3522,6 +3560,8 @@ export const getQualitySummary = async (req, res) => {
       rawResponsesMap.set(r._id.toString(), {
         id: r._id.toString(),
         chassisNumber: chassisNo,
+        chassisVin: chassisVin,
+        partDescription: chassisVin,
         submittedBy: rawName,
         date: dateStr,
         status: r.status || 'pending',

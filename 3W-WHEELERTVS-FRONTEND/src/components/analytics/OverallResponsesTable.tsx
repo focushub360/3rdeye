@@ -125,22 +125,46 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
     );
   };
 
-  const getChassis = (r: any) => {
+  const getChassisNumber = (r: any) => {
+    if (r.chassisNumber && r.chassisNumber !== 'N/A') return String(r.chassisNumber);
     if (!r.answers) return 'N/A';
-    if (r.answers.chassis_number) {
-      const c = r.answers.chassis_number;
-      if (typeof c === 'object') return c.chassisNumber || c.v || c.status || JSON.stringify(c);
+    const ans = r.answers;
+    if (ans.chassis_number) {
+      const c = ans.chassis_number;
+      if (typeof c === 'object') return c.chassisNumber || c.v || c.status || 'N/A';
       return String(c);
     }
-    // Try to find any chassis like key
-    for (const key in r.answers) {
-      if (key.toLowerCase().includes('chassis') || key.toLowerCase().includes('vin')) {
-        const c = r.answers[key];
-        if (typeof c === 'object') return c.chassisNumber || c.v || c.status || JSON.stringify(c);
+    if (ans.chassis) {
+      const c = ans.chassis;
+      if (typeof c === 'object') return c.chassisNumber || c.v || 'N/A';
+      return String(c);
+    }
+    if (ans.id_number) {
+      const c = ans.id_number;
+      if (typeof c === 'object') return c.chassisNumber || c.v || 'N/A';
+      return String(c);
+    }
+    for (const key in ans) {
+      const k = key.toLowerCase();
+      if (k === 'chassis' || k.includes('chassis') || k.includes('id number') || k.includes('vin')) {
+        const c = ans[key];
+        if (typeof c === 'object') return c.chassisNumber || c.v || c.status || 'N/A';
         return String(c);
       }
     }
     return 'N/A';
+  };
+
+  const getChassisVin = (r: any) => {
+    if (r.chassisVin && r.chassisVin !== 'N/A' && r.chassisVin !== '-') return String(r.chassisVin);
+    if (r.partDescription && r.partDescription !== 'N/A' && r.partDescription !== '-') return String(r.partDescription);
+    if (!r.answers) return '-';
+    const ans = r.answers;
+    if (ans.dealerName) return String(ans.dealerName);
+    if (ans.chassis && typeof ans.chassis === 'object' && ans.chassis.partDescription) return String(ans.chassis.partDescription);
+    if (ans.part_description) return String(ans.part_description);
+    if (ans['Chassis / VIN']) return String(ans['Chassis / VIN']);
+    return '-';
   };
 
   const safeString = (val: any): string => {
@@ -204,9 +228,10 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
       if (search) {
         const s = search.toLowerCase();
         const submitter = safeString(r.submittedBy).toLowerCase();
-        const chassis = safeString(r.chassisNumber).toLowerCase();
+        const chassis = safeString(getChassisNumber(r)).toLowerCase();
+        const chassisVinVal = safeString(getChassisVin(r)).toLowerCase();
         const title = safeString(r.formTitle || formsMap[r.formId || ''] || formsMap[r.questionId || '']).toLowerCase();
-        if (!submitter.includes(s) && !chassis.includes(s) && !title.includes(s)) return false;
+        if (!submitter.includes(s) && !chassis.includes(s) && !chassisVinVal.includes(s) && !title.includes(s)) return false;
       }
 
       return true;
@@ -413,6 +438,7 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
               <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Actions</th>
               <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Dispatch</th>
               <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Form Name</th>
+              <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Chassis Number</th>
               <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Chassis / VIN</th>
               <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Submitted By</th>
               <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Status</th>
@@ -426,6 +452,8 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
               const formTitle = r.formTitle || formsMap[r.formId || ''] || formsMap[r.questionId || ''] || 'Unknown Form';
               const targetForm = formOptions.find(f => f.title === formTitle || f.id === r.formId || f._id === r.formId);
               const formFilterValue = targetForm ? (targetForm.id || targetForm._id) : (r.formId || r.questionId);
+              const chNum = getChassisNumber(r);
+              const chVin = getChassisVin(r);
               return (
                 <tr key={rId} className="hover:bg-indigo-50/50 transition-colors">
                   <td className="px-4 py-3 whitespace-nowrap">
@@ -475,8 +503,13 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
                   >
                     <span className="hover:underline">{formTitle}</span>
                   </td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200">
+                      {safeString(chNum)}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 font-semibold text-indigo-700 whitespace-nowrap">
-                    {safeString(r.chassisNumber)}
+                    {safeString(chVin)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-gray-700">
                     {safeString(r.submittedBy) || 'Unknown'}

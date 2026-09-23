@@ -235,10 +235,12 @@ export const QualityDashboard: React.FC = () => {
 
     // Raw Forms Data Sheet (Excel-Like Grid)
     const rawDataRows = [
-      ['Date', 'Chassis / VIN', 'Inspector', 'Final Status', 'BIW Review', 'Defects Found'],
+      ['Date', 'Form Name', 'Chassis Number', 'Chassis / VIN', 'Inspector', 'Final Status', 'BIW Review', 'Defects Found'],
       ...(data.rawResponses || []).map(r => [
         r.date,
+        r.formTitle || 'Unknown Form',
         r.chassisNumber || 'N/A',
+        r.chassisVin && r.chassisVin !== 'N/A' ? r.chassisVin : (r.partDescription || '-'),
         r.submittedBy || 'Unknown',
         r.status || 'pending',
         r.biwReviewStatus || 'Pending',
