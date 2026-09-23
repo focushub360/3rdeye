@@ -1903,15 +1903,13 @@ export const getSuggestedAnswers = async (req, res) => {
       }
     }
 
-    // Find the form to verify it exists
-    // Find the form to verify it exists
-    let form = await Form.findOne({ id: formId });
-    if (!form && mongoose.Types.ObjectId.isValid(formId)) {
-      form = await Form.findById(formId);
-    }
-    if (!form) {
-      form = await Form.findOne({ _id: formId });
-    }
+    // Find the form in a single fast query
+    const formSearch = [formId];
+    if (mongoose.Types.ObjectId.isValid(formId)) formSearch.push(new mongoose.Types.ObjectId(formId));
+    let form = await Form.findOne({
+      $or: [{ id: { $in: formSearch } }, { _id: { $in: formSearch } }]
+    }).select('id _id title sections followUpQuestions childForms parentFormId tenantId').lean();
+
     if (!form) {
       console.warn(`[SUGGESTIONS] Form not found: ${formId}`);
       return res.status(404).json({
@@ -1976,6 +1974,7 @@ export const getSuggestedAnswers = async (req, res) => {
     };
 
     const matchingResponses = await Response.find(query)
+      .select('answers responseRanks createdAt submittedAt status isSectionSubmit questionId _id id')
       .sort({ isSectionSubmit: 1, createdAt: 1 })
       .limit(10)
       .lean();
