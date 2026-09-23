@@ -600,16 +600,25 @@ export default function QuestionRenderer({
   ]);
 
   const getSuggestedValue = (qId: string) => {
-    if (!suggestedAnswers || suggestedAnswers._no_match) return null;
+    if (!suggestedAnswers || (suggestedAnswers as any)._no_match) return null;
 
-    const normalize = (s: string) =>
-      s
+    const normalize = (s: any) =>
+      String(s || "")
         .toLowerCase()
         .replace(/_tracking$/, "")
         .replace(/^_/, "")
+        .replace(/[^a-z0-9]/g, "")
         .trim();
 
-    const normalizedTarget = normalize(qId);
+    const targets = [
+      normalize(qId),
+      normalize(question.id),
+      normalize((question as any)._id),
+      normalize(question.text),
+      normalize((question as any).title),
+      normalize((question as any).label),
+      normalize((question as any).name),
+    ].filter(Boolean);
 
     // If suggestedAnswers is an array of records (new behavior)
     if (Array.isArray(suggestedAnswers)) {
@@ -619,10 +628,14 @@ export default function QuestionRenderer({
         const answers = s.answers || {};
         const matchKey = Object.keys(answers).find((key) => {
           if (key.startsWith("_") && !key.includes("tracking")) return false;
-          return normalize(key) === normalizedTarget;
+          const normKey = normalize(key);
+          return targets.includes(normKey);
         });
         return { 
           rank: s.rank, 
+          status: s.status,
+          submittedBy: s.submittedBy,
+          timestamp: s.timestamp || s.createdAt,
           value: matchKey ? answers[matchKey] : null,
           answers: answers // Include full answers for components like ChassisWithZone
         };
@@ -632,13 +645,12 @@ export default function QuestionRenderer({
     }
 
     // Legacy behavior (if suggestedAnswers is a flat object)
-    // Try exact match first
     if (suggestedAnswers[qId] !== undefined) return [{ rank: 1, value: suggestedAnswers[qId] }];
 
-    // Fuzzy matching
     const matchKey = Object.keys(suggestedAnswers).find((key) => {
       if (key.startsWith("_") && !key.includes("tracking")) return false;
-      return normalize(key) === normalizedTarget;
+      const normKey = normalize(key);
+      return targets.includes(normKey);
     });
 
     return matchKey ? [{ rank: 1, value: suggestedAnswers[matchKey] }] : null;
@@ -660,7 +672,7 @@ export default function QuestionRenderer({
     isFocused || (value && String(value).trim() !== "") || isSearchSource;
 
   const hasMatch =
-    shouldShowMatchInfo &&
+    (shouldShowMatchInfo || hasRanked) &&
     suggestedMatches !== null &&
     Array.isArray(suggestedMatches) &&
     suggestedMatches.length > 0;
@@ -679,15 +691,7 @@ export default function QuestionRenderer({
     })();
 
   const renderSuggestions = () => {
-    if (readOnly || !shouldShowMatchInfo) return null;
-
-    // Inline suggestions (Rank History and Common Answers) should show
-    // if we have matches from the "Track Rank" fetch (form-wide fetch)
-    // OR if we have matches from "Track Question" question-wise fetch.
-    // HOWEVER, if trackResponseQuestion is enabled, we show them in the Assistant sidebar instead (on Desktop).
-    // On Mobile, we still show them inline because sidebar is not visible.
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    if (isQuestionTrackingEnabled && !isMobile) return null;
+    if (readOnly) return null;
 
     if (!hasRanked && !hasPrevious) return null;
 
@@ -695,13 +699,21 @@ export default function QuestionRenderer({
       if (val === null || val === undefined) return "";
       
       if (typeof val === "object") {
-        // Handle Chassis Number objects
+        if (val.status) {
+          const parts = [`Status: ${val.status}`];
+          if (val.defects && Array.isArray(val.defects) && val.defects.length > 0) {
+            parts.push(`Defects: ${val.defects.length}`);
+          }
+          if (val.defectCategory) {
+            const cats = Array.isArray(val.defectCategory) ? val.defectCategory : [val.defectCategory];
+            if (cats.length > 0) parts.push(`Cat: ${cats.join(', ')}`);
+          }
+          return parts.join(" | ");
+        }
         if (val.chassisNumber || val.status || val.zone || val.defectCategory) {
           const parts = [];
           if (val.chassisNumber) parts.push(val.chassisNumber);
-          if (val.status) {
-            parts.push(String(val.status));
-          }
+          if (val.status) parts.push(String(val.status));
           if (val.zone) {
             const z = Array.isArray(val.zone) ? val.zone : [val.zone];
             if (z.length > 0) parts.push(`Zone: ${z.join(', ')}`);
@@ -716,7 +728,6 @@ export default function QuestionRenderer({
           return parts.join(" | ");
         }
 
-        // Handle generic objects or arrays to avoid [object Object]
         try {
           const str = JSON.stringify(val);
           if (str.length > 50) return str.slice(0, 47) + "...";
@@ -729,8 +740,55 @@ export default function QuestionRenderer({
       return String(val);
     };
 
-  return (
+    return (
       <div className="mt-2 space-y-2 animate-in fade-in slide-in-from-top-1 duration-300">
+        {hasRanked && (
+          <div className="space-y-1.5">
+            {suggestedMatches!.map((match, idx) => {
+              const displayVal = formatSuggestionValue(match.value);
+              const isMatchApplied = (() => {
+                if (typeof match.value === "object") {
+                  return JSON.stringify(value) === JSON.stringify(match.value);
+                }
+                return String(value || "").trim().toLowerCase() === String(match.value || "").trim().toLowerCase();
+              })();
+
+              return (
+                <div
+                  key={idx}
+                  className="p-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/20 text-xs shadow-2xs"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                    <span className="font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5 text-[11px]">
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                      Previous Attempt #{match.rank || 1} Recorded Response:
+                    </span>
+                    {match.status && (
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800 shadow-2xs">
+                        {match.status}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 mt-1">
+                    <div className="font-semibold text-slate-800 dark:text-slate-200">
+                      {displayVal}
+                    </div>
+                    {!readOnly && onChange && !isMatchApplied && (
+                      <button
+                        type="button"
+                        onClick={() => onChange(match.value)}
+                        className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-600 hover:bg-amber-700 text-white transition-all shadow-2xs hover:scale-102 active:scale-98"
+                      >
+                        Apply Previous Answer
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {hasPrevious && !hasRanked && (
           <div className="mt-2 space-y-2 border border-gray-200 dark:border-gray-800 rounded-lg p-2.5 bg-gray-50 dark:bg-gray-900/50">
             <span className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1.5">
@@ -739,7 +797,7 @@ export default function QuestionRenderer({
             <div className="flex flex-wrap gap-2">
               {previousAnswers.map((prevAns, idx) => {
                 const ansStr = String(prevAns);
-                const isImg = isImageFile(ansStr) || ansStr.startsWith("http") && (ansStr.includes("cloudinary.com/") || ansStr.includes("/api/files/"));
+                const isImg = isImageFile(ansStr) || (ansStr.startsWith("http") && (ansStr.includes("cloudinary.com/") || ansStr.includes("/api/files/")));
                 return (
                   <div key={idx} className="relative group cursor-pointer" onClick={() => {
                     if (!readOnly && onChange) {
@@ -1108,6 +1166,24 @@ export default function QuestionRenderer({
                     >
                       {option}
                     </span>
+                    {(() => {
+                      const prevMatch = suggestedMatches?.find((m) => {
+                        if (typeof m.value === "object" && m.value !== null) {
+                          return (
+                            String(m.value?.status || "").toLowerCase() === option.toLowerCase() ||
+                            String(m.value?.value || "").toLowerCase() === option.toLowerCase()
+                          );
+                        }
+                        return String(m.value || "").trim().toLowerCase() === String(option).trim().toLowerCase();
+                      });
+                      if (!prevMatch) return null;
+                      return (
+                        <span className="ml-auto text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 flex items-center gap-1 shadow-2xs">
+                          <RotateCcw className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
+                          Prev Attempt #{prevMatch.rank}
+                        </span>
+                      );
+                    })()}
                   </label>
                 );
               })}

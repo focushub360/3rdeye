@@ -1907,6 +1907,34 @@ export const getSuggestedAnswers = async (req, res) => {
         success: false,
         message: 'Form not found'
       });
+    // Find the specific question to check for tracking configuration
+    let trackingQId = questionId;
+    const findQuestion = (questions) => {
+      if (!questions || !Array.isArray(questions)) return null;
+      for (const q of questions) {
+        if (q.id === questionId || q._id?.toString() === questionId) return q;
+        if (q.followUpQuestions && q.followUpQuestions.length > 0) {
+          const found = findQuestion(q.followUpQuestions);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    let question = findQuestion(form.followUpQuestions || []);
+    if (!question && form.sections && Array.isArray(form.sections)) {
+      for (const section of form.sections) {
+        question = findQuestion(section.questions || []);
+        if (question) break;
+      }
+    }
+
+    if (
+      question &&
+      (question.trackResponseQuestion === true ||
+        question.trackResponseQuestion === "true")
+    ) {
+      trackingQId = `${questionId}_tracking`;
     }
 
     const strAnswer = extractAnswerString(answer);
@@ -1917,8 +1945,24 @@ export const getSuggestedAnswers = async (req, res) => {
       });
     }
 
-    const formIds = await getRelatedFormIds(form, formId);
-    const orConditions = buildChassisOrConditions(questionId, trackingQuestionId, strAnswer);
+    const { formIds, relatedForms } = await getRelatedFormsAndIds(form, formId);
+
+    // Collect all question IDs from all related forms to match chassis/identification keys
+    const extraQIds = [];
+    const collectQ = (qs) => {
+      (qs || []).forEach(q => {
+        if (q.id) extraQIds.push(q.id);
+        if (q._id) extraQIds.push(q._id.toString());
+        if (q.text) extraQIds.push(q.text);
+        if (q.followUpQuestions) collectQ(q.followUpQuestions);
+      });
+    };
+    relatedForms.forEach(rf => {
+      (rf.sections || []).forEach(s => collectQ(s.questions));
+      collectQ(rf.followUpQuestions);
+    });
+
+    const orConditions = buildChassisOrConditions(questionId, trackingQId, strAnswer, extraQIds);
 
     const query = {
       $or: [
@@ -1930,26 +1974,6 @@ export const getSuggestedAnswers = async (req, res) => {
       ],
       isSectionSubmit: { $ne: true }
     };
-
-    const tenantValues = [];
-    if (form.tenantId) {
-      const fStr = form.tenantId.toString();
-      tenantValues.push(fStr);
-      if (mongoose.Types.ObjectId.isValid(fStr)) {
-        tenantValues.push(new mongoose.Types.ObjectId(fStr));
-      }
-    }
-    if (tenantId) {
-      const tStr = tenantId.toString();
-      tenantValues.push(tStr);
-      if (mongoose.Types.ObjectId.isValid(tStr)) {
-        tenantValues.push(new mongoose.Types.ObjectId(tStr));
-      }
-    }
-
-    if (tenantValues.length > 0) {
-      query.tenantId = { $in: tenantValues };
-    }
 
     const matchingResponses = await Response.find(query)
       .sort({ isSectionSubmit: 1, createdAt: 1 })

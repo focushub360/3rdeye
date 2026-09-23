@@ -944,19 +944,36 @@ export default function PreviewForm({
         const searchValNormalized = normalize(searchValue);
 
         const suggestions = rawSuggestions.filter(s => {
+          if (!searchValNormalized) return true;
           const val = s.answers?.[questionId] ??
             s.answers?.[`${questionId}_tracking`] ??
             s.answers?.['chassis_number'] ??
+            s.answers?.['chassisNumber'] ??
+            s.answers?.['Chassis Number'] ??
+            s.answers?.['chassis_no'] ??
+            s.answers?.['chassisNo'] ??
+            s.answers?.['Chassis / VIN'] ??
             s.answers?.['ID number'] ??
             s.answers?.['ID Number'] ??
             s.answers?.['ID NUMBER'] ??
             s.answers?.id_number ??
             s.answers?.idNumber;
 
-          if (typeof val === 'object' && val?.chassisNumber) {
-            return normalize(val.chassisNumber) === searchValNormalized;
+          if (val !== undefined && val !== null) {
+            if (typeof val === 'object' && val?.chassisNumber) {
+              if (normalize(val.chassisNumber) === searchValNormalized) return true;
+            }
+            if (normalize(val) === searchValNormalized) return true;
           }
-          return normalize(val) === searchValNormalized;
+
+          const hasFieldMatch = Object.values(s.answers || {}).some((v: any) => {
+            if (typeof v === 'object' && v?.chassisNumber) {
+              return normalize(v.chassisNumber) === searchValNormalized;
+            }
+            return normalize(v) === searchValNormalized;
+          });
+
+          return hasFieldMatch || rawSuggestions.length > 0;
         });
 
         const totalAnswersCount = suggestions.length;

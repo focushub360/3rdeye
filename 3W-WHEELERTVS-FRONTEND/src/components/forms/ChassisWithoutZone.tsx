@@ -605,27 +605,121 @@ const ChassisWithoutZone: React.FC<ChassisWithoutZoneProps> = ({
     return status === 'Rework';
   }).length || 0;
 
+  const getPreviousAttemptData = (s: any) => {
+    if (!s) return null;
+    let prevStatus: string | null = null;
+    let prevDefectCategory: string[] = [];
+    let prevDefects: any[] = [];
+    let prevRemark: string = "";
+    let prevEvidenceUrl: string = "";
+
+    if (s.value && typeof s.value === 'object') {
+      prevStatus = s.value.status || null;
+      prevDefectCategory = Array.isArray(s.value.defectCategory) ? s.value.defectCategory : (s.value.defectCategory ? [s.value.defectCategory] : []);
+      prevDefects = Array.isArray(s.value.defects) ? s.value.defects : [];
+      prevRemark = s.value.remark || "";
+      prevEvidenceUrl = s.value.evidenceUrl || "";
+    } else if (typeof s.value === 'string') {
+      prevStatus = s.value;
+    }
+
+    if (!prevStatus && s.answers) {
+      if (s.answers.status) prevStatus = s.answers.status;
+      if (s.answers.defectCategory) {
+        prevDefectCategory = Array.isArray(s.answers.defectCategory) ? s.answers.defectCategory : [s.answers.defectCategory];
+      }
+      if (s.answers.defects) {
+        prevDefects = Array.isArray(s.answers.defects) ? s.answers.defects : [];
+      }
+    }
+
+    return {
+      rank: s.rank || 1,
+      status: prevStatus,
+      defectCategory: prevDefectCategory,
+      defects: prevDefects,
+      remark: prevRemark,
+      evidenceUrl: prevEvidenceUrl,
+      raw: s.value || s.answers
+    };
+  };
+
   const renderFieldSuggestions = (field: string, currentVal: any, onSelect: (val: any) => void) => {
     if (!suggestions || suggestions.length === 0) return null;
 
-    const matches = suggestions
-      .map((s) => ({
-        rank: s.rank,
-        value: s.answers?.[field],
-      }))
-      .filter(
-        (m) =>
-          m.value !== undefined &&
-          m.value !== null &&
-          String(m.value).trim() !== "" &&
-          JSON.stringify(m.value) !== JSON.stringify(currentVal)
-      );
+    const prevData = getPreviousAttemptData(suggestions[0]);
+    if (!prevData || (!prevData.status && prevData.defectCategory.length === 0 && prevData.defects.length === 0 && !prevData.remark)) return null;
 
-    if (matches.length === 0) return null;
+    const isCurrentMatching = prevData.status && String(prevData.status).toLowerCase() === String(currentVal || '').toLowerCase();
 
     return (
-      <div className="flex flex-wrap gap-1.5 mt-1.5 items-center">
-        {/* Suggestion rendering logic could be added here if needed */}
+      <div className="mt-3 p-3 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/20 text-slate-800 dark:text-slate-200 text-xs animate-in fade-in slide-in-from-top-1 shadow-2xs">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-300 text-[11px]">
+            <RotateCcw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+            Previous Attempt #{prevData.rank} Recorded Choice:
+            {prevData.status && (
+              <span className={`px-2 py-0.5 rounded-md font-black uppercase text-[10px] shadow-2xs ${
+                prevData.status.toLowerCase() === 'accepted' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950 dark:text-emerald-200' :
+                prevData.status.toLowerCase() === 'rework' ? 'bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-900 dark:text-amber-200' :
+                'bg-red-100 text-red-800 border border-red-300 dark:bg-red-950 dark:text-red-200'
+              }`}>
+                {prevData.status}
+              </span>
+            )}
+          </div>
+          {!disabled && !isCurrentMatching && (
+            <button
+              type="button"
+              onClick={() => {
+                if (prevData.raw && typeof prevData.raw === 'object') {
+                  updateValue({
+                    status: prevData.status || statusValue,
+                    defectCategory: prevData.defectCategory,
+                    defects: prevData.defects,
+                    remark: prevData.remark,
+                    evidenceUrl: prevData.evidenceUrl || evidenceUrl,
+                  });
+                } else if (prevData.status) {
+                  handleStatusChange(prevData.status);
+                }
+              }}
+              className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-600 hover:bg-amber-700 text-white transition-all shadow-2xs hover:scale-102 active:scale-98"
+            >
+              Apply Previous Response
+            </button>
+          )}
+        </div>
+
+        {(prevData.defectCategory.length > 0 || prevData.defects.length > 0 || prevData.remark) && (
+          <div className="space-y-1.5 pt-2 mt-2 border-t border-amber-200/80 dark:border-amber-900/50 text-[11px]">
+            {prevData.defectCategory.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-bold text-slate-600 dark:text-slate-400">Categories:</span>
+                {prevData.defectCategory.map((cat, idx) => (
+                  <span key={idx} className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium">
+                    {cat}
+                  </span>
+                ))}
+              </div>
+            )}
+            {prevData.defects.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-bold text-slate-600 dark:text-slate-400">Defects:</span>
+                {prevData.defects.map((d, idx) => (
+                  <span key={idx} className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium">
+                    {typeof d === 'string' ? d : d.name || JSON.stringify(d)}
+                  </span>
+                ))}
+              </div>
+            )}
+            {prevData.remark && (
+              <div className="text-slate-600 dark:text-slate-400 italic">
+                Remark: "{prevData.remark}"
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -648,13 +742,16 @@ const ChassisWithoutZone: React.FC<ChassisWithoutZoneProps> = ({
               { id: 'Accepted', icon: CheckCircle, color: 'text-emerald-500', bg: 'bg-emerald-50', darkBg: 'dark:bg-emerald-900/20', border: 'border-emerald-200' },
               { id: 'Rework', icon: RotateCcw, color: 'text-amber-500', bg: 'bg-amber-50', darkBg: 'dark:bg-amber-900/20', border: 'border-amber-200' },
               { id: 'Rejected', icon: XCircle, color: 'text-red-500', bg: 'bg-red-50', darkBg: 'dark:bg-red-900/20', border: 'border-red-200' }
-            ].map((status) => (
+            ].map((status) => {
+              const prevData = suggestions && suggestions.length > 0 ? getPreviousAttemptData(suggestions[0]) : null;
+              const isPrevChoice = prevData?.status && prevData.status.toLowerCase() === status.id.toLowerCase();
+              return (
               <button
                 key={status.id}
                 type="button"
                 onClick={() => !disabled && handleStatusChange(status.id)}
                 disabled={disabled}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all duration-200 ${statusValue === status.id
+                className={`relative flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all duration-200 ${statusValue === status.id
                     ? `${status.bg} ${status.darkBg} ${status.border} ${status.color} shadow-sm ring-4 ring-${status.id === 'Accepted' ? 'emerald' : (status.id === 'Rejected' ? 'red' : 'amber')}-500/10`
                     : "border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-950 text-gray-400 hover:border-gray-200"
                   }`}
@@ -668,8 +765,13 @@ const ChassisWithoutZone: React.FC<ChassisWithoutZoneProps> = ({
                       : status.id
                   }
                 </span>
+                {isPrevChoice && (
+                  <span className="mt-1 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700 shadow-2xs">
+                    Prev Attempt #{prevData.rank}
+                  </span>
+                )}
               </button>
-            ))}
+            );})}
           </div>
           {renderFieldSuggestions('status', statusValue, handleStatusChange)}
 
