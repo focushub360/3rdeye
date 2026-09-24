@@ -402,6 +402,9 @@ export async function generateFollowUpAnswerTemplate(
     } else {
       if (col.type) {
         commentLines.push(`Type: ${col.type}`);
+        if (col.type === "date" || col.id === "submittedAt") {
+          commentLines.push("Format: DD/MM/YYYY (e.g. 24/09/2026)");
+        }
       }
       if (col.options && col.options.length > 0) {
         commentLines.push(`Options: ${col.options.join(", ")}`);
@@ -416,7 +419,26 @@ export async function generateFollowUpAnswerTemplate(
     }
   });
 
-  for (let r = 2; r < data.length; r++) {
+  // Identify all date columns for DD/MM/YYYY formatting
+  const dateColIndices = columns
+    .map((col, idx) => (col.type === "date" || col.id === "submittedAt" ? idx : -1))
+    .filter((idx) => idx !== -1);
+
+  // Set today's date formatted as DD/MM/YYYY for the first example row (row 2)
+  const now = new Date();
+  const sampleDDMMYYYY = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+  dateColIndices.forEach((colIdx) => {
+    const sampleCellRef = utils.encode_cell({ r: 2, c: colIdx });
+    if (!worksheet[sampleCellRef]) {
+      worksheet[sampleCellRef] = { t: "s", v: sampleDDMMYYYY };
+    } else {
+      worksheet[sampleCellRef].v = sampleDDMMYYYY;
+      worksheet[sampleCellRef].t = "s";
+    }
+  });
+
+  const maxRowsToFormat = Math.max(data.length, 200);
+  for (let r = 2; r < maxRowsToFormat; r++) {
     const isEven = r % 2 === 0;
     const rowStyle = {
       fill: { fgColor: { rgb: isEven ? "FFFFFF" : "F3F4F6" } },
@@ -429,8 +451,23 @@ export async function generateFollowUpAnswerTemplate(
     };
     for (let c = 0; c < visibleHeader.length; c++) {
       const cellRef = utils.encode_cell({ r, c });
-      if (!worksheet[cellRef]) worksheet[cellRef] = { t: "s", v: "" };
-      worksheet[cellRef].s = rowStyle;
+      const isDateCol = dateColIndices.includes(c);
+      if (!worksheet[cellRef]) {
+        if (r < data.length || isDateCol) {
+          worksheet[cellRef] = { t: "s", v: "" };
+        }
+      }
+      if (worksheet[cellRef]) {
+        if (isDateCol) {
+          worksheet[cellRef].z = "dd/mm/yyyy";
+          worksheet[cellRef].s = {
+            ...rowStyle,
+            numFmt: "dd/mm/yyyy",
+          };
+        } else {
+          worksheet[cellRef].s = rowStyle;
+        }
+      }
     }
   }
 
@@ -714,6 +751,9 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
     } else {
       if (col.type) {
         commentLines.push(`Type: ${col.type}`);
+        if (col.type === "date" || col.id === "submittedAt") {
+          commentLines.push("Format: DD/MM/YYYY (e.g. 24/09/2026)");
+        }
       }
       if (col.options && col.options.length > 0) {
         commentLines.push(`Options: ${col.options.join(", ")}`);
@@ -728,8 +768,26 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
     }
   });
 
-  // Style data rows with alternating colors
-  for (let r = 2; r < data.length; r++) {
+  // Identify all date columns for DD/MM/YYYY formatting
+  const answerDateColIndices = columns
+    .map((col, idx) => (col.type === "date" || col.id === "submittedAt" ? idx : -1))
+    .filter((idx) => idx !== -1);
+
+  // Set today's date formatted as DD/MM/YYYY for the first example row (row 2)
+  const sampleAnswerDDMMYYYY = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+  answerDateColIndices.forEach((colIdx) => {
+    const sampleCellRef = utils.encode_cell({ r: 2, c: colIdx });
+    if (!worksheet[sampleCellRef]) {
+      worksheet[sampleCellRef] = { t: "s", v: sampleAnswerDDMMYYYY };
+    } else {
+      worksheet[sampleCellRef].v = sampleAnswerDDMMYYYY;
+      worksheet[sampleCellRef].t = "s";
+    }
+  });
+
+  // Style data rows with alternating colors and enforce DD/MM/YYYY on date columns
+  const maxAnswerRowsToFormat = Math.max(data.length, 200);
+  for (let r = 2; r < maxAnswerRowsToFormat; r++) {
     const isEven = r % 2 === 0;
     const rowStyle = {
       fill: { fgColor: { rgb: isEven ? "FFFFFF" : "F3F4F6" } },
@@ -742,8 +800,23 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
     };
     for (let c = 0; c < visibleHeader.length; c++) {
       const cellRef = utils.encode_cell({ r, c });
-      if (!worksheet[cellRef]) worksheet[cellRef] = { t: 's', v: '' };
-      worksheet[cellRef].s = rowStyle;
+      const isDateCol = answerDateColIndices.includes(c);
+      if (!worksheet[cellRef]) {
+        if (r < data.length || isDateCol) {
+          worksheet[cellRef] = { t: 's', v: '' };
+        }
+      }
+      if (worksheet[cellRef]) {
+        if (isDateCol) {
+          worksheet[cellRef].z = "dd/mm/yyyy";
+          worksheet[cellRef].s = {
+            ...rowStyle,
+            numFmt: "dd/mm/yyyy",
+          };
+        } else {
+          worksheet[cellRef].s = rowStyle;
+        }
+      }
     }
   }
 
@@ -805,37 +878,88 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
   return fileName;
 }
 
-function parseExcelDate(value: any): Date | null {
+export function formatToDDMMYYYY(dateInput: any, includeTime = false): string {
+  if (!dateInput) return "-";
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  if (isNaN(d.getTime())) return String(dateInput);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  if (includeTime) {
+    const hours = String(d.getHours()).padStart(2, "0");
+    const mins = String(d.getMinutes()).padStart(2, "0");
+    const secs = String(d.getSeconds()).padStart(2, "0");
+    return `${day}/${month}/${year} ${hours}:${mins}:${secs}`;
+  }
+  return `${day}/${month}/${year}`;
+}
+
+export function parseExcelDate(value: any): Date | null {
+  if (!value && value !== 0) return null;
   if (value instanceof Date) {
     return isNaN(value.getTime()) ? null : value;
   }
   if (typeof value === "number") {
-    const date = new Date(Math.round((value - 25569) * 86400 * 1000));
-    return isNaN(date.getTime()) ? null : date;
+    // Excel epoch starts at 1899-12-30 (25569 days between 1899-12-30 and 1970-01-01)
+    const utcMs = (value - 25569) * 86400 * 1000;
+    const date = new Date(utcMs);
+    if (!isNaN(date.getTime())) {
+      const userTimezoneOffset = date.getTimezoneOffset() * 60000;
+      return new Date(date.getTime() + userTimezoneOffset);
+    }
+    return null;
   }
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) return null;
 
-    // 1. Try standard Javascript date parsing (handles YYYY-MM-DD, MM/DD/YYYY)
+    // Check if numeric string representing an Excel serial number
+    const numVal = Number(trimmed);
+    if (!isNaN(numVal) && numVal > 30000 && numVal < 100000) {
+      return parseExcelDate(numVal);
+    }
+
+    // 1. Primary: DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY (with optional time)
+    const dmyMatch = trimmed.match(
+      /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})(?:[ ,T]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/
+    );
+    if (dmyMatch) {
+      const day = parseInt(dmyMatch[1], 10);
+      const month = parseInt(dmyMatch[2], 10) - 1; // 0-indexed
+      let year = parseInt(dmyMatch[3], 10);
+      if (year < 100) year += year < 50 ? 2000 : 1900;
+      const hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
+      const minutes = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
+      const seconds = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
+
+      if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
+        const d = new Date(year, month, day, hours, minutes, seconds);
+        if (!isNaN(d.getTime())) return d;
+      }
+    }
+
+    // 2. ISO format: YYYY-MM-DD or YYYY/MM/DD (with optional time)
+    const ymdMatch = trimmed.match(
+      /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ ,T]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/
+    );
+    if (ymdMatch) {
+      const year = parseInt(ymdMatch[1], 10);
+      const month = parseInt(ymdMatch[2], 10) - 1;
+      const day = parseInt(ymdMatch[3], 10);
+      const hours = ymdMatch[4] ? parseInt(ymdMatch[4], 10) : 0;
+      const minutes = ymdMatch[5] ? parseInt(ymdMatch[5], 10) : 0;
+      const seconds = ymdMatch[6] ? parseInt(ymdMatch[6], 10) : 0;
+
+      if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
+        const d = new Date(year, month, day, hours, minutes, seconds);
+        if (!isNaN(d.getTime())) return d;
+      }
+    }
+
+    // 3. Fallback to standard Javascript date parsing
     const parsed = new Date(trimmed);
     if (!isNaN(parsed.getTime())) {
       return parsed;
-    }
-
-    // 2. Fallback to DD/MM/YYYY or DD-MM-YYYY formats (standard in UK/India)
-    const match = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$/);
-    if (match) {
-      const day = parseInt(match[1], 10);
-      const month = parseInt(match[2], 10) - 1; // Months are 0-indexed
-      let year = parseInt(match[3], 10);
-      if (year < 100) {
-        year += year < 50 ? 2000 : 1900; // handle 2-digit years
-      }
-      const customDate = new Date(year, month, day);
-      if (!isNaN(customDate.getTime())) {
-        return customDate;
-      }
     }
   }
   return null;
@@ -954,7 +1078,7 @@ export async function parseAnswerWorkbook(
 
   const { read, utils } = await import("xlsx");
   const buffer = await file.arrayBuffer();
-  const workbook = read(buffer, { type: "array" });
+  const workbook = read(buffer, { type: "array", cellDates: true, dateNF: "dd/mm/yyyy" });
 
   const worksheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!worksheet) {
@@ -1034,7 +1158,7 @@ export async function parseAnswerWorkbook(
       } else if (id === "submitterEmail") {
         singleResponse.submitterContact.email = cellValue ? String(cellValue).trim() : "";
       } else if (id === "submittedAt") {
-        singleResponse.submittedAt = String(cellValue).trim();
+        singleResponse.submittedAt = cellValue;
       } else {
         if (cellValue !== "" && cellValue !== null && cellValue !== undefined) {
           singleResponse.answers[id] = cellValue;
@@ -1043,7 +1167,7 @@ export async function parseAnswerWorkbook(
     });
 
     // Parse submittedAt date or fallback to current date
-    if (singleResponse.submittedAt) {
+    if (singleResponse.submittedAt !== undefined && singleResponse.submittedAt !== null && singleResponse.submittedAt !== "") {
       const parsedDate = parseExcelDate(singleResponse.submittedAt);
       if (parsedDate) {
         singleResponse.submittedAt = parsedDate.toISOString();

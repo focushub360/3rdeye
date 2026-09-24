@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { apiClient } from "../../api/client";
 import * as XLSX from "xlsx-js-style";
+import { formatToDDMMYYYY } from "../../utils/answerTemplateUtils";
 
 interface Response {
   _id?: string;
@@ -272,7 +273,7 @@ export default function FollowUpResponsesTab({
           "Submitted By": r.submittedBy || "Anonymous",
           "Status": getDynamicStatus(r).label,
           "Chassis Number": getChassis(r),
-          "Timestamp": r.createdAt ? new Date(r.createdAt).toLocaleString() : "-",
+          "Timestamp": r.createdAt ? formatToDDMMYYYY(r.createdAt, true) : "-",
           "BIW Review": r.biwReview?.status || "Pending Review",
         };
 

@@ -76,7 +76,7 @@ import ResponseQuestion from "./ResponseQuestion";
 import SectionAnalytics from "./SectionAnalytics";
 import CascadingFilterModal from "./CascadingFilterModal";
 import * as XLSX from "xlsx-js-style";
-import { isImageUrl } from "../../utils/answerTemplateUtils";
+import { isImageUrl, formatToDDMMYYYY } from "../../utils/answerTemplateUtils";
 import ImageLink from "../ImageLink";
 import FilePreview from "../FilePreview";
 import TableColumnFilter from "./TableColumnFilter";
@@ -8343,14 +8343,14 @@ export default function FormAnalyticsDashboard() {
       responses.forEach((response: Response) => {
         const rowData: any[] = [
           getResponseTimestamp(response)
-            ? new Date(getResponseTimestamp(response)!).toLocaleDateString("en-US")
+            ? formatToDDMMYYYY(getResponseTimestamp(response)!)
             : "-",
           response.submittedBy || response.createdBy || "Anonymous",
           responseStatuses[response.id] || "-",
           getChassisDisplayValue(response.answers?.chassis_number),
           response.isDispatched ? "Yes" : "No",
           response.dispatchedAt
-            ? new Date(response.dispatchedAt).toLocaleString("en-US")
+            ? formatToDDMMYYYY(response.dispatchedAt, true)
             : "-",
         ];
 
