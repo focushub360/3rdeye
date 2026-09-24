@@ -2604,7 +2604,7 @@ export default function FormAnalyticsDashboard() {
       }
     });
 
-    return opts.sort((a, b) => a.label.localeCompare(b.label));
+    return opts.sort((a, b) => String(a?.label ?? "").localeCompare(String(b?.label ?? "")));
   }, [form, responses]);
 
   const handleStartChassisEdit = (response: Response) => {
@@ -3374,10 +3374,10 @@ export default function FormAnalyticsDashboard() {
   const getChassisDisplayValue = (value: any): string => {
     if (!value) return "-";
     if (typeof value === "object") {
-      if (value.chassisNumber) {
+      if (value.chassisNumber !== undefined && value.chassisNumber !== null) {
         return value.partDescription
           ? `${value.chassisNumber} — ${value.partDescription}`
-          : value.chassisNumber;
+          : String(value.chassisNumber);
       }
       return JSON.stringify(value);
     }
@@ -4443,11 +4443,12 @@ export default function FormAnalyticsDashboard() {
     if (Array.isArray(answer)) {
       if (answer.length === 0) return [""];
       return answer.map(item => {
+        if (!item) return "";
         if (typeof item === "object") {
-          return item.name || item.status || item.chassisNumber || JSON.stringify(item);
+          return String(item.name || item.status || item.chassisNumber || JSON.stringify(item));
         }
         return String(item).trim();
-      }).filter(v => v.length > 0);
+      }).filter(v => typeof v === "string" && v.length > 0);
     }
 
     // Handle primitives
@@ -5410,12 +5411,12 @@ export default function FormAnalyticsDashboard() {
         columnId === "chassis_number" ||
         (chassisQuestionId && columnId === chassisQuestionId)
       ) {
-        const valA = getChassisDisplayValue(
+        const valA = String(getChassisDisplayValue(
           a.answers?.chassis_number || (chassisQuestionId ? a.answers?.[chassisQuestionId] : "")
-        );
-        const valB = getChassisDisplayValue(
+        ) || "");
+        const valB = String(getChassisDisplayValue(
           b.answers?.chassis_number || (chassisQuestionId ? b.answers?.[chassisQuestionId] : "")
-        );
+        ) || "");
         const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
         return isAsc ? cmp : -cmp;
       }
@@ -5452,8 +5453,8 @@ export default function FormAnalyticsDashboard() {
       // Generic question answer sorting
       const ansA = a.answers?.[columnId];
       const ansB = b.answers?.[columnId];
-      const valA = extractAnswerValues(ansA).join(" ");
-      const valB = extractAnswerValues(ansB).join(" ");
+      const valA = String(extractAnswerValues(ansA).join(" ") || "");
+      const valB = String(extractAnswerValues(ansB).join(" ") || "");
       const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
       return isAsc ? cmp : -cmp;
     });
@@ -5730,9 +5731,11 @@ export default function FormAnalyticsDashboard() {
 
     sets.forEach((set, qId) => {
       const sorted = Array.from(set).sort((a, b) => {
-        if (a === "") return 1;
-        if (b === "") return -1;
-        return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+        const strA = String(a ?? "");
+        const strB = String(b ?? "");
+        if (strA === "") return 1;
+        if (strB === "") return -1;
+        return strA.localeCompare(strB, undefined, { numeric: true, sensitivity: "base" });
       });
       map.set(qId, sorted);
     });
@@ -5762,9 +5765,11 @@ export default function FormAnalyticsDashboard() {
       }
     });
     return Array.from(values).sort((a, b) => {
-      if (a === "") return 1;
-      if (b === "") return -1;
-      return a.localeCompare(b);
+      const strA = String(a ?? "");
+      const strB = String(b ?? "");
+      if (strA === "") return 1;
+      if (strB === "") return -1;
+      return strA.localeCompare(strB, undefined, { numeric: true, sensitivity: "base" });
     });
   };
 
