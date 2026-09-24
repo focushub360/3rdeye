@@ -541,28 +541,24 @@ export const getAllForms = async (req, res) => {
           },
           {
             $project: {
-              targetId: {
-                $cond: [
-                  { $and: [{ $ne: ["$formId", null] }, { $ne: ["$formId", ""] }] },
-                  { $toString: "$formId" },
-                  { $toString: "$questionId" }
+              resolvedFormId: {
+                $ifNull: [
+                  "$questionId",
+                  { $toString: "$formId" }
                 ]
-              },
-              altId: { $toString: "$questionId" }
+              }
             }
           },
           {
             $group: {
-              _id: "$targetId",
-              altId: { $first: "$altId" },
+              _id: "$resolvedFormId",
               count: { $sum: 1 }
             }
           }
         ]);
 
-        countAgg.forEach(({ _id, altId, count }) => {
-          if (_id) responseCountsMap.set(_id, (responseCountsMap.get(_id) || 0) + count);
-          if (altId && altId !== _id) responseCountsMap.set(altId, (responseCountsMap.get(altId) || 0) + count);
+        countAgg.forEach(({ _id, count }) => {
+          if (_id) responseCountsMap.set(_id.toString(), count);
         });
       }
 
@@ -614,7 +610,9 @@ export const getAllForms = async (req, res) => {
     const formsWithCounts = forms.map((form) => {
       const id1 = form.id ? form.id.toString() : "";
       const id2 = form._id ? form._id.toString() : "";
-      const responseCount = (id1 && responseCountsMap.get(id1)) || (id2 && responseCountsMap.get(id2)) || 0;
+      const count1 = id1 ? (responseCountsMap.get(id1) || 0) : 0;
+      const count2 = (id2 && id2 !== id1) ? (responseCountsMap.get(id2) || 0) : 0;
+      const responseCount = count1 + count2;
       return {
         ...form,
         responseCount

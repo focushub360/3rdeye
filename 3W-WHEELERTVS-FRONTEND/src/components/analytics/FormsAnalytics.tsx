@@ -1465,7 +1465,7 @@ export default function FormsAnalytics() {
             if (!parent) return null;
 
             const formId = parent._id || parent.id;
-            const responseCount = actualResponseCounts[formId] || actualResponseCounts[parent.id] || actualResponseCounts[parent._id] || parent.responseCount || 0;
+            const responseCount = (parent.id && actualResponseCounts[parent.id]) || (parent._id && actualResponseCounts[parent._id]) || actualResponseCounts[formId] || parent.responseCount || 0;
 
             const totalChildResponses = children.reduce((sum, c) => {
               const cId = c._id || c.id;
