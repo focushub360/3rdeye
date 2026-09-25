@@ -65,7 +65,12 @@ const canAccessResponseTenant = async (req, response) => {
 function parseExcelDateBackend(value) {
   if (!value && value !== 0) return undefined;
   if (value instanceof Date) {
-    return isNaN(value.getTime()) ? undefined : value;
+    if (isNaN(value.getTime())) return undefined;
+    const fullYear = value.getFullYear();
+    if (fullYear >= 30000 && fullYear <= 100000) {
+      return parseExcelDateBackend(fullYear);
+    }
+    return value;
   }
   if (typeof value === 'number') {
     const utcMs = (value - 25569) * 86400 * 1000;
@@ -75,6 +80,24 @@ function parseExcelDateBackend(value) {
   if (typeof value === 'string') {
     const trimmed = value.trim();
     if (!trimmed) return undefined;
+
+    // Check if ISO string with extended 5-6 digit year (e.g. "+046364-12-31")
+    const plusYearMatch = trimmed.match(/^\+0*(\d{5,6})/);
+    if (plusYearMatch) {
+      const serial = parseInt(plusYearMatch[1], 10);
+      if (serial >= 30000 && serial <= 100000) {
+        return parseExcelDateBackend(serial);
+      }
+    }
+
+    // Check if date formatted with 5-6 digit year (e.g. "01/01/46364")
+    const fiveDigitYearMatch = trimmed.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{5,6})/);
+    if (fiveDigitYearMatch) {
+      const serial = parseInt(fiveDigitYearMatch[3], 10);
+      if (serial >= 30000 && serial <= 100000) {
+        return parseExcelDateBackend(serial);
+      }
+    }
 
     const numVal = Number(trimmed);
     if (!isNaN(numVal) && numVal > 30000 && numVal < 100000) {

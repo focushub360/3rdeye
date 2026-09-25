@@ -863,8 +863,17 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
 
 export function formatToDDMMYYYY(dateInput: any, includeTime = false): string {
   if (!dateInput) return "-";
-  const d = dateInput instanceof Date ? dateInput : (parseExcelDate(dateInput) || new Date(dateInput));
+  let d = parseExcelDate(dateInput) || (dateInput instanceof Date ? dateInput : new Date(dateInput));
   if (isNaN(d.getTime())) return String(dateInput);
+
+  // Auto-correct any Date that has an Excel serial number as its year (e.g. 46364 -> 2026)
+  if (d.getFullYear() >= 30000 && d.getFullYear() <= 100000) {
+    const corrected = parseExcelDate(d.getFullYear());
+    if (corrected && !isNaN(corrected.getTime())) {
+      d = corrected;
+    }
+  }
+
   const day = String(d.getDate()).padStart(2, "0");
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const year = d.getFullYear();
@@ -880,7 +889,12 @@ export function formatToDDMMYYYY(dateInput: any, includeTime = false): string {
 export function parseExcelDate(value: any): Date | null {
   if (!value && value !== 0) return null;
   if (value instanceof Date) {
-    return isNaN(value.getTime()) ? null : value;
+    if (isNaN(value.getTime())) return null;
+    const fullYear = value.getFullYear();
+    if (fullYear >= 30000 && fullYear <= 100000) {
+      return parseExcelDate(fullYear);
+    }
+    return value;
   }
   if (typeof value === "number") {
     // Excel epoch starts at 1899-12-30 (25569 days between 1899-12-30 and 1970-01-01)
@@ -895,6 +909,24 @@ export function parseExcelDate(value: any): Date | null {
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) return null;
+
+    // Check if ISO string with extended 5-6 digit year (e.g. "+046364-12-31" or "+046252...")
+    const plusYearMatch = trimmed.match(/^\+0*(\d{5,6})/);
+    if (plusYearMatch) {
+      const serial = parseInt(plusYearMatch[1], 10);
+      if (serial >= 30000 && serial <= 100000) {
+        return parseExcelDate(serial);
+      }
+    }
+
+    // Check if date string formatted with 5-6 digit year (e.g. "01/01/46364" or "12-08-46364")
+    const fiveDigitYearMatch = trimmed.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{5,6})/);
+    if (fiveDigitYearMatch) {
+      const serial = parseInt(fiveDigitYearMatch[3], 10);
+      if (serial >= 30000 && serial <= 100000) {
+        return parseExcelDate(serial);
+      }
+    }
 
     // Check if numeric string representing an Excel serial number
     const numVal = Number(trimmed);
