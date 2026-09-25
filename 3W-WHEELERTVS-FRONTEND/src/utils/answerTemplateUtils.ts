@@ -432,19 +432,6 @@ export async function generateFollowUpAnswerTemplate(
     .map((col, idx) => (col.type === "date" || col.id === "submittedAt" ? idx : -1))
     .filter((idx) => idx !== -1);
 
-  // Set today's date formatted as DD/MM/YYYY for the first example row (row 2)
-  const now = new Date();
-  const sampleDDMMYYYY = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
-  dateColIndices.forEach((colIdx) => {
-    const sampleCellRef = utils.encode_cell({ r: 2, c: colIdx });
-    if (!worksheet[sampleCellRef]) {
-      worksheet[sampleCellRef] = { t: "s", v: sampleDDMMYYYY };
-    } else {
-      worksheet[sampleCellRef].v = sampleDDMMYYYY;
-      worksheet[sampleCellRef].t = "s";
-    }
-  });
-
   const maxRowsToFormat = Math.max(data.length, 200);
   for (let r = 2; r < maxRowsToFormat; r++) {
     const isEven = r % 2 === 0;
@@ -780,19 +767,6 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
   const answerDateColIndices = columns
     .map((col, idx) => (col.type === "date" || col.id === "submittedAt" ? idx : -1))
     .filter((idx) => idx !== -1);
-
-  // Set today's date formatted as DD/MM/YYYY for the first example row (row 2)
-  const now = new Date();
-  const sampleAnswerDDMMYYYY = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
-  answerDateColIndices.forEach((colIdx) => {
-    const sampleCellRef = utils.encode_cell({ r: 2, c: colIdx });
-    if (!worksheet[sampleCellRef]) {
-      worksheet[sampleCellRef] = { t: "s", v: sampleAnswerDDMMYYYY };
-    } else {
-      worksheet[sampleCellRef].v = sampleAnswerDDMMYYYY;
-      worksheet[sampleCellRef].t = "s";
-    }
-  });
 
   // Style data rows with alternating colors and enforce DD/MM/YYYY on date columns
   const maxAnswerRowsToFormat = Math.max(data.length, 200);
