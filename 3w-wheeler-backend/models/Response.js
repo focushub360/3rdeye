@@ -17,7 +17,18 @@ const ResponseSchema = new mongoose.Schema({
     of: mongoose.Schema.Types.Mixed,
     required: true
   },
-  parentResponseId: String,
+  parentResponseId: {
+    type: String,
+    index: true
+  },
+  batchId: {
+    type: String,
+    index: true
+  },
+  chassisNumber: {
+    type: String,
+    index: true
+  },
   assignedTo: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
@@ -242,6 +253,12 @@ ResponseSchema.index({ questionId: 1, isSectionSubmit: 1, createdAt: -1 });
 ResponseSchema.index({ tenantId: 1, createdAt: -1 });
 ResponseSchema.index({ tenantId: 1, isSectionSubmit: 1, createdAt: -1 }); // NEW - to fix responses?limit=1000 timeouts
 ResponseSchema.index({ createdBy: 1, createdAt: -1, tenantId: 1 });
+ResponseSchema.index({ chassisNumber: 1 });
+ResponseSchema.index({ parentResponseId: 1 });
+ResponseSchema.index({ batchId: 1 });
+ResponseSchema.index({ questionId: 1, chassisNumber: 1 });
+ResponseSchema.index({ 'answers.chassis_number': 1 });
+ResponseSchema.index({ 'answers.chassisNumber': 1 });
 
 // ========== PRE-SAVE HOOK FOR ROBUST CREATOR ASSIGNMENT ==========
 ResponseSchema.pre('save', async function (next) {

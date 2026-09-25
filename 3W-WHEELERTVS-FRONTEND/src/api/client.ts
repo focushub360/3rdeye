@@ -74,6 +74,7 @@ class ApiClient {
   private baseUrl: string;
   private _token: string | null = null;
   private memoryCache = new Map<string, { data: any, timestamp: number }>();
+  private _suggestionsCache = new Map<string, { data: any; exp: number }>();
 
   get token(): string | null {
     if (this._token) return this._token;
@@ -1688,6 +1689,13 @@ class ApiClient {
     answer: any,
     tenantSlug?: string,
   ) {
+    const cleanAnswer = String(answer || "").trim().toLowerCase();
+    const cacheKey = `${formId}:${questionId}:${cleanAnswer}:${tenantSlug || ""}`;
+    const cached = this._suggestionsCache.get(cacheKey);
+    if (cached && Date.now() < cached.exp) {
+      return cached.data;
+    }
+
     const endpoint = tenantSlug
       ? `/responses/${tenantSlug}/forms/${formId}/suggestions`
       : `/responses/suggestions`;
@@ -1698,10 +1706,17 @@ class ApiClient {
       answer: String(answer),
     });
 
-    return this.request<{ suggestedAnswers: Record<string, any> }>(
+    const result = await this.request<{ suggestedAnswers: Record<string, any> }>(
       `${endpoint}?${queryParams.toString()}`,
       { forceNetwork: true }
     );
+
+    if (result && result.suggestedAnswers) {
+      if (this._suggestionsCache.size > 500) this._suggestionsCache.clear();
+      this._suggestionsCache.set(cacheKey, { data: result, exp: Date.now() + 60000 });
+    }
+
+    return result;
   }
 
   async getQuestionPreviousAnswers(

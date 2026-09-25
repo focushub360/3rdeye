@@ -107,6 +107,7 @@ interface Response {
   answers: Record<string, any>;
   timestamp?: string;
   createdAt?: string; // MongoDB timestamp field
+  submittedAt?: string;
   parentResponseId?: string;
   assignedTo?: string;
   assignedAt?: string;
@@ -152,9 +153,9 @@ interface Response {
   };
 }
 
-// Helper function to get the timestamp from response (handles both timestamp and createdAt)
+// Helper function to get the timestamp from response (handles submittedAt, timestamp and createdAt)
 const getResponseTimestamp = (response: Response): string | undefined => {
-  return response.timestamp || response.createdAt;
+  return response.submittedAt || response.timestamp || response.createdAt;
 };
 
 interface Section {
@@ -2506,14 +2507,7 @@ export default function FormAnalyticsDashboard() {
     null,
   );
 
-  const [showParentMatchColumn, setShowParentMatchColumn] = useState<boolean>(() => {
-    try {
-      const formKey = id || "default";
-      const saved = localStorage.getItem(`show_parent_match_${formKey}`);
-      if (saved !== null) return saved === "true";
-    } catch (err) {}
-    return true; // Default to true for follow-up and parent matching visibility
-  });
+  const [showParentMatchColumn, setShowParentMatchColumn] = useState<boolean>(false);
 
   const [tvsReviews, setTvsReviews] = useState<any[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
@@ -2570,6 +2564,147 @@ export default function FormAnalyticsDashboard() {
     fetchBulkReviews();
   }, [responses.length, analyticsView, id]);
 
+  const getChassisDisplayValue = (value: any): string => {
+    if (!value) return "-";
+    if (typeof value === "object") {
+      if (value.chassisNumber !== undefined && value.chassisNumber !== null) {
+        return value.partDescription
+          ? `${value.chassisNumber} — ${value.partDescription}`
+          : String(value.chassisNumber);
+      }
+      return JSON.stringify(value);
+    }
+    return String(value);
+  };
+
+  const chassisQuestionId = useMemo(() => {
+    if (!form?.sections) {
+      return null;
+    }
+    // Priority 1: Explicit tracking flag
+    for (const section of form.sections) {
+      if (section.questions) {
+        for (const q of section.questions) {
+          if (
+            q.trackResponseRank === true ||
+            q.trackResponseRank === "true" ||
+            q.trackResponseQuestion === true ||
+            q.trackResponseQuestion === "true"
+          ) {
+            return q.id;
+          }
+        }
+      }
+    }
+    // Priority 2: Specific chassis question types
+    for (const section of form.sections) {
+      if (section.questions) {
+        for (const q of section.questions) {
+          if (
+            q.type === "chassis" ||
+            q.type === "chassisWithZone" ||
+            q.type === "chassisWithoutZone" ||
+            q.type === "zone-in" ||
+            q.type === "zone-out"
+          ) {
+            return q.id;
+          }
+        }
+      }
+    }
+    // Priority 3: Chassis Number / Chassis No questions
+    for (const section of form.sections) {
+      if (section.questions) {
+        for (const q of section.questions) {
+          const t = q.text?.toLowerCase() || "";
+          if (t.includes("chassis number") || t.includes("chassis no") || t.includes("chassis_number")) {
+            return q.id;
+          }
+        }
+      }
+    }
+    // Priority 4: Other questions mentioning chassis
+    for (const section of form.sections) {
+      if (section.questions) {
+        for (const q of section.questions) {
+          const t = q.text?.toLowerCase() || "";
+          if (t.includes("chassis") && !t.includes("selected")) {
+            return q.id;
+          }
+        }
+      }
+    }
+    // Priority 5: ID Number / VIN / Serial Number / Vehicle Number questions
+    for (const section of form.sections) {
+      if (section.questions) {
+        for (const q of section.questions) {
+          const t = q.text?.toLowerCase() || "";
+          if (
+            t.includes("id number") ||
+            t.includes("id_number") ||
+            t.includes("id no") ||
+            t.includes("identification") ||
+            t.includes("vin") ||
+            t.includes("serial") ||
+            t.includes("vehicle")
+          ) {
+            return q.id;
+          }
+        }
+      }
+    }
+    return null;
+  }, [form]);
+
+  const getResponseChassisValue = useCallback((r: Response | any): string => {
+    if (!r) return "-";
+    // 1. Direct answer using chassisQuestionId
+    if (chassisQuestionId && r.answers && r.answers[chassisQuestionId] !== undefined && r.answers[chassisQuestionId] !== null && r.answers[chassisQuestionId] !== "") {
+      const val = getChassisDisplayValue(r.answers[chassisQuestionId]);
+      if (val && val !== "-" && val !== "N/A") return val;
+    }
+    // 2. Direct answer using chassis_number
+    if (r.answers?.chassis_number !== undefined && r.answers?.chassis_number !== null && r.answers?.chassis_number !== "") {
+      const val = getChassisDisplayValue(r.answers.chassis_number);
+      if (val && val !== "-" && val !== "N/A") return val;
+    }
+    // 3. Direct r.chassisNumber
+    if (r.chassisNumber && typeof r.chassisNumber === "string" && r.chassisNumber.trim() !== "" && r.chassisNumber !== "N/A") {
+      return r.chassisNumber.trim();
+    }
+    // 4. Known answer keys
+    if (r.answers) {
+      const directKeys = [
+        "chassisNumber", "chassis", "Chassis", "CHASSIS",
+        "id_number", "idNumber", "ID NUMBER", "ID Number", "Id Number", "id_no", "ID No", "ID NO",
+        "Chassis / VIN", "Chassis Number", "VIN", "vin", "Serial Number", "serialNumber"
+      ];
+      for (const k of directKeys) {
+        if (r.answers[k] !== undefined && r.answers[k] !== null && r.answers[k] !== "") {
+          const val = getChassisDisplayValue(r.answers[k]);
+          if (val && val !== "-" && val !== "N/A") return val;
+        }
+      }
+      // 5. Scan form questions for any question mentioning chassis / vin
+      if (form?.sections) {
+        for (const section of form.sections) {
+          if (section.questions) {
+            for (const q of section.questions) {
+              const t = (q.text || "").toLowerCase();
+              if (t.includes("chassis") || t.includes("vin") || t.includes("id number") || q.trackResponseRank) {
+                if (r.answers[q.id] !== undefined && r.answers[q.id] !== null && r.answers[q.id] !== "") {
+                  const val = getChassisDisplayValue(r.answers[q.id]);
+                  if (val && val !== "-" && val !== "N/A") return val;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return "-";
+  }, [chassisQuestionId, form]);
+
   const [editingChassisResponseId, setEditingChassisResponseId] = useState<string | null>(null);
   const [chassisEditValue, setChassisEditValue] = useState<string>("");
   const [isSavingChassis, setIsSavingChassis] = useState(false);
@@ -2594,24 +2729,20 @@ export default function FormAnalyticsDashboard() {
     }
 
     responses.forEach((r) => {
-      const val = r.answers?.chassis_number;
-      if (val) {
-        const num = typeof val === "object" ? val.chassisNumber : String(val);
-        if (num && !seen.has(String(num))) {
-          seen.add(String(num));
-          opts.push({ value: String(num), label: String(num) });
-        }
+      const num = getResponseChassisValue(r);
+      if (num && num !== "-" && num !== "N/A" && !seen.has(String(num))) {
+        seen.add(String(num));
+        opts.push({ value: String(num), label: String(num) });
       }
     });
 
     return opts.sort((a, b) => String(a?.label ?? "").localeCompare(String(b?.label ?? "")));
-  }, [form, responses]);
+  }, [form, responses, getResponseChassisValue]);
 
   const handleStartChassisEdit = (response: Response) => {
     setEditingChassisResponseId(response.id);
-    const val = response.answers?.chassis_number;
-    const num = val && typeof val === "object" ? val.chassisNumber : String(val || "");
-    setChassisEditValue(num);
+    const val = getResponseChassisValue(response);
+    setChassisEditValue(val === "-" || val === "N/A" ? "" : val);
   };
 
   const handleCancelChassisEdit = () => {
@@ -2625,12 +2756,16 @@ export default function FormAnalyticsDashboard() {
       const updatedAnswers = {
         ...response.answers,
         chassis_number: chassisEditValue,
+        ...(chassisQuestionId ? { [chassisQuestionId]: chassisEditValue } : {})
       };
-      await apiClient.updateResponse(response.id, { answers: updatedAnswers });
+      await apiClient.updateResponse(response.id, { 
+        answers: updatedAnswers,
+        chassisNumber: chassisEditValue 
+      });
 
       setResponses((prev) =>
         prev.map((r) =>
-          r.id === response.id ? { ...r, answers: updatedAnswers } : r,
+          r.id === response.id ? { ...r, answers: updatedAnswers, chassisNumber: chassisEditValue } : r,
         ),
       );
 
@@ -3371,18 +3506,7 @@ export default function FormAnalyticsDashboard() {
   // flash of "No data" while the lazy fetch is still in flight.
   const [analyticsResponsesLoading, setAnalyticsResponsesLoading] = useState(true);
 
-  const getChassisDisplayValue = (value: any): string => {
-    if (!value) return "-";
-    if (typeof value === "object") {
-      if (value.chassisNumber !== undefined && value.chassisNumber !== null) {
-        return value.partDescription
-          ? `${value.chassisNumber} — ${value.partDescription}`
-          : String(value.chassisNumber);
-      }
-      return JSON.stringify(value);
-    }
-    return String(value);
-  };
+
 
   // BIW Review — a second, independent accept/reject/rework check that any
   // reviewer (other than the response's own submitter) can apply from the
@@ -4525,85 +4649,7 @@ export default function FormAnalyticsDashboard() {
     return result;
   }, [responses, user, locationFilter, cascadingFilters, columnFilters]);
 
-  // Find the primary chassis question to identify unique items/vehicles
-  const chassisQuestionId = useMemo(() => {
-    if (!form?.sections) {
-      return null;
-    }
-    // Priority 1: Explicit tracking flag
-    for (const section of form.sections) {
-      if (section.questions) {
-        for (const q of section.questions) {
-          if (
-            q.trackResponseRank === true ||
-            q.trackResponseRank === "true" ||
-            q.trackResponseQuestion === true ||
-            q.trackResponseQuestion === "true"
-          ) {
-            return q.id;
-          }
-        }
-      }
-    }
-    // Priority 2: Specific chassis question types
-    for (const section of form.sections) {
-      if (section.questions) {
-        for (const q of section.questions) {
-          if (
-            q.type === "chassis" ||
-            q.type === "chassisWithZone" ||
-            q.type === "chassisWithoutZone" ||
-            q.type === "zone-in" ||
-            q.type === "zone-out"
-          ) {
-            return q.id;
-          }
-        }
-      }
-    }
-    // Priority 3: Chassis Number / Chassis No questions
-    for (const section of form.sections) {
-      if (section.questions) {
-        for (const q of section.questions) {
-          const t = q.text?.toLowerCase() || "";
-          if (t.includes("chassis number") || t.includes("chassis no") || t.includes("chassis_number")) {
-            return q.id;
-          }
-        }
-      }
-    }
-    // Priority 4: Other questions mentioning chassis
-    for (const section of form.sections) {
-      if (section.questions) {
-        for (const q of section.questions) {
-          const t = q.text?.toLowerCase() || "";
-          if (t.includes("chassis") && !t.includes("selected")) {
-            return q.id;
-          }
-        }
-      }
-    }
-    // Priority 5: ID Number / VIN / Serial Number / Vehicle Number questions
-    for (const section of form.sections) {
-      if (section.questions) {
-        for (const q of section.questions) {
-          const t = q.text?.toLowerCase() || "";
-          if (
-            t.includes("id number") ||
-            t.includes("id_number") ||
-            t.includes("id no") ||
-            t.includes("identification") ||
-            t.includes("vin") ||
-            t.includes("serial") ||
-            t.includes("vehicle")
-          ) {
-            return q.id;
-          }
-        }
-      }
-    }
-    return null;
-  }, [form]);
+  // Primary chassis question ID is already resolved at top (chassisQuestionId)
 
   // Robust helper to extract a normalized chassis / vehicle / item identifier from any response
   const getChassisOrItemId = useCallback((r: any, trackingQId: string | null): string => {
@@ -4963,6 +5009,88 @@ export default function FormAnalyticsDashboard() {
     return Array.from(opts).sort((a, b) => String(a ?? "").localeCompare(String(b ?? ""), undefined, { numeric: true }));
   }, [responses, tableResponses, tableDisplayStatuses, responseStatuses, chassisAttemptRanks]);
 
+  // Filter options for Submitted By
+  const submittedByFilterOptions = useMemo(() => {
+    const opts = new Set<string>();
+    const dataset = responses.length > 0 ? responses : tableResponses;
+    dataset.forEach((r) => {
+      const name = r.submittedBy || (r as any).createdBy?.name || (r as any).createdBy?.email || (typeof (r as any).createdBy === "string" ? (r as any).createdBy : "") || "Anonymous";
+      if (name) opts.add(name);
+    });
+    return Array.from(opts).sort((a, b) => String(a ?? "").localeCompare(String(b ?? "")));
+  }, [responses, tableResponses]);
+
+  // Filter options for Status
+  const statusFilterOptions = useMemo(() => {
+    const opts = new Set<string>();
+    [
+      "Direct Ok",
+      "Accepted",
+      "Rework Accepted",
+      "Rework 1",
+      "Rework 2",
+      "Rework",
+      "Ongoing Rework",
+      "Rejected",
+      "Pending Review"
+    ].forEach((s) => opts.add(s));
+
+    const dataset = responses.length > 0 ? responses : tableResponses;
+    dataset.forEach((r) => {
+      const respId = r.id || (r as any)._id;
+      const status = tableDisplayStatuses[respId] || responseStatuses[respId] || r.status;
+      if (status) opts.add(status);
+    });
+    return Array.from(opts).sort((a, b) => String(a ?? "").localeCompare(String(b ?? "")));
+  }, [responses, tableResponses, tableDisplayStatuses, responseStatuses]);
+
+  // Filter options for Selected Chassis
+  const chassisFilterOptions = useMemo(() => {
+    const opts = new Set<string>();
+    chassisMasterOptions.forEach((o) => {
+      if (o.value) opts.add(o.value);
+    });
+    const dataset = responses.length > 0 ? responses : tableResponses;
+    dataset.forEach((r) => {
+      const chassisVal = getResponseChassisValue(r);
+      if (chassisVal && chassisVal !== "-" && chassisVal !== "No Chassis") {
+        opts.add(chassisVal);
+      }
+    });
+    return Array.from(opts).sort((a, b) => String(a ?? "").localeCompare(String(b ?? ""), undefined, { numeric: true }));
+  }, [responses, tableResponses, chassisMasterOptions, getResponseChassisValue]);
+
+  // Filter options for Parent Match
+  const parentMatchFilterOptions = useMemo(() => {
+    return [
+      "✓ Parent Matched",
+      "✓ Follow-up Done",
+      "⚠ No Parent Match",
+      "⏳ Pending Follow-up",
+      "✕ Overdue",
+      "Main Record"
+    ];
+  }, []);
+
+  // Filter options for BIW Review
+  const biwReviewFilterOptions = useMemo(() => {
+    return [
+      "Accepted",
+      "Rejected",
+      "Reworked",
+      "Pending Review",
+      "No review yet"
+    ];
+  }, []);
+
+  // Filter options for Dispatch
+  const dispatchFilterOptions = useMemo(() => {
+    return [
+      "Dispatched / Enabled",
+      "Pending Dispatch"
+    ];
+  }, []);
+
   const fetchChatHistory = async (responseId: string) => {
     try {
       console.log(
@@ -5216,6 +5344,283 @@ export default function FormAnalyticsDashboard() {
     }
   };
 
+  // Helper to compute Parent/Follow-up matching status and color coding
+  const computeParentMatch = (response: any) => {
+    // 1. If backend already provided rich followUpStatus, prioritize it
+    const fs = response?.followUpStatus;
+    if (fs) {
+      if (fs.status === "matched") {
+        const isParentMatch = fs.matchType === "parent";
+        return {
+          status: "matched",
+          badgeText: isParentMatch ? "✓ Parent Matched" : "✓ Follow-up Done",
+          badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
+          icon: CheckCircle2,
+          subText: isParentMatch
+            ? (fs.parentStatus ? `Status: ${fs.parentStatus}` : "Linked to Parent")
+            : (fs.followUpStatus ? `Status: ${fs.followUpStatus}` : "Follow-up Complete"),
+          tooltip: fs.details || (isParentMatch
+            ? `Matched parent chassis "${fs.matchedChassis || ""}" (Status: ${fs.parentStatus || "Accepted"}) by ${fs.parentSubmittedBy || "Inspector"}`
+            : `Follow-up completed for chassis "${fs.matchedChassis || ""}" by ${fs.followUpSubmittedBy || "Inspector"}`)
+        };
+      }
+
+      if (fs.status === "unmatched") {
+        return {
+          status: "unmatched",
+          badgeText: "⚠ No Parent Match",
+          badgeClasses: "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100",
+          icon: AlertTriangle,
+          subText: "Standalone Follow-up",
+          tooltip: fs.details || `Chassis "${fs.matchedChassis || ""}" has not been inspected in the parent form yet`
+        };
+      }
+
+      if (fs.status === "pending") {
+        return {
+          status: "pending",
+          badgeText: fs.badgeText || "⏳ Pending Follow-up",
+          badgeClasses: "bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-800 hover:bg-sky-100",
+          icon: Clock,
+          subText: fs.daysElapsed !== undefined ? `Day ${fs.daysElapsed + 1}/10` : "Active window",
+          tooltip: fs.details || "Follow-up inspection is currently pending within active 10-day window"
+        };
+      }
+
+      if (fs.status === "overdue") {
+        return {
+          status: "overdue",
+          badgeText: fs.badgeText || "✕ Overdue",
+          badgeClasses: "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800 hover:bg-rose-100",
+          icon: XCircle,
+          subText: `${fs.daysElapsed || 0} days`,
+          tooltip: fs.details || `Follow-up overdue by ${fs.daysElapsed || 0} days`
+        };
+      }
+    }
+
+    // 2. Client-side relation checks:
+    // If response has parentResponseId, it is a follow-up matched to a parent
+    if (response?.parentResponseId) {
+      const parentInList = responses?.find(
+        (r: any) => (r.id && r.id === response.parentResponseId) || (r._id && r._id === response.parentResponseId)
+      );
+      if (parentInList) {
+        const parentStatus = tableDisplayStatuses[parentInList.id || parentInList._id] || parentInList.status || "Accepted";
+        const parentSubmitter = parentInList.submittedBy || "Inspector";
+        return {
+          status: "matched",
+          badgeText: "✓ Parent Matched",
+          badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
+          icon: CheckCircle2,
+          subText: `Status: ${parentStatus}`,
+          tooltip: `Linked to parent response by ${parentSubmitter} (Status: ${parentStatus})`
+        };
+      }
+      return {
+        status: "matched",
+        badgeText: "✓ Parent Matched",
+        badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
+        icon: CheckCircle2,
+        subText: "Linked to Parent",
+        tooltip: `Linked to parent response (${response.parentResponseId.slice(0, 10)}...)`
+      };
+    }
+
+    // Check if this response is a parent that has a child follow-up response in the list
+    const respId = response?.id || response?._id;
+    const chassisVal = getResponseChassisValue(response);
+    const hasChildMatch = responses?.some(
+      (r: any) =>
+        (r.parentResponseId && (r.parentResponseId === respId || r.parentResponseId === response?.id)) ||
+        (chassisVal && r.parentResponseId && getResponseChassisValue(r) === chassisVal) ||
+        (chassisVal && r.id !== respId && getResponseChassisValue(r) === chassisVal && (r.batchId?.includes("-t2") || r.batchId?.includes("-fu-")))
+    );
+
+    if (hasChildMatch) {
+      return {
+        status: "matched",
+        badgeText: "✓ Follow-up Done",
+        badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
+        icon: CheckCircle2,
+        subText: "Follow-up Complete",
+        tooltip: `Follow-up inspection completed for chassis "${chassisVal || ""}"`
+      };
+    }
+
+    // Check if this form is a child/follow-up form or parent form
+    const isChildForm = Boolean(form?.parentFormId);
+    const isParentForm = Boolean(form?.childForms && form.childForms.length > 0);
+
+    if (isChildForm) {
+      // Child form with no parent matched
+      return {
+        status: "unmatched",
+        badgeText: "⚠ No Parent Match",
+        badgeClasses: "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100",
+        icon: AlertTriangle,
+        subText: "Standalone Follow-up",
+        tooltip: `Chassis "${chassisVal || ""}" has not been inspected in the parent form yet`
+      };
+    }
+
+    if (isParentForm && chassisVal) {
+      const createdAtDate = response?.createdAt ? new Date(response.createdAt) : new Date();
+      const daysElapsed = Math.floor((Date.now() - createdAtDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysElapsed <= 10) {
+        return {
+          status: "pending",
+          badgeText: `⏳ Day ${daysElapsed + 1}/10`,
+          badgeClasses: "bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-800 hover:bg-sky-100",
+          icon: Clock,
+          subText: `Day ${daysElapsed + 1}/10`,
+          tooltip: `Follow-up inspection is pending within active 10-day window (Day ${daysElapsed + 1} of 10)`
+        };
+      }
+      return {
+        status: "overdue",
+        badgeText: `✕ Overdue (${daysElapsed}d)`,
+        badgeClasses: "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800 hover:bg-rose-100",
+        icon: XCircle,
+        subText: `${daysElapsed} days`,
+        tooltip: `Follow-up overdue by ${daysElapsed} days`
+      };
+    }
+
+    return {
+      status: "standalone",
+      badgeText: "Main Record",
+      badgeClasses: "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600",
+      icon: CheckCircle2,
+      subText: "Standard",
+      tooltip: "Standard inspection submission"
+    };
+  };
+
+  // Central column filter matcher for both client-filtered full dataset and paginated table responses
+  const matchSingleColumnFilter = (response: any, columnId: string, allowedValues: string[]): boolean => {
+    if (!allowedValues || allowedValues.length === 0) return true;
+    const respId = response.id || response._id;
+
+    // 1. __attemptRank
+    if (columnId === "__attemptRank") {
+      const rank = chassisAttemptRanks[respId] || (response.responseRanks && chassisQuestionId ? response.responseRanks[chassisQuestionId] : 1);
+      const rowStatus = tableDisplayStatuses[respId] || responseStatuses[respId] || "Pending Review";
+      let colorLabel = "Green - Accepted";
+      if (rowStatus === "Rejected") {
+        colorLabel = "Red - Rejected";
+      } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted" && rowStatus !== "Rework Completed") {
+        colorLabel = "Yellow - Rework";
+      } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted" || rowStatus === "Rework Completed" || rowStatus === "Verified") {
+        colorLabel = "Green - Accepted";
+      } else {
+        colorLabel = "Gray - Pending";
+      }
+      const fullLabel = `Attempt ${rank} (${colorLabel})`;
+      return (
+        allowedValues.includes(fullLabel) ||
+        allowedValues.includes(`Attempt ${rank}`) ||
+        allowedValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
+      );
+    }
+
+    // 2. __submittedBy
+    if (columnId === "__submittedBy") {
+      const submitter = (response.submittedBy || response.createdBy?.name || response.createdBy?.email || (typeof response.createdBy === "string" ? response.createdBy : "") || "Anonymous").toLowerCase().trim();
+      return allowedValues.some((av) => {
+        const avLower = av.toLowerCase().trim();
+        return submitter === avLower || submitter.includes(avLower);
+      });
+    }
+
+    // 3. __status
+    if (columnId === "__status") {
+      const rawStatus = (tableDisplayStatuses[respId] || responseStatuses[respId] || response.status || "Pending Review").toLowerCase().trim();
+      return allowedValues.some((av) => {
+        const avLower = av.toLowerCase().trim();
+        if (avLower === "rework" || avLower === "ongoing rework") {
+          return rawStatus.includes("rework") && rawStatus !== "rework accepted" && rawStatus !== "rework completed";
+        }
+        if (avLower === "direct ok" || avLower === "accepted") {
+          return rawStatus === "direct ok" || rawStatus === "accepted" || rawStatus === "verified";
+        }
+        if (avLower === "rework accepted") {
+          return rawStatus === "rework accepted" || rawStatus === "rework completed";
+        }
+        return rawStatus === avLower || rawStatus.includes(avLower);
+      });
+    }
+
+    // 4. __chassisNumber
+    if (columnId === "__chassisNumber") {
+      const chassisVal = (getResponseChassisValue(response) || "").toLowerCase().trim();
+      return allowedValues.some((av) => {
+        const avLower = av.toLowerCase().trim();
+        return chassisVal === avLower || chassisVal.includes(avLower);
+      });
+    }
+
+    // 5. __parentMatch
+    if (columnId === "__parentMatch") {
+      const pm = computeParentMatch(response);
+      const pmBadge = (pm.badgeText || "").toLowerCase().trim();
+      const pmStatus = (pm.status || "").toLowerCase().trim();
+      return allowedValues.some((av) => {
+        const avLower = av.toLowerCase().trim();
+        if (pmBadge === avLower || pmBadge.includes(avLower) || avLower.includes(pmBadge)) return true;
+        if (avLower.includes("parent") && (pmBadge.includes("parent") || pmStatus === "matched")) return true;
+        if (avLower.includes("follow-up") && (pmBadge.includes("follow-up") || pmStatus === "pending")) return true;
+        if (avLower.includes("orphan") && (pmBadge.includes("no parent") || pmStatus === "unmatched")) return true;
+        if (avLower.includes("overdue") && (pmBadge.includes("overdue") || pmStatus === "overdue")) return true;
+        if (avLower.includes("main") && (pmBadge.includes("main") || pmStatus === "standalone")) return true;
+        return false;
+      });
+    }
+
+    // 6. __biwReview
+    if (columnId === "__biwReview") {
+      const biwStatus = (response.biwReview?.status || "").toLowerCase().trim();
+      return allowedValues.some((av) => {
+        const avLower = av.toLowerCase().trim();
+        if (avLower === "no review yet" || avLower === "pending review") {
+          return !biwStatus || biwStatus === "pending review";
+        }
+        return biwStatus === avLower;
+      });
+    }
+
+    // 7. __dispatch
+    if (columnId === "__dispatch") {
+      const isDispatched = !!response.isDispatched;
+      return allowedValues.some((av) => {
+        const avLower = av.toLowerCase().trim();
+        if (avLower.includes("dispatched") && !avLower.includes("pending")) {
+          return isDispatched;
+        }
+        if (avLower.includes("pending") || avLower.includes("not")) {
+          return !isDispatched;
+        }
+        return true;
+      });
+    }
+
+    // Dynamic question answer filter
+    const answer = response.answers?.[columnId];
+    if (answer === null || answer === undefined) {
+      return allowedValues.includes("No Response") || allowedValues.includes("");
+    }
+    const answerValues = extractAnswerValues(answer);
+    return answerValues.some((v) => {
+      if (!v) return false;
+      const vLower = v.toLowerCase();
+      return allowedValues.some((av) => {
+        if (!av) return false;
+        const avLower = av.toLowerCase();
+        return vLower === avLower || vLower.includes(avLower) || avLower.includes(vLower);
+      });
+    });
+  };
+
   const filteredResponses = useMemo(() => {
     let result = baseFilteredResponses;
 
@@ -5290,27 +5695,14 @@ export default function FormAnalyticsDashboard() {
       });
     }
 
-    // 4. __attemptRank column filter (moved here from baseFilteredResponses to avoid TDZ)
-    const attemptRankFilterValues = columnFilters["__attemptRank"];
-    if (attemptRankFilterValues && attemptRankFilterValues.length > 0) {
+    // 4. Column filters (supports __attemptRank, __status, __submittedBy, __chassisNumber, __parentMatch, __biwReview, __dispatch, and questions)
+    const activeColumnFilters = Object.entries(columnFilters).filter(
+      ([_, values]) => values && values.length > 0,
+    );
+    if (activeColumnFilters.length > 0) {
       result = result.filter((response) => {
-        const rank = chassisAttemptRanks[response.id] || (response.responseRanks && chassisQuestionId ? response.responseRanks[chassisQuestionId] : 1);
-        const rowStatus = tableDisplayStatuses[response.id] || responseStatuses[response.id] || "Pending Review";
-        let colorLabel = "Green - Accepted";
-        if (rowStatus === "Rejected") {
-          colorLabel = "Red - Rejected";
-        } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
-          colorLabel = "Amber - Rework";
-        } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
-          colorLabel = "Green - Accepted";
-        } else {
-          colorLabel = "Gray - Pending";
-        }
-        const fullLabel = `Attempt ${rank} (${colorLabel})`;
-        return (
-          attemptRankFilterValues.includes(fullLabel) ||
-          attemptRankFilterValues.includes(`Attempt ${rank}`) ||
-          attemptRankFilterValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
+        return activeColumnFilters.every(([columnId, allowedValues]) =>
+          matchSingleColumnFilter(response, columnId, allowedValues || [])
         );
       });
     }
@@ -5333,71 +5725,6 @@ export default function FormAnalyticsDashboard() {
     );
   }, [columnFilters, responsesSearchTerm, dateFilter, selectedInspectorForTrend, tableSort]);
 
-  // Helper to compute Parent/Follow-up matching status and color coding
-  const computeParentMatch = (response: any) => {
-    // 1. If backend already provided rich followUpStatus, prioritize it
-    const fs = response?.followUpStatus;
-    if (fs) {
-      if (fs.status === "matched") {
-        const isParentMatch = fs.matchType === "parent";
-        return {
-          status: "matched",
-          badgeText: isParentMatch ? "✓ Parent Matched" : "✓ Follow-up Done",
-          badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
-          icon: CheckCircle2,
-          subText: isParentMatch
-            ? (fs.parentStatus ? `Status: ${fs.parentStatus}` : "Linked to Parent")
-            : (fs.followUpStatus ? `Status: ${fs.followUpStatus}` : "Follow-up Complete"),
-          tooltip: fs.details || (isParentMatch
-            ? `Matched parent chassis "${fs.matchedChassis || ""}" (Status: ${fs.parentStatus || "Accepted"}) by ${fs.parentSubmittedBy || "Inspector"}`
-            : `Follow-up completed for chassis "${fs.matchedChassis || ""}" by ${fs.followUpSubmittedBy || "Inspector"}`)
-        };
-      }
-
-      if (fs.status === "unmatched") {
-        return {
-          status: "unmatched",
-          badgeText: "⚠ No Parent Match",
-          badgeClasses: "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100",
-          icon: AlertTriangle,
-          subText: "Standalone Follow-up",
-          tooltip: fs.details || `Chassis "${fs.matchedChassis || ""}" has not been inspected in the parent form yet`
-        };
-      }
-
-      if (fs.status === "pending") {
-        return {
-          status: "pending",
-          badgeText: fs.badgeText || "⏳ Pending Follow-up",
-          badgeClasses: "bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-800 hover:bg-sky-100",
-          icon: Clock,
-          subText: fs.daysElapsed !== undefined ? `Day ${fs.daysElapsed + 1}/10` : "Active window",
-          tooltip: fs.details || "Follow-up inspection is currently pending within active 10-day window"
-        };
-      }
-
-      if (fs.status === "overdue") {
-        return {
-          status: "overdue",
-          badgeText: fs.badgeText || "✕ Overdue",
-          badgeClasses: "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800 hover:bg-rose-100",
-          icon: XCircle,
-          subText: `${fs.daysElapsed || 0} days`,
-          tooltip: fs.details || `Follow-up overdue by ${fs.daysElapsed || 0} days`
-        };
-      }
-    }
-
-    return {
-      status: "standalone",
-      badgeText: "Main Record",
-      badgeClasses: "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600",
-      icon: CheckCircle2,
-      subText: "Standard",
-      tooltip: "Standard inspection submission"
-    };
-  };
-
   // Sort helper function that handles natural alphanumeric sorting
   const sortResponses = (list: Response[]) => {
     if (!tableSort) return list;
@@ -5411,12 +5738,24 @@ export default function FormAnalyticsDashboard() {
         columnId === "chassis_number" ||
         (chassisQuestionId && columnId === chassisQuestionId)
       ) {
-        const valA = String(getChassisDisplayValue(
-          a.answers?.chassis_number || (chassisQuestionId ? a.answers?.[chassisQuestionId] : "")
-        ) || "");
-        const valB = String(getChassisDisplayValue(
-          b.answers?.chassis_number || (chassisQuestionId ? b.answers?.[chassisQuestionId] : "")
-        ) || "");
+        const valA = String(getResponseChassisValue(a) || "");
+        const valB = String(getResponseChassisValue(b) || "");
+        const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
+        return isAsc ? cmp : -cmp;
+      }
+
+      // Submitted by sorting
+      if (columnId === "__submittedBy") {
+        const valA = String(a.submittedBy || (a as any).createdBy?.name || (a as any).createdBy || "");
+        const valB = String(b.submittedBy || (b as any).createdBy?.name || (b as any).createdBy || "");
+        const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
+        return isAsc ? cmp : -cmp;
+      }
+
+      // Status sorting
+      if (columnId === "__status") {
+        const valA = String(tableDisplayStatuses[a.id] || responseStatuses[a.id] || a.status || "");
+        const valB = String(tableDisplayStatuses[b.id] || responseStatuses[b.id] || b.status || "");
         const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
         return isAsc ? cmp : -cmp;
       }
@@ -5463,7 +5802,7 @@ export default function FormAnalyticsDashboard() {
   // Sorted and filtered responses across the entire dataset
   const sortedFilteredResponses = useMemo(() => {
     return sortResponses(filteredResponses);
-  }, [filteredResponses, tableSort, chassisQuestionId, chassisAttemptRanks]);
+  }, [filteredResponses, tableSort, chassisQuestionId, chassisAttemptRanks, tableDisplayStatuses, responseStatuses]);
 
   // When filters/sort are active and full dataset `responses` is in memory, total count is `sortedFilteredResponses.length`.
   // Otherwise, fallback to server count `totalResponsesCount`.
@@ -5494,43 +5833,7 @@ export default function FormAnalyticsDashboard() {
       result = result.filter((response) => {
         return activeColumnFilters.every(([columnId, allowedValues]) => {
           if (!allowedValues || allowedValues.length === 0) return true;
-
-          // Special Attempt Rank / Status Filter
-          if (columnId === "__attemptRank") {
-            const rank = chassisAttemptRanks[response.id] || (response.responseRanks && chassisQuestionId ? response.responseRanks[chassisQuestionId] : 1);
-            const rowStatus = tableDisplayStatuses[response.id] || responseStatuses[response.id] || "Pending Review";
-            let colorLabel = "Green - Accepted";
-            if (rowStatus === "Rejected") {
-              colorLabel = "Red - Rejected";
-            } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted") {
-              colorLabel = "Amber - Rework";
-            } else if (rowStatus === "Direct Ok" || rowStatus === "Rework Accepted" || rowStatus === "Accepted") {
-              colorLabel = "Green - Accepted";
-            } else {
-              colorLabel = "Gray - Pending";
-            }
-            const fullLabel = `Attempt ${rank} (${colorLabel})`;
-            return (
-              allowedValues.includes(fullLabel) ||
-              allowedValues.includes(`Attempt ${rank}`) ||
-              allowedValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
-            );
-          }
-
-          const answer = response.answers?.[columnId];
-          if (answer === null || answer === undefined) {
-            return allowedValues.includes("No Response");
-          }
-          const answerValues = extractAnswerValues(answer);
-          return answerValues.some(v => {
-            if (!v) return false;
-            const vLower = v.toLowerCase();
-            return allowedValues.some(av => {
-              if (!av) return false;
-              const avLower = av.toLowerCase();
-              return vLower === avLower || vLower.includes(avLower) || avLower.includes(vLower);
-            });
-          });
+          return matchSingleColumnFilter(response, columnId, allowedValues);
         });
       });
     }
@@ -5895,6 +6198,22 @@ export default function FormAnalyticsDashboard() {
 
     if (value === null || value === undefined || value === "") {
       return <span className="text-gray-400">No response</span>;
+    }
+
+    if (question?.type === "date" || (typeof value === "string" && /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(value))) {
+      return formatToDDMMYYYY(value);
+    }
+
+    if (question?.id === chassisQuestionId || (question?.text && question.text.toLowerCase().includes("chassis"))) {
+      const displayVal = getChassisDisplayValue(value);
+      if (displayVal && displayVal !== "-" && displayVal !== "No response" && displayVal !== "None" && displayVal !== "N/A") {
+        return (
+          <span className="text-gray-900 dark:text-gray-100 font-medium text-xs">
+            {displayVal}
+          </span>
+        );
+      }
+      return <span className="text-gray-400 dark:text-gray-500 text-xs font-medium">None</span>;
     }
 
     if (typeof value === "string") {
@@ -8347,7 +8666,7 @@ export default function FormAnalyticsDashboard() {
             : "-",
           response.submittedBy || response.createdBy || "Anonymous",
           responseStatuses[response.id] || "-",
-          getChassisDisplayValue(response.answers?.chassis_number),
+          getResponseChassisValue(response),
           response.isDispatched ? "Yes" : "No",
           response.dispatchedAt
             ? formatToDDMMYYYY(response.dispatchedAt, true)
@@ -10518,25 +10837,23 @@ export default function FormAnalyticsDashboard() {
                         </button>
                       </div>
                     )}
+
                     <button
-                      onClick={() => {
-                        const nextVal = !showParentMatchColumn;
-                        setShowParentMatchColumn(nextVal);
-                        try {
-                          const formKey = id || form?._id || "default";
-                          localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
-                        } catch (err) {}
-                      }}
+                      onClick={() => setShowFilterModal(true)}
                       className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 flex items-center gap-1.5 border shadow-xs ${
-                        showParentMatchColumn
+                        appliedFilters.length > 0 || Object.values(columnFilters).some((v) => v && v.length > 0)
                           ? "bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500 ring-2 ring-indigo-400 ring-offset-2 dark:ring-offset-gray-900"
                           : "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700"
                       }`}
-                      title="Toggle Parent Match / Follow-up Status Column"
+                      title="Open Filters Dialog"
                     >
-                      <Link2 className="w-3.5 h-3.5" />
-                      <span className="hidden xs:inline">Parent Match</span>
-                      <span className="xs:hidden">Match</span>
+                      <Filter className="w-3.5 h-3.5" />
+                      <span className="hidden xs:inline">Filters</span>
+                      {(appliedFilters.length > 0 || Object.values(columnFilters).filter((v) => v && v.length > 0).length > 0) && (
+                        <span className="ml-0.5 px-1.5 py-0.2 bg-white dark:bg-gray-900 text-indigo-700 dark:text-indigo-300 font-black rounded-full text-[10px]">
+                          {appliedFilters.length + Object.values(columnFilters).filter((v) => v && v.length > 0).length}
+                        </span>
+                      )}
                     </button>
                     <button
                       onClick={() =>
@@ -10761,11 +11078,91 @@ export default function FormAnalyticsDashboard() {
 
                 {selectedResponsesSectionIds.length > 0 ? (
                   <>
-                    {/* Overall Inspection Statistics Summary Bar */}
+                    {/* Active Filters Bar */}
+                    {(Object.entries(columnFilters).some(([_, v]) => v && v.length > 0) || responsesSearchTerm.trim() !== "" || appliedFilters.length > 0) && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 mb-3 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs shadow-2xs">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1">
+                            <Filter className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                            Active Filters:
+                          </span>
+                          {responsesSearchTerm.trim() !== "" && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 shadow-2xs">
+                              Search: "{responsesSearchTerm}"
+                              <button onClick={() => setResponsesSearchTerm("")} className="hover:text-red-500 ml-0.5 cursor-pointer">×</button>
+                            </span>
+                          )}
+                          {Object.entries(columnFilters).map(([colId, vals]) => {
+                            if (!vals || vals.length === 0) return null;
+                            let colLabel = colId;
+                            if (colId === "__status") colLabel = "Status";
+                            else if (colId === "__submittedBy") colLabel = "Submitted by";
+                            else if (colId === "__chassisNumber") colLabel = "Chassis";
+                            else if (colId === "__parentMatch") colLabel = "Parent Match";
+                            else if (colId === "__biwReview") colLabel = "BIW Review";
+                            else if (colId === "__dispatch") colLabel = "Dispatch";
+                            else if (colId === "__attemptRank") colLabel = "Attempt";
+                            else {
+                              const q = form?.sections?.flatMap((s: any) => s.questions || []).find((q: any) => q.id === colId);
+                              if (q) colLabel = q.text || q.label || colId;
+                            }
+
+                            return (
+                              <span
+                                key={colId}
+                                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-100 dark:bg-indigo-900/50 text-indigo-800 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-700 shadow-2xs"
+                              >
+                                <span className="font-bold">{colLabel}:</span> {vals.slice(0, 2).join(", ")}{vals.length > 2 ? ` +${vals.length - 2}` : ""}
+                                <button
+                                  onClick={() => {
+                                    setColumnFilters((prev) => {
+                                      const next = { ...prev };
+                                      delete next[colId];
+                                      return next;
+                                    });
+                                  }}
+                                  className="hover:text-red-600 dark:hover:text-red-400 font-bold ml-1 text-xs cursor-pointer"
+                                  title={`Remove ${colLabel} filter`}
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                        <button
+                          onClick={() => {
+                            setColumnFilters({});
+                            setResponsesSearchTerm("");
+                            setAppliedFilters([]);
+                          }}
+                          className="text-[11px] font-bold text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 underline cursor-pointer shrink-0 ml-auto"
+                        >
+                          Clear All Filters
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Overall Inspection Statistics Summary Bar (Clickable Quick-Filters) */}
                     <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 p-3 sm:p-4 mb-4">
                       <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 items-center">
                         {/* Total Submissions */}
-                        <div className="flex flex-col p-2.5 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-100 dark:border-purple-900/20">
+                        <div
+                          onClick={() => {
+                            setColumnFilters((prev) => {
+                              const next = { ...prev };
+                              delete next["__status"];
+                              delete next["__dispatch"];
+                              return next;
+                            });
+                          }}
+                          className={`flex flex-col p-2.5 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-100 dark:border-purple-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
+                            !columnFilters["__status"]?.length && !columnFilters["__dispatch"]?.length
+                              ? "ring-2 ring-purple-500 shadow-sm"
+                              : "opacity-80 hover:opacity-100"
+                          }`}
+                          title="Click to show all submissions"
+                        >
                           <span className="text-[10px] text-purple-700 dark:text-purple-400 font-bold uppercase truncate" title="Total Submissions">
                             Total Submissions
                           </span>
@@ -10778,7 +11175,27 @@ export default function FormAnalyticsDashboard() {
                         </div>
 
                         {/* Direct Ok / Accepted */}
-                        <div className="flex flex-col p-2.5 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-900/20">
+                        <div
+                          onClick={() => {
+                            setColumnFilters((prev) => {
+                              const curr = prev["__status"] || [];
+                              const isOnlyDirectOk = curr.length === 2 && curr.includes("Direct Ok") && curr.includes("Accepted");
+                              const next = { ...prev };
+                              if (isOnlyDirectOk) {
+                                delete next["__status"];
+                              } else {
+                                next["__status"] = ["Direct Ok", "Accepted"];
+                              }
+                              return next;
+                            });
+                          }}
+                          className={`flex flex-col p-2.5 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
+                            columnFilters["__status"]?.includes("Direct Ok") || columnFilters["__status"]?.includes("Accepted")
+                              ? "ring-2 ring-green-500 shadow-sm"
+                              : "opacity-80 hover:opacity-100"
+                          }`}
+                          title="Click to filter by Accepted / Direct OK"
+                        >
                           <span className="text-[10px] text-green-700 dark:text-green-400 font-bold uppercase truncate" title="Accepted / Direct OK">
                             {complianceLabels.yes || "Direct Ok"}
                           </span>
@@ -10791,7 +11208,27 @@ export default function FormAnalyticsDashboard() {
                         </div>
 
                         {/* Rework Accepted */}
-                        <div className="flex flex-col p-2.5 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/20">
+                        <div
+                          onClick={() => {
+                            setColumnFilters((prev) => {
+                              const curr = prev["__status"] || [];
+                              const isOnlyReworkAccepted = curr.length === 1 && curr.includes("Rework Accepted");
+                              const next = { ...prev };
+                              if (isOnlyReworkAccepted) {
+                                delete next["__status"];
+                              } else {
+                                next["__status"] = ["Rework Accepted"];
+                              }
+                              return next;
+                            });
+                          }}
+                          className={`flex flex-col p-2.5 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
+                            columnFilters["__status"]?.includes("Rework Accepted")
+                              ? "ring-2 ring-blue-500 shadow-sm"
+                              : "opacity-80 hover:opacity-100"
+                          }`}
+                          title="Click to filter by Rework Accepted"
+                        >
                           <span className="text-[10px] text-blue-700 dark:text-blue-400 font-bold uppercase truncate" title="Rework Accepted">
                             Rework Accepted
                           </span>
@@ -10804,7 +11241,27 @@ export default function FormAnalyticsDashboard() {
                         </div>
 
                         {/* Ongoing Rework */}
-                        <div className="flex flex-col p-2.5 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-100 dark:border-amber-900/20">
+                        <div
+                          onClick={() => {
+                            setColumnFilters((prev) => {
+                              const curr = prev["__status"] || [];
+                              const isOngoingRework = curr.includes("Ongoing Rework") || curr.includes("Rework");
+                              const next = { ...prev };
+                              if (isOngoingRework) {
+                                delete next["__status"];
+                              } else {
+                                next["__status"] = ["Ongoing Rework", "Rework", "Rework 1", "Rework 2"];
+                              }
+                              return next;
+                            });
+                          }}
+                          className={`flex flex-col p-2.5 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-100 dark:border-amber-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
+                            columnFilters["__status"]?.some(s => s.toLowerCase().includes("rework") && s !== "Rework Accepted")
+                              ? "ring-2 ring-amber-500 shadow-sm"
+                              : "opacity-80 hover:opacity-100"
+                          }`}
+                          title="Click to filter by Ongoing Rework"
+                        >
                           <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase truncate" title="Ongoing Rework">
                             {complianceLabels.na || "Rework"}
                           </span>
@@ -10817,7 +11274,27 @@ export default function FormAnalyticsDashboard() {
                         </div>
 
                         {/* Rejected */}
-                        <div className="flex flex-col p-2.5 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20">
+                        <div
+                          onClick={() => {
+                            setColumnFilters((prev) => {
+                              const curr = prev["__status"] || [];
+                              const isRejected = curr.length === 1 && curr.includes("Rejected");
+                              const next = { ...prev };
+                              if (isRejected) {
+                                delete next["__status"];
+                              } else {
+                                next["__status"] = ["Rejected"];
+                              }
+                              return next;
+                            });
+                          }}
+                          className={`flex flex-col p-2.5 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
+                            columnFilters["__status"]?.includes("Rejected")
+                              ? "ring-2 ring-red-500 shadow-sm"
+                              : "opacity-80 hover:opacity-100"
+                          }`}
+                          title="Click to filter by Rejected"
+                        >
                           <span className="text-[10px] text-red-700 dark:text-red-400 font-bold uppercase truncate" title="Rejected">
                             {complianceLabels.no || "Rejected"}
                           </span>
@@ -10830,7 +11307,27 @@ export default function FormAnalyticsDashboard() {
                         </div>
 
                         {/* Dispatched */}
-                        <div className="flex flex-col p-2.5 bg-indigo-50 dark:bg-indigo-900/10 rounded-lg border border-indigo-100 dark:border-indigo-900/20">
+                        <div
+                          onClick={() => {
+                            setColumnFilters((prev) => {
+                              const curr = prev["__dispatch"] || [];
+                              const isDispatched = curr.includes("Dispatched / Enabled");
+                              const next = { ...prev };
+                              if (isDispatched) {
+                                delete next["__dispatch"];
+                              } else {
+                                next["__dispatch"] = ["Dispatched / Enabled"];
+                              }
+                              return next;
+                            });
+                          }}
+                          className={`flex flex-col p-2.5 bg-indigo-50 dark:bg-indigo-900/10 rounded-lg border border-indigo-100 dark:border-indigo-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
+                            columnFilters["__dispatch"]?.includes("Dispatched / Enabled")
+                              ? "ring-2 ring-indigo-500 shadow-sm"
+                              : "opacity-80 hover:opacity-100"
+                          }`}
+                          title="Click to filter by Dispatched"
+                        >
                           <span className="text-[10px] text-indigo-700 dark:text-indigo-400 font-bold uppercase truncate" title="Dispatched">
                             Dispatched
                           </span>
@@ -10871,9 +11368,23 @@ export default function FormAnalyticsDashboard() {
                             <th className="sticky left-0 sm:left-12 z-30 text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-100 dark:bg-gray-800 min-w-[120px]">
                               <span>Actions</span>
                             </th>
-                            <th className="text-center px-6 py-3 ...">
+                            <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
                               <div className="flex flex-col items-center gap-1.5 justify-center">
-                                <span>Dispatch</span>
+                                <div className="flex items-center gap-1">
+                                  <span>Dispatch</span>
+                                  <TableColumnFilter
+                                    columnId="__dispatch"
+                                    title="Dispatch Status"
+                                    options={dispatchFilterOptions}
+                                    selectedValues={columnFilters["__dispatch"] || null}
+                                    onFilterChange={(columnId, values) => {
+                                      setColumnFilters((prev) => ({
+                                        ...prev,
+                                        [columnId]: values,
+                                      }));
+                                    }}
+                                  />
+                                </div>
                                 {canBulkSelectResponses && (
                                   <label className="flex items-center gap-1.5 cursor-pointer font-normal text-[10px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 normal-case">
                                     <input
@@ -10897,13 +11408,87 @@ export default function FormAnalyticsDashboard() {
                                 )}
                               </div>
                             </th>
-                            <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              Submitted by
+                            <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <div
+                                  onClick={() => {
+                                    setTableSort((prev) =>
+                                      prev?.columnId === "__submittedBy"
+                                        ? prev.direction === "asc"
+                                          ? { columnId: "__submittedBy", direction: "desc" }
+                                          : null
+                                        : { columnId: "__submittedBy", direction: "asc" }
+                                    );
+                                  }}
+                                  className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                  title="Click to sort by Submitter"
+                                >
+                                  <span>Submitted by</span>
+                                  {tableSort?.columnId === "__submittedBy" ? (
+                                    tableSort.direction === "asc" ? (
+                                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    ) : (
+                                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    )
+                                  ) : (
+                                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
+                                  )}
+                                </div>
+                                <TableColumnFilter
+                                  columnId="__submittedBy"
+                                  title="Submitted by"
+                                  options={submittedByFilterOptions}
+                                  selectedValues={columnFilters["__submittedBy"] || null}
+                                  onFilterChange={(columnId, values) => {
+                                    setColumnFilters((prev) => ({
+                                      ...prev,
+                                      [columnId]: values,
+                                    }));
+                                  }}
+                                />
+                              </div>
                             </th>
-                            <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-32 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              Status
+                            <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-36 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <div
+                                  onClick={() => {
+                                    setTableSort((prev) =>
+                                      prev?.columnId === "__status"
+                                        ? prev.direction === "asc"
+                                          ? { columnId: "__status", direction: "desc" }
+                                          : null
+                                        : { columnId: "__status", direction: "asc" }
+                                    );
+                                  }}
+                                  className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                  title="Click to sort by Status"
+                                >
+                                  <span>Status</span>
+                                  {tableSort?.columnId === "__status" ? (
+                                    tableSort.direction === "asc" ? (
+                                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    ) : (
+                                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    )
+                                  ) : (
+                                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
+                                  )}
+                                </div>
+                                <TableColumnFilter
+                                  columnId="__status"
+                                  title="Status"
+                                  options={statusFilterOptions}
+                                  selectedValues={columnFilters["__status"] || null}
+                                  onFilterChange={(columnId, values) => {
+                                    setColumnFilters((prev) => ({
+                                      ...prev,
+                                      [columnId]: values,
+                                    }));
+                                  }}
+                                />
+                              </div>
                             </th>
-                            <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
+                            <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-44 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
                               <div className="flex items-center justify-between gap-1.5">
                                 <div
                                   onClick={() => {
@@ -10929,53 +11514,79 @@ export default function FormAnalyticsDashboard() {
                                     <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
                                   )}
                                 </div>
-                                {canBulkSelectResponses && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleAutoFillAllChassis();
+                                <div className="flex items-center gap-1">
+                                  {canBulkSelectResponses && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleAutoFillAllChassis();
+                                      }}
+                                      disabled={isAutoFillingChassis || !chassisMasterOptions.length}
+                                      title="Auto-fill every response with no chassis number using the first option"
+                                      className="p-1 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed normal-case tracking-normal"
+                                    >
+                                      {isAutoFillingChassis ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      ) : (
+                                        <CheckCircle className="w-3.5 h-3.5" />
+                                      )}
+                                    </button>
+                                  )}
+                                  <TableColumnFilter
+                                    columnId="__chassisNumber"
+                                    title="Selected Chassis"
+                                    options={chassisFilterOptions}
+                                    selectedValues={columnFilters["__chassisNumber"] || null}
+                                    onFilterChange={(columnId, values) => {
+                                      setColumnFilters((prev) => ({
+                                        ...prev,
+                                        [columnId]: values,
+                                      }));
                                     }}
-                                    disabled={isAutoFillingChassis || !chassisMasterOptions.length}
-                                    title="Auto-fill every response with no chassis number using the first option"
-                                    className="p-1 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed normal-case tracking-normal"
-                                  >
-                                    {isAutoFillingChassis ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                      <CheckCircle className="w-3.5 h-3.5" />
-                                    )}
-                                  </button>
-                                )}
+                                  />
+                                </div>
                               </div>
                             </th>
                             {showParentMatchColumn && (
                               <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-44 whitespace-nowrap bg-indigo-50/60 dark:bg-indigo-950/20">
-                                <div
-                                  onClick={() => {
-                                    setTableSort((prev) =>
-                                      prev?.columnId === "__parentMatch"
-                                        ? prev.direction === "asc"
-                                          ? { columnId: "__parentMatch", direction: "desc" }
-                                          : null
-                                        : { columnId: "__parentMatch", direction: "asc" }
-                                    );
-                                  }}
-                                  className="flex items-center justify-between gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                                  title="Click to sort by Parent Match status"
-                                >
-                                  <div className="flex items-center gap-1.5">
+                                <div className="flex items-center justify-between gap-1.5">
+                                  <div
+                                    onClick={() => {
+                                      setTableSort((prev) =>
+                                        prev?.columnId === "__parentMatch"
+                                          ? prev.direction === "asc"
+                                            ? { columnId: "__parentMatch", direction: "desc" }
+                                            : null
+                                          : { columnId: "__parentMatch", direction: "asc" }
+                                      );
+                                    }}
+                                    className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                    title="Click to sort by Parent Match status"
+                                  >
                                     <Link2 className="w-3.5 h-3.5 text-indigo-500" />
                                     <span>Parent Match</span>
-                                  </div>
-                                  {tableSort?.columnId === "__parentMatch" ? (
-                                    tableSort.direction === "asc" ? (
-                                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    {tableSort?.columnId === "__parentMatch" ? (
+                                      tableSort.direction === "asc" ? (
+                                        <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                      ) : (
+                                        <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                      )
                                     ) : (
-                                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                                    )
-                                  ) : (
-                                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
-                                  )}
+                                      <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
+                                    )}
+                                  </div>
+                                  <TableColumnFilter
+                                    columnId="__parentMatch"
+                                    title="Parent Match"
+                                    options={parentMatchFilterOptions}
+                                    selectedValues={columnFilters["__parentMatch"] || null}
+                                    onFilterChange={(columnId, values) => {
+                                      setColumnFilters((prev) => ({
+                                        ...prev,
+                                        [columnId]: values,
+                                      }));
+                                    }}
+                                  />
                                 </div>
                               </th>
                             )}
@@ -10984,7 +11595,21 @@ export default function FormAnalyticsDashboard() {
                             </th>
                             <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-44 whitespace-nowrap bg-purple-50 dark:bg-purple-900/20">
                               <div className="flex flex-col items-center gap-1.5 justify-center">
-                                <span>BIW Review</span>
+                                <div className="flex items-center gap-1">
+                                  <span>BIW Review</span>
+                                  <TableColumnFilter
+                                    columnId="__biwReview"
+                                    title="BIW Review"
+                                    options={biwReviewFilterOptions}
+                                    selectedValues={columnFilters["__biwReview"] || null}
+                                    onFilterChange={(columnId, values) => {
+                                      setColumnFilters((prev) => ({
+                                        ...prev,
+                                        [columnId]: values,
+                                      }));
+                                    }}
+                                  />
+                                </div>
                                 {canBulkSelectResponses && (
                                   <label className="flex items-center gap-1.5 cursor-pointer font-normal text-[10px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 normal-case">
                                     <input
@@ -11516,7 +12141,16 @@ export default function FormAnalyticsDashboard() {
                                       </div>
                                     ) : (
                                       <div className="flex items-center gap-1.5 group">
-                                        <span>{getChassisDisplayValue(response.answers?.chassis_number)}</span>
+                                        {(() => {
+                                          const chassisVal = getResponseChassisValue(response);
+                                          return chassisVal && chassisVal !== "-" && chassisVal !== "N/A" && chassisVal !== "None" ? (
+                                            <span className="text-gray-900 dark:text-gray-100 font-medium text-xs">
+                                              {chassisVal}
+                                            </span>
+                                          ) : (
+                                            <span className="text-gray-400 dark:text-gray-500 text-xs font-medium">None</span>
+                                          );
+                                        })()}
                                         <button
                                           onClick={() => handleStartChassisEdit(response)}
                                           title="Edit Chassis"
@@ -11543,7 +12177,7 @@ export default function FormAnalyticsDashboard() {
                                               </span>
                                             </div>
                                             {pm.subText && (
-                                              <span className="text-[10px] text-gray-500 dark:text-gray-400 pl-0.5 font-medium truncate max-w-[170px]">
+                                              <span className="text-xs text-gray-600 dark:text-gray-300 pl-0.5 font-medium truncate max-w-[170px]">
                                                 {pm.subText}
                                               </span>
                                             )}
@@ -11625,7 +12259,7 @@ export default function FormAnalyticsDashboard() {
                                             )}
                                         </div>
                                       ) : (
-                                        <span className="text-gray-400 italic text-xs">
+                                        <span className="text-gray-600 dark:text-gray-300 font-medium text-xs">
                                           No review yet
                                         </span>
                                       );
@@ -11689,7 +12323,7 @@ export default function FormAnalyticsDashboard() {
                                               className="w-3.5 h-3.5 text-purple-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-purple-600"
                                               title="Select for bulk review"
                                             />
-                                            <span className="text-[10px] text-gray-500 font-semibold uppercase">Select</span>
+                                            <span className="text-xs text-gray-700 dark:text-gray-300 font-bold uppercase">Select</span>
                                             {isChecked && (
                                               <span className="ml-auto text-[9px] font-bold text-purple-600 bg-purple-100 dark:bg-purple-900/30 px-1.5 py-0.5 rounded">
                                                 ✓
@@ -11708,7 +12342,7 @@ export default function FormAnalyticsDashboard() {
                                                 className={`flex items-center gap-1.5 text-xs font-medium ${isSubmitter
                                                   ? "opacity-40 cursor-not-allowed"
                                                   : "cursor-pointer"
-                                                  } ${checked ? opt.activeClass : "text-gray-500 dark:text-gray-400"}`}
+                                                  } ${checked ? opt.activeClass : "text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white"}`}
                                               >
                                                 <input
                                                   type="checkbox"
@@ -11754,11 +12388,9 @@ export default function FormAnalyticsDashboard() {
                                       );
                                     })()}
                                   </td>
-                                  <td className="px-6 py-3 text-sm text-gray-600 dark:text-gray-400 font-medium border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
+                                  <td className="px-6 py-3 text-xs text-gray-800 dark:text-gray-200 font-semibold border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
                                     {getResponseTimestamp(response)
-                                      ? new Date(
-                                        getResponseTimestamp(response)!,
-                                      ).toLocaleDateString("en-US")
+                                      ? formatToDDMMYYYY(getResponseTimestamp(response)!)
                                       : "-"}
                                   </td>
 
@@ -11807,8 +12439,8 @@ export default function FormAnalyticsDashboard() {
                                           {/* Time Taken duration */}
                                           {timeSpent !== undefined &&
                                           timeSpent !== null &&
-                                          timeSpent > 0 ? (
-                                            <div className="flex items-center gap-1 font-bold text-blue-600 dark:text-blue-400">
+                                          timeSpent > 0 && (
+                                            <div className="flex items-center gap-1 font-bold text-blue-600 dark:text-blue-400 text-xs">
                                               <Clock className="w-3.5 h-3.5 text-blue-500" />
                                               <span>
                                                 {timeSpent > 60
@@ -11816,8 +12448,6 @@ export default function FormAnalyticsDashboard() {
                                                   : `${timeSpent}s`}
                                               </span>
                                             </div>
-                                          ) : (
-                                            <span className="text-gray-400 text-xs">-</span>
                                           )}
 
                                           {/* Chassis Attempt Rank Badge (1, 2, etc.) placed AFTER time taken with status-based color */}
@@ -12166,9 +12796,10 @@ export default function FormAnalyticsDashboard() {
                   </p>
                   <p className="text-gray-900 dark:text-white">
                     {getResponseTimestamp(selectedResponse)
-                      ? new Date(
+                      ? formatToDDMMYYYY(
                         getResponseTimestamp(selectedResponse)!,
-                      ).toLocaleDateString("en-US")
+                        true
+                      )
                       : "N/A"}
                   </p>
                 </div>
@@ -12190,6 +12821,33 @@ export default function FormAnalyticsDashboard() {
                         : "N/A";
                     })()}
                   </p>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-600 dark:text-gray-400">
+                    Chassis Number
+                  </p>
+                  <p className="text-gray-900 dark:text-white font-mono font-bold text-sm">
+                    {(() => {
+                      const cv = getResponseChassisValue(selectedResponse);
+                      return cv && cv !== "-" && cv !== "N/A" ? cv : "None";
+                    })()}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                    Parent Match / Status
+                  </p>
+                  {(() => {
+                    const pm = computeParentMatch(selectedResponse);
+                    const Icon = pm.icon || CheckCircle2;
+                    return (
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold border shadow-xs ${pm.badgeClasses}`} title={pm.tooltip}>
+                        <Icon className="w-3.5 h-3.5 shrink-0" />
+                        <span>{pm.badgeText}</span>
+                        {pm.subText && <span className="opacity-75 font-normal ml-1">({pm.subText})</span>}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -12446,14 +13104,10 @@ export default function FormAnalyticsDashboard() {
                             </p>
                             <p className="text-xs text-gray-600 dark:text-gray-400">
                               {getResponseTimestamp(response)
-                                ? new Date(
+                                ? formatToDDMMYYYY(
                                   getResponseTimestamp(response)!,
-                                ).toLocaleDateString("en-US", {
-                                  month: "short",
-                                  day: "numeric",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })
+                                  true
+                                )
                                 : "N/A"}
                             </p>
                             <p className="text-2xl font-bold text-blue-900 dark:text-blue-300 mt-2">
@@ -12759,12 +13413,9 @@ export default function FormAnalyticsDashboard() {
                                   </span>
                                   <span className="text-xs font-semibold text-gray-600 dark:text-gray-400 leading-tight">
                                     {getResponseTimestamp(response)
-                                      ? new Date(
-                                        getResponseTimestamp(response)!,
-                                      ).toLocaleDateString("en-US", {
-                                        month: "short",
-                                        day: "numeric",
-                                      })
+                                      ? formatToDDMMYYYY(
+                                        getResponseTimestamp(response)!
+                                      )
                                       : "N/A"}
                                   </span>
                                 </div>

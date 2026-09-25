@@ -747,7 +747,7 @@ export default function FollowUpResponsesTab({
                             {row.biwReview.status}
                           </span>
                         ) : (
-                          <span className="text-gray-400 text-xs italic">No review yet</span>
+                          <span className="text-gray-600 dark:text-gray-300 font-medium text-xs">No review yet</span>
                         )}
                       </td>
                     </tr>

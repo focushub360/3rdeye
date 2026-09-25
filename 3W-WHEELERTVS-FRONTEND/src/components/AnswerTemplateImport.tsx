@@ -368,6 +368,9 @@ export default function AnswerTemplateImport({
     try {
       const submitResults: any[] = [];
 
+      let mainImportResult: any = null;
+      const chassisToParentId = new Map<string, string>();
+
       // 1. Submit main form responses (only if there is data)
       if (parsedResponses && parsedResponses.length > 0 && selectedForm) {
         const responsePayload = {
@@ -375,30 +378,72 @@ export default function AnswerTemplateImport({
           batchId: newBatchId,
           responses: parsedResponses,
         };
-        submitResults.push(await apiClient.batchImportResponses(responsePayload));
+        mainImportResult = await apiClient.batchImportResponses(responsePayload);
+        submitResults.push(mainImportResult);
+
+        // Build mapping of chassis -> created parent response ID
+        const createdMainList = mainImportResult?.data?.createdResponses || mainImportResult?.createdResponses || [];
+        createdMainList.forEach((cr: any, idx: number) => {
+          let ch = cr.chassisNumber;
+          if (!ch && parsedResponses[idx]?.answers) {
+            const ans = parsedResponses[idx].answers;
+            ch = ans.chassis_number || ans.chassisNumber || ans.id_number || ans.idNumber || ans["Chassis / VIN"] || ans["CHASSIS NUMBER"];
+          }
+          if (ch && cr.id) {
+            chassisToParentId.set(String(ch).trim().toLowerCase(), cr.id);
+          }
+        });
       }
 
-      // 2. Submit Template 2 responses (if any)
+      // 2. Submit Template 2 responses (if any) with auto-linked parentResponseId
       if (parsedResponses2 && parsedResponses2.length > 0 && selectedForm2) {
+        const t2ResponsesLinked = parsedResponses2.map((r) => {
+          if (r.parentResponseId) return r;
+          const ans = r.answers || {};
+          const ch = ans.chassis_number || ans.chassisNumber || ans.id_number || ans.idNumber || ans["Chassis / VIN"] || ans["CHASSIS NUMBER"];
+          if (ch) {
+            const normCh = String(ch).trim().toLowerCase();
+            const matchedParentId = chassisToParentId.get(normCh);
+            if (matchedParentId) {
+              return { ...r, parentResponseId: matchedParentId };
+            }
+          }
+          return r;
+        });
+
         const t2Payload = {
           questionId: selectedForm2.id || (selectedForm2 as any)._id,
           batchId: `${newBatchId}-t2`,
-          responses: parsedResponses2,
+          responses: t2ResponsesLinked,
         };
         submitResults.push(await apiClient.batchImportResponses(t2Payload));
       }
 
-      // 3. Submit each follow-up form's responses (if uploaded)
+      // 3. Submit each follow-up form's responses (if uploaded) with auto-linked parentResponseId
       const followUpSubmissions: Promise<any>[] = [];
       for (const childForm of childForms) {
         const childId = childForm.id || (childForm as any)._id;
         const childState = followUpStates[childId];
         if (childState?.parsedResponses && childState.parsedResponses.length > 0) {
           const childBatchId = `${newBatchId}-fu-${childId}`;
+          const childResponsesLinked = childState.parsedResponses.map((r) => {
+            if (r.parentResponseId) return r;
+            const ans = r.answers || {};
+            const ch = ans.chassis_number || ans.chassisNumber || ans.id_number || ans.idNumber || ans["Chassis / VIN"] || ans["CHASSIS NUMBER"];
+            if (ch) {
+              const normCh = String(ch).trim().toLowerCase();
+              const matchedParentId = chassisToParentId.get(normCh);
+              if (matchedParentId) {
+                return { ...r, parentResponseId: matchedParentId };
+              }
+            }
+            return r;
+          });
+
           const childPayload = {
             questionId: childId,
             batchId: childBatchId,
-            responses: childState.parsedResponses,
+            responses: childResponsesLinked,
           };
           followUpSubmissions.push(apiClient.batchImportResponses(childPayload));
         }

@@ -889,7 +889,7 @@ export default function PreviewForm({
         if (fetchingSuggestionsForId !== currentFetchSource) {
           fetchSuggestions(normalizedQId, value);
         }
-      }, 200);
+      }, 60);
     }
   };
 
@@ -925,13 +925,16 @@ export default function PreviewForm({
       setFetchingSuggestionsForId(searchSource);
       setTriggeringQuestionId(questionId);
 
-      apiClient.getQuestionPreviousAnswers(formId, questionId, tenantSlug)
-        .then(res => {
-          if (res && res.answers) {
-            setPreviousUniqueAnswers(res.answers);
-          }
-        })
-        .catch(err => console.warn("[PreviewForm] Failed to fetch previous answers:", err));
+      // Only fetch previous unique options once if empty
+      if (!previousUniqueAnswers || previousUniqueAnswers.length === 0) {
+        apiClient.getQuestionPreviousAnswers(formId, questionId, tenantSlug)
+          .then(res => {
+            if (res && res.answers) {
+              setPreviousUniqueAnswers(res.answers);
+            }
+          })
+          .catch(err => console.warn("[PreviewForm] Failed to fetch previous answers:", err));
+      }
 
       const result = await apiClient.getSuggestedAnswers(formId, questionId, searchValue, tenantSlug);
       setLastSuggestionSource(`${questionId}:${searchValue}`);

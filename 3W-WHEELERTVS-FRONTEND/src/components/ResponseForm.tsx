@@ -324,7 +324,7 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
       clearTimeout(trackingDebounceRef.current);
     }
 
-    if (!searchValue || searchValue.trim().length < 2) {
+    if (!searchValue || searchValue.trim().length < 1) {
       setSuggestedAnswers(null);
       setLastSuggestionSource(null);
       setFetchingSuggestionsForId(null);
@@ -371,7 +371,7 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
       } finally {
         setFetchingSuggestionsForId(null);
       }
-    }, 200);
+    }, 60);
   };
 
   const getAvailableSections = () => {

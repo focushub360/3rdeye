@@ -315,6 +315,14 @@ export async function generateFollowUpAnswerTemplate(
       options: chassisOptions,
       required: false,
     });
+  } else {
+    // Follow-up template must always have a Selected Chassis column so follow-ups can link to parents
+    columns.push({
+      label: "Selected Chassis",
+      id: "chassis_number",
+      type: "text",
+      required: false,
+    });
   }
 
   finalFollowUpQuestions.forEach((q) => {
@@ -774,6 +782,7 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
     .filter((idx) => idx !== -1);
 
   // Set today's date formatted as DD/MM/YYYY for the first example row (row 2)
+  const now = new Date();
   const sampleAnswerDDMMYYYY = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
   answerDateColIndices.forEach((colIdx) => {
     const sampleCellRef = utils.encode_cell({ r: 2, c: colIdx });
@@ -880,7 +889,7 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
 
 export function formatToDDMMYYYY(dateInput: any, includeTime = false): string {
   if (!dateInput) return "-";
-  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  const d = dateInput instanceof Date ? dateInput : (parseExcelDate(dateInput) || new Date(dateInput));
   if (isNaN(d.getTime())) return String(dateInput);
   const day = String(d.getDate()).padStart(2, "0");
   const month = String(d.getMonth() + 1).padStart(2, "0");
@@ -919,18 +928,70 @@ export function parseExcelDate(value: any): Date | null {
       return parseExcelDate(numVal);
     }
 
-    // 1. Primary: DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY (with optional time)
+    // Month names lookup
+    const monthNames: Record<string, number> = {
+      jan: 0, january: 0,
+      feb: 1, february: 1,
+      mar: 2, march: 2,
+      apr: 3, april: 3,
+      may: 4,
+      jun: 5, june: 5,
+      jul: 6, july: 6,
+      aug: 7, august: 7,
+      sep: 8, sept: 8, september: 8,
+      oct: 9, october: 9,
+      nov: 10, november: 10,
+      dec: 11, december: 11,
+    };
+
+    // 1. DD-MMM-YYYY or DD MMM YYYY (e.g., 25-Sep-2026, 25 Sep 2026, 25 September 2026)
+    const dMonYMatch = trimmed.match(
+      /^(\d{1,2})[-/.\s]+([a-zA-Z]+)[-/.\s]+(\d{2,4})(?:[ ,T]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?(?:\s*(am|pm))?)?$/i
+    );
+    if (dMonYMatch) {
+      const day = parseInt(dMonYMatch[1], 10);
+      const mStr = dMonYMatch[2].toLowerCase();
+      const month = monthNames[mStr];
+      let year = parseInt(dMonYMatch[3], 10);
+      if (year < 100) year += year < 50 ? 2000 : 1900;
+      let hours = dMonYMatch[4] ? parseInt(dMonYMatch[4], 10) : 0;
+      const minutes = dMonYMatch[5] ? parseInt(dMonYMatch[5], 10) : 0;
+      const seconds = dMonYMatch[6] ? parseInt(dMonYMatch[6], 10) : 0;
+      const ampm = dMonYMatch[7]?.toLowerCase();
+      if (ampm === "pm" && hours < 12) hours += 12;
+      if (ampm === "am" && hours === 12) hours = 0;
+
+      if (month !== undefined && day >= 1 && day <= 31) {
+        const d = new Date(year, month, day, hours, minutes, seconds);
+        if (!isNaN(d.getTime())) return d;
+      }
+    }
+
+    // 2. Numeric with separator: DD/MM/YYYY or MM/DD/YYYY (with optional time & am/pm)
     const dmyMatch = trimmed.match(
-      /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})(?:[ ,T]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/
+      /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})(?:[ ,T]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?(?:\s*(am|pm))?)?$/i
     );
     if (dmyMatch) {
-      const day = parseInt(dmyMatch[1], 10);
-      const month = parseInt(dmyMatch[2], 10) - 1; // 0-indexed
+      const part1 = parseInt(dmyMatch[1], 10);
+      const part2 = parseInt(dmyMatch[2], 10);
       let year = parseInt(dmyMatch[3], 10);
       if (year < 100) year += year < 50 ? 2000 : 1900;
-      const hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
+      let hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
       const minutes = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
       const seconds = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
+      const ampm = dmyMatch[7]?.toLowerCase();
+      if (ampm === "pm" && hours < 12) hours += 12;
+      if (ampm === "am" && hours === 12) hours = 0;
+
+      // If part1 > 12, it must be day (DD/MM/YYYY)
+      // If part2 > 12, part2 must be day (MM/DD/YYYY)
+      // If both <= 12, prioritize DD/MM/YYYY as requested
+      let day = part1;
+      let month = part2 - 1;
+      if (part1 <= 12 && part2 > 12) {
+        day = part2;
+        month = part1 - 1;
+      }
 
       if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
         const d = new Date(year, month, day, hours, minutes, seconds);
@@ -938,17 +999,20 @@ export function parseExcelDate(value: any): Date | null {
       }
     }
 
-    // 2. ISO format: YYYY-MM-DD or YYYY/MM/DD (with optional time)
+    // 3. ISO format: YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD (with optional time & am/pm)
     const ymdMatch = trimmed.match(
-      /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ ,T]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/
+      /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ ,T]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?(?:\s*(am|pm))?)?$/i
     );
     if (ymdMatch) {
       const year = parseInt(ymdMatch[1], 10);
       const month = parseInt(ymdMatch[2], 10) - 1;
       const day = parseInt(ymdMatch[3], 10);
-      const hours = ymdMatch[4] ? parseInt(ymdMatch[4], 10) : 0;
+      let hours = ymdMatch[4] ? parseInt(ymdMatch[4], 10) : 0;
       const minutes = ymdMatch[5] ? parseInt(ymdMatch[5], 10) : 0;
       const seconds = ymdMatch[6] ? parseInt(ymdMatch[6], 10) : 0;
+      const ampm = ymdMatch[7]?.toLowerCase();
+      if (ampm === "pm" && hours < 12) hours += 12;
+      if (ampm === "am" && hours === 12) hours = 0;
 
       if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
         const d = new Date(year, month, day, hours, minutes, seconds);
@@ -956,7 +1020,7 @@ export function parseExcelDate(value: any): Date | null {
       }
     }
 
-    // 3. Fallback to standard Javascript date parsing
+    // 4. Fallback to standard Javascript date parsing
     const parsed = new Date(trimmed);
     if (!isNaN(parsed.getTime())) {
       return parsed;
@@ -1143,6 +1207,7 @@ export async function parseAnswerWorkbook(
       submittedBy: string;
       submitterContact: { email: string };
       submittedAt?: string;
+      parentResponseId?: string;
     } = {
       answers: {},
       submittedBy: "Excel Import",
@@ -1159,6 +1224,8 @@ export async function parseAnswerWorkbook(
         singleResponse.submitterContact.email = cellValue ? String(cellValue).trim() : "";
       } else if (id === "submittedAt") {
         singleResponse.submittedAt = cellValue;
+      } else if (id === "parentResponseId") {
+        singleResponse.parentResponseId = cellValue ? String(cellValue).trim() : undefined;
       } else {
         if (cellValue !== "" && cellValue !== null && cellValue !== undefined) {
           singleResponse.answers[id] = cellValue;
@@ -1376,6 +1443,9 @@ export function formatAnswersForSubmission(
           answers[question.id] = isImageUrl(imageUrl)
             ? convertGoogleDriveLink(imageUrl)
             : imageUrl;
+        } else if (question.type === "date") {
+          const parsed = parseExcelDate(answerValue);
+          answers[question.id] = parsed ? formatToDDMMYYYY(parsed) : answerValue;
         } else {
           answers[question.id] = answerValue;
         }

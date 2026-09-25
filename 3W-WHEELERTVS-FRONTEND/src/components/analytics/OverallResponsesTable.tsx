@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../api/client';
 import { useNotification } from '../../context/NotificationContext';
+import { formatToDDMMYYYY } from '../../utils/answerTemplateUtils';
 import { 
   Eye, 
   Edit2, 
@@ -498,12 +499,22 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
                     <span className="hover:underline">{formTitle}</span>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200">
-                      {safeString(chNum)}
-                    </span>
+                    {chNum && chNum !== 'N/A' && chNum !== '-' && chNum !== 'None' ? (
+                      <span className="font-medium text-gray-900 dark:text-gray-100 text-xs">
+                        {safeString(chNum)}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 dark:text-gray-500 text-xs font-medium">None</span>
+                    )}
                   </td>
-                  <td className="px-4 py-3 font-semibold text-indigo-700 whitespace-nowrap">
-                    {safeString(chVin)}
+                  <td className="px-4 py-3 whitespace-nowrap text-xs">
+                    {chVin && chVin !== '-' && chVin !== 'N/A' ? (
+                      <span className="font-medium text-gray-700 dark:text-gray-300">
+                        {safeString(chVin)}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-gray-700">
                     {safeString(r.submittedBy) || 'Unknown'}
@@ -522,16 +533,11 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
                         {safeString(r.biwReviewStatus)}
                       </span>
                     ) : (
-                      <span className="text-gray-400 italic text-xs">No review yet</span>
+                      <span className="text-gray-600 dark:text-gray-300 font-medium text-xs">No review yet</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">
-                    {(() => {
-                      const dVal = r.date || r.createdAt;
-                      if (!dVal) return '-';
-                      const dt = new Date(dVal);
-                      return !isNaN(dt.getTime()) ? dt.toLocaleString() : String(dVal);
-                    })()}
+                  <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-800 dark:text-gray-200 font-semibold">
+                    {formatToDDMMYYYY(r.date || r.createdAt || r.timestamp, true)}
                   </td>
                 </tr>
               );
