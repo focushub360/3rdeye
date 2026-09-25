@@ -3694,7 +3694,7 @@ export const getQualitySummary = async (req, res) => {
       }
     ];
 
-    const aggResult = await Response.aggregate(pipeline).maxTimeMS(60000);
+    const aggResult = await Response.aggregate(pipeline).option({ maxTimeMS: 60000 });
     const agg = aggResult[0] || {};
 
     const summary = agg.summary?.[0] || { totalChecked: 0, defectCount: 0, rework1Count: 0 };
