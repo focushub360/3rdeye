@@ -25,6 +25,8 @@ import {
   CheckCircle,
   XCircle,
   RotateCcw,
+  BarChart2,
+  TrendingUp,
 } from "lucide-react";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import { Doughnut } from "react-chartjs-2";
@@ -60,6 +62,298 @@ interface TenantStats {
   totalResponses: number;
   performanceScore: number;
 }
+
+// ─── Overall BIW Pie Chart ────────────────────────────────────────────────────
+const OverallBiwPieChart = ({ biwData }: { biwData: any[] }) => {
+  const [hoveredSegment, setHoveredSegment] = useState<string | null>(null);
+
+  const totals = useMemo(() => {
+    return biwData.reduce(
+      (acc, row) => {
+        acc.accepted += row.accepted || 0;
+        acc.rejected += row.rejected || 0;
+        acc.rework += row.rework || 0;
+        acc.totalSubmitted += row.totalSubmitted || 0;
+        acc.dispatched += row.dispatched || 0;
+        return acc;
+      },
+      { accepted: 0, rejected: 0, rework: 0, totalSubmitted: 0, dispatched: 0 },
+    );
+  }, [biwData]);
+
+  const totalReviewed = totals.accepted + totals.rejected + totals.rework;
+  const overallScore =
+    totalReviewed > 0
+      ? Math.round((totals.accepted / totalReviewed) * 100)
+      : 0;
+
+  const chartData = {
+    labels: ["Accepted", "Rejected", "Rework"],
+    datasets: [
+      {
+        data: [totals.accepted, totals.rejected, totals.rework],
+        backgroundColor: ["#22c55e", "#ef4444", "#f59e0b"],
+        hoverBackgroundColor: ["#16a34a", "#dc2626", "#d97706"],
+        borderWidth: 3,
+        borderColor: "transparent",
+        hoverBorderColor: "#ffffff",
+        hoverBorderWidth: 3,
+      },
+    ],
+  };
+
+  const chartOptions: any = {
+    cutout: "72%",
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        enabled: true,
+        callbacks: {
+          label: (ctx: any) => {
+            const val = ctx.raw as number;
+            const pct = totalReviewed > 0 ? Math.round((val / totalReviewed) * 100) : 0;
+            return `  ${ctx.label}: ${val} (${pct}%)`;
+          },
+          afterBody: (items: any[]) => {
+            if (!items.length) return [];
+            const label = items[0].label as string;
+            const key = label.toLowerCase() as 'accepted' | 'rejected' | 'rework';
+            const topUsers = [...biwData]
+              .sort((a, b) => (b[key] || 0) - (a[key] || 0))
+              .slice(0, 5)
+              .filter((u) => (u[key] || 0) > 0);
+            if (!topUsers.length) return [];
+            return [
+              "",
+              "  Top contributors:",
+              ...topUsers.map((u) => `  • ${u.name}: ${u[key]}`),
+            ];
+          },
+        },
+        backgroundColor: "rgba(17,24,39,0.95)",
+        titleColor: "#f9fafb",
+        bodyColor: "#d1d5db",
+        padding: 14,
+        cornerRadius: 12,
+        displayColors: true,
+        boxWidth: 10,
+        boxHeight: 10,
+      },
+    },
+    onHover: (_: any, elements: any[]) => {
+      if (elements.length > 0) {
+        const labels = ["accepted", "rejected", "rework"];
+        setHoveredSegment(labels[elements[0].index] || null);
+      } else {
+        setHoveredSegment(null);
+      }
+    },
+    maintainAspectRatio: false,
+    animation: { animateRotate: true, animateScale: true, duration: 600 },
+  };
+
+  if (biwData.length === 0 || totalReviewed === 0) return null;
+
+  const segments = [
+    {
+      key: "accepted",
+      label: "Accepted",
+      value: totals.accepted,
+      color: "#22c55e",
+      bgClass: "bg-green-50 dark:bg-green-900/20",
+      borderClass: "border-green-100 dark:border-green-800/30",
+      textClass: "text-green-700 dark:text-green-300",
+      labelClass: "text-green-600 dark:text-green-400",
+    },
+    {
+      key: "rejected",
+      label: "Rejected",
+      value: totals.rejected,
+      color: "#ef4444",
+      bgClass: "bg-red-50 dark:bg-red-900/20",
+      borderClass: "border-red-100 dark:border-red-800/30",
+      textClass: "text-red-700 dark:text-red-300",
+      labelClass: "text-red-600 dark:text-red-400",
+    },
+    {
+      key: "rework",
+      label: "Rework",
+      value: totals.rework,
+      color: "#f59e0b",
+      bgClass: "bg-amber-50 dark:bg-amber-900/20",
+      borderClass: "border-amber-100 dark:border-amber-800/30",
+      textClass: "text-amber-700 dark:text-amber-300",
+      labelClass: "text-amber-600 dark:text-amber-400",
+    },
+  ];
+
+  // Top contributors for hovered segment
+  const hoveredContributors = hoveredSegment
+    ? [...biwData]
+        .sort(
+          (a, b) =>
+            (b[hoveredSegment as keyof typeof b] || 0) -
+            (a[hoveredSegment as keyof typeof a] || 0),
+        )
+        .slice(0, 6)
+        .filter((u) => (u[hoveredSegment as keyof typeof u] || 0) > 0)
+    : [];
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm mb-8">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl">
+          <BarChart2 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+        </div>
+        <div>
+          <h3 className="text-lg font-black text-gray-900 dark:text-white">
+            Overall BIW Review Status
+          </h3>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+            Across all forms & inspectors
+          </p>
+        </div>
+        <div className="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30">
+          <TrendingUp className="w-4 h-4 text-indigo-500" />
+          <span className="text-sm font-black text-indigo-700 dark:text-indigo-300">
+            {overallScore}% Score
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-col lg:flex-row items-center gap-8">
+        {/* Doughnut Chart */}
+        <div className="relative w-full max-w-[260px] aspect-square flex-shrink-0 mx-auto">
+          <Doughnut data={chartData} options={chartOptions} />
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span className="text-3xl font-black text-gray-900 dark:text-white">
+              {totalReviewed.toLocaleString()}
+            </span>
+            <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest">
+              Reviewed
+            </span>
+          </div>
+        </div>
+
+        {/* Stats Grid + Hover Panel */}
+        <div className="flex-1 w-full">
+          {/* Segment stat cards */}
+          <div className="grid grid-cols-3 gap-3 mb-5">
+            {segments.map((seg) => {
+              const pct =
+                totalReviewed > 0
+                  ? Math.round((seg.value / totalReviewed) * 100)
+                  : 0;
+              const isHovered = hoveredSegment === seg.key;
+              return (
+                <div
+                  key={seg.key}
+                  className={`p-4 rounded-xl border transition-all duration-200 ${
+                    isHovered
+                      ? `${seg.bgClass} ${seg.borderClass} scale-[1.03] shadow-md`
+                      : `bg-gray-50 dark:bg-gray-900/30 border-gray-100 dark:border-gray-700`
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <div
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ background: seg.color }}
+                    />
+                    <p
+                      className={`text-[10px] font-black uppercase tracking-wider ${
+                        isHovered ? seg.labelClass : "text-gray-400"
+                      }`}
+                    >
+                      {seg.label}
+                    </p>
+                  </div>
+                  <p
+                    className={`text-2xl font-black ${
+                      isHovered ? seg.textClass : "text-gray-900 dark:text-white"
+                    }`}
+                  >
+                    {seg.value}
+                  </p>
+                  <div className="mt-2 h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${pct}%`, background: seg.color }}
+                    />
+                  </div>
+                  <p className="text-xs font-bold text-gray-400 mt-1">{pct}%</p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Hover contributors panel */}
+          <div
+            className={`transition-all duration-300 overflow-hidden ${
+              hoveredSegment && hoveredContributors.length > 0
+                ? "max-h-48 opacity-100"
+                : "max-h-0 opacity-0"
+            }`}
+          >
+            <div className="bg-gray-50 dark:bg-gray-900/40 rounded-xl border border-gray-100 dark:border-gray-700 p-3">
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                Top Contributors —{" "}
+                <span className="capitalize">{hoveredSegment}</span>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {hoveredContributors.map((user, i) => {
+                  const segKey = hoveredSegment as string;
+                  const val = user[segKey] || 0;
+                  const seg = segments.find((s) => s.key === segKey);
+                  return (
+                    <div
+                      key={i}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                        seg ? `${seg.bgClass} ${seg.textClass}` : "bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      <span>{user.name}</span>
+                      <span className="opacity-60">·</span>
+                      <span>{val}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom bar: Dispatched & Total */}
+          <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 flex flex-wrap items-center gap-6">
+            <div>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+                Total Submitted
+              </p>
+              <p className="text-xl font-black text-gray-900 dark:text-white">
+                {totals.totalSubmitted.toLocaleString()}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+                Dispatched
+              </p>
+              <p className="text-xl font-black text-blue-600 dark:text-blue-400">
+                {totals.dispatched.toLocaleString()}
+              </p>
+            </div>
+            <div className="ml-auto text-right">
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+                Inspectors
+              </p>
+              <p className="text-xl font-black text-gray-900 dark:text-white">
+                {biwData.length}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+// ──────────────────────────────────────────────────────────────────────────────
 
 const MyReviewBreakdownChart = ({ myReviewStats }: { myReviewStats: any }) => {
   if (!myReviewStats) return null;
@@ -2364,6 +2658,11 @@ export default function DashboardNew() {
                 </div>
               </div>
             )}
+
+          {/* Overall BIW Pie Chart - Shown for admins when BIW data is loaded */}
+          {!isSuperAdmin && showBiwTable && biwReviewTableData.length > 0 && (
+            <OverallBiwPieChart biwData={biwReviewTableData} />
+          )}
 
           {/* New Review Breakdown Chart - Show for all users when data is available */}
           {!isSuperAdmin && (

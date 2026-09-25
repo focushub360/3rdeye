@@ -140,7 +140,13 @@ function parseExcelDateBackend(value) {
       const part1 = parseInt(dmyMatch[1], 10);
       const part2 = parseInt(dmyMatch[2], 10);
       let year = parseInt(dmyMatch[3], 10);
-      if (year < 100) year += year < 50 ? 2000 : 1900;
+      const currentYear = new Date().getFullYear();
+      const currentYearMod = currentYear % 100;
+      if (year < 100) {
+        year += year <= currentYearMod + 1 ? 2000 : 1900;
+      } else if (year > currentYear + 1 && year < 30000) {
+        year = currentYear;
+      }
       let hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
       const minutes = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
       const seconds = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;

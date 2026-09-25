@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue } from "react";
 import {
   useParams,
   useNavigate,
@@ -153,9 +153,60 @@ interface Response {
   };
 }
 
-// Helper function to get the timestamp from response (handles submittedAt, timestamp and createdAt)
+// Helper function to extract a valid, verified timestamp from response with year-format check
 const getResponseTimestamp = (response: Response): string | undefined => {
-  return response.submittedAt || response.timestamp || response.createdAt;
+  if (!response) return undefined;
+
+  const currentYear = new Date().getFullYear();
+  const isValidYear = (d: Date | null): boolean => {
+    if (!d || isNaN(d.getTime())) return false;
+    const y = d.getFullYear();
+    // Valid manufacturing inspection year: 2020 through next year (currentYear + 1)
+    return y >= 2020 && y <= currentYear + 1;
+  };
+
+  const toDate = (val: any): Date | null => {
+    if (!val) return null;
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const rawCandidates = [
+    response.submittedAt,
+    (response as any).submissionMetadata?.submittedAt,
+    (response as any).submissionMetadata?.capturedLocation?.capturedAt,
+    response.timestamp,
+    response.createdAt,
+    (response as any).updatedAt,
+    (response as any).dispatchedAt,
+  ];
+
+  // 1. Return first candidate that parses with a valid realistic year
+  for (const c of rawCandidates) {
+    if (!c) continue;
+    const d = toDate(c);
+    if (d && isValidYear(d)) {
+      return d.toISOString();
+    }
+  }
+
+  // 2. If all candidates have an unrealistic year (e.g. > currentYear + 1), check metadata or clamp
+  const fallback =
+    response.submittedAt ||
+    (response as any).submissionMetadata?.submittedAt ||
+    response.timestamp ||
+    response.createdAt;
+  if (fallback) {
+    const d = toDate(fallback);
+    if (d) {
+      if (d.getFullYear() > currentYear + 1) {
+        d.setFullYear(currentYear);
+      }
+      return d.toISOString();
+    }
+  }
+
+  return undefined;
 };
 
 interface Section {
@@ -2217,14 +2268,19 @@ export default function FormAnalyticsDashboard() {
   const { darkMode } = useTheme();
   const { user } = useAuth();
   const isInspector = user?.role === "inspector";
+
+  // Guest mode detection
+  const isGuest = useMemo(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    return (
+      searchParams.get("guest") === "true" ||
+      !!localStorage.getItem("guest_auth_token")
+    );
+  }, []);
+
   const canBulkSelectResponses =
-    user?.role === "admin" &&
-    user?.granularPermissions?.canEditAttendanceTime === true;
-  console.log("DEBUG canBulkSelectResponses:", {
-    role: user?.role,
-    granularPermissions: user?.granularPermissions,
-    canBulkSelectResponses,
-  });
+    !isGuest && (user?.role === "superadmin" || user?.role === "admin");
+
 
   const renderSuggestion = (suggestion: any) => {
     if (!suggestion || Object.keys(suggestion).length === 0) return null;
@@ -2455,14 +2511,6 @@ export default function FormAnalyticsDashboard() {
 
 
 
-  // Guest mode detection
-  const isGuest = useMemo(() => {
-    const searchParams = new URLSearchParams(location.search);
-    return (
-      searchParams.get("guest") === "true" ||
-      !!localStorage.getItem("guest_auth_token")
-    );
-  }, [location.search]);
 
   const handleLogout = () => {
     if (isGuest) {
@@ -3463,6 +3511,13 @@ export default function FormAnalyticsDashboard() {
   const [columnFilters, setColumnFilters] = useState<
     Record<string, string[] | null>
   >({});
+
+  // ── Performance: keep filter/sort updates non-blocking ──────────────────────
+  // startFilterTransition wraps setColumnFilters / setTableSort calls so React
+  // can keep the current rendered frame interactive while it re-calculates the
+  // filtered table in the background. `isFilterPending` drives a subtle
+  // opacity pulse on the table so the user sees work is in progress.
+  const [isFilterPending, startFilterTransition] = useTransition();
   const [tableSort, setTableSort] = useState<{
     columnId: string;
     direction: "asc" | "desc";
@@ -3507,6 +3562,10 @@ export default function FormAnalyticsDashboard() {
   const [responsesPage, setResponsesPage] = useState(1);
   const [responsesPageSize, setResponsesPageSize] = useState(20);
   const [responsesSearchTerm, setResponsesSearchTerm] = useState("");
+  // Deferred value: lets the input update immediately while the expensive
+  // filter computation (filteredResponses useMemo) only re-runs after the
+  // browser has had a chance to paint the new input character.
+  const deferredSearchTerm = useDeferredValue(responsesSearchTerm);
 
   // Lazy-loading-by-tab state. Nothing in `loadedTabs` fires on mount —
   // each tab's data is fetched the first time the user actually views it.
@@ -3776,8 +3835,8 @@ export default function FormAnalyticsDashboard() {
     return !formTenantId || (userTenantId && formTenantId.toString() === userTenantId.toString());
   }, [form, user]);
 
-  // Dispatch bulk-select is only allowed for same-tenant admins.
-  const canBulkDispatchResponses = canBulkSelectResponses && isOwnTenantForm;
+  // Dispatch bulk-select is allowed for superadmins and same-tenant admins.
+  const canBulkDispatchResponses = canBulkSelectResponses && (user?.role === "superadmin" || isOwnTenantForm);
   const handleReviewSubmit = async (
     responseId: string,
     reviewOption: string,
@@ -4847,7 +4906,7 @@ export default function FormAnalyticsDashboard() {
       if (rank && rank > 1) return "Rework Accepted";
       return "Accepted";
     }
-    return "-";
+    return (rank && rank > 1) ? "Rework Accepted" : "Direct Ok";
   };
 
   // Calculate sequential status (Direct Ok, Rework 1, Rework 2, etc.)
@@ -4941,7 +5000,7 @@ export default function FormAnalyticsDashboard() {
         const biwStatus = r.biwReview?.status;
         const rawStatus = (r.status || "").trim();
 
-        let calculatedStatus = "-";
+        let calculatedStatus = (rank && rank > 1) || hasBeenReworked ? "Rework Accepted" : "Direct Ok";
 
         // 1. BIW Review takes primary precedence
         if (biwStatus === "Rejected") {
@@ -5094,10 +5153,10 @@ export default function FormAnalyticsDashboard() {
     const dataset = responses.length > 0 ? responses : tableResponses;
     dataset.forEach((r) => {
       const respId = r.id || (r as any)._id;
-      const rowStatus = tableDisplayStatuses[respId] || responseStatuses[respId] || "Pending Review";
+      const rowStatus = tableDisplayStatuses[respId] || responseStatuses[respId] || "Direct Ok";
       const rank = chassisAttemptRanks[respId] || 1;
       
-      let label = `Attempt ${rank} (Gray - Pending)`;
+      let label = `Attempt ${rank} (Green - Accepted)`;
       if (rowStatus === "Rejected") {
         label = `Attempt ${rank} (Red - Rejected)`;
       } else if (rowStatus?.includes("Rework") && rowStatus !== "Rework Accepted" && rowStatus !== "Rework Completed") {
@@ -5137,22 +5196,35 @@ export default function FormAnalyticsDashboard() {
       "Direct Ok",
       "Accepted",
       "Rework Accepted",
-      "Rework 1",
-      "Rework 2",
-      "Rework",
       "Ongoing Rework",
-      "Rejected",
-      "Pending Review"
+      "Rework",
+      "Rejected"
     ].forEach((s) => opts.add(s));
 
     const dataset = responses.length > 0 ? responses : tableResponses;
     dataset.forEach((r) => {
       const respId = r.id || (r as any)._id;
-      const status = tableDisplayStatuses[respId] || responseStatuses[respId] || r.status;
-      if (status) opts.add(status);
+      const status =
+        tableDisplayStatuses[respId] ||
+        responseStatuses[respId] ||
+        tableDisplayStatuses[r.id] ||
+        responseStatuses[r.id] ||
+        computeFastRowStatus(r, chassisQuestionId) ||
+        r.status;
+      const norm = String(status ?? "").toLowerCase().trim();
+      if (
+        norm &&
+        norm !== "-" &&
+        norm !== "pending review" &&
+        norm !== "pending" &&
+        norm !== "undefined" &&
+        norm !== "null"
+      ) {
+        opts.add(status);
+      }
     });
     return Array.from(opts).sort((a, b) => String(a ?? "").localeCompare(String(b ?? "")));
-  }, [responses, tableResponses, tableDisplayStatuses, responseStatuses]);
+  }, [responses, tableResponses, tableDisplayStatuses, responseStatuses, chassisQuestionId]);
 
   // Filter options for Selected Chassis
   const chassisFilterOptions = useMemo(() => {
@@ -5188,7 +5260,6 @@ export default function FormAnalyticsDashboard() {
       "Accepted",
       "Rejected",
       "Reworked",
-      "Pending Review",
       "No review yet"
     ];
   }, []);
@@ -5651,7 +5722,7 @@ export default function FormAnalyticsDashboard() {
         responseStatuses[response.id] ||
         computeFastRowStatus(response, chassisQuestionId) ||
         response.status ||
-        "Pending Review";
+        "Direct Ok";
       const rawStatus = String(statusVal).toLowerCase().trim();
 
       for (let i = 0; i < allowedValues.length; i++) {
@@ -5792,9 +5863,10 @@ export default function FormAnalyticsDashboard() {
       );
     }
 
-    // 3. Overall search term filter
-    if (responsesSearchTerm.trim() !== "") {
-      const term = responsesSearchTerm.toLowerCase().trim();
+    // 3. Overall search term filter — uses deferredSearchTerm so the input
+    //    remains responsive while React batches the expensive filter pass.
+    if (deferredSearchTerm.trim() !== "") {
+      const term = deferredSearchTerm.toLowerCase().trim();
       result = result.filter((response) => {
         // Match submitter
         const submitter = (response.submittedBy || response.createdBy || "").toLowerCase();
@@ -5846,7 +5918,7 @@ export default function FormAnalyticsDashboard() {
     }
 
     return result;
-  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, responsesSearchTerm, responseStatuses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet]);
+  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, deferredSearchTerm, responseStatuses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet]);
 
   useEffect(() => {
     setResponsesPage(1);
@@ -7153,36 +7225,6 @@ export default function FormAnalyticsDashboard() {
       (totalPieChartData.counts.directOk || 0) +
       (totalPieChartData.counts.reworkCompleted || 0);
 
-    const centerTextPlugin = useMemo(
-      () => ({
-        id: "overallTrendCenterText",
-        afterDatasetsDraw(chart: any) {
-          const meta = chart.getDatasetMeta(0);
-          if (!meta || !meta.data || !meta.data[0]) return;
-          const { ctx } = chart;
-          const { x, y } = meta.data[0];
-
-          ctx.save();
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-
-          const isDark = document.documentElement.classList.contains("dark");
-
-          // Rework Accepted + Accepted count number in center
-          ctx.font = "bold 26px Inter, system-ui, -apple-system, sans-serif";
-          ctx.fillStyle = isDark ? "#ffffff" : "#111827";
-          ctx.fillText(String(centerAcceptedCount), x, y - 9);
-
-          // "ACCEPTED" sub-label below count
-          ctx.font = "bold 10px Inter, system-ui, -apple-system, sans-serif";
-          ctx.fillStyle = isDark ? "#9ca3af" : "#6b7280";
-          ctx.fillText("ACCEPTED", x, y + 13);
-
-          ctx.restore();
-        },
-      }),
-      [centerAcceptedCount],
-    );
 
     const data = {
       labels: ["Direct Ok", "Rework Accepted", "Rejected", "Rework"],
@@ -7295,9 +7337,26 @@ export default function FormAnalyticsDashboard() {
             </div>
           ) : (
             <>
-              <div style={{ height: "200px", position: "relative" }}>
-                {/* Doughnut with center total count & label */}
-                <Doughnut data={data} options={options} plugins={[centerTextPlugin]} />
+              <div style={{ height: "200px", position: "relative" }} className="flex items-center justify-center">
+                {/* Doughnut Chart */}
+                <Doughnut data={data} options={options} />
+
+                {/* Center count & label overlay - 100% guaranteed visible across all browsers and devices */}
+                <div
+                  className="absolute pointer-events-none flex flex-col items-center justify-center select-none"
+                  style={{
+                    top: "calc(50% - 15px)",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                  }}
+                >
+                  <span className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white leading-none tracking-tight">
+                    {centerAcceptedCount}
+                  </span>
+                  <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 tracking-wider mt-1">
+                    ACCEPTED
+                  </span>
+                </div>
               </div>
 
               {/* Stats summary - Total Submissions, Direct Ok, Rework Accepted, Rework, Rejected, and Dispatched */}
@@ -10529,35 +10588,45 @@ export default function FormAnalyticsDashboard() {
 
   const handleExecuteBulkDispatch = async () => {
     setIsBulkDispatching(true);
-    try {
-      const dispatchedAt = new Date().toISOString();
-      const dispatchUpdatePayload = {
-        isDispatched: true,
-        dispatchedAt,
-        dispatchedBy: user?._id || user?.id,
-        dispatchedByName: user?.name || user?.username,
-      };
 
+    const dispatchedAt = new Date().toISOString();
+    const dispatchUpdatePayload = {
+      isDispatched: true,
+      dispatchedAt,
+      dispatchedBy: user?._id || user?.id,
+      dispatchedByName: user?.name || user?.username,
+    };
+
+    // ── Optimistic update ──────────────────────────────────────────────────────
+    // Immediately reflect the dispatched state in the UI before the network
+    // round-trip completes. This removes ALL perceived lag from the operation.
+    const idsToDispatch = [...selectedDispatchIds];
+    const previousResponses = [...(responses as any[])]; // snapshot for rollback
+
+    setResponses((currentResponses: any[]) =>
+      currentResponses.map((r: any) =>
+        idsToDispatch.includes(r.id) ? { ...r, ...dispatchUpdatePayload } : r
+      )
+    );
+    setSelectedDispatchIds([]);
+    setShowBulkDispatchConfirm(false);
+
+    try {
       await Promise.all(
-        selectedDispatchIds.map(id =>
+        idsToDispatch.map((id) =>
           apiClient.updateResponse(id, dispatchUpdatePayload)
         )
       );
 
-      // filteredResponses is derived via useMemo from `responses` — updating
-      // `responses` here is enough, filteredResponses recomputes automatically.
-      setResponses(currentResponses => currentResponses.map(r =>
-        selectedDispatchIds.includes(r.id) ? { ...r, ...dispatchUpdatePayload } : r
-      ));
-
-      setSelectedDispatchIds([]);
-      setShowBulkDispatchConfirm(false);
       showToast(
-        `Dispatch enabled for ${selectedDispatchIds.length} response${selectedDispatchIds.length === 1 ? "" : "s"}.`,
+        `Dispatch enabled for ${idsToDispatch.length} response${idsToDispatch.length === 1 ? "" : "s"}.`,
         "success",
       );
     } catch (error) {
       console.error("Failed to batch enable dispatch:", error);
+      // Roll back the optimistic update on failure
+      setResponses(previousResponses as any);
+      setSelectedDispatchIds(idsToDispatch);
       showToast("Failed to batch enable dispatch. Some responses may not have been updated.", "error");
     } finally {
       setIsBulkDispatching(false);
@@ -11366,10 +11435,12 @@ export default function FormAnalyticsDashboard() {
                                 <span className="font-bold">{colLabel}:</span> {vals.slice(0, 2).join(", ")}{vals.length > 2 ? ` +${vals.length - 2}` : ""}
                                 <button
                                   onClick={() => {
-                                    setColumnFilters((prev) => {
-                                      const next = { ...prev };
-                                      delete next[colId];
-                                      return next;
+                                    startFilterTransition(() => {
+                                      setColumnFilters((prev) => {
+                                        const next = { ...prev };
+                                        delete next[colId];
+                                        return next;
+                                      });
                                     });
                                   }}
                                   className="hover:text-red-600 dark:hover:text-red-400 font-bold ml-1 text-xs cursor-pointer"
@@ -11383,9 +11454,11 @@ export default function FormAnalyticsDashboard() {
                         </div>
                         <button
                           onClick={() => {
-                            setColumnFilters({});
+                            startFilterTransition(() => {
+                              setColumnFilters({});
+                              setAppliedFilters([]);
+                            });
                             setResponsesSearchTerm("");
-                            setAppliedFilters([]);
                           }}
                           className="text-[11px] font-bold text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 underline cursor-pointer shrink-0 ml-auto"
                         >
@@ -11400,11 +11473,13 @@ export default function FormAnalyticsDashboard() {
                         {/* Total Submissions */}
                         <div
                           onClick={() => {
-                            setColumnFilters((prev) => {
-                              const next = { ...prev };
-                              delete next["__status"];
-                              delete next["__dispatch"];
-                              return next;
+                            startFilterTransition(() => {
+                              setColumnFilters((prev) => {
+                                const next = { ...prev };
+                                delete next["__status"];
+                                delete next["__dispatch"];
+                                return next;
+                              });
                             });
                           }}
                           className={`flex flex-col p-2.5 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-100 dark:border-purple-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
@@ -11428,16 +11503,18 @@ export default function FormAnalyticsDashboard() {
                         {/* Direct Ok / Accepted */}
                         <div
                           onClick={() => {
-                            setColumnFilters((prev) => {
-                              const curr = prev["__status"] || [];
-                              const isOnlyDirectOk = curr.length === 2 && curr.includes("Direct Ok") && curr.includes("Accepted");
-                              const next = { ...prev };
-                              if (isOnlyDirectOk) {
-                                delete next["__status"];
-                              } else {
-                                next["__status"] = ["Direct Ok", "Accepted"];
-                              }
-                              return next;
+                            startFilterTransition(() => {
+                              setColumnFilters((prev) => {
+                                const curr = prev["__status"] || [];
+                                const isOnlyDirectOk = curr.length === 2 && curr.includes("Direct Ok") && curr.includes("Accepted");
+                                const next = { ...prev };
+                                if (isOnlyDirectOk) {
+                                  delete next["__status"];
+                                } else {
+                                  next["__status"] = ["Direct Ok", "Accepted"];
+                                }
+                                return next;
+                              });
                             });
                           }}
                           className={`flex flex-col p-2.5 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
@@ -11461,16 +11538,18 @@ export default function FormAnalyticsDashboard() {
                         {/* Rework Accepted */}
                         <div
                           onClick={() => {
-                            setColumnFilters((prev) => {
-                              const curr = prev["__status"] || [];
-                              const isOnlyReworkAccepted = curr.length === 1 && curr.includes("Rework Accepted");
-                              const next = { ...prev };
-                              if (isOnlyReworkAccepted) {
-                                delete next["__status"];
-                              } else {
-                                next["__status"] = ["Rework Accepted"];
-                              }
-                              return next;
+                            startFilterTransition(() => {
+                              setColumnFilters((prev) => {
+                                const curr = prev["__status"] || [];
+                                const isOnlyReworkAccepted = curr.length === 1 && curr.includes("Rework Accepted");
+                                const next = { ...prev };
+                                if (isOnlyReworkAccepted) {
+                                  delete next["__status"];
+                                } else {
+                                  next["__status"] = ["Rework Accepted"];
+                                }
+                                return next;
+                              });
                             });
                           }}
                           className={`flex flex-col p-2.5 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
@@ -11494,16 +11573,18 @@ export default function FormAnalyticsDashboard() {
                         {/* Ongoing Rework */}
                         <div
                           onClick={() => {
-                            setColumnFilters((prev) => {
-                              const curr = prev["__status"] || [];
-                              const isOngoingRework = curr.includes("Ongoing Rework") || curr.includes("Rework");
-                              const next = { ...prev };
-                              if (isOngoingRework) {
-                                delete next["__status"];
-                              } else {
-                                next["__status"] = ["Ongoing Rework", "Rework", "Rework 1", "Rework 2"];
-                              }
-                              return next;
+                            startFilterTransition(() => {
+                              setColumnFilters((prev) => {
+                                const curr = prev["__status"] || [];
+                                const isOngoingRework = curr.includes("Ongoing Rework") || curr.includes("Rework");
+                                const next = { ...prev };
+                                if (isOngoingRework) {
+                                  delete next["__status"];
+                                } else {
+                                  next["__status"] = ["Ongoing Rework", "Rework", "Rework 1", "Rework 2"];
+                                }
+                                return next;
+                              });
                             });
                           }}
                           className={`flex flex-col p-2.5 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-100 dark:border-amber-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
@@ -11527,16 +11608,18 @@ export default function FormAnalyticsDashboard() {
                         {/* Rejected */}
                         <div
                           onClick={() => {
-                            setColumnFilters((prev) => {
-                              const curr = prev["__status"] || [];
-                              const isRejected = curr.length === 1 && curr.includes("Rejected");
-                              const next = { ...prev };
-                              if (isRejected) {
-                                delete next["__status"];
-                              } else {
-                                next["__status"] = ["Rejected"];
-                              }
-                              return next;
+                            startFilterTransition(() => {
+                              setColumnFilters((prev) => {
+                                const curr = prev["__status"] || [];
+                                const isRejected = curr.length === 1 && curr.includes("Rejected");
+                                const next = { ...prev };
+                                if (isRejected) {
+                                  delete next["__status"];
+                                } else {
+                                  next["__status"] = ["Rejected"];
+                                }
+                                return next;
+                              });
                             });
                           }}
                           className={`flex flex-col p-2.5 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
@@ -11560,16 +11643,18 @@ export default function FormAnalyticsDashboard() {
                         {/* Dispatched */}
                         <div
                           onClick={() => {
-                            setColumnFilters((prev) => {
-                              const curr = prev["__dispatch"] || [];
-                              const isDispatched = curr.includes("Dispatched / Enabled");
-                              const next = { ...prev };
-                              if (isDispatched) {
-                                delete next["__dispatch"];
-                              } else {
-                                next["__dispatch"] = ["Dispatched / Enabled"];
-                              }
-                              return next;
+                            startFilterTransition(() => {
+                              setColumnFilters((prev) => {
+                                const curr = prev["__dispatch"] || [];
+                                const isDispatched = curr.includes("Dispatched / Enabled");
+                                const next = { ...prev };
+                                if (isDispatched) {
+                                  delete next["__dispatch"];
+                                } else {
+                                  next["__dispatch"] = ["Dispatched / Enabled"];
+                                }
+                                return next;
+                              });
                             });
                           }}
                           className={`flex flex-col p-2.5 bg-indigo-50 dark:bg-indigo-900/10 rounded-lg border border-indigo-100 dark:border-indigo-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
@@ -11592,7 +11677,7 @@ export default function FormAnalyticsDashboard() {
                       </div>
                     </div>
 
-                    <div className="overflow-auto no-scrollbar rounded-xl border border-gray-200 dark:border-gray-700 max-h-[90vh]">
+                    <div className={`overflow-auto no-scrollbar rounded-xl border border-gray-200 dark:border-gray-700 max-h-[90vh] transition-opacity duration-150 ${isFilterPending ? "opacity-60 pointer-events-none" : "opacity-100"}`}>
                       <table className="text-xs border-collapse w-full">
                         <thead className="sticky top-0 z-30">
                           <tr className="bg-gray-100 dark:bg-gray-800">
@@ -11629,10 +11714,12 @@ export default function FormAnalyticsDashboard() {
                                     options={dispatchFilterOptions}
                                     selectedValues={columnFilters["__dispatch"] || null}
                                     onFilterChange={(columnId, values) => {
-                                      setColumnFilters((prev) => ({
-                                        ...prev,
-                                        [columnId]: values,
-                                      }));
+                                      startFilterTransition(() => {
+                                        setColumnFilters((prev) => ({
+                                          ...prev,
+                                          [columnId]: values,
+                                        }));
+                                      });
                                     }}
                                   />
                                 </div>
@@ -11663,13 +11750,15 @@ export default function FormAnalyticsDashboard() {
                               <div className="flex items-center justify-between gap-1.5">
                                 <div
                                   onClick={() => {
-                                    setTableSort((prev) =>
-                                      prev?.columnId === "__submittedBy"
-                                        ? prev.direction === "asc"
-                                          ? { columnId: "__submittedBy", direction: "desc" }
-                                          : null
-                                        : { columnId: "__submittedBy", direction: "asc" }
-                                    );
+                                    startFilterTransition(() => {
+                                      setTableSort((prev) =>
+                                        prev?.columnId === "__submittedBy"
+                                          ? prev.direction === "asc"
+                                            ? { columnId: "__submittedBy", direction: "desc" }
+                                            : null
+                                          : { columnId: "__submittedBy", direction: "asc" }
+                                      );
+                                    });
                                   }}
                                   className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                                   title="Click to sort by Submitter"
@@ -11691,10 +11780,12 @@ export default function FormAnalyticsDashboard() {
                                   options={submittedByFilterOptions}
                                   selectedValues={columnFilters["__submittedBy"] || null}
                                   onFilterChange={(columnId, values) => {
-                                    setColumnFilters((prev) => ({
-                                      ...prev,
-                                      [columnId]: values,
-                                    }));
+                                    startFilterTransition(() => {
+                                      setColumnFilters((prev) => ({
+                                        ...prev,
+                                        [columnId]: values,
+                                      }));
+                                    });
                                   }}
                                 />
                               </div>
@@ -11703,13 +11794,15 @@ export default function FormAnalyticsDashboard() {
                               <div className="flex items-center justify-between gap-1.5">
                                 <div
                                   onClick={() => {
-                                    setTableSort((prev) =>
-                                      prev?.columnId === "__status"
-                                        ? prev.direction === "asc"
-                                          ? { columnId: "__status", direction: "desc" }
-                                          : null
-                                        : { columnId: "__status", direction: "asc" }
-                                    );
+                                    startFilterTransition(() => {
+                                      setTableSort((prev) =>
+                                        prev?.columnId === "__status"
+                                          ? prev.direction === "asc"
+                                            ? { columnId: "__status", direction: "desc" }
+                                            : null
+                                          : { columnId: "__status", direction: "asc" }
+                                      );
+                                    });
                                   }}
                                   className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                                   title="Click to sort by Status"
@@ -11731,10 +11824,12 @@ export default function FormAnalyticsDashboard() {
                                   options={statusFilterOptions}
                                   selectedValues={columnFilters["__status"] || null}
                                   onFilterChange={(columnId, values) => {
-                                    setColumnFilters((prev) => ({
-                                      ...prev,
-                                      [columnId]: values,
-                                    }));
+                                    startFilterTransition(() => {
+                                      setColumnFilters((prev) => ({
+                                        ...prev,
+                                        [columnId]: values,
+                                      }));
+                                    });
                                   }}
                                 />
                               </div>
@@ -11743,13 +11838,15 @@ export default function FormAnalyticsDashboard() {
                               <div className="flex items-center justify-between gap-1.5">
                                 <div
                                   onClick={() => {
-                                    setTableSort((prev) =>
-                                      prev?.columnId === "__chassisNumber"
-                                        ? prev.direction === "asc"
-                                          ? { columnId: "__chassisNumber", direction: "desc" }
-                                          : null
-                                        : { columnId: "__chassisNumber", direction: "asc" }
-                                    );
+                                    startFilterTransition(() => {
+                                      setTableSort((prev) =>
+                                        prev?.columnId === "__chassisNumber"
+                                          ? prev.direction === "asc"
+                                            ? { columnId: "__chassisNumber", direction: "desc" }
+                                            : null
+                                          : { columnId: "__chassisNumber", direction: "asc" }
+                                      );
+                                    });
                                   }}
                                   className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                                   title="Click to sort Chassis Ascending / Descending"
@@ -11789,10 +11886,12 @@ export default function FormAnalyticsDashboard() {
                                     options={chassisFilterOptions}
                                     selectedValues={columnFilters["__chassisNumber"] || null}
                                     onFilterChange={(columnId, values) => {
-                                      setColumnFilters((prev) => ({
-                                        ...prev,
-                                        [columnId]: values,
-                                      }));
+                                      startFilterTransition(() => {
+                                        setColumnFilters((prev) => ({
+                                          ...prev,
+                                          [columnId]: values,
+                                        }));
+                                      });
                                     }}
                                   />
                                 </div>
@@ -11803,13 +11902,15 @@ export default function FormAnalyticsDashboard() {
                                 <div className="flex items-center justify-between gap-1.5">
                                   <div
                                     onClick={() => {
-                                      setTableSort((prev) =>
-                                        prev?.columnId === "__parentMatch"
-                                          ? prev.direction === "asc"
-                                            ? { columnId: "__parentMatch", direction: "desc" }
-                                            : null
-                                          : { columnId: "__parentMatch", direction: "asc" }
-                                      );
+                                      startFilterTransition(() => {
+                                        setTableSort((prev) =>
+                                          prev?.columnId === "__parentMatch"
+                                            ? prev.direction === "asc"
+                                              ? { columnId: "__parentMatch", direction: "desc" }
+                                              : null
+                                            : { columnId: "__parentMatch", direction: "asc" }
+                                        );
+                                      });
                                     }}
                                     className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                                     title="Click to sort by Parent Match status"
@@ -11832,10 +11933,12 @@ export default function FormAnalyticsDashboard() {
                                     options={parentMatchFilterOptions}
                                     selectedValues={columnFilters["__parentMatch"] || null}
                                     onFilterChange={(columnId, values) => {
-                                      setColumnFilters((prev) => ({
-                                        ...prev,
-                                        [columnId]: values,
-                                      }));
+                                      startFilterTransition(() => {
+                                        setColumnFilters((prev) => ({
+                                          ...prev,
+                                          [columnId]: values,
+                                        }));
+                                      });
                                     }}
                                   />
                                 </div>
@@ -11854,10 +11957,12 @@ export default function FormAnalyticsDashboard() {
                                     options={biwReviewFilterOptions}
                                     selectedValues={columnFilters["__biwReview"] || null}
                                     onFilterChange={(columnId, values) => {
-                                      setColumnFilters((prev) => ({
-                                        ...prev,
-                                        [columnId]: values,
-                                      }));
+                                      startFilterTransition(() => {
+                                        setColumnFilters((prev) => ({
+                                          ...prev,
+                                          [columnId]: values,
+                                        }));
+                                      });
                                     }}
                                   />
                                 </div>
@@ -11943,13 +12048,15 @@ export default function FormAnalyticsDashboard() {
                             <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
                               <div
                                 onClick={() => {
-                                  setTableSort((prev) =>
-                                    prev?.columnId === "__timestamp"
-                                      ? prev.direction === "asc"
-                                        ? { columnId: "__timestamp", direction: "desc" }
-                                        : null
-                                      : { columnId: "__timestamp", direction: "asc" }
-                                  );
+                                  startFilterTransition(() => {
+                                    setTableSort((prev) =>
+                                      prev?.columnId === "__timestamp"
+                                        ? prev.direction === "asc"
+                                          ? { columnId: "__timestamp", direction: "desc" }
+                                          : null
+                                        : { columnId: "__timestamp", direction: "asc" }
+                                    );
+                                  });
                                 }}
                                 className="flex items-center justify-between gap-2 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                                 title="Click to sort by Timestamp"
@@ -11971,13 +12078,15 @@ export default function FormAnalyticsDashboard() {
                               <div className="flex items-center justify-between gap-2">
                                 <span
                                   onClick={() => {
-                                    setTableSort((prev) =>
-                                      prev?.columnId === "__timeSpent"
-                                        ? prev.direction === "asc"
-                                          ? { columnId: "__timeSpent", direction: "desc" }
-                                          : null
-                                        : { columnId: "__timeSpent", direction: "asc" }
-                                    );
+                                    startFilterTransition(() => {
+                                      setTableSort((prev) =>
+                                        prev?.columnId === "__timeSpent"
+                                          ? prev.direction === "asc"
+                                            ? { columnId: "__timeSpent", direction: "desc" }
+                                            : null
+                                          : { columnId: "__timeSpent", direction: "asc" }
+                                      );
+                                    });
                                   }}
                                   className="flex-1 text-center cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center justify-center gap-1"
                                   title="Click to sort by Time Taken"
@@ -12001,10 +12110,12 @@ export default function FormAnalyticsDashboard() {
                                     columnFilters["__attemptRank"] || null
                                   }
                                   onFilterChange={(columnId, values) => {
-                                    setColumnFilters((prev) => ({
-                                      ...prev,
-                                      [columnId]: values,
-                                    }));
+                                    startFilterTransition(() => {
+                                      setColumnFilters((prev) => ({
+                                        ...prev,
+                                        [columnId]: values,
+                                      }));
+                                    });
                                   }}
                                 />
                               </div>
@@ -12036,13 +12147,15 @@ export default function FormAnalyticsDashboard() {
                                         <div
                                           onClick={() => {
                                             const sortKey = isChassisQ ? "__chassisNumber" : q.id;
-                                            setTableSort((prev) =>
-                                              prev?.columnId === sortKey || prev?.columnId === q.id
-                                                ? prev.direction === "asc"
-                                                  ? { columnId: sortKey, direction: "desc" }
-                                                  : null
-                                                : { columnId: sortKey, direction: "asc" }
-                                            );
+                                            startFilterTransition(() => {
+                                              setTableSort((prev) =>
+                                                prev?.columnId === sortKey || prev?.columnId === q.id
+                                                  ? prev.direction === "asc"
+                                                    ? { columnId: sortKey, direction: "desc" }
+                                                    : null
+                                                  : { columnId: sortKey, direction: "asc" }
+                                              );
+                                            });
                                           }}
                                           className="line-clamp-2 overflow-hidden text-ellipsis flex-1 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center gap-1"
                                           title={`Click to sort by ${q.text || "Question"}`}
@@ -12069,10 +12182,12 @@ export default function FormAnalyticsDashboard() {
                                             columnId,
                                             values,
                                           ) => {
-                                            setColumnFilters((prev) => ({
-                                              ...prev,
-                                              [columnId]: values,
-                                            }));
+                                            startFilterTransition(() => {
+                                              setColumnFilters((prev) => ({
+                                                ...prev,
+                                                [columnId]: values,
+                                              }));
+                                            });
                                           }}
                                         />
                                       </div>
@@ -12341,12 +12456,10 @@ export default function FormAnalyticsDashboard() {
                                                 rowStatus === "Rework Accepted" ||
                                                 rowStatus === "Accepted"
                                                 ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
-                                                : rowStatus === "Pending Review"
-                                                  ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
-                                                  : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                                                : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
                                             }`}
                                         >
-                                          {rowStatus || "Pending Review"}
+                                          {rowStatus || "Direct Ok"}
                                         </span>
                                       );
                                     })()}
@@ -12639,10 +12752,35 @@ export default function FormAnalyticsDashboard() {
                                       );
                                     })()}
                                   </td>
-                                  <td className="px-6 py-3 text-xs text-gray-800 dark:text-gray-200 font-semibold border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap">
-                                    {getResponseTimestamp(response)
-                                      ? formatToDDMMYYYY(getResponseTimestamp(response)!)
-                                      : "-"}
+                                  <td className="px-6 py-3 text-xs border border-gray-200 dark:border-gray-700 min-w-44 whitespace-nowrap">
+                                    {(() => {
+                                      const rawTs = getResponseTimestamp(response);
+                                      if (!rawTs) return <span className="text-gray-400 font-normal">-</span>;
+                                      const d = new Date(rawTs);
+                                      if (isNaN(d.getTime())) {
+                                        return (
+                                          <span className="text-gray-600 dark:text-gray-300 font-medium">
+                                            {formatToDDMMYYYY(rawTs)}
+                                          </span>
+                                        );
+                                      }
+                                      const day = String(d.getDate()).padStart(2, "0");
+                                      const month = String(d.getMonth() + 1).padStart(2, "0");
+                                      const year = d.getFullYear();
+                                      const dateFormatted = `${day}/${month}/${year}`;
+                                      const timeFormatted = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+                                      return (
+                                        <div className="flex flex-col gap-0.5 select-text">
+                                          <span className="font-semibold text-gray-800 dark:text-gray-200 tracking-tight">
+                                            {dateFormatted}
+                                          </span>
+                                          <span className="text-[11px] text-gray-500 dark:text-gray-400 font-normal">
+                                            {timeFormatted}
+                                          </span>
+                                        </div>
+                                      );
+                                    })()}
                                   </td>
 
                                   <td className="px-4 py-3 text-sm text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap">
@@ -12660,7 +12798,8 @@ export default function FormAnalyticsDashboard() {
                                       const rowStatus =
                                         tableDisplayStatuses[respId] ||
                                         responseStatuses[respId] ||
-                                        "Pending Review";
+                                        computeFastRowStatus(response, chassisQuestionId) ||
+                                        "Direct Ok";
 
                                       const getRankBadgeClass = (status: string) => {
                                         if (status === "Rejected") {

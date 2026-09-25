@@ -874,6 +874,12 @@ export function formatToDDMMYYYY(dateInput: any, includeTime = false): string {
     }
   }
 
+  // Year format check: sanitize any unrealistic future year (e.g. 2030-2099 corrupted years)
+  const currentYear = new Date().getFullYear();
+  if (d.getFullYear() > currentYear + 1 && d.getFullYear() < 30000) {
+    d.setFullYear(currentYear);
+  }
+
   const day = String(d.getDate()).padStart(2, "0");
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const year = d.getFullYear();
@@ -981,7 +987,13 @@ export function parseExcelDate(value: any): Date | null {
       const part1 = parseInt(dmyMatch[1], 10);
       const part2 = parseInt(dmyMatch[2], 10);
       let year = parseInt(dmyMatch[3], 10);
-      if (year < 100) year += year < 50 ? 2000 : 1900;
+      const currentYear = new Date().getFullYear();
+      const currentYearMod = currentYear % 100;
+      if (year < 100) {
+        year += year <= currentYearMod + 1 ? 2000 : 1900;
+      } else if (year > currentYear + 1 && year < 30000) {
+        year = currentYear;
+      }
       let hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
       const minutes = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
       const seconds = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
