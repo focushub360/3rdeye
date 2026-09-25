@@ -6921,6 +6921,10 @@ export default function FormAnalyticsDashboard() {
     let rawReworked = 0;
     let reworkCompleted = 0;
     let dispatched = 0;
+    let pending = 0;
+
+    // Track active rework per chassis so no pending rework unit is missed
+    const activeReworkChassis = new Set<string>();
 
     filteredResponses.forEach((response) => {
       const respId = response.id || (response as any)._id;
@@ -6935,14 +6939,48 @@ export default function FormAnalyticsDashboard() {
         "";
       const rawStatus = String(statusVal).trim().toLowerCase();
 
-      if (rawStatus === "direct ok" || rawStatus === "accepted" || rawStatus === "verified") {
+      const isAccepted =
+        rawStatus === "direct ok" ||
+        rawStatus === "accepted" ||
+        rawStatus === "verified" ||
+        rawStatus === "ok" ||
+        rawStatus === "pass";
+
+      const isReworkAccepted =
+        rawStatus === "rework accepted" ||
+        rawStatus === "rework completed" ||
+        rawStatus === "rework ok" ||
+        rawStatus === "reworked accepted";
+
+      const isRework =
+        !isReworkAccepted &&
+        (rawStatus.startsWith("rework") ||
+          rawStatus === "ongoing rework" ||
+          rawStatus.includes("rework"));
+
+      const isRejected =
+        rawStatus === "rejected" ||
+        rawStatus === "reject" ||
+        rawStatus === "fail" ||
+        rawStatus === "not ok";
+
+      if (isAccepted) {
         accepted++;
-      } else if (rawStatus === "rework accepted" || rawStatus === "rework completed") {
+      } else if (isReworkAccepted) {
         reworkCompleted++;
-      } else if (rawStatus.startsWith("rework") || rawStatus === "ongoing rework") {
+      } else if (isRework) {
         rawReworked++;
-      } else if (rawStatus === "rejected") {
+        const itemId = getChassisOrItemId(response, chassisQuestionId);
+        if (itemId && itemId !== "none" && itemId !== "-") {
+          // If this chassis has not reached Rework Accepted, it is an active rework
+          if (!resolvedReworkChassisSet.has(itemId.toLowerCase().trim())) {
+            activeReworkChassis.add(itemId.toLowerCase().trim());
+          }
+        }
+      } else if (isRejected) {
         rejected++;
+      } else {
+        pending++;
       }
 
       // Dispatch is tracked independently of status - a response can be
@@ -6953,8 +6991,12 @@ export default function FormAnalyticsDashboard() {
       }
     });
 
-    // Net ongoing rework: units that were flagged for rework MINUS those that were reworked & accepted
-    const reworked = Math.max(0, rawReworked - reworkCompleted);
+    // If chassis tracking is present, active rework equals distinct chassis still waiting for acceptance.
+    // If no chassis tracking or chassis-less responses, calculate net active rework (raw - completed).
+    const reworked =
+      activeReworkChassis.size > 0
+        ? activeReworkChassis.size
+        : Math.max(0, rawReworked - reworkCompleted);
 
     return {
       accepted,
@@ -6962,9 +7004,10 @@ export default function FormAnalyticsDashboard() {
       reworked,
       rawReworked,
       reworkCompleted,
-      dispatched
+      dispatched,
+      pending,
     };
-  }, [filteredResponses, responseStatuses, tableDisplayStatuses, chassisQuestionId]);
+  }, [filteredResponses, responseStatuses, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet, getChassisOrItemId]);
 
   const totalPieChartData = useMemo(() => {
     const directOk = inspectionStats.accepted;
