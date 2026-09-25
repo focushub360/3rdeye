@@ -7152,6 +7152,10 @@ export default function FormAnalyticsDashboard() {
     // response can be "Direct Ok" AND dispatched), so mixing it into the
     // same slices made the chart visually sum past 100% and look wrong.
     // It's rendered as its own progress indicator below the chart instead.
+    const centerAcceptedCount =
+      (totalPieChartData.counts.directOk || 0) +
+      (totalPieChartData.counts.reworkCompleted || 0);
+
     const centerTextPlugin = useMemo(
       () => ({
         id: "overallTrendCenterText",
@@ -7167,20 +7171,20 @@ export default function FormAnalyticsDashboard() {
 
           const isDark = document.documentElement.classList.contains("dark");
 
-          // Total count number
+          // Rework Accepted + Accepted count number in center
           ctx.font = "bold 26px Inter, system-ui, -apple-system, sans-serif";
           ctx.fillStyle = isDark ? "#ffffff" : "#111827";
-          ctx.fillText(String(totalPieChartData.counts.total), x, y - 9);
+          ctx.fillText(String(centerAcceptedCount), x, y - 9);
 
-          // "TOTAL" sub-label below count
+          // "ACCEPTED" sub-label below count
           ctx.font = "bold 10px Inter, system-ui, -apple-system, sans-serif";
           ctx.fillStyle = isDark ? "#9ca3af" : "#6b7280";
-          ctx.fillText("TOTAL", x, y + 13);
+          ctx.fillText("ACCEPTED", x, y + 13);
 
           ctx.restore();
         },
       }),
-      [totalPieChartData.counts.total],
+      [centerAcceptedCount],
     );
 
     const data = {
