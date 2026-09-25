@@ -3492,11 +3492,40 @@ export const getQualitySummary = async (req, res) => {
       }
     }
 
-    // 4. Fetch responses
+    // 4. Fetch lightweight response list without heavy answers (high throughput)
     const responses = await Response.find(responseFilter)
-      .select('submittedBy status biwReview createdAt questionId formId isDispatched answers')
+      .select('submittedBy status biwReview createdAt questionId formId isDispatched chassisNumber')
+      .batchSize(2000)
       .lean()
-      .maxTimeMS(60000);
+      .maxTimeMS(120000);
+
+    // Identify which responses have potential defects to fetch answers only for those few records
+    const defectDocIds = [];
+    responses.forEach(r => {
+      const rawSt = String(r.status || '').toLowerCase().trim();
+      const biwSt = String(r.biwReview?.status || '').toLowerCase().trim();
+      if (
+        rawSt === 'rejected' ||
+        rawSt.startsWith('rework') ||
+        biwSt === 'rejected' ||
+        biwSt === 'reworked'
+      ) {
+        defectDocIds.push(r._id);
+      }
+    });
+
+    const defectAnswersMap = new Map();
+    if (defectDocIds.length > 0) {
+      const defectDocs = await Response.find({ _id: { $in: defectDocIds } })
+        .select('_id answers')
+        .batchSize(500)
+        .lean()
+        .maxTimeMS(30000);
+
+      defectDocs.forEach(d => {
+        if (d.answers) defectAnswersMap.set(d._id.toString(), d.answers);
+      });
+    }
 
     const rawResponsesMap = new Map();
 
@@ -3540,12 +3569,13 @@ export const getQualitySummary = async (req, res) => {
       const fConfig = formChassisQuestionMap[rawFormId] || {};
 
       // Extract Chassis Number, Part Description, and scan for answer defects
-      let chassisNo = 'N/A';
+      let chassisNo = r.chassisNumber && r.chassisNumber !== 'none' ? r.chassisNumber : 'N/A';
       let chassisVin = '-';
       const responseDefects = [];
 
-      if (r.answers && typeof r.answers === 'object') {
-        const tempAnswers = r.answers instanceof Map ? Object.fromEntries(r.answers) : r.answers;
+      const ansSource = defectAnswersMap.get(r._id.toString()) || r.answers;
+      if (ansSource && typeof ansSource === 'object') {
+        const tempAnswers = ansSource instanceof Map ? Object.fromEntries(ansSource) : ansSource;
         
         // 1. Primary designated chassis/identification question
         if (fConfig.primaryChassisQId && tempAnswers[fConfig.primaryChassisQId] !== undefined) {
@@ -3764,8 +3794,10 @@ export const getQualitySummary = async (req, res) => {
       if (isRework1) dObj.reworkCount++;
     });
 
-    // Convert rawResponsesMap to array for the payload
-    const rawResponsesList = Array.from(rawResponsesMap.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    // Convert rawResponsesMap to array for the payload (top 1000 for fast UI load & export)
+    const rawResponsesList = Array.from(rawResponsesMap.values())
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 1000);
 
     // Per-Form Summary List
     const formsSummary = accessibleForms.map(f => {
@@ -3899,8 +3931,8 @@ export const getQualitySummary = async (req, res) => {
       }
     };
 
-    // Cache for 3 minutes (180s)
-    appCache.set(cacheKey, payload, 180);
+    // Cache for 5 minutes (300s)
+    appCache.set(cacheKey, payload, 300);
     console.log(`[Quality Summary] Computed in ${Date.now() - startTimer}ms for ${totalChecked} responses, cached as ${cacheKey}`);
     res.json(payload);
 
