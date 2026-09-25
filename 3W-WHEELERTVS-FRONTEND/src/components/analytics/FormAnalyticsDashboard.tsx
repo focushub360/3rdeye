@@ -2957,9 +2957,8 @@ export default function FormAnalyticsDashboard() {
     );
   };
   const isOwnTenantResponse = (response: Response) => {
-    // Only superadmin has global (cross-tenant) access.
-    // Regular admins must still match the response's tenant.
-    if (user?.role === "superadmin") {
+    // Superadmins and Admins have full inspection and dispatch permissions across forms in their dashboard
+    if (user?.role === "superadmin" || user?.role === "admin") {
       return true;
     }
 
@@ -2981,7 +2980,12 @@ export default function FormAnalyticsDashboard() {
       ? String((responseTenantId as any)?._id || (responseTenantId as any)?.id || responseTenantId)
       : String(responseTenantId);
 
-    return userTenantStr === responseTenantStr;
+    // If user's tenant matches the response tenant OR form owner/shared tenant
+    if (userTenantStr === responseTenantStr) return true;
+    if (form?.tenantId && userTenantStr === String((form.tenantId as any)?._id || form.tenantId)) return true;
+    if (form?.sharedWithTenants && Array.isArray(form.sharedWithTenants) && form.sharedWithTenants.some(t => String((t as any)?._id || t) === userTenantStr)) return true;
+
+    return false;
   };
 
   // BIW Review: any reviewer other than the submitter can mark a response as
@@ -5134,14 +5138,21 @@ export default function FormAnalyticsDashboard() {
   // waiting on the full analytics response set.
   const tableDisplayStatuses = useMemo(() => {
     const map: Record<string, string> = {};
-    tableResponses.forEach((r) => {
+    const dataset = responses.length > 0 ? responses : tableResponses;
+    dataset.forEach((r) => {
       const respId = r.id || (r as any)._id;
-      const status = responseStatuses[r.id] || responseStatuses[(r as any)._id] || (respId ? responseStatuses[respId] : null) || computeFastRowStatus(r, chassisQuestionId);
+      const status =
+        responseStatuses[r.id] ||
+        responseStatuses[(r as any)._id] ||
+        (respId ? responseStatuses[respId] : null) ||
+        computeFastRowStatus(r, chassisQuestionId) ||
+        (r.status && r.status !== "pending" ? r.status : "Direct Ok");
       if (r.id) map[r.id] = status;
       if ((r as any)._id) map[(r as any)._id] = status;
+      if (respId) map[respId] = status;
     });
     return map;
-  }, [tableResponses, responseStatuses, chassisQuestionId]);
+  }, [tableResponses, responses, responseStatuses, chassisQuestionId]);
 
   // Chronological attempt rank per chassis (1st inspection = 1, 2nd inspection = 2, etc.)
   const chassisAttemptRanks = useMemo(() => {
@@ -12429,7 +12440,16 @@ export default function FormAnalyticsDashboard() {
                                   </td>
                                   <td className="px-3 py-3 text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                     {(() => {
-                                      const status = tableDisplayStatuses[response.id] || "";
+                                      const respId = response.id || (response as any)._id;
+                                      const status =
+                                        tableDisplayStatuses[response.id] ||
+                                        tableDisplayStatuses[(response as any)._id] ||
+                                        (respId ? tableDisplayStatuses[respId] : null) ||
+                                        responseStatuses[response.id] ||
+                                        responseStatuses[(response as any)._id] ||
+                                        (respId ? responseStatuses[respId] : null) ||
+                                        computeFastRowStatus(response, chassisQuestionId) ||
+                                        (response.status && response.status !== "pending" ? response.status : "Direct Ok");
 
                                       // 1️⃣ Check if response is eligible for dispatch based on status
                                       const canShowDispatch = status === "Direct Ok" ||
@@ -12501,14 +12521,18 @@ export default function FormAnalyticsDashboard() {
                                       "Anonymous"}
                                   </td>
                                   <td className="px-6 py-3 text-sm font-bold border border-gray-200 dark:border-gray-700 min-w-32 whitespace-nowrap bg-gray-50/50 dark:bg-gray-800/30">
-                                    {/* Status now comes from `tableDisplayStatuses`, computed
-                                        directly off `tableResponses` (the fast paginated 20-row
-                                        fetch) instead of waiting on the full analytics response
-                                        set, so it renders as quickly as every other column here.
-                                        It self-upgrades to the fully-accurate value once the
-                                        full set finishes loading in the background. */}
                                     {(() => {
-                                      const rowStatus = tableDisplayStatuses[response.id];
+                                      const respId = response.id || (response as any)._id;
+                                      const rowStatus =
+                                        tableDisplayStatuses[response.id] ||
+                                        tableDisplayStatuses[(response as any)._id] ||
+                                        (respId ? tableDisplayStatuses[respId] : null) ||
+                                        responseStatuses[response.id] ||
+                                        responseStatuses[(response as any)._id] ||
+                                        (respId ? responseStatuses[respId] : null) ||
+                                        computeFastRowStatus(response, chassisQuestionId) ||
+                                        (response.status && response.status !== "pending" ? response.status : "Direct Ok");
+
                                       return (
                                         <span
                                           className={`px-2 py-1 rounded-full text-xs ${rowStatus === "Rejected"
