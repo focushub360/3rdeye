@@ -209,8 +209,12 @@ export const getImportHistory = async (req, res) => {
   try {
     const { formId, actionType, search, page = 1, limit = 50 } = req.query;
 
-    // Trigger legacy sync once so past imports show up
-    await syncLegacyExcelImports(req.user?.tenantId);
+    // Trigger legacy sync in the background so it never blocks the user request
+    setImmediate(() => {
+      syncLegacyExcelImports(req.user?.tenantId).catch(err => {
+        console.warn('[IMPORT HISTORY] Background legacy sync error:', err.message);
+      });
+    });
 
     const query = {};
     const andConditions = [];
@@ -523,19 +527,28 @@ export const deleteImportHistory = async (req, res) => {
 
     let deletedResponsesCount = 0;
     if (deleteResponses === 'true' || deleteResponses === true) {
+      // 1. Delete by batchId (every batch response stores batchId)
+      if (history.batchId) {
+        const deleteRes = await Response.deleteMany({ batchId: history.batchId });
+        deletedResponsesCount += (deleteRes.deletedCount || 0);
+      }
+      // 2. Delete by explicit responseIds if available
       if (history.details?.responseIds && history.details.responseIds.length > 0) {
         const deleteRes = await Response.deleteMany({ id: { $in: history.details.responseIds } });
-        deletedResponsesCount = deleteRes.deletedCount || 0;
-      } else if (history.formId) {
+        deletedResponsesCount += (deleteRes.deletedCount || 0);
+      }
+      // 3. Fallback: match by formId within creation time window
+      if (deletedResponsesCount === 0 && history.formId) {
         const targetDate = new Date(history.createdAt);
-        const startDate = new Date(targetDate.getTime() - 1000 * 60 * 45);
-        const endDate = new Date(targetDate.getTime() + 1000 * 60 * 45);
+        const startDate = new Date(targetDate.getTime() - 1000 * 60 * 60);
+        const endDate = new Date(targetDate.getTime() + 1000 * 60 * 60);
 
         const deleteRes = await Response.deleteMany({
           questionId: history.formId,
+          submittedBy: 'Excel Import',
           createdAt: { $gte: startDate, $lte: endDate }
         });
-        deletedResponsesCount = deleteRes.deletedCount || 0;
+        deletedResponsesCount += (deleteRes.deletedCount || 0);
       }
     }
 

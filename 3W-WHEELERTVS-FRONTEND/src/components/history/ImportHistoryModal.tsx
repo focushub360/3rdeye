@@ -83,9 +83,14 @@ export default function ImportHistoryModal({
   // Delete Options Dialog State
   const [deleteTarget, setDeleteTarget] = useState<ImportHistoryItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  const isFirstRender = React.useRef(true);
 
   const fetchHistory = async () => {
     setIsLoading(true);
+    setFetchError(null);
     try {
       const historyRes = await apiClient.getImportHistory({
         formId,
@@ -99,8 +104,9 @@ export default function ImportHistoryModal({
         (Array.isArray(historyRes?.data) ? historyRes.data : Array.isArray(historyRes) ? historyRes : []);
 
       setItems(itemsList);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to fetch upload history:', error);
+      setFetchError(error?.message || 'Failed to load upload history. Please check connection and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -109,12 +115,18 @@ export default function ImportHistoryModal({
   useEffect(() => {
     if (isOpen) {
       fetchHistory();
+    } else {
+      isFirstRender.current = true;
     }
   }, [isOpen, formId]);
 
-  // Debounced search
+  // Debounced search (only when user actively changes search term)
   useEffect(() => {
     if (!isOpen) return;
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
     const timer = setTimeout(() => {
       fetchHistory();
     }, 350);
@@ -149,11 +161,24 @@ export default function ImportHistoryModal({
     if (!deleteTarget) return;
     setIsDeleting(true);
     try {
-      await apiClient.deleteImportHistory(deleteTarget._id, deleteResponses);
+      const res = await apiClient.deleteImportHistory(deleteTarget._id, deleteResponses);
       setItems(prev => prev.filter(item => item._id !== deleteTarget._id));
+      const countMsg = res?.deletedResponsesCount ? ` and deleted ${res.deletedResponsesCount} response(s)` : '';
+      setToast({
+        message: deleteResponses
+          ? `History record${countMsg} successfully removed from database.`
+          : 'History log record removed.',
+        type: 'success'
+      });
+      setTimeout(() => setToast(null), 3500);
       setDeleteTarget(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to delete history item:', err);
+      setToast({
+        message: err?.message || 'Failed to delete history item. Please try again.',
+        type: 'error'
+      });
+      setTimeout(() => setToast(null), 3500);
     } finally {
       setIsDeleting(false);
     }
@@ -262,6 +287,19 @@ export default function ImportHistoryModal({
               <div className="flex flex-col items-center justify-center py-24 text-gray-400">
                 <RefreshCw className="w-9 h-9 animate-spin text-blue-600 mb-3.5" />
                 <p className="text-base font-semibold">Loading upload history...</p>
+              </div>
+            ) : fetchError && items.length === 0 ? (
+              <div className="text-center py-24 text-gray-400">
+                <AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-3.5" />
+                <p className="text-base font-bold text-gray-800 dark:text-gray-200">Unable to load upload history</p>
+                <p className="text-sm text-gray-500 mt-1 mb-4">{fetchError}</p>
+                <button
+                  onClick={fetchHistory}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Retry</span>
+                </button>
               </div>
             ) : items.length === 0 ? (
               <div className="text-center py-24 text-gray-400">
@@ -568,6 +606,22 @@ export default function ImportHistoryModal({
             </div>
 
           </div>
+        </div>
+      )}
+
+      {/* Floating Action Toast */}
+      {toast && (
+        <div
+          className={`fixed bottom-6 right-6 px-5 py-3 rounded-xl shadow-2xl text-white font-semibold text-xs sm:text-sm z-70 flex items-center gap-2.5 animate-in slide-in-from-bottom duration-200 ${
+            toast.type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+          ) : (
+            <AlertCircle className="w-4 h-4 shrink-0" />
+          )}
+          <span>{toast.message}</span>
         </div>
       )}
     </>
