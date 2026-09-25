@@ -5643,41 +5643,38 @@ export default function FormAnalyticsDashboard() {
       });
     }
 
-    // 3. __status
+    // 3. __status (ultra-fast O(1) loop)
     if (columnId === "__status") {
       const statusVal =
-        tableDisplayStatuses[response.id] ||
-        tableDisplayStatuses[(response as any)._id] ||
-        responseStatuses[response.id] ||
-        responseStatuses[(response as any)._id] ||
         (respId ? tableDisplayStatuses[respId] || responseStatuses[respId] : null) ||
+        tableDisplayStatuses[response.id] ||
+        responseStatuses[response.id] ||
         computeFastRowStatus(response, chassisQuestionId) ||
         response.status ||
         "Pending Review";
       const rawStatus = String(statusVal).toLowerCase().trim();
-      return allowedValues.some((av) => {
-        const avLower = av.toLowerCase().trim();
+
+      for (let i = 0; i < allowedValues.length; i++) {
+        const avLower = allowedValues[i].toLowerCase().trim();
         if (avLower === "rework" || avLower === "ongoing rework") {
           const isReworkStatus = rawStatus.includes("rework") && rawStatus !== "rework accepted" && rawStatus !== "rework completed";
-          if (!isReworkStatus) return false;
-          // If this chassis has already been resolved in a subsequent rework attempt, it has moved to Rework Accepted
-          const itemId = getChassisOrItemId(response, chassisQuestionId);
-          if (itemId && resolvedReworkChassisSet.has(itemId.toLowerCase().trim())) {
-            return false;
+          if (isReworkStatus) {
+            const itemId = getChassisOrItemId(response, chassisQuestionId);
+            if (!itemId || !resolvedReworkChassisSet.has(itemId.toLowerCase().trim())) {
+              return true;
+            }
           }
+        } else if (avLower === "direct ok" || avLower === "accepted") {
+          if (rawStatus === "direct ok" || rawStatus === "accepted" || rawStatus === "verified") return true;
+        } else if (avLower === "rework accepted") {
+          if (rawStatus === "rework accepted" || rawStatus === "rework completed") return true;
+        } else if (avLower === "pending review" || avLower === "pending" || avLower === "-") {
+          if (rawStatus === "pending review" || rawStatus === "pending" || rawStatus === "-") return true;
+        } else if (rawStatus === avLower || rawStatus.includes(avLower)) {
           return true;
         }
-        if (avLower === "direct ok" || avLower === "accepted") {
-          return rawStatus === "direct ok" || rawStatus === "accepted" || rawStatus === "verified";
-        }
-        if (avLower === "rework accepted") {
-          return rawStatus === "rework accepted" || rawStatus === "rework completed";
-        }
-        if (avLower === "pending review" || avLower === "pending") {
-          return rawStatus === "pending review" || rawStatus === "pending" || rawStatus === "-";
-        }
-        return rawStatus === avLower || rawStatus.includes(avLower);
-      });
+      }
+      return false;
     }
 
     // 4. __chassisNumber

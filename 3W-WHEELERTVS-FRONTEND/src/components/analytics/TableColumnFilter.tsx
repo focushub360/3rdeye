@@ -26,6 +26,16 @@ export default function TableColumnFilter({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
 
+  // Local draft state for lightning fast 0ms UI interaction without parent re-render lag
+  const [draftSelectedValues, setDraftSelectedValues] = useState<string[] | null>(selectedValues);
+
+  // Sync draft when opened or when selectedValues prop changes
+  useEffect(() => {
+    if (isOpen) {
+      setDraftSelectedValues(selectedValues);
+    }
+  }, [isOpen, selectedValues]);
+
   useEffect(() => {
     if (isOpen && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
@@ -46,6 +56,10 @@ export default function TableColumnFilter({
         buttonRef.current &&
         !buttonRef.current.contains(event.target as Node)
       ) {
+        // Apply draft changes on close if modified
+        if (isOpen && draftSelectedValues !== selectedValues) {
+          onFilterChange(columnId, draftSelectedValues);
+        }
         setIsOpen(false);
       }
     };
@@ -57,7 +71,7 @@ export default function TableColumnFilter({
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isOpen]);
+  }, [isOpen, draftSelectedValues, selectedValues, columnId, onFilterChange]);
 
   // Orderly natural sort of options (numeric-aware: 1031 < 1032 < 1103)
   const sortedOptions = useMemo(() => {
@@ -81,16 +95,17 @@ export default function TableColumnFilter({
   const DISPLAY_LIMIT = 100;
   const displayedOptions = filteredOptions.slice(0, DISPLAY_LIMIT);
 
-  const effectiveSelectedValues = selectedValues === null ? options : selectedValues;
+  const effectiveSelectedValues = draftSelectedValues === null ? options : draftSelectedValues;
   const effectiveSelectedSet = useMemo(() => new Set(effectiveSelectedValues), [effectiveSelectedValues]);
 
   const isOptionSelected = (option: string) => {
-    if (selectedValues === null) return true;
+    if (draftSelectedValues === null) return true;
     return effectiveSelectedSet.has(option);
   };
 
   const handleSelectOnly = (option: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    setDraftSelectedValues([option]);
     onFilterChange(columnId, [option]);
   };
 
@@ -98,8 +113,10 @@ export default function TableColumnFilter({
     if (e) e.stopPropagation();
     if (filteredOptions.length === 0) return;
     if (filteredOptions.length === options.length) {
+      setDraftSelectedValues(null);
       onFilterChange(columnId, null);
     } else {
+      setDraftSelectedValues(filteredOptions);
       onFilterChange(columnId, filteredOptions);
     }
   };
@@ -107,7 +124,7 @@ export default function TableColumnFilter({
   const toggleOption = (option: string) => {
     let newValues: string[];
 
-    if (selectedValues === null) {
+    if (draftSelectedValues === null) {
       if (searchTerm.trim()) {
         // User searched for something and clicked a specific result -> select ONLY that option
         newValues = [option];
@@ -116,16 +133,18 @@ export default function TableColumnFilter({
         newValues = options.filter((o) => o !== option);
       }
     } else {
-      if (selectedValues.includes(option)) {
-        newValues = selectedValues.filter((v) => v !== option);
+      if (draftSelectedValues.includes(option)) {
+        newValues = draftSelectedValues.filter((v) => v !== option);
       } else {
-        newValues = [...selectedValues, option];
+        newValues = [...draftSelectedValues, option];
       }
     }
 
     if (newValues.length === options.length && options.length > 0) {
+      setDraftSelectedValues(null);
       onFilterChange(columnId, null);
     } else {
+      setDraftSelectedValues(newValues);
       onFilterChange(columnId, newValues);
     }
   };
@@ -133,43 +152,50 @@ export default function TableColumnFilter({
   const isAllFilteredSelected = useMemo(() => {
     if (filteredOptions.length === 0) return false;
     return filteredOptions.every((opt) => isOptionSelected(opt));
-  }, [filteredOptions, selectedValues, effectiveSelectedSet]);
+  }, [filteredOptions, draftSelectedValues, effectiveSelectedSet]);
 
   const isSomeFilteredSelected = useMemo(() => {
     if (filteredOptions.length === 0) return false;
     return filteredOptions.some((opt) => isOptionSelected(opt)) && !isAllFilteredSelected;
-  }, [filteredOptions, selectedValues, effectiveSelectedSet, isAllFilteredSelected]);
+  }, [filteredOptions, draftSelectedValues, effectiveSelectedSet, isAllFilteredSelected]);
 
   const toggleSelectAll = () => {
     if (searchTerm.trim()) {
       if (isAllFilteredSelected) {
         // Unselect all matching search items
-        if (selectedValues === null) {
+        if (draftSelectedValues === null) {
           const matchingSet = new Set(filteredOptions);
           const newValues = options.filter((o) => !matchingSet.has(o));
+          setDraftSelectedValues(newValues);
           onFilterChange(columnId, newValues);
         } else {
           const matchingSet = new Set(filteredOptions);
-          const newValues = selectedValues.filter((v) => !matchingSet.has(v));
+          const newValues = draftSelectedValues.filter((v) => !matchingSet.has(v));
+          setDraftSelectedValues(newValues);
           onFilterChange(columnId, newValues);
         }
       } else {
         // Select all matching search items
-        if (selectedValues === null) {
+        if (draftSelectedValues === null) {
+          setDraftSelectedValues(filteredOptions);
           onFilterChange(columnId, filteredOptions);
         } else {
-          const combined = Array.from(new Set([...selectedValues, ...filteredOptions]));
+          const combined = Array.from(new Set([...draftSelectedValues, ...filteredOptions]));
           if (combined.length === options.length) {
+            setDraftSelectedValues(null);
             onFilterChange(columnId, null);
           } else {
+            setDraftSelectedValues(combined);
             onFilterChange(columnId, combined);
           }
         }
       }
     } else {
-      if (selectedValues === null || selectedValues.length === options.length) {
+      if (draftSelectedValues === null || draftSelectedValues.length === options.length) {
+        setDraftSelectedValues([]);
         onFilterChange(columnId, []);
       } else {
+        setDraftSelectedValues(null);
         onFilterChange(columnId, null);
       }
     }
@@ -177,8 +203,11 @@ export default function TableColumnFilter({
 
   const handleApplyDone = () => {
     // If user typed in search and hasn't explicitly filtered yet, apply the search results!
-    if (searchTerm.trim() && selectedValues === null && filteredOptions.length > 0) {
+    if (searchTerm.trim() && draftSelectedValues === null && filteredOptions.length > 0) {
+      setDraftSelectedValues(filteredOptions);
       onFilterChange(columnId, filteredOptions);
+    } else {
+      onFilterChange(columnId, draftSelectedValues);
     }
     setIsOpen(false);
   };
