@@ -3492,322 +3492,267 @@ export const getQualitySummary = async (req, res) => {
       }
     }
 
-    // 4. Fetch lightweight response list without heavy answers (high throughput)
-    const responses = await Response.find(responseFilter)
-      .select('submittedBy status biwReview createdAt questionId formId isDispatched chassisNumber')
-      .batchSize(2000)
-      .lean()
-      .maxTimeMS(120000);
-
-    // Identify which responses have potential defects to fetch answers only for those few records
-    const defectDocIds = [];
-    responses.forEach(r => {
-      const rawSt = String(r.status || '').toLowerCase().trim();
-      const biwSt = String(r.biwReview?.status || '').toLowerCase().trim();
-      if (
-        rawSt === 'rejected' ||
-        rawSt.startsWith('rework') ||
-        biwSt === 'rejected' ||
-        biwSt === 'reworked'
-      ) {
-        defectDocIds.push(r._id);
+    // 4. Ultra-fast MongoDB Aggregation Pipeline (computed directly in DB engine)
+    const pipeline = [
+      { $match: responseFilter },
+      {
+        $facet: {
+          summary: [
+            {
+              $group: {
+                _id: null,
+                totalChecked: { $sum: 1 },
+                defectCount: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
+                        ]
+                      },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                rework1Count: {
+                  $sum: {
+                    $cond: [
+                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1' } },
+                      1,
+                      0
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          byForm: [
+            {
+              $group: {
+                _id: '$questionId',
+                totalChecked: { $sum: 1 },
+                defectCount: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
+                        ]
+                      },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                rework1Count: {
+                  $sum: {
+                    $cond: [
+                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1' } },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                biwAcceptCount: {
+                  $sum: {
+                    $cond: [
+                      { $eq: ['$biwReview.status', 'Accepted'] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                biwDefectCount: {
+                  $sum: {
+                    $cond: [
+                      { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                inspectors: { $addToSet: '$submittedBy' },
+                lastInspectionDate: { $max: '$createdAt' }
+              }
+            }
+          ],
+          byInspector: [
+            {
+              $group: {
+                _id: { $ifNull: ['$submittedBy', 'Unknown Submitter'] },
+                totalChecked: { $sum: 1 },
+                defectCount: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
+                        ]
+                      },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                rework1Count: {
+                  $sum: {
+                    $cond: [
+                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1' } },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                biwAcceptCount: {
+                  $sum: {
+                    $cond: [
+                      { $eq: ['$biwReview.status', 'Accepted'] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                biwDefectCount: {
+                  $sum: {
+                    $cond: [
+                      { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                      1,
+                      0
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          byDay: [
+            {
+              $group: {
+                _id: {
+                  $dateToString: { format: '%Y-%m-%d', date: '$createdAt' }
+                },
+                totalChecked: { $sum: 1 },
+                defectCount: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
+                        ]
+                      },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                reworkCount: {
+                  $sum: {
+                    $cond: [
+                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1' } },
+                      1,
+                      0
+                    ]
+                  }
+                }
+              }
+            },
+            { $sort: { _id: 1 } }
+          ],
+          recentResponses: [
+            { $sort: { createdAt: -1 } },
+            { $limit: 200 },
+            {
+              $project: {
+                submittedBy: 1,
+                status: 1,
+                biwReview: 1,
+                createdAt: 1,
+                questionId: 1,
+                formId: 1,
+                isDispatched: 1,
+                chassisNumber: 1
+              }
+            }
+          ],
+          defectResponses: [
+            {
+              $match: {
+                $or: [
+                  { 'biwReview.status': { $in: ['Rejected', 'Reworked'] } },
+                  { status: { $regex: 'rework|rejected|defect|fail', $options: 'i' } }
+                ]
+              }
+            },
+            { $limit: 100 },
+            { $project: { _id: 1, submittedBy: 1, answers: 1 } }
+          ]
+        }
       }
-    });
+    ];
 
-    const defectAnswersMap = new Map();
-    if (defectDocIds.length > 0) {
-      const defectDocs = await Response.find({ _id: { $in: defectDocIds } })
-        .select('_id answers')
-        .batchSize(500)
-        .lean()
-        .maxTimeMS(30000);
+    const aggResult = await Response.aggregate(pipeline).maxTimeMS(60000);
+    const agg = aggResult[0] || {};
 
-      defectDocs.forEach(d => {
-        if (d.answers) defectAnswersMap.set(d._id.toString(), d.answers);
-      });
-    }
+    const summary = agg.summary?.[0] || { totalChecked: 0, defectCount: 0, rework1Count: 0 };
+    const totalChecked = summary.totalChecked || 0;
+    const totalDefects = summary.defectCount || 0;
+    const totalAccepted = Math.max(0, totalChecked - totalDefects);
+    const totalRework1 = summary.rework1Count || 0;
+    const overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
+    const overallDefectRate = Math.max(0, Math.round((100 - overallAcceptRate) * 100) / 100);
 
-    const rawResponsesMap = new Map();
-
-    // 5. Aggregate metrics (Inspectors, Forms, Daily)
-    const formMetricsMap = {};
-    accessibleForms.forEach(f => {
-      const fKey = f.id || f._id.toString();
-      const metricObj = {
-        id: f.id || f._id.toString(),
-        _id: f._id.toString(),
-        title: f.title,
-        totalChecked: 0,
-        acceptCount: 0,
-        defectCount: 0,
-        rework1Count: 0,
-        biwAcceptCount: 0,
-        biwDefectCount: 0,
-        inspectors: new Set(),
-        lastInspectionDate: null
-      };
-      formMetricsMap[fKey] = metricObj;
-      if (f.id && f._id && f.id !== f._id.toString()) {
-        formMetricsMap[f._id.toString()] = metricObj;
-      }
-    });
-
-    const inspectorMap = {};
-    const dailyMap = {};
+    // Defect breakdown extraction from top defect responses
     const defectTypeMap = {};
-    let totalChecked = 0;
-    let totalAccepted = 0;
-    let totalDefects = 0;
-    let totalRework1 = 0;
+    const inspectorDefectMap = {};
 
-    responses.forEach(r => {
-      totalChecked++;
-      const rawName = (r.submittedBy || 'Unknown Submitter').trim().replace(/\s+/g, ' ');
-      const fullIsoDate = r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString();
-      const dateStr = fullIsoDate.split('T')[0];
-      const rawFormId = (r.formId || r.questionId)?.toString() || '';
-      const fConfig = formChassisQuestionMap[rawFormId] || {};
+    (agg.defectResponses || []).forEach(dr => {
+      const rawName = (dr.submittedBy || 'Unknown Submitter').trim();
+      if (!inspectorDefectMap[rawName]) inspectorDefectMap[rawName] = {};
 
-      // Extract Chassis Number, Part Description, and scan for answer defects
-      let chassisNo = r.chassisNumber && r.chassisNumber !== 'none' ? r.chassisNumber : 'N/A';
-      let chassisVin = '-';
-      const responseDefects = [];
-
-      const ansSource = defectAnswersMap.get(r._id.toString()) || r.answers;
-      if (ansSource && typeof ansSource === 'object') {
-        const tempAnswers = ansSource instanceof Map ? Object.fromEntries(ansSource) : ansSource;
-        
-        // 1. Primary designated chassis/identification question
-        if (fConfig.primaryChassisQId && tempAnswers[fConfig.primaryChassisQId] !== undefined) {
-          const ansVal = tempAnswers[fConfig.primaryChassisQId];
-          if (typeof ansVal === 'string' && ansVal.trim()) {
-            chassisNo = ansVal.trim();
-          } else if (typeof ansVal === 'object' && ansVal) {
-            chassisNo = ansVal.v || ansVal.chassisNumber || ansVal.status || ansVal.id || 'N/A';
-            if (ansVal.partDescription) chassisVin = String(ansVal.partDescription).trim();
-          }
-        }
-
-        // 2. Scan question answers specifically mapped to chassis/id/identification
-        if (chassisNo === 'N/A' || !chassisNo) {
-          for (const [key, val] of Object.entries(tempAnswers)) {
-            if (!val || key === 'chassis_number') continue;
-            const qMeta = questionMetaMap[key];
-            const qTextLow = (qMeta?.text || key).toLowerCase();
-
-            if (
-              qTextLow === 'id number' ||
-              qTextLow === 'identification number' ||
-              qTextLow === 'chassis number' ||
-              qTextLow === 'chassis / vin' ||
-              qTextLow.includes('id number') ||
-              qTextLow.includes('identification number') ||
-              qTextLow.includes('chassis number') ||
-              qTextLow.includes('registration number')
-            ) {
-              if (typeof val === 'string' && val.trim()) {
-                chassisNo = val.trim();
-              } else if (typeof val === 'object' && val) {
-                chassisNo = val.v || val.chassisNumber || val.id || 'N/A';
-                if (val.partDescription) chassisVin = String(val.partDescription).trim();
-              }
-              if (chassisNo !== 'N/A' && chassisNo) break;
-            }
-          }
-        }
-
-        // 3. Check for defects across all answers
-        for (const [key, val] of Object.entries(tempAnswers)) {
+      if (dr.answers && typeof dr.answers === 'object') {
+        const answersObj = dr.answers instanceof Map ? Object.fromEntries(dr.answers) : dr.answers;
+        for (const [key, val] of Object.entries(answersObj)) {
           if (!val) continue;
-
-          if (typeof val === 'object') {
-            if (val.partDescription && (chassisVin === '-' || !chassisVin)) {
-              chassisVin = String(val.partDescription).trim();
-            }
-            if (val.status) {
-              const st = String(val.status).trim().toLowerCase();
-              if (st === 'rework' || st === 'reworked' || st === 'defect' || st === 'defect found' || st === 'rejected' || st === 'no' || st === 'not ok') {
-                const qTitle = questionTitleMap[key] || key;
-                responseDefects.push(qTitle);
-              }
-            }
-          } else if (typeof val === 'string' && val.trim()) {
+          let isDef = false;
+          if (typeof val === 'object' && val.status) {
+            const st = String(val.status).trim().toLowerCase();
+            if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok'].includes(st)) isDef = true;
+          } else if (typeof val === 'string') {
             const vLow = val.trim().toLowerCase();
-            if (vLow === 'rework' || vLow === 'reworked' || vLow === 'defect' || vLow === 'defect found' || vLow === 'rejected' || vLow === 'no' || vLow === 'not ok') {
-              const qTitle = questionTitleMap[key] || key;
-              responseDefects.push(qTitle);
-            }
+            if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok'].includes(vLow)) isDef = true;
           }
-        }
 
-        // 4. Fallback top-level chassis/id properties
-        if (chassisNo === 'N/A' || !chassisNo) {
-          if (tempAnswers.chassis_number) {
-            const c = tempAnswers.chassis_number;
-            chassisNo = typeof c === 'object' ? (c.chassisNumber || c.v || c.status || 'N/A') : String(c);
-          } else if (tempAnswers.chassis) {
-            const c = tempAnswers.chassis;
-            chassisNo = typeof c === 'object' ? (c.chassisNumber || c.v || 'N/A') : String(c);
-          } else if (tempAnswers.id_number) {
-            const c = tempAnswers.id_number;
-            chassisNo = typeof c === 'object' ? (c.chassisNumber || c.v || 'N/A') : String(c);
-          }
-        }
-
-        // 5. Dealer / VIN details
-        if (chassisVin === '-' || !chassisVin) {
-          if (tempAnswers.dealerName) chassisVin = String(tempAnswers.dealerName).trim();
-          else if (tempAnswers.chassis && typeof tempAnswers.chassis === 'object' && tempAnswers.chassis.partDescription) chassisVin = String(tempAnswers.chassis.partDescription).trim();
-          else if (tempAnswers.part_description) chassisVin = String(tempAnswers.part_description).trim();
-          else if (tempAnswers['Chassis / VIN']) chassisVin = String(tempAnswers['Chassis / VIN']).trim();
-          else if (tempAnswers.chassis_number && String(tempAnswers.chassis_number).trim() !== chassisNo) {
-            const cnVal = tempAnswers.chassis_number;
-            chassisVin = typeof cnVal === 'object' ? (cnVal.partDescription || cnVal.chassisNumber || '-') : String(cnVal).trim();
+          if (isDef) {
+            const qTitle = questionTitleMap[key] || key;
+            defectTypeMap[qTitle] = (defectTypeMap[qTitle] || 0) + 1;
+            inspectorDefectMap[rawName][qTitle] = (inspectorDefectMap[rawName][qTitle] || 0) + 1;
           }
         }
       }
-
-      if (chassisVin === chassisNo) chassisVin = '-';
-
-      // Compute dynamic status accurately
-      let dynamicStatus = 'Direct Ok';
-      const rawStatus = (r.status || '').trim();
-
-      if (rawStatus === 'Accepted' || rawStatus === 'Direct Ok' || rawStatus === 'Rework Accepted') {
-        dynamicStatus = rawStatus;
-      } else if (rawStatus === 'Rejected' || rawStatus === 'Rework 1' || rawStatus === 'Rework 2') {
-        dynamicStatus = rawStatus;
-      } else if (r.biwReview?.status === 'Rejected') {
-        dynamicStatus = 'Rejected';
-      } else if (responseDefects.length > 0) {
-        dynamicStatus = 'Rework 1';
-      } else if (r.biwReview?.status === 'Accepted') {
-        dynamicStatus = 'Accepted';
-      } else {
-        dynamicStatus = 'Direct Ok';
-      }
-
-      let isDefect = false;
-      let isRework1 = false;
-
-      if (dynamicStatus === 'Rejected' || dynamicStatus === 'Rework 1' || dynamicStatus === 'Rework 2' || dynamicStatus === 'Rework' || responseDefects.length > 0) {
-        isDefect = true;
-        if (dynamicStatus === 'Rework 1') {
-          isRework1 = true;
-          totalRework1++;
-        }
-      }
-
-      const isAccept = !isDefect;
-      if (isAccept) {
-        totalAccepted++;
-      } else {
-        totalDefects++;
-      }
-
-      // Aggregate defect types
-      responseDefects.forEach(dt => {
-        defectTypeMap[dt] = (defectTypeMap[dt] || 0) + 1;
-      });
-
-      const formTitle = formTitleMap[rawFormId] || formMetricsMap[rawFormId]?.title || 'Unknown Form';
-
-      rawResponsesMap.set(r._id.toString(), {
-        id: r._id.toString(),
-        chassisNumber: chassisNo,
-        chassisVin: chassisVin,
-        partDescription: chassisVin,
-        submittedBy: rawName,
-        date: fullIsoDate,
-        createdAt: fullIsoDate,
-        status: dynamicStatus,
-        biwReviewStatus: r.biwReview?.status || (dynamicStatus === 'Direct Ok' || dynamicStatus === 'Accepted' ? 'Accepted' : 'Pending'),
-        formId: rawFormId,
-        formTitle: formTitle,
-        isDispatched: Boolean(r.isDispatched),
-        defects: responseDefects
-      });
-
-      // Per-Form Metrics
-      const formKey = (r.formId || r.questionId)?.toString();
-      const formMetric = formMetricsMap[formKey];
-      if (formMetric) {
-        formMetric.totalChecked++;
-        if (isAccept) formMetric.acceptCount++;
-        else formMetric.defectCount++;
-        if (isRework1) formMetric.rework1Count++;
-
-        const biwStat = r.biwReview?.status;
-        if (biwStat === 'Accepted' || (!biwStat && isAccept)) formMetric.biwAcceptCount++;
-        else if (biwStat === 'Rejected' || biwStat === 'Reworked' || (!biwStat && isDefect)) formMetric.biwDefectCount++;
-
-        if (rawName && rawName !== 'Unknown Submitter') formMetric.inspectors.add(rawName);
-        if (dateStr && (!formMetric.lastInspectionDate || dateStr > formMetric.lastInspectionDate)) {
-          formMetric.lastInspectionDate = dateStr;
-        }
-      }
-
-      // Inspector map
-      if (!inspectorMap[rawName]) {
-        inspectorMap[rawName] = {
-          name: rawName,
-          totalChecked: 0,
-          acceptCount: 0,
-          defectCount: 0,
-          rework1Count: 0,
-          biwAcceptCount: 0,
-          biwDefectCount: 0,
-          defectBreakdown: {}
-        };
-      }
-      const insp = inspectorMap[rawName];
-      insp.totalChecked++;
-      if (isAccept) insp.acceptCount++;
-      else insp.defectCount++;
-      if (isRework1) insp.rework1Count++;
-
-      responseDefects.forEach(dt => {
-        insp.defectBreakdown[dt] = (insp.defectBreakdown[dt] || 0) + 1;
-      });
-
-      // BIW review status
-      const biwStat = r.biwReview?.status;
-      if (biwStat === 'Accepted') insp.biwAcceptCount++;
-      else if (biwStat === 'Rejected' || biwStat === 'Reworked') insp.biwDefectCount++;
-      else if (isAccept) insp.biwAcceptCount++;
-      else insp.biwDefectCount++;
-
-      // Daily map
-      if (!dailyMap[dateStr]) {
-        dailyMap[dateStr] = {
-          date: dateStr,
-          totalChecked: 0,
-          acceptCount: 0,
-          defectCount: 0,
-          reworkCount: 0
-        };
-      }
-      const dObj = dailyMap[dateStr];
-      dObj.totalChecked++;
-      if (isAccept) dObj.acceptCount++;
-      else dObj.defectCount++;
-      if (isRework1) dObj.reworkCount++;
     });
 
-    // Convert rawResponsesMap to array for the payload (top 1000 for fast UI load & export)
-    const rawResponsesList = Array.from(rawResponsesMap.values())
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 1000);
+    const defectBreakdown = Object.entries(defectTypeMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
 
     // Per-Form Summary List
+    const formMetricMap = {};
+    (agg.byForm || []).forEach(item => {
+      formMetricMap[item._id] = item;
+    });
+
     const formsSummary = accessibleForms.map(f => {
-      const fKey = f.id || f._id.toString();
-      const m = formMetricsMap[fKey] || {};
+      const m = formMetricMap[f.id] || formMetricMap[f._id.toString()] || {};
       const tChecked = m.totalChecked || 0;
-      const aCount = m.acceptCount || 0;
       const dCount = m.defectCount || 0;
+      const aCount = Math.max(0, tChecked - dCount);
       const aRate = tChecked > 0 ? Math.round((aCount / tChecked) * 10000) / 100 : 0;
       const dRate = Math.max(0, Math.round((100 - aRate) * 100) / 100);
+
       return {
         id: f.id || f._id.toString(),
         _id: f._id.toString(),
@@ -3820,12 +3765,11 @@ export const getQualitySummary = async (req, res) => {
         biwDefectCount: m.biwDefectCount || 0,
         acceptRate: aRate,
         defectRate: dRate,
-        totalInspectors: m.inspectors ? m.inspectors.size : 0,
-        lastInspectionDate: m.lastInspectionDate || null
+        totalInspectors: m.inspectors ? m.inspectors.length : 0,
+        lastInspectionDate: m.lastInspectionDate ? new Date(m.lastInspectionDate).toISOString().split('T')[0] : null
       };
     }).sort((a, b) => b.totalChecked - a.totalChecked);
 
-    // Update formOptions with totalChecked counts
     const formOptions = formsSummary.map(f => ({
       id: f.id,
       _id: f._id,
@@ -3839,8 +3783,11 @@ export const getQualitySummary = async (req, res) => {
     let metCount = 0;
     let partiallyMetCount = 0;
 
-    const inspectorList = Object.values(inspectorMap).map(insp => {
-      const acceptRate = insp.totalChecked > 0 ? Math.round((insp.acceptCount / insp.totalChecked) * 100) : 0;
+    const inspectorList = (agg.byInspector || []).map(insp => {
+      const tChecked = insp.totalChecked;
+      const dCount = insp.defectCount;
+      const aCount = Math.max(0, tChecked - dCount);
+      const acceptRate = tChecked > 0 ? Math.round((aCount / tChecked) * 100) : 0;
       const defectRate = Math.max(0, 100 - acceptRate);
 
       let performanceStatus = 'Partially met performer';
@@ -3870,13 +3817,19 @@ export const getQualitySummary = async (req, res) => {
       const biwAcceptRate = biwTotal > 0 ? Math.round((insp.biwAcceptCount / biwTotal) * 100) : 0;
       const biwDefectRate = Math.max(0, 100 - biwAcceptRate);
 
-      const topDefects = Object.entries(insp.defectBreakdown)
+      const topDefects = Object.entries(inspectorDefectMap[insp._id] || {})
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
         .map(([name, count]) => ({ name, count }));
 
       return {
-        ...insp,
+        name: insp._id,
+        totalChecked: tChecked,
+        acceptCount: aCount,
+        defectCount: dCount,
+        rework1Count: insp.rework1Count,
+        biwAcceptCount: insp.biwAcceptCount,
+        biwDefectCount: insp.biwDefectCount,
         acceptRate,
         defectRate,
         performanceStatus,
@@ -3886,25 +3839,43 @@ export const getQualitySummary = async (req, res) => {
         biwDefectRate,
         topDefects
       };
-    });
-
-    inspectorList.sort((a, b) => b.totalChecked - a.totalChecked);
-
-    // Defect breakdown array
-    const defectBreakdown = Object.entries(defectTypeMap)
-      .sort((a, b) => b[1] - a[1])
-      .map(([name, count]) => ({ name, count }));
+    }).sort((a, b) => b.totalChecked - a.totalChecked);
 
     // Daily trends array
-    const dailyTrends = Object.values(dailyMap)
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map(d => ({
-        ...d,
-        passRate: d.totalChecked > 0 ? Math.round((d.acceptCount / d.totalChecked) * 10000) / 100 : 0
-      }));
+    const dailyTrends = (agg.byDay || []).map(d => {
+      const aCount = Math.max(0, d.totalChecked - d.defectCount);
+      return {
+        date: d._id,
+        totalChecked: d.totalChecked,
+        acceptCount: aCount,
+        defectCount: d.defectCount,
+        reworkCount: d.reworkCount,
+        passRate: d.totalChecked > 0 ? Math.round((aCount / d.totalChecked) * 10000) / 100 : 0
+      };
+    });
 
-    const overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
-    const overallDefectRate = Math.max(0, Math.round((100 - overallAcceptRate) * 100) / 100);
+    // Recent raw responses for the Excel-like grid
+    const rawResponsesList = (agg.recentResponses || []).map(r => {
+      const fTitle = formTitleMap[r.questionId] || formTitleMap[r.formId] || 'Unknown Form';
+      const rawSt = (r.status || '').trim();
+      let dynamicStatus = rawSt === 'Accepted' || rawSt === 'Direct Ok' || rawSt === 'Rework Accepted' ? rawSt : (rawSt.startsWith('Rework') || rawSt === 'Rejected' ? rawSt : 'Direct Ok');
+
+      return {
+        id: r._id.toString(),
+        chassisNumber: r.chassisNumber && r.chassisNumber !== 'none' ? r.chassisNumber : 'N/A',
+        chassisVin: '-',
+        partDescription: '-',
+        submittedBy: (r.submittedBy || 'Unknown Submitter').trim(),
+        date: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+        createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+        status: dynamicStatus,
+        biwReviewStatus: r.biwReview?.status || (dynamicStatus === 'Direct Ok' || dynamicStatus === 'Accepted' ? 'Accepted' : 'Pending'),
+        formId: (r.formId || r.questionId)?.toString() || '',
+        formTitle: fTitle,
+        isDispatched: Boolean(r.isDispatched),
+        defects: []
+      };
+    });
 
     const payload = {
       success: true,

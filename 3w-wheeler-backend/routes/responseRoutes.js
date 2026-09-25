@@ -185,6 +185,12 @@ router.post('/batch/import', batchImportResponses);
 // missing/blank with the first configured chassis number, in one DB call.
 router.post('/form/:formId/auto-fill-chassis', autoFillChassisNumbers);
 
+// Specific routes MUST be registered before parameterized /:id routes
+router.get('/biw-summary', authenticate, getBiwSummary);
+router.get('/unassigned', getUnassignedResponses);
+router.patch('/bulk-biw-review', bulkUpdateBiwReview);
+router.post('/assign-multiple', assignResponses);
+
 // Response management
 router.get('/', cacheMiddleware(30), getAllResponses);
 router.post('/', createResponse);
@@ -195,11 +201,7 @@ router.put('/:id', updateResponse);
 router.patch('/:id/assign', assignResponse);
 router.delete('/:id', deleteResponse);
 router.delete('/', deleteMultipleResponses);
-router.get('/unassigned', getUnassignedResponses);
-router.post('/assign-multiple', assignResponses);
 router.post('/:responseId/auto-assign', autoAssignResponse);
-router.get('/biw-summary', authenticate, getBiwSummary);
-router.patch('/bulk-biw-review', bulkUpdateBiwReview);
 
 
 // DEBUG: Log all registered routes
