@@ -5062,6 +5062,32 @@ export default function FormAnalyticsDashboard() {
     return ranks;
   }, [responses, tableResponses, chassisQuestionId, getChassisOrItemId]);
 
+  // Set of chassis / items that have achieved Rework Accepted in any attempt
+  const resolvedReworkChassisSet = useMemo(() => {
+    const resolved = new Set<string>();
+    const dataset = responses.length > 0 ? responses : tableResponses;
+    dataset.forEach((r) => {
+      const respId = r.id || (r as any)._id;
+      const statusVal =
+        tableDisplayStatuses[r.id] ||
+        tableDisplayStatuses[(r as any)._id] ||
+        responseStatuses[r.id] ||
+        responseStatuses[(r as any)._id] ||
+        (respId ? tableDisplayStatuses[respId] || responseStatuses[respId] : null) ||
+        computeFastRowStatus(r, chassisQuestionId) ||
+        r.status ||
+        "";
+      const rawStatus = String(statusVal).trim().toLowerCase();
+      if (rawStatus === "rework accepted" || rawStatus === "rework completed") {
+        const itemId = getChassisOrItemId(r, chassisQuestionId);
+        if (itemId && itemId !== "none" && itemId !== "-") {
+          resolved.add(itemId.toLowerCase().trim());
+        }
+      }
+    });
+    return resolved;
+  }, [responses, tableResponses, tableDisplayStatuses, responseStatuses, chassisQuestionId, getChassisOrItemId]);
+
   // Distinct filter options for Time Taken attempt rank & status color
   const attemptRankFilterOptions = useMemo(() => {
     const opts = new Set<string>();
@@ -5632,7 +5658,14 @@ export default function FormAnalyticsDashboard() {
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
         if (avLower === "rework" || avLower === "ongoing rework") {
-          return rawStatus.includes("rework") && rawStatus !== "rework accepted" && rawStatus !== "rework completed";
+          const isReworkStatus = rawStatus.includes("rework") && rawStatus !== "rework accepted" && rawStatus !== "rework completed";
+          if (!isReworkStatus) return false;
+          // If this chassis has already been resolved in a subsequent rework attempt, it has moved to Rework Accepted
+          const itemId = getChassisOrItemId(response, chassisQuestionId);
+          if (itemId && resolvedReworkChassisSet.has(itemId.toLowerCase().trim())) {
+            return false;
+          }
+          return true;
         }
         if (avLower === "direct ok" || avLower === "accepted") {
           return rawStatus === "direct ok" || rawStatus === "accepted" || rawStatus === "verified";
@@ -5816,7 +5849,7 @@ export default function FormAnalyticsDashboard() {
     }
 
     return result;
-  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, responsesSearchTerm, responseStatuses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, chassisQuestionId]);
+  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, responsesSearchTerm, responseStatuses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet]);
 
   useEffect(() => {
     setResponsesPage(1);
@@ -6885,7 +6918,7 @@ export default function FormAnalyticsDashboard() {
   const inspectionStats = useMemo(() => {
     let accepted = 0;
     let rejected = 0;
-    let reworked = 0;
+    let rawReworked = 0;
     let reworkCompleted = 0;
     let dispatched = 0;
 
@@ -6907,7 +6940,7 @@ export default function FormAnalyticsDashboard() {
       } else if (rawStatus === "rework accepted" || rawStatus === "rework completed") {
         reworkCompleted++;
       } else if (rawStatus.startsWith("rework") || rawStatus === "ongoing rework") {
-        reworked++;
+        rawReworked++;
       } else if (rawStatus === "rejected") {
         rejected++;
       }
@@ -6920,7 +6953,17 @@ export default function FormAnalyticsDashboard() {
       }
     });
 
-    return { accepted, rejected, reworked, reworkCompleted, dispatched };
+    // Net ongoing rework: units that were flagged for rework MINUS those that were reworked & accepted
+    const reworked = Math.max(0, rawReworked - reworkCompleted);
+
+    return {
+      accepted,
+      rejected,
+      reworked,
+      rawReworked,
+      reworkCompleted,
+      dispatched
+    };
   }, [filteredResponses, responseStatuses, tableDisplayStatuses, chassisQuestionId]);
 
   const totalPieChartData = useMemo(() => {
