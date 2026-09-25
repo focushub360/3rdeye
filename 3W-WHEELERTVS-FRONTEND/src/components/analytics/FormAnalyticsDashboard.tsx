@@ -2706,21 +2706,100 @@ export default function FormAnalyticsDashboard() {
 
   const getResponseChassisValue = useCallback((r: Response | any): string => {
     if (!r) return "-";
-    // 1. Direct answer using chassisQuestionId
+
+    // Build master list of configured chassis options from form
+    const masterOptions: { chassisNumber: string; partDescription?: string }[] = [];
+    if (form?.chassisNumbers && Array.isArray(form.chassisNumbers)) {
+      form.chassisNumbers.forEach((cn: any) => {
+        if (typeof cn === "string" && cn.trim()) {
+          masterOptions.push({ chassisNumber: cn.trim() });
+        } else if (cn && typeof cn === "object" && cn.chassisNumber) {
+          masterOptions.push({
+            chassisNumber: String(cn.chassisNumber).trim(),
+            partDescription: cn.partDescription ? String(cn.partDescription).trim() : undefined,
+          });
+        }
+      });
+    }
+
+    const formatMasterMatch = (val: string): string => {
+      const match = masterOptions.find(
+        (m) => m.chassisNumber.toLowerCase() === val.toLowerCase()
+      );
+      if (match) {
+        return match.partDescription
+          ? `${match.chassisNumber} — ${match.partDescription}`
+          : match.chassisNumber;
+      }
+      return val;
+    };
+
+    // 1. Check explicit "Selected Chassis" answer keys (chassis_number, selected_chassis)
+    const selectedKeys = [
+      "chassis_number",
+      "selected_chassis",
+      "selectedChassis",
+      "Selected Chassis",
+      "SELECTED CHASSIS",
+      "selected_chassis_number",
+    ];
+    if (r.answers) {
+      for (const k of selectedKeys) {
+        const raw = r.answers[k];
+        if (raw !== undefined && raw !== null && raw !== "") {
+          const val = getChassisDisplayValue(raw);
+          if (val && val !== "-" && val !== "N/A") {
+            return formatMasterMatch(val);
+          }
+        }
+      }
+    }
+
+    // 2. Direct top-level r.chassisNumber
+    if (r.chassisNumber && typeof r.chassisNumber === "string" && r.chassisNumber.trim() !== "" && r.chassisNumber !== "N/A") {
+      return formatMasterMatch(r.chassisNumber.trim());
+    }
+
+    // 3. Check if ANY answer in r.answers matches one of form.chassisNumbers (e.g. "Saify")
+    if (masterOptions.length > 0 && r.answers && typeof r.answers === "object") {
+      for (const val of Object.values(r.answers)) {
+        if (typeof val === "string" && val.trim()) {
+          const matched = masterOptions.find(
+            (m) => m.chassisNumber.toLowerCase() === val.trim().toLowerCase()
+          );
+          if (matched) {
+            return matched.partDescription
+              ? `${matched.chassisNumber} — ${matched.partDescription}`
+              : matched.chassisNumber;
+          }
+        } else if (val && typeof val === "object" && (val as any).chassisNumber) {
+          const cn = String((val as any).chassisNumber).trim();
+          const matched = masterOptions.find(
+            (m) => m.chassisNumber.toLowerCase() === cn.toLowerCase()
+          );
+          if (matched) {
+            return matched.partDescription
+              ? `${matched.chassisNumber} — ${matched.partDescription}`
+              : matched.chassisNumber;
+          }
+        }
+      }
+      // If form only has 1 chassis configuration (e.g. "Saify"), use it
+      if (masterOptions.length === 1) {
+        const single = masterOptions[0];
+        return single.partDescription
+          ? `${single.chassisNumber} — ${single.partDescription}`
+          : single.chassisNumber;
+      }
+    }
+
+    // 4. Fallback: Only if form has NO master chassis options, use question-level chassisQuestionId
     if (chassisQuestionId && r.answers && r.answers[chassisQuestionId] !== undefined && r.answers[chassisQuestionId] !== null && r.answers[chassisQuestionId] !== "") {
       const val = getChassisDisplayValue(r.answers[chassisQuestionId]);
       if (val && val !== "-" && val !== "N/A") return val;
     }
-    // 2. Direct answer using chassis_number
-    if (r.answers?.chassis_number !== undefined && r.answers?.chassis_number !== null && r.answers?.chassis_number !== "") {
-      const val = getChassisDisplayValue(r.answers.chassis_number);
-      if (val && val !== "-" && val !== "N/A") return val;
-    }
-    // 3. Direct r.chassisNumber
-    if (r.chassisNumber && typeof r.chassisNumber === "string" && r.chassisNumber.trim() !== "" && r.chassisNumber !== "N/A") {
-      return r.chassisNumber.trim();
-    }
-    // 4. Known answer keys
+
+    // 5. Fallback: Other known answer keys
     if (r.answers) {
       const directKeys = [
         "chassisNumber", "chassis", "Chassis", "CHASSIS",
@@ -2733,23 +2812,8 @@ export default function FormAnalyticsDashboard() {
           if (val && val !== "-" && val !== "N/A") return val;
         }
       }
-      // 5. Scan form questions for any question mentioning chassis / vin
-      if (form?.sections) {
-        for (const section of form.sections) {
-          if (section.questions) {
-            for (const q of section.questions) {
-              const t = (q.text || "").toLowerCase();
-              if (t.includes("chassis") || t.includes("vin") || t.includes("id number") || q.trackResponseRank) {
-                if (r.answers[q.id] !== undefined && r.answers[q.id] !== null && r.answers[q.id] !== "") {
-                  const val = getChassisDisplayValue(r.answers[q.id]);
-                  if (val && val !== "-" && val !== "N/A") return val;
-                }
-              }
-            }
-          }
-        }
-      }
     }
+
     return "-";
   }, [chassisQuestionId, form]);
 
