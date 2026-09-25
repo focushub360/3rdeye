@@ -2938,7 +2938,17 @@ export default function FormAnalyticsDashboard() {
         biwReview: payload,
       });
 
-      const savedBiwReview = (result as any)?.response?.biwReview ?? undefined;
+      const savedBiwReview =
+        (result as any)?.response?.biwReview ??
+        (result as any)?.data?.response?.biwReview ??
+        (payload
+          ? {
+              status,
+              reviewedBy: user?.id,
+              reviewedByName: user?.name,
+              reviewedAt: new Date().toISOString(),
+            }
+          : undefined);
 
       setResponses((prev) =>
         prev.map((r) =>
@@ -3037,7 +3047,17 @@ export default function FormAnalyticsDashboard() {
         },
       });
 
-      const savedBiwReview = (result as any)?.response?.biwReview ?? undefined;
+      const savedBiwReview =
+        (result as any)?.response?.biwReview ??
+        (result as any)?.data?.response?.biwReview ?? {
+          status: biwActionStatus,
+          remark: biwActionRemark.trim(),
+          evidenceUrl: biwActionEvidenceUrl || null,
+          flaggedQuestions,
+          reviewedBy: user?.id,
+          reviewedByName: user?.name,
+          reviewedAt: new Date().toISOString(),
+        };
 
       setResponses((prev) =>
         prev.map((r) =>
@@ -4626,7 +4646,9 @@ export default function FormAnalyticsDashboard() {
         return activeColumnFilters.every(([columnId, allowedValues]) => {
           if (!allowedValues || allowedValues.length === 0) return true;
 
-          if (columnId === "__attemptRank") return true;
+          // Skip all virtual/custom table columns (__status, __attemptRank, __submittedBy, etc.)
+          // These are resolved in filteredResponses after status and ranking maps are populated
+          if (columnId.startsWith("__")) return true;
 
           const answer = response.answers?.[columnId];
           if (answer === null || answer === undefined) {
@@ -4786,7 +4808,34 @@ export default function FormAnalyticsDashboard() {
     }
 
     const rank = trackingQId ? r.responseRanks?.[trackingQId] : null;
+    const biwStatus = r.biwReview?.status;
+    const rawStatus = (r.status || "").trim();
 
+    // 1. BIW Review decision takes primary precedence
+    if (biwStatus === "Rejected") return "Rejected";
+    if (biwStatus === "Accepted") {
+      if (isRework || (rank && rank > 1) || rawStatus.toLowerCase().includes("rework")) {
+        return "Rework Accepted";
+      }
+      return "Direct Ok";
+    }
+    if (biwStatus === "Reworked") {
+      if (trackingQId && rank && rank > 1) return `Rework ${rank - 1}`;
+      if (trackingQId) return "Rework 1";
+      return "Rework";
+    }
+
+    // 2. Explicit response status check
+    if (rawStatus === "Rejected") return "Rejected";
+    if (rawStatus === "Rework Accepted" || rawStatus === "Rework Completed") return "Rework Accepted";
+    if (rawStatus === "Direct Ok") return "Direct Ok";
+    if (rawStatus === "Accepted") {
+      if (isRework || (rank && rank > 1)) return "Rework Accepted";
+      return "Direct Ok";
+    }
+    if (rawStatus.startsWith("Rework")) return rawStatus;
+
+    // 3. Fallback based on answers and chronological attempt rank
     if (isRejected) return "Rejected";
     if (isRework) {
       if (trackingQId && rank && rank > 1) return `Rework ${rank - 1}`;
@@ -4889,9 +4938,44 @@ export default function FormAnalyticsDashboard() {
         }
 
         const rank = (chassisQuestionId && r.responseRanks?.[chassisQuestionId]) || (index + 1);
+        const biwStatus = r.biwReview?.status;
+        const rawStatus = (r.status || "").trim();
 
         let calculatedStatus = "-";
-        if (isRejected) {
+
+        // 1. BIW Review takes primary precedence
+        if (biwStatus === "Rejected") {
+          calculatedStatus = "Rejected";
+        } else if (biwStatus === "Accepted") {
+          if (isRework || hasBeenReworked || (rank && rank > 1) || rawStatus.toLowerCase().includes("rework")) {
+            calculatedStatus = "Rework Accepted";
+          } else {
+            calculatedStatus = "Direct Ok";
+          }
+        } else if (biwStatus === "Reworked") {
+          if (!groupId.startsWith("untracked-")) {
+            reworkCount++;
+            hasBeenReworked = true;
+            calculatedStatus = `Rework ${reworkCount}`;
+          } else {
+            calculatedStatus = "Rework 1";
+          }
+        } else if (rawStatus === "Rejected") {
+          calculatedStatus = "Rejected";
+        } else if (rawStatus === "Rework Accepted" || rawStatus === "Rework Completed") {
+          calculatedStatus = "Rework Accepted";
+        } else if (rawStatus === "Direct Ok") {
+          calculatedStatus = "Direct Ok";
+        } else if (rawStatus === "Accepted") {
+          if (isRework || hasBeenReworked || (rank && rank > 1)) {
+            calculatedStatus = "Rework Accepted";
+          } else {
+            calculatedStatus = "Direct Ok";
+          }
+        } else if (rawStatus.startsWith("Rework")) {
+          hasBeenReworked = true;
+          calculatedStatus = rawStatus;
+        } else if (isRejected) {
           calculatedStatus = "Rejected";
         } else if (isRework) {
           if (!groupId.startsWith("untracked-")) {
@@ -5535,7 +5619,16 @@ export default function FormAnalyticsDashboard() {
 
     // 3. __status
     if (columnId === "__status") {
-      const rawStatus = (tableDisplayStatuses[respId] || responseStatuses[respId] || response.status || "Pending Review").toLowerCase().trim();
+      const statusVal =
+        tableDisplayStatuses[response.id] ||
+        tableDisplayStatuses[(response as any)._id] ||
+        responseStatuses[response.id] ||
+        responseStatuses[(response as any)._id] ||
+        (respId ? tableDisplayStatuses[respId] || responseStatuses[respId] : null) ||
+        computeFastRowStatus(response, chassisQuestionId) ||
+        response.status ||
+        "Pending Review";
+      const rawStatus = String(statusVal).toLowerCase().trim();
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
         if (avLower === "rework" || avLower === "ongoing rework") {
@@ -5546,6 +5639,9 @@ export default function FormAnalyticsDashboard() {
         }
         if (avLower === "rework accepted") {
           return rawStatus === "rework accepted" || rawStatus === "rework completed";
+        }
+        if (avLower === "pending review" || avLower === "pending") {
+          return rawStatus === "pending review" || rawStatus === "pending" || rawStatus === "-";
         }
         return rawStatus === avLower || rawStatus.includes(avLower);
       });
@@ -5605,7 +5701,19 @@ export default function FormAnalyticsDashboard() {
     }
 
     // Dynamic question answer filter
-    const answer = response.answers?.[columnId];
+    let answer = response.answers?.[columnId];
+    if (answer === null || answer === undefined) {
+      if (
+        columnId === chassisQuestionId ||
+        columnId === "chassis_number" ||
+        columnId === "chassisNumber"
+      ) {
+        answer =
+          response.answers?.chassis_number ||
+          response.answers?.chassisNumber ||
+          response.chassisNumber;
+      }
+    }
     if (answer === null || answer === undefined) {
       return allowedValues.includes("No Response") || allowedValues.includes("");
     }
@@ -6782,16 +6890,28 @@ export default function FormAnalyticsDashboard() {
     let dispatched = 0;
 
     filteredResponses.forEach((response) => {
-      const status = responseStatuses[response.id];
-      if (status === "Direct Ok" || status === "Accepted") {
+      const respId = response.id || (response as any)._id;
+      const statusVal =
+        tableDisplayStatuses[response.id] ||
+        tableDisplayStatuses[(response as any)._id] ||
+        responseStatuses[response.id] ||
+        responseStatuses[(response as any)._id] ||
+        (respId ? tableDisplayStatuses[respId] || responseStatuses[respId] : null) ||
+        computeFastRowStatus(response, chassisQuestionId) ||
+        response.status ||
+        "";
+      const rawStatus = String(statusVal).trim().toLowerCase();
+
+      if (rawStatus === "direct ok" || rawStatus === "accepted" || rawStatus === "verified") {
         accepted++;
-      } else if (status === "Rework Accepted") {
+      } else if (rawStatus === "rework accepted" || rawStatus === "rework completed") {
         reworkCompleted++;
-      } else if (status && status.startsWith("Rework")) {
+      } else if (rawStatus.startsWith("rework") || rawStatus === "ongoing rework") {
         reworked++;
-      } else if (status === "Rejected") {
+      } else if (rawStatus === "rejected") {
         rejected++;
       }
+
       // Dispatch is tracked independently of status - a response can be
       // Direct Ok (or any other status) AND already dispatched, so this
       // is counted separately rather than as a mutually-exclusive bucket.
@@ -6801,7 +6921,7 @@ export default function FormAnalyticsDashboard() {
     });
 
     return { accepted, rejected, reworked, reworkCompleted, dispatched };
-  }, [filteredResponses, responseStatuses]);
+  }, [filteredResponses, responseStatuses, tableDisplayStatuses, chassisQuestionId]);
 
   const totalPieChartData = useMemo(() => {
     const directOk = inspectionStats.accepted;
@@ -6946,8 +7066,39 @@ export default function FormAnalyticsDashboard() {
     // response can be "Direct Ok" AND dispatched), so mixing it into the
     // same slices made the chart visually sum past 100% and look wrong.
     // It's rendered as its own progress indicator below the chart instead.
+    const centerTextPlugin = useMemo(
+      () => ({
+        id: "overallTrendCenterText",
+        afterDatasetsDraw(chart: any) {
+          const meta = chart.getDatasetMeta(0);
+          if (!meta || !meta.data || !meta.data[0]) return;
+          const { ctx } = chart;
+          const { x, y } = meta.data[0];
+
+          ctx.save();
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          const isDark = document.documentElement.classList.contains("dark");
+
+          // Total count number
+          ctx.font = "bold 26px Inter, system-ui, -apple-system, sans-serif";
+          ctx.fillStyle = isDark ? "#ffffff" : "#111827";
+          ctx.fillText(String(totalPieChartData.counts.total), x, y - 9);
+
+          // "TOTAL" sub-label below count
+          ctx.font = "bold 10px Inter, system-ui, -apple-system, sans-serif";
+          ctx.fillStyle = isDark ? "#9ca3af" : "#6b7280";
+          ctx.fillText("TOTAL", x, y + 13);
+
+          ctx.restore();
+        },
+      }),
+      [totalPieChartData.counts.total],
+    );
+
     const data = {
-      labels: ["Direct Ok", "Rework Completed", "Rejected", "Ongoing Rework"],
+      labels: ["Direct Ok", "Rework Accepted", "Rejected", "Rework"],
       datasets: [
         {
           data: [
@@ -6958,9 +7109,9 @@ export default function FormAnalyticsDashboard() {
           ],
           backgroundColor: [
             "rgba(34, 197, 94, 0.85)", // Green for Direct Ok
-            "rgba(59, 130, 246, 0.85)", // Blue for Rework Completed
+            "rgba(59, 130, 246, 0.85)", // Blue for Rework Completed / Accepted
             "rgba(239, 68, 68, 0.85)", // Red for Rejected
-            "rgba(234, 179, 8, 0.85)", // Yellow for Ongoing Rework
+            "rgba(234, 179, 8, 0.85)", // Yellow for Rework
           ],
           borderColor: [
             "rgb(34, 197, 94)",
@@ -7058,8 +7209,8 @@ export default function FormAnalyticsDashboard() {
           ) : (
             <>
               <div style={{ height: "200px", position: "relative" }}>
-                {/* Only change needed here - use Doughnut instead of Pie */}
-                <Doughnut data={data} options={options} />
+                {/* Doughnut with center total count & label */}
+                <Doughnut data={data} options={options} plugins={[centerTextPlugin]} />
               </div>
 
               {/* Stats summary - Total Submissions, Direct Ok, Rework Accepted, Rework, Rejected, and Dispatched */}
@@ -8960,6 +9111,19 @@ export default function FormAnalyticsDashboard() {
 
       setResponses(
         responses.map((r) =>
+          r.id === editingResponseId
+            ? {
+              ...r,
+              answers: editFormData,
+              status: editFormStatus,
+              notes: editFormNotes,
+            }
+            : r,
+        ),
+      );
+
+      setTableResponses((prev) =>
+        prev.map((r) =>
           r.id === editingResponseId
             ? {
               ...r,

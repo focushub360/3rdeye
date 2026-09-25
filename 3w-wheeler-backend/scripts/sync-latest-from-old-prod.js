@@ -53,6 +53,7 @@ async function syncLatestFromOldProd() {
     const newDb = newConn.db;
 
     const targetCollections = [
+      'forms',
       'users',
       'responses',
       'formsessions',
