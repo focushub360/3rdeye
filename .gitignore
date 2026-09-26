@@ -9,8 +9,11 @@ node_modules/
 # build output
 dist/
 build/
+*.tsbuildinfo
+*.timestamp-*.mjs
 
 # logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -26,20 +29,33 @@ Thumbs.db
 # cache
 .cache/
 
-# local dev folders
+# local dev folders & databases
 .mongodb_data/
 node-dist/
+scratch/
+3w-wheeler-backend/scratch/
 
 # mobile app
 mobile-expo/
+
+# temporary archives, tests & logs
+*.zip
+*.tar.gz
+*.xlsx
+*.xls
+lint-*.txt
+lint-*.json
+lint_*.txt
+build_output.txt
+apiClient_calls.txt
+post.txt
+test.txt
+test-*.cjs
+*.test.cjs
+*.append.txt
 
 # backups & uploads
 backups/
 3w-wheeler-backend/backups/
 3w-wheeler-backend/uploads/
 uploads/
-test.txt
-test-*.cjs
-*.test.cjs
-scratch/
-3w-wheeler-backend/scratch/
