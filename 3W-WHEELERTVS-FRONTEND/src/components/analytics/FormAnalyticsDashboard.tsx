@@ -173,10 +173,10 @@ const getResponseTimestamp = (response: Response): string | undefined => {
 
   const rawCandidates = [
     response.submittedAt,
+    response.createdAt,
+    response.timestamp,
     (response as any).submissionMetadata?.submittedAt,
     (response as any).submissionMetadata?.capturedLocation?.capturedAt,
-    response.timestamp,
-    response.createdAt,
     (response as any).updatedAt,
     (response as any).dispatchedAt,
   ];
@@ -193,9 +193,10 @@ const getResponseTimestamp = (response: Response): string | undefined => {
   // 2. If all candidates have an unrealistic year (e.g. > currentYear + 1), check metadata or clamp
   const fallback =
     response.submittedAt ||
-    (response as any).submissionMetadata?.submittedAt ||
+    response.createdAt ||
     response.timestamp ||
-    response.createdAt;
+    (response as any).submissionMetadata?.submittedAt ||
+    (response as any).submissionMetadata?.capturedLocation?.capturedAt;
   if (fallback) {
     const d = toDate(fallback);
     if (d) {

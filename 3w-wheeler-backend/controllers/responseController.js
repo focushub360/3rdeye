@@ -144,8 +144,8 @@ function parseExcelDateBackend(value) {
       const currentYearMod = currentYear % 100;
       if (year < 100) {
         year += year <= currentYearMod + 1 ? 2000 : 1900;
-      } else if (year > currentYear + 1 && year < 30000) {
-        year = currentYear;
+      } else if (year >= 100 && year < 1000) {
+        year += 2000;
       }
       let hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
       const minutes = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
@@ -1404,6 +1404,48 @@ export const batchImportResponses = async (req, res) => {
               resolvedParentResponseId = chassisToParentMap.get(chassisVal.toLowerCase().trim()) || undefined;
             }
 
+            const rawDateVal =
+              responses[index]?.submittedAt ||
+              responses[index]?.createdAt ||
+              responses[index]?.timestamp ||
+              processedAnswers["submittedAt"] ||
+              processedAnswers["Timestamp"] ||
+              processedAnswers["timestamp"] ||
+              processedAnswers["Date"] ||
+              processedAnswers["date"] ||
+              processedAnswers["Inspection Date"] ||
+              processedAnswers["Created At"] ||
+              processedAnswers["createdAt"];
+
+            const rowSubmittedAt = parseExcelDateBackend(rawDateVal) || new Date();
+
+            const isDispVal = String(responses[index]?.isDispatched || processedAnswers["Dispatched"] || processedAnswers["dispatched"] || "").toLowerCase().trim();
+            const isDispatched = isDispVal === "yes" || isDispVal === "true" || responses[index]?.isDispatched === true;
+            const rawDispAt = responses[index]?.dispatchedAt || processedAnswers["Dispatched At"] || processedAnswers["dispatchedAt"] || processedAnswers["dispatched at"];
+            const rowDispatchedAt = isDispatched ? (parseExcelDateBackend(rawDispAt) || rowSubmittedAt) : undefined;
+
+            const rawStatusVal = responses[index]?.status || processedAnswers["Status"] || processedAnswers["status"];
+            const rowStatus = rawStatusVal ? String(rawStatusVal).trim() : 'pending';
+
+            // Clean up virtual columns so they don't pollute question answers
+            const formQuestionIds = new Set(allQuestions.map(q => q.id || (q._id ? q._id.toString() : null)).filter(Boolean));
+            ["Timestamp", "timestamp", "Date", "date", "Status", "status", "Dispatched", "dispatched", "Dispatched At", "dispatched at", "submittedAt", "isDispatched", "dispatchedAt"].forEach(k => {
+              if (!formQuestionIds.has(k)) {
+                delete processedAnswers[k];
+              }
+            });
+
+            const rowSubmissionMetadata = {
+              ...(submissionMetadata || {}),
+              submittedAt: rowSubmittedAt,
+              capturedLocation: submissionMetadata?.capturedLocation
+                ? {
+                    ...submissionMetadata.capturedLocation,
+                    capturedAt: rowSubmittedAt
+                  }
+                : undefined
+            };
+
             const responseData = {
               id: uuidv4(),
               questionId: actualQuestionId,
@@ -1412,10 +1454,12 @@ export const batchImportResponses = async (req, res) => {
               parentResponseId: resolvedParentResponseId || undefined,
               batchId: batchId,
               chassisNumber: chassisVal || undefined,
-              submittedBy,
+              submittedBy: submittedBy || 'Excel Import',
               submitterContact,
-              submissionMetadata,
-              status: 'pending',
+              submissionMetadata: rowSubmissionMetadata,
+              status: rowStatus,
+              isDispatched: isDispatched,
+              dispatchedAt: rowDispatchedAt,
               tenantId: form.tenantId,
               score: { correct, total },
               createdBy:
@@ -1424,8 +1468,8 @@ export const batchImportResponses = async (req, res) => {
                   : req.user?._id && mongoose.Types.ObjectId.isValid(req.user._id)
                     ? req.user._id
                     : null,
-              submittedAt: parseExcelDateBackend(submittedAt),
-              createdAt: parseExcelDateBackend(submittedAt) || undefined
+              submittedAt: rowSubmittedAt,
+              createdAt: rowSubmittedAt
             };
 
             const response = new Response(responseData);
@@ -1658,6 +1702,48 @@ export const batchImportResponses = async (req, res) => {
             resolvedParentResponseId = chassisToParentMap.get(chassisVal.toLowerCase().trim()) || undefined;
           }
 
+          const rawDateVal =
+            responses[index]?.submittedAt ||
+            responses[index]?.createdAt ||
+            responses[index]?.timestamp ||
+            processedAnswers["submittedAt"] ||
+            processedAnswers["Timestamp"] ||
+            processedAnswers["timestamp"] ||
+            processedAnswers["Date"] ||
+            processedAnswers["date"] ||
+            processedAnswers["Inspection Date"] ||
+            processedAnswers["Created At"] ||
+            processedAnswers["createdAt"];
+
+          const rowSubmittedAt = parseExcelDateBackend(rawDateVal) || new Date();
+
+          const isDispVal = String(responses[index]?.isDispatched || processedAnswers["Dispatched"] || processedAnswers["dispatched"] || "").toLowerCase().trim();
+          const isDispatched = isDispVal === "yes" || isDispVal === "true" || responses[index]?.isDispatched === true;
+          const rawDispAt = responses[index]?.dispatchedAt || processedAnswers["Dispatched At"] || processedAnswers["dispatchedAt"] || processedAnswers["dispatched at"];
+          const rowDispatchedAt = isDispatched ? (parseExcelDateBackend(rawDispAt) || rowSubmittedAt) : undefined;
+
+          const rawStatusVal = responses[index]?.status || processedAnswers["Status"] || processedAnswers["status"];
+          const rowStatus = rawStatusVal ? String(rawStatusVal).trim() : 'pending';
+
+          // Clean up virtual columns so they don't pollute question answers
+          const formQuestionIds = new Set(allQuestions.map(q => q.id || (q._id ? q._id.toString() : null)).filter(Boolean));
+          ["Timestamp", "timestamp", "Date", "date", "Status", "status", "Dispatched", "dispatched", "Dispatched At", "dispatched at", "submittedAt", "isDispatched", "dispatchedAt"].forEach(k => {
+            if (!formQuestionIds.has(k)) {
+              delete processedAnswers[k];
+            }
+          });
+
+          const rowSubmissionMetadata = {
+            ...(submissionMetadata || {}),
+            submittedAt: rowSubmittedAt,
+            capturedLocation: submissionMetadata?.capturedLocation
+              ? {
+                  ...submissionMetadata.capturedLocation,
+                  capturedAt: rowSubmittedAt
+                }
+              : undefined
+          };
+
           // Create response data
           const responseData = {
             id: uuidv4(),
@@ -1669,16 +1755,18 @@ export const batchImportResponses = async (req, res) => {
             chassisNumber: chassisVal || undefined,
             submittedBy: submittedBy || 'Excel Import',
             submitterContact,
-            submissionMetadata,
-            status: 'pending',
+            submissionMetadata: rowSubmissionMetadata,
+            status: rowStatus,
+            isDispatched: isDispatched,
+            dispatchedAt: rowDispatchedAt,
             tenantId: form.tenantId,
             score: { correct, total },
             createdBy:
               req.user?._id && mongoose.Types.ObjectId.isValid(req.user._id)
                 ? req.user._id
                 : null,
-            submittedAt: parseExcelDateBackend(submittedAt),
-            createdAt: parseExcelDateBackend(submittedAt) || undefined
+            submittedAt: rowSubmittedAt,
+            createdAt: rowSubmittedAt
           };
 
           // Prepare Mongoose document
@@ -4111,7 +4199,11 @@ export const getResponsesByForm = async (req, res) => {
         ...responseObj,
         answers: respAnswers,
         responseRanks: toPlainObject(response.responseRanks),
-        submissionMetadata: responseObj.submissionMetadata || null,
+        submissionMetadata: responseObj.submissionMetadata ? {
+          ...responseObj.submissionMetadata,
+          submittedAt: responseObj.submittedAt || responseObj.createdAt || responseObj.submissionMetadata.submittedAt
+        } : null,
+        submittedAt: responseObj.submittedAt || responseObj.createdAt || undefined,
         submittedBy: displaySubmittedBy, // Override with better display name
         review: reviewInfo,
         followUpStatus

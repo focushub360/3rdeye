@@ -991,8 +991,8 @@ export function parseExcelDate(value: any): Date | null {
       const currentYearMod = currentYear % 100;
       if (year < 100) {
         year += year <= currentYearMod + 1 ? 2000 : 1900;
-      } else if (year > currentYear + 1 && year < 30000) {
-        year = currentYear;
+      } else if (year >= 100 && year < 1000) {
+        year += 2000;
       }
       let hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
       const minutes = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
@@ -1090,9 +1090,20 @@ function mapHeadersToQuestionIds(
 
     if (
       lowerH === "submittedat" ||
+      lowerH === "createdat" ||
       lowerH.includes("timestamp") ||
       lowerH.includes("submitted date") ||
-      lowerH === "date"
+      lowerH.includes("submission date") ||
+      lowerH.includes("inspection date") ||
+      lowerH.includes("inspect date") ||
+      lowerH.includes("created at") ||
+      lowerH.includes("creation date") ||
+      lowerH.includes("date / time") ||
+      lowerH.includes("date/time") ||
+      lowerH === "date" ||
+      lowerH === "time" ||
+      lowerH.endsWith(" date") ||
+      lowerH.startsWith("date ")
     ) {
       colMap[colIndex] = "submittedAt";
       return;
@@ -1107,6 +1118,32 @@ function mapHeadersToQuestionIds(
     }
     if (lowerH === "submitteremail" || lowerH.includes("email")) {
       colMap[colIndex] = "submitterEmail";
+      return;
+    }
+    if (
+      lowerH === "status" ||
+      lowerH === "inspection status" ||
+      lowerH === "review status"
+    ) {
+      colMap[colIndex] = "status";
+      return;
+    }
+    if (
+      lowerH === "dispatched" ||
+      lowerH === "isdispatched" ||
+      lowerH === "dispatch status"
+    ) {
+      colMap[colIndex] = "isDispatched";
+      return;
+    }
+    if (
+      lowerH === "dispatched at" ||
+      lowerH === "dispatchedat" ||
+      lowerH === "dispatch date" ||
+      lowerH === "dispatched date" ||
+      lowerH === "dispatched time"
+    ) {
+      colMap[colIndex] = "dispatchedAt";
       return;
     }
     if (
@@ -1226,6 +1263,9 @@ export async function parseAnswerWorkbook(
       submitterContact: { email: string };
       submittedAt?: string;
       parentResponseId?: string;
+      status?: string;
+      isDispatched?: boolean;
+      dispatchedAt?: string;
     } = {
       answers: {},
       submittedBy: "Excel Import",
@@ -1244,12 +1284,30 @@ export async function parseAnswerWorkbook(
         singleResponse.submittedAt = cellValue;
       } else if (id === "parentResponseId") {
         singleResponse.parentResponseId = cellValue ? String(cellValue).trim() : undefined;
+      } else if (id === "status") {
+        singleResponse.status = cellValue ? String(cellValue).trim() : undefined;
+      } else if (id === "isDispatched") {
+        const str = String(cellValue || "").toLowerCase().trim();
+        singleResponse.isDispatched = str === "yes" || str === "true";
+      } else if (id === "dispatchedAt") {
+        singleResponse.dispatchedAt = cellValue ? String(cellValue).trim() : undefined;
       } else {
         if (cellValue !== "" && cellValue !== null && cellValue !== undefined) {
           singleResponse.answers[id] = cellValue;
         }
       }
     });
+
+    // Check if submittedAt is present in answers under common keys
+    if (!singleResponse.submittedAt) {
+      for (const [k, v] of Object.entries(singleResponse.answers)) {
+        const lk = k.toLowerCase();
+        if (lk === "timestamp" || lk === "date" || lk === "createdat" || lk.includes("submitted date")) {
+          singleResponse.submittedAt = v;
+          break;
+        }
+      }
+    }
 
     // Parse submittedAt date or fallback to current date
     if (singleResponse.submittedAt !== undefined && singleResponse.submittedAt !== null && singleResponse.submittedAt !== "") {

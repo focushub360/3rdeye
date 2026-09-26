@@ -69,6 +69,10 @@ const ResponseSchema = new mongoose.Schema({
     }
   },
   submittedBy: String, // Can store name or identifier of the person who submitted
+  submittedAt: {
+    type: Date,
+    index: true
+  },
   submitterContact: {
     email: String,
     phone: String
