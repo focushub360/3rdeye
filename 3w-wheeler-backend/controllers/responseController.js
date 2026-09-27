@@ -3696,10 +3696,7 @@ export const getResponsesByForm = async (req, res) => {
         .skip((options.page - 1) * options.limit)
         .lean();
     
-    // Optimize count query: if it's analytics and page > 1, assume 2000 to avoid full scan
-    const countPromise = (isAnalytics && options.page > 1) 
-        ? Promise.resolve(2000) 
-        : Response.countDocuments(query);
+    const countPromise = Response.countDocuments(query);
 
     const [responsesRaw, total] = await Promise.all([responsesPromise, countPromise]);
     let responses = responsesRaw;

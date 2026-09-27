@@ -4528,7 +4528,7 @@ export default function FormAnalyticsDashboard() {
       const responsesData = await apiClient.getAllFormResponses(id, {
         analytics: true,
         forceNetwork: true,
-        onPage: ({ responses: pageResponses, pageNumber, totalPages }: {
+        onPage: ({ responses: pageResponses, pageNumber, totalPages, isLast }: {
           responses: any[];
           pageNumber: number;
           totalPages: number;
@@ -4536,7 +4536,9 @@ export default function FormAnalyticsDashboard() {
         }) => {
           accumulator = accumulator.concat(pageResponses);
           setResponses([...accumulator]);
-          setAnalyticsResponsesLoading(false);
+          if (isLast) {
+            setAnalyticsResponsesLoading(false);
+          }
         },
       });
       if (responsesData.responses && responsesData.responses.length > 0) {
@@ -4611,12 +4613,12 @@ export default function FormAnalyticsDashboard() {
   useEffect(() => {
     if (activeTab === "responses" && !loadedTabs.has("responses") && id) {
       fetchResponsesPage(1);
-      if (!loadedTabs.has("dashboard") && responses.length === 0) {
+      if (!loadedTabs.has("dashboard") && (responses.length === 0 || (totalResponsesCount > 0 && responses.length < totalResponsesCount))) {
         fetchFullAnalyticsResponses();
       }
       setLoadedTabs((prev) => new Set(prev).add("responses"));
     }
-  }, [activeTab, id, loadedTabs]);
+  }, [activeTab, id, loadedTabs, responses.length, totalResponsesCount]);
 
   // Page / page-size changes on an already-loaded Responses tab re-fetch
   // from the server instead of re-slicing an in-memory array.
@@ -9093,9 +9095,130 @@ export default function FormAnalyticsDashboard() {
     }
   };
 
-  const handleExportToExcel = () => {
+  const handleExportToExcel = async () => {
+    if (isExporting) return;
     try {
-      const headerRow: any[] = ["Timestamp", "Submitted By", "Status", "Chassis Number", "Dispatched", "Dispatched At"];
+      setIsExporting(true);
+      showToast("Preparing Excel report...", "info");
+
+      // 1. Ensure full response dataset is loaded
+      let fullResponses = responses;
+      if (
+        !fullResponses ||
+        fullResponses.length === 0 ||
+        (totalResponsesCount > 0 && fullResponses.length < totalResponsesCount) ||
+        analyticsResponsesLoading
+      ) {
+        showToast("Fetching all response records for download...", "info");
+        const resData = await apiClient.getAllFormResponses(id!, {
+          analytics: true,
+          forceNetwork: false,
+        });
+        if (resData.responses && resData.responses.length > 0) {
+          fullResponses = resData.responses;
+          setResponses(fullResponses);
+          setTotalResponsesCount(fullResponses.length);
+        }
+      }
+
+      if (!fullResponses || fullResponses.length === 0) {
+        showToast("No responses found to export.", "warning");
+        setIsExporting(false);
+        return;
+      }
+
+      // 2. Filter responses if user has applied filters
+      let rowsToExport = fullResponses;
+
+      // Global Date Filter
+      if (dateFilter.type !== "all") {
+        rowsToExport = rowsToExport.filter((response) => {
+          const timestamp = getResponseTimestamp(response);
+          if (!timestamp) return false;
+          const responseDate = new Date(timestamp).toISOString().split("T")[0];
+
+          if (dateFilter.type === "single" && dateFilter.startDate) {
+            return responseDate === dateFilter.startDate;
+          } else if (
+            dateFilter.type === "range" &&
+            dateFilter.startDate &&
+            dateFilter.endDate
+          ) {
+            return (
+              responseDate >= dateFilter.startDate &&
+              responseDate <= dateFilter.endDate
+            );
+          }
+          return true;
+        });
+      }
+
+      // Global Inspector Filter
+      if (selectedInspectorForTrend !== "Overall") {
+        rowsToExport = rowsToExport.filter(
+          (response) => response.submittedBy === selectedInspectorForTrend
+        );
+      }
+
+      // Overall search term filter
+      const term = (responsesSearchTerm || deferredSearchTerm).toLowerCase().trim();
+      if (term !== "") {
+        rowsToExport = rowsToExport.filter((response) => {
+          const submitter = (response.submittedBy || response.createdBy || "").toLowerCase();
+          if (submitter.includes(term)) return true;
+
+          const status = (responseStatuses[response.id] || "").toLowerCase();
+          if (status.includes(term)) return true;
+
+          const chVal = response.answers?.chassis_number;
+          if (chVal) {
+            if (typeof chVal === "object") {
+              if (chVal.chassisNumber && String(chVal.chassisNumber).toLowerCase().includes(term)) return true;
+              if (chVal.partDescription && String(chVal.partDescription).toLowerCase().includes(term)) return true;
+            } else if (String(chVal).toLowerCase().includes(term)) {
+              return true;
+            }
+          }
+
+          if (response.answers) {
+            for (const [key, val] of Object.entries(response.answers)) {
+              if (val === null || val === undefined) continue;
+              if (typeof val === "object") {
+                if (JSON.stringify(val).toLowerCase().includes(term)) return true;
+              } else {
+                if (String(val).toLowerCase().includes(term)) return true;
+              }
+            }
+          }
+          return false;
+        });
+      }
+
+      // Column filters
+      const activeColFilters = Object.entries(columnFilters).filter(
+        ([_, values]) => values && values.length > 0
+      );
+      if (activeColFilters.length > 0) {
+        rowsToExport = rowsToExport.filter((response) =>
+          activeColFilters.every(([columnId, allowedValues]) =>
+            matchSingleColumnFilter(response, columnId, allowedValues || [])
+          )
+        );
+      }
+
+      // Sort
+      if (tableSort) {
+        rowsToExport = sortResponses(rowsToExport);
+      }
+
+      const headerRow: any[] = [
+        "Timestamp",
+        "Submitted By",
+        "Status",
+        "Chassis Number",
+        "Dispatched",
+        "Dispatched At",
+      ];
       const columnInfo: Array<{
         questionId: string;
         isFollowUp: boolean;
@@ -9118,13 +9241,42 @@ export default function FormAnalyticsDashboard() {
 
       const wsData: any[][] = [headerRow];
 
-      responses.forEach((response: Response) => {
+      rowsToExport.forEach((response: Response) => {
+        let statusVal =
+          tableDisplayStatuses[response.id] ||
+          responseStatuses[response.id] ||
+          responseStatuses[(response as any)._id];
+
+        if (!statusVal || statusVal === "-") {
+          if (response.answers) {
+            let isRework = false;
+            let isAccepted = false;
+            let isRejected = false;
+            Object.values(response.answers).forEach((ans) => {
+              if (typeof ans === "object" && ans !== null && (ans as any).status) {
+                const s = String((ans as any).status).toLowerCase().trim();
+                if (s === "rework" || s === "reworked" || s.includes("re-rework")) {
+                  isRework = true;
+                } else if (s === "accepted" || s === "rework completed" || s === "verified" || s === "yes" || s === "y") {
+                  isAccepted = true;
+                } else if (s === "rejected" || s === "no" || s === "n") {
+                  isRejected = true;
+                }
+              }
+            });
+            if (isRework) statusVal = "Rework 1";
+            else if (isAccepted) statusVal = "Direct Ok";
+            else if (isRejected) statusVal = "Rejected";
+          }
+        }
+        if (!statusVal) statusVal = response.status || "-";
+
         const rowData: any[] = [
           getResponseTimestamp(response)
             ? formatToDDMMYYYY(getResponseTimestamp(response)!)
             : "-",
           response.submittedBy || response.createdBy || "Anonymous",
-          responseStatuses[response.id] || "-",
+          statusVal,
           getResponseChassisValue(response),
           response.isDispatched ? "Yes" : "No",
           response.dispatchedAt
@@ -9134,14 +9286,11 @@ export default function FormAnalyticsDashboard() {
 
         columnInfo.forEach(({ questionId }) => {
           const answer = response.answers?.[questionId];
-          // For complex objects like chassis, stringify appropriately using JSON.stringify for now
-          // or just standard string if it's simpler
           let answerStr = "-";
           if (answer !== undefined && answer !== null) {
             if (typeof answer === "object") {
-              // Special handling for objects to make them readable in Excel
               if (answer.status) {
-                answerStr = answer.status; // just show the status for inspection fields
+                answerStr = answer.status;
               } else {
                 answerStr = JSON.stringify(answer);
               }
@@ -9183,79 +9332,91 @@ export default function FormAnalyticsDashboard() {
       // Style Header Row
       for (let i = 0; i < headerRow.length; i++) {
         const cellRef = XLSX.utils.encode_cell({ r: 0, c: i });
-        ws[cellRef].s = {
-          fill: headerFill,
-          font: headerFont,
-          alignment: {
-            horizontal: "center",
-            vertical: "center",
-            wrapText: true,
-          },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
+        if (ws[cellRef]) {
+          ws[cellRef].s = {
+            fill: headerFill,
+            font: headerFont,
+            alignment: {
+              horizontal: "center",
+              vertical: "center",
+              wrapText: true,
+            },
+            border: {
+              top: { style: "thin" },
+              left: { style: "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
+            },
+          };
+        }
       }
 
-      // Style Common Answer Row
+      // Style Common Answer Row if present
       for (let i = 0; i < headerRow.length; i++) {
         const cellRef = XLSX.utils.encode_cell({ r: 1, c: i });
-        ws[cellRef].s = {
-          fill: { fgColor: { rgb: "FFF3F4F6" } }, // Light gray background
-          font: { italic: true, bold: i === 0 },
-          alignment: {
-            horizontal: i === 0 ? "left" : "center",
-            vertical: "center",
-            wrapText: true,
-          },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
+        if (ws[cellRef]) {
+          ws[cellRef].s = {
+            fill: { fgColor: { rgb: "FFF3F4F6" } },
+            font: { italic: true, bold: i === 0 },
+            alignment: {
+              horizontal: i === 0 ? "left" : "center",
+              vertical: "center",
+              wrapText: true,
+            },
+            border: {
+              top: { style: "thin" },
+              left: { style: "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
+            },
+          };
+        }
       }
 
       // Style response rows
-      const lastResponseRowIdx = responses.length + 1;
+      const lastResponseRowIdx = rowsToExport.length + 1;
       for (let rowIdx = 1; rowIdx < lastResponseRowIdx; rowIdx++) {
-        const response = responses[rowIdx - 1];
+        const response = rowsToExport[rowIdx - 1];
 
         // Style Timestamp column
         const timeCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 0 });
-        ws[timeCellRef].s = {
-          fill: { fgColor: { rgb: "FFF9FAFB" } },
-          font: { bold: false },
-          alignment: { horizontal: "center", vertical: "center" },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
+        if (ws[timeCellRef]) {
+          ws[timeCellRef].s = {
+            fill: { fgColor: { rgb: "FFF9FAFB" } },
+            font: { bold: false },
+            alignment: { horizontal: "center", vertical: "center" },
+            border: {
+              top: { style: "thin" },
+              left: { style: "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
+            },
+          };
+        }
 
         // Style Submitted By column
         const submittedByCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 1 });
-        ws[submittedByCellRef].s = {
-          fill: { fgColor: { rgb: "FFF9FAFB" } },
-          font: { bold: false },
-          alignment: { horizontal: "left", vertical: "center" },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
+        if (ws[submittedByCellRef]) {
+          ws[submittedByCellRef].s = {
+            fill: { fgColor: { rgb: "FFF9FAFB" } },
+            font: { bold: false },
+            alignment: { horizontal: "left", vertical: "center" },
+            border: {
+              top: { style: "thin" },
+              left: { style: "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
+            },
+          };
+        }
 
         // Style Status column
         const statusCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 2 });
-        const currentStatus = responseStatuses[response.id] || "-";
+        const currentStatus =
+          tableDisplayStatuses[response.id] ||
+          responseStatuses[response.id] ||
+          response.status ||
+          "-";
         let statusBgColor = "FFF9FAFB"; // Default
 
         if (
@@ -9270,43 +9431,11 @@ export default function FormAnalyticsDashboard() {
           statusBgColor = "FFFEE2E2"; // red-100
         }
 
-        ws[statusCellRef].s = {
-          fill: { fgColor: { rgb: statusBgColor } },
-          font: { bold: true },
-          alignment: { horizontal: "center", vertical: "center" },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
-
-        // Style Chassis Number column
-        const chassisCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 3 });
-        ws[chassisCellRef].s = {
-          fill: { fgColor: { rgb: "FFF9FAFB" } },
-          font: { bold: false },
-          alignment: { horizontal: "left", vertical: "center" },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
-
-        // Style Question columns
-        for (let colIdx = 0; colIdx < columnInfo.length; colIdx++) {
-          const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx + 4 });
-          const info = columnInfo[colIdx];
-          const answer = response.answers?.[info.questionId];
-
-          const bgColor = info.isFollowUp ? "FFE9D5FF" : "FFFFFFFF";
-
-          ws[cellRef].s = {
-            fill: { fgColor: { rgb: bgColor } },
-            alignment: { vertical: "center", wrapText: true },
+        if (ws[statusCellRef]) {
+          ws[statusCellRef].s = {
+            fill: { fgColor: { rgb: statusBgColor } },
+            font: { bold: true },
+            alignment: { horizontal: "center", vertical: "center" },
             border: {
               top: { style: "thin" },
               left: { style: "thin" },
@@ -9315,38 +9444,78 @@ export default function FormAnalyticsDashboard() {
             },
           };
         }
+
+        // Style Chassis Number column
+        const chassisCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 3 });
+        if (ws[chassisCellRef]) {
+          ws[chassisCellRef].s = {
+            fill: { fgColor: { rgb: "FFF9FAFB" } },
+            font: { bold: false },
+            alignment: { horizontal: "left", vertical: "center" },
+            border: {
+              top: { style: "thin" },
+              left: { style: "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
+            },
+          };
+        }
+
+        // Style Question columns
+        for (let colIdx = 0; colIdx < columnInfo.length; colIdx++) {
+          const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx + 4 });
+          const info = columnInfo[colIdx];
+          const bgColor = info.isFollowUp ? "FFE9D5FF" : "FFFFFFFF";
+
+          if (ws[cellRef]) {
+            ws[cellRef].s = {
+              fill: { fgColor: { rgb: bgColor } },
+              alignment: { vertical: "center", wrapText: true },
+              border: {
+                top: { style: "thin" },
+                left: { style: "thin" },
+                bottom: { style: "thin" },
+                right: { style: "thin" },
+              },
+            };
+          }
+        }
       }
 
       // Style Stats Header Row
       for (let i = 0; i < 4; i++) {
         const cellRef = XLSX.utils.encode_cell({ r: statsHeaderIdx, c: i });
-        ws[cellRef].s = {
-          fill: { fgColor: { rgb: "FF4F46E5" } },
-          font: { color: { rgb: "FFFFFFFF" }, bold: true },
-          alignment: { horizontal: "center", vertical: "center" },
-          border: {
-            top: { style: "medium" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          },
-        };
+        if (ws[cellRef]) {
+          ws[cellRef].s = {
+            fill: { fgColor: { rgb: "FF4F46E5" } },
+            font: { color: { rgb: "FFFFFFFF" }, bold: true },
+            alignment: { horizontal: "center", vertical: "center" },
+            border: {
+              top: { style: "medium" },
+              left: { style: "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
+            },
+          };
+        }
       }
 
       // Style Stats Data Row
       for (let i = 0; i < 4; i++) {
         const cellRef = XLSX.utils.encode_cell({ r: statsDataIdx, c: i });
-        ws[cellRef].s = {
-          fill: { fgColor: { rgb: "FFE0E7FF" } }, // Indigo 100
-          font: { bold: true, color: { rgb: "FF3730A3" } }, // Indigo 800
-          alignment: { horizontal: "center", vertical: "center" },
-          border: {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "medium" },
-            right: { style: "thin" },
-          },
-        };
+        if (ws[cellRef]) {
+          ws[cellRef].s = {
+            fill: { fgColor: { rgb: "FFE0E7FF" } },
+            font: { bold: true, color: { rgb: "FF3730A3" } },
+            alignment: { horizontal: "center", vertical: "center" },
+            border: {
+              top: { style: "thin" },
+              left: { style: "thin" },
+              bottom: { style: "medium" },
+              right: { style: "thin" },
+            },
+          };
+        }
       }
 
       ws["!cols"] = [
@@ -9363,10 +9532,12 @@ export default function FormAnalyticsDashboard() {
         wb,
         `${form?.title || "responses"}-${new Date().toLocaleDateString("en-CA")}.xlsx`,
       );
-      showToast("Excel report generated successfully!", "success");
+      showToast(`Exported ${rowsToExport.length} responses to Excel successfully!`, "success");
     } catch (error) {
       console.error("Error exporting to Excel:", error);
       showToast("Failed to export to Excel. Please try again.", "error");
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -10985,14 +11156,17 @@ export default function FormAnalyticsDashboard() {
                   ) : (
                     <Download className="w-4 h-4" />
                   )}
-                </button>
                 <button
                   onClick={handleExportToExcel}
                   disabled={isExporting}
                   className="p-1.5 sm:p-2 text-gray-500 hover:text-green-600 dark:text-gray-400 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors disabled:opacity-50"
                   title="Export to Excel"
                 >
-                  <Table className="w-4 h-4" />
+                  {isExporting ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-green-600" />
+                  ) : (
+                    <Table className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </div>
@@ -11361,11 +11535,17 @@ export default function FormAnalyticsDashboard() {
                     </button>
                     <button
                       onClick={() => handleExportToExcel()}
-                      disabled={selectedResponsesSectionIds.length === 0}
+                      disabled={selectedResponsesSectionIds.length === 0 || isExporting}
                       className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2"
                     >
-                      <Download className="w-4 h-4" />
-                      <span className="hidden xs:inline">Export</span>
+                      {isExporting ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      ) : (
+                        <Download className="w-4 h-4" />
+                      )}
+                      <span className="hidden xs:inline">
+                        {isExporting ? "Exporting..." : "Export"}
+                      </span>
                     </button>
                     {selectedResponseIds.length > 0 && !isGuest && (
                       <>
