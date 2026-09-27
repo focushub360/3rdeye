@@ -31,6 +31,11 @@ const API_BASE_URL = (() => {
       return "https://3-w-s53g.vercel.app/api";
     }
 
+    // Direct IP or self-hosted Lightsail server
+    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
+      return `${window.location.origin}/api`;
+    }
+
     // Production backend on AWS EC2
     return "https://www.focus3rdeye.com/api";
   };
@@ -539,8 +544,14 @@ class ApiClient {
     return { success: true, data };
   }
 
-  private ensureAbsoluteFileUrl(value: string) {
-    if (!value) {
+  private ensureAbsoluteFileUrl(value: any) {
+    if (!value || typeof value !== "string") {
+      if (value && typeof value === "object") {
+        const candidate = value.url || value.publicUrl || value.secureUrl || value.location;
+        if (typeof candidate === "string" && candidate) {
+          return this.ensureAbsoluteFileUrl(candidate);
+        }
+      }
       return "";
     }
     if (

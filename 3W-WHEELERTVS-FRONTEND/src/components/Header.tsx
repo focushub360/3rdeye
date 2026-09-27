@@ -117,7 +117,7 @@ export default function Header() {
 
       // For inspector/subadmin, check if they have ANY analytics permission for this form
       if (permissionSet.has(`analytics:form:${formId}`)) return true;
-      const subTypes = ['preview', 'response', 'dashboard', 'overall', 'questions', 'sections'];
+      const subTypes = ['preview', 'edit', 'response', 'dashboard', 'overall', 'questions', 'sections', 'uploads', 'duplicate', 'delete'];
       for (const subType of subTypes) {
         if (permissionSet.has(`analytics:form:${formId}:${subType}`)) {
           return true;

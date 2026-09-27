@@ -95,9 +95,28 @@ export default function RoleForm({ onSubmit, initialData, forms = [] }: RoleForm
             type="checkbox"
             id="canCreateForms"
             checked={formData.canCreateForms}
-            onChange={(e) =>
-              setFormData({ ...formData, canCreateForms: e.target.checked })
-            }
+            onChange={(e) => {
+              const checked = e.target.checked;
+              const nextPerms = new Set(formData.permissions);
+              if (checked) {
+                nextPerms.add("analytics:createService");
+                nextPerms.add("analytics:manageForms");
+                nextPerms.add("analytics:editForms");
+                nextPerms.add("analytics:duplicateForms");
+                nextPerms.add("analytics:deleteForms");
+              } else {
+                nextPerms.delete("analytics:createService");
+                nextPerms.delete("analytics:manageForms");
+                nextPerms.delete("analytics:editForms");
+                nextPerms.delete("analytics:duplicateForms");
+                nextPerms.delete("analytics:deleteForms");
+              }
+              setFormData({
+                ...formData,
+                canCreateForms: checked,
+                permissions: nextPerms,
+              });
+            }}
             className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-700 border-gray-300 cursor-pointer animate-none"
           />
           <label htmlFor="canCreateForms" className="text-sm font-semibold text-gray-700 dark:text-gray-350 cursor-pointer select-none">

@@ -153,14 +153,50 @@ export default function FormsAnalytics() {
       return true; // Default available for all users!
     }
 
-    if (userPermissions.includes('analytics:view') || userPermissions.includes('analytics:*')) {
+    if (subType === 'edit' && (
+      userPermissions.includes('analytics:editForms') ||
+      userPermissions.includes('analytics:manageForms') ||
+      userPermissions.includes('analytics:manage') ||
+      userPermissions.includes('analytics:edit') ||
+      userPermissions.includes('analytics:*')
+    )) {
       return true;
+    }
+
+    if (subType === 'duplicate' && (
+      userPermissions.includes('analytics:duplicateForms') ||
+      userPermissions.includes('analytics:manageForms') ||
+      userPermissions.includes('analytics:manage') ||
+      userPermissions.includes('analytics:duplicate') ||
+      userPermissions.includes('analytics:*')
+    )) {
+      return true;
+    }
+
+    if (subType === 'delete' && (
+      userPermissions.includes('analytics:deleteForms') ||
+      userPermissions.includes('analytics:manageForms') ||
+      userPermissions.includes('analytics:manage') ||
+      userPermissions.includes('analytics:delete') ||
+      userPermissions.includes('analytics:*')
+    )) {
+      return true;
+    }
+
+    if (userPermissions.includes('analytics:view') || userPermissions.includes('analytics:*')) {
+      if (subType === 'edit' || subType === 'delete' || subType === 'duplicate') {
+        if (userPermissions.includes('analytics:manage') || userPermissions.includes('analytics:manageForms') || userPermissions.includes('analytics:*')) {
+          return true;
+        }
+      } else {
+        return true;
+      }
     }
 
     for (const fId of idsToCheck) {
       if (
         userPermissions.includes(`analytics:form:${fId}:${subType}`) ||
-        userPermissions.includes(`analytics:form:${fId}`)
+        (userPermissions.includes(`analytics:form:${fId}`) && subType !== 'delete')
       ) {
         return true;
       }
@@ -193,7 +229,7 @@ export default function FormsAnalytics() {
         userPermissions.includes(`analytics:form:${fId}:no_preview`) ||
         userPermissions.includes(`analytics:form:${fId}:deny_preview`)
       ) {
-        const subTypes = ['response', 'dashboard', 'overall', 'questions', 'sections'];
+        const subTypes = ['response', 'dashboard', 'overall', 'questions', 'sections', 'edit', 'duplicate', 'delete', 'uploads'];
         if (userPermissions.includes(`analytics:form:${fId}`)) return true;
         for (const subType of subTypes) {
           if (userPermissions.includes(`analytics:form:${fId}:${subType}`)) {
@@ -212,6 +248,10 @@ export default function FormsAnalytics() {
   const canDownloadTemplate = hasPermission('analytics:downloadTemplate');
   const canImportExcel = hasPermission('analytics:importExcel');
   const canCreateServiceForm = hasPermission('analytics:createService');
+  const canGlobalManageForms = hasPermission('analytics:manageForms') || hasPermission('analytics:manage');
+  const canGlobalEditForms = hasPermission('analytics:editForms') || hasPermission('analytics:edit') || canGlobalManageForms;
+  const canGlobalDuplicateForms = hasPermission('analytics:duplicateForms') || hasPermission('analytics:duplicate') || canGlobalManageForms;
+  const canGlobalDeleteForms = hasPermission('analytics:deleteForms') || hasPermission('analytics:delete') || canGlobalManageForms;
   const canViewDashboard = hasPermission('dashboard:view');
   const canViewOverall = hasPermission('Overall:view');
 
@@ -220,16 +260,18 @@ export default function FormsAnalytics() {
   const canManage = 
     (user?.role === "admin" || 
      user?.role === "superadmin" || 
-     user?.role === "subadmin") && 
+     user?.role === "subadmin" ||
+     canGlobalManageForms) && 
     !isInspector;
   
   const canBulkSelectResponses = 
     user?.role === "superadmin" ||
     (user?.role === "admin" && user?.granularPermissions?.canBulkSelectResponses === true);
   
-  // Check if user can edit/delete forms (admin or superadmin)
-  const canEdit = user?.role === "admin" || user?.role === "superadmin";
-  const canDelete = user?.role === "admin" || user?.role === "superadmin";
+  // Check if user can edit/delete forms (admin or superadmin or granted global permissions)
+  const canEdit = user?.role === "admin" || user?.role === "superadmin" || canGlobalEditForms;
+  const canDelete = user?.role === "admin" || user?.role === "superadmin" || canGlobalDeleteForms;
+  const canDuplicate = canEdit || canGlobalDuplicateForms;
 
   const { showSuccess, showError, showConfirm } = useNotification();
   const [searchTerm, setSearchTerm] = useState("");
@@ -315,7 +357,7 @@ export default function FormsAnalytics() {
     }
   };
 
-  const handleOpenAddFollowUpModal = (parentForm: any, existingChildren: any[] = []) => {
+  const handleOpenAddFollowUpModal = async (parentForm: any, existingChildren: any[] = []) => {
     setTargetParentForm(parentForm);
     const count = existingChildren?.length || 0;
     setTargetChildrenCount(count);
@@ -330,6 +372,23 @@ export default function FormsAnalytics() {
     setActiveFollowUpTab("create");
     setSelectedExistingFormId("");
     setAddFollowUpModalOpen(true);
+
+    // If sections are missing or empty, fetch the full form from backend to populate question/section count
+    const parentId = parentForm._id || parentForm.id;
+    if (parentId && (!parentForm.sections || parentForm.sections.length === 0)) {
+      try {
+        const res = await apiClient.getForm(parentId);
+        const fullForm = (res as any)?.form || (res as any)?.data?.form || res;
+        if (fullForm?.sections?.length) {
+          setTargetParentForm((prev: any) => ({
+            ...prev,
+            ...fullForm,
+          }));
+        }
+      } catch (err) {
+        console.warn("Could not fetch full parent form details:", err);
+      }
+    }
   };
 
 
@@ -511,9 +570,22 @@ export default function FormsAnalytics() {
           ? targetParentForm.tenantId?._id
           : targetParentForm.tenantId || user?.tenantId;
 
+      let parentSections = targetParentForm.sections || [];
+      if (followUpSource === "parent" && parentSections.length === 0) {
+        try {
+          const res = await apiClient.getForm(parentId);
+          const fullForm = (res as any)?.form || (res as any)?.data?.form || res;
+          if (fullForm?.sections?.length) {
+            parentSections = fullForm.sections;
+          }
+        } catch (err) {
+          console.warn("Could not fetch full parent form sections on create:", err);
+        }
+      }
+
       let sections = [];
-      if (followUpSource === "parent" && targetParentForm.sections?.length > 0) {
-        sections = targetParentForm.sections.map((sec: any, sIdx: number) => ({
+      if (followUpSource === "parent" && parentSections.length > 0) {
+        sections = parentSections.map((sec: any, sIdx: number) => ({
           ...sec,
           id: crypto.randomUUID(),
           questions: (sec.questions || []).map((q: any, qIdx: number) => {
@@ -1488,6 +1560,10 @@ export default function FormsAnalytics() {
             const hasOverallPermission = hasFormAnalyticsPermission(parent, 'overall');
             const hasQuestionsPermission = hasFormAnalyticsPermission(parent, 'questions');
             const hasSectionsPermission = hasFormAnalyticsPermission(parent, 'sections');
+            const hasEditPermission = hasFormAnalyticsPermission(parent, 'edit');
+            const hasDuplicatePermission = hasFormAnalyticsPermission(parent, 'duplicate');
+            const hasDeletePermission = hasFormAnalyticsPermission(parent, 'delete');
+            const hasUploadsPermission = hasFormAnalyticsPermission(parent, 'uploads');
 
             const ownerTenantId =
               typeof parent.tenantId === "object"
@@ -1948,7 +2024,7 @@ export default function FormsAnalytics() {
                             <span>View</span>
                           </button>
                         )}
-                        {canEdit && (hasPreviewPermission || hasResponsePermission) && (
+                        {(canEdit || hasEditPermission) && (
                           <button
                             onClick={() => navigate(`/forms/${formId}/edit`)}
                             className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-primary-600 rounded-lg transition-colors hover:bg-primary-700 flex items-center justify-center gap-1.5"
@@ -1968,14 +2044,16 @@ export default function FormsAnalytics() {
                             <span>Analytics</span>
                           </button>
                         )}
-                        <button
-                          onClick={() => navigate(`/forms/${formId}/uploads`)}
-                          className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-primary-600 rounded-lg transition-colors hover:bg-primary-700 flex items-center justify-center gap-1.5"
-                          title="View uploads"
-                        >
-                          <Folder className="w-3.5 h-3.5" />
-                          <span>Uploads</span>
-                        </button>
+                        {(canManage || hasUploadsPermission || hasResponsePermission) && (
+                          <button
+                            onClick={() => navigate(`/forms/${formId}/uploads`)}
+                            className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-primary-600 rounded-lg transition-colors hover:bg-primary-700 flex items-center justify-center gap-1.5"
+                            title="View uploads"
+                          >
+                            <Folder className="w-3.5 h-3.5" />
+                            <span>Uploads</span>
+                          </button>
+                        )}
                       </>
                     )}
 
@@ -1991,6 +2069,16 @@ export default function FormsAnalytics() {
                             <span>Review</span>
                           </button>
                         )}
+                        {hasEditPermission && (
+                          <button
+                            onClick={() => navigate(`/forms/${formId}/edit`)}
+                            className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-indigo-600 rounded-lg transition-colors hover:bg-indigo-700 flex items-center justify-center gap-1.5"
+                            title="Edit form"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </button>
+                        )}
                         {(hasPreviewPermission || hasResponsePermission || hasDashboardPermission || hasOverallPermission || hasQuestionsPermission || hasSectionsPermission) && (
                           <button
                             onClick={() => navigate(`/forms/${formId}/analytics`)}
@@ -2001,14 +2089,16 @@ export default function FormsAnalytics() {
                             <span>Analytics</span>
                           </button>
                         )}
-                        <button
-                          onClick={() => navigate(`/forms/${formId}/uploads`)}
-                          className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-indigo-600 rounded-lg transition-colors hover:bg-indigo-700 flex items-center justify-center gap-1.5"
-                          title="View Shared Uploads"
-                        >
-                          <Folder className="w-3.5 h-3.5" />
-                          <span>Uploads</span>
-                        </button>
+                        {(hasUploadsPermission || hasResponsePermission) && (
+                          <button
+                            onClick={() => navigate(`/forms/${formId}/uploads`)}
+                            className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-indigo-600 rounded-lg transition-colors hover:bg-indigo-700 flex items-center justify-center gap-1.5"
+                            title="View Shared Uploads"
+                          >
+                            <Folder className="w-3.5 h-3.5" />
+                            <span>Uploads</span>
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -2037,35 +2127,39 @@ export default function FormsAnalytics() {
                       </button>
                     )}
 
-                    {isOwner && canDelete && (
+                    {(((isOwner && canDelete) || hasDuplicatePermission || hasDeletePermission)) && (
                       <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                        <button
-                          onClick={() => handleDuplicate(formId)}
-                          className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-primary-600 rounded-lg transition-colors hover:bg-primary-700 flex items-center justify-center gap-1.5"
-                          title="Duplicate form"
-                          disabled={duplicateMutation.loading}
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Duplicate</span>
-                        </button>
-                        <button
-                          onClick={() => handleDelete(formId, parent.title)}
-                          className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-red-600 rounded-lg transition-colors hover:bg-red-700 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Delete form"
-                          disabled={deleteMutation.loading && deletingFormId === formId}
-                        >
-                          {deleteMutation.loading && deletingFormId === formId ? (
-                            <>
-                              <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                              <span>Deleting...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Delete</span>
-                            </>
-                          )}
-                        </button>
+                        {((isOwner && canEdit) || hasDuplicatePermission) && (
+                          <button
+                            onClick={() => handleDuplicate(formId)}
+                            className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-primary-600 rounded-lg transition-colors hover:bg-primary-700 flex items-center justify-center gap-1.5"
+                            title="Duplicate form"
+                            disabled={duplicateMutation.loading}
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Duplicate</span>
+                          </button>
+                        )}
+                        {((isOwner && canDelete) || hasDeletePermission) && (
+                          <button
+                            onClick={() => handleDelete(formId, parent.title)}
+                            className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-red-600 rounded-lg transition-colors hover:bg-red-700 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Delete form"
+                            disabled={deleteMutation.loading && deletingFormId === formId}
+                          >
+                            {deleteMutation.loading && deletingFormId === formId ? (
+                              <>
+                                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                <span>Deleting...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Delete</span>
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2131,6 +2225,10 @@ export default function FormsAnalytics() {
                         const childHasOverallPermission = hasFormAnalyticsPermission(childId, 'overall');
                         const childHasQuestionsPermission = hasFormAnalyticsPermission(childId, 'questions');
                         const childHasSectionsPermission = hasFormAnalyticsPermission(childId, 'sections');
+                        const childHasEditPermission = hasFormAnalyticsPermission(childId, 'edit');
+                        const childHasDuplicatePermission = hasFormAnalyticsPermission(childId, 'duplicate');
+                        const childHasDeletePermission = hasFormAnalyticsPermission(childId, 'delete');
+                        const childHasUploadsPermission = hasFormAnalyticsPermission(childId, 'uploads');
 
                         return (
                           <div
@@ -2203,7 +2301,7 @@ export default function FormsAnalytics() {
                                     View
                                   </button>
                                 )}
-                                {isOwner && canEdit && childHasResponsePermission && (
+                                {((isOwner && canEdit) || childHasEditPermission) && (
                                   <button
                                     onClick={() =>
                                       navigate(`/forms/${childId}/edit`)
@@ -2250,7 +2348,7 @@ export default function FormsAnalytics() {
                                     <Plus className="w-3.5 h-3.5" />
                                   </button>
                                 )}
-                                {isOwner && (
+                                {((isOwner && canDelete) || childHasDeletePermission) && (
                                   <button
                                     onClick={() =>
                                       handleDelete(childId, child.title || "")

@@ -39,6 +39,16 @@ export function isImageUrl(url: string): boolean {
 
   const trimmed = url.trim().toLowerCase();
 
+  // Data URLs for images
+  if (trimmed.startsWith("data:image/")) {
+    return true;
+  }
+
+  // Blob URLs
+  if (trimmed.startsWith("blob:")) {
+    return true;
+  }
+
   const imageExtensions = [
     ".jpg",
     ".jpeg",
@@ -47,18 +57,32 @@ export function isImageUrl(url: string): boolean {
     ".webp",
     ".bmp",
     ".svg",
+    ".tiff",
+    ".jfif",
+    ".ico",
+    ".heic",
+    ".avif",
   ];
-  if (imageExtensions.some((ext) => trimmed.endsWith(ext))) {
+
+  // Strip query string and hash before checking extensions
+  const cleanPath = trimmed.split("?")[0].split("#")[0];
+  if (imageExtensions.some((ext) => cleanPath.endsWith(ext) || trimmed.includes(ext))) {
     return true;
   }
 
-  if (trimmed.includes("drive.google.com")) {
-    return true;
-  }
-
+  // Backend file upload endpoints, S3, Cloudinary, CDN, Google Drive
   if (
+    trimmed.includes("/api/files/") ||
+    trimmed.includes("/api/files/download/") ||
+    trimmed.includes("/files/") ||
+    trimmed.includes("/uploads/") ||
+    trimmed.includes("/images/") ||
+    trimmed.includes("focus_forms/response_images/") ||
+    trimmed.includes("drive.google.com") ||
+    trimmed.includes("googleusercontent.com") ||
     trimmed.includes("imgur.com") ||
     trimmed.includes("cloudinary.com") ||
+    trimmed.includes("res.cloudinary.com") ||
     trimmed.includes("s3.amazonaws.com") ||
     trimmed.includes("cdn.") ||
     trimmed.includes("cloudfront.net")

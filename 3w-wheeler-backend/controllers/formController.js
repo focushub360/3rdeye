@@ -361,10 +361,11 @@ export const createForm = async (req, res) => {
       });
     }
 
-    console.error('Unhandled error:', error);
+    console.error('Unhandled error in createForm:', error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: error.message || 'Internal server error',
+      error: error.message
     });
   }
 };
@@ -1004,10 +1005,23 @@ export const updateForm = async (req, res) => {
     // Check permissions
     if (form.createdBy && req.user._id && form.createdBy.toString() !== req.user._id.toString() &&
       req.user.role !== 'admin' && req.user.role !== 'superadmin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. You can only edit your own forms.'
-      });
+      const userPerms = req.user.permissions || [];
+      const formIdStr = form._id?.toString();
+      const customIdStr = form.id?.toString();
+      const hasEditPerm = userPerms.includes(`analytics:form:${formIdStr}:edit`) ||
+        (customIdStr && userPerms.includes(`analytics:form:${customIdStr}:edit`)) ||
+        userPerms.includes(`analytics:form:${formIdStr}`) ||
+        userPerms.includes('analytics:editForms') ||
+        userPerms.includes('analytics:manageForms') ||
+        userPerms.includes('analytics:manage') ||
+        userPerms.includes('analytics:edit') ||
+        userPerms.includes('analytics:*');
+      if (!hasEditPerm) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. You do not have permission to edit this form.'
+        });
+      }
     }
 
     // For admin, ensure they can only edit forms in their tenant
@@ -1127,12 +1141,24 @@ export const deleteForm = async (req, res) => {
     const formCreatorIdStr = (form.createdBy?._id || form.createdBy)?.toString();
     const userIdStr = (req.user._id)?.toString();
 
-    // Check permissions: Non-admin/superadmin can only delete their own forms
+    // Check permissions: Non-admin/superadmin can only delete if creator or granted permission
     if (!isAdmin && !isSuperAdmin) {
-      if (!formCreatorIdStr || formCreatorIdStr !== userIdStr) {
+      const userPerms = req.user.permissions || [];
+      const formIdStr = form._id?.toString();
+      const customIdStr = form.id?.toString();
+      const isCreator = formCreatorIdStr && formCreatorIdStr === userIdStr;
+      const hasDeletePerm = isCreator ||
+        userPerms.includes(`analytics:form:${formIdStr}:delete`) ||
+        (customIdStr && userPerms.includes(`analytics:form:${customIdStr}:delete`)) ||
+        userPerms.includes('analytics:deleteForms') ||
+        userPerms.includes('analytics:manageForms') ||
+        userPerms.includes('analytics:manage') ||
+        userPerms.includes('analytics:delete') ||
+        userPerms.includes('analytics:*');
+      if (!hasDeletePerm) {
         return res.status(403).json({
           success: false,
-          message: 'Access denied. You can only delete your own forms.'
+          message: 'Access denied. You do not have permission to delete this form.'
         });
       }
     }
@@ -1477,6 +1503,33 @@ export const duplicateForm = async (req, res) => {
         success: false,
         message: 'Form not found'
       });
+    }
+
+    // Check duplicate permissions for non-admin
+    const isSuperAdmin = req.user.role === 'superadmin';
+    const isAdmin = req.user.role === 'admin';
+    if (!isAdmin && !isSuperAdmin) {
+      const userPerms = req.user.permissions || [];
+      const formIdStr = originalForm._id?.toString();
+      const customIdStr = originalForm.id?.toString();
+      const formCreatorIdStr = (originalForm.createdBy?._id || originalForm.createdBy)?.toString();
+      const userIdStr = (req.user._id)?.toString();
+      const isCreator = formCreatorIdStr && formCreatorIdStr === userIdStr;
+      const hasDupPerm = isCreator ||
+        userPerms.includes(`analytics:form:${formIdStr}:duplicate`) ||
+        (customIdStr && userPerms.includes(`analytics:form:${customIdStr}:duplicate`)) ||
+        userPerms.includes(`analytics:form:${formIdStr}`) ||
+        userPerms.includes('analytics:duplicateForms') ||
+        userPerms.includes('analytics:manageForms') ||
+        userPerms.includes('analytics:manage') ||
+        userPerms.includes('analytics:duplicate') ||
+        userPerms.includes('analytics:*');
+      if (!hasDupPerm) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. You do not have permission to duplicate this form.'
+        });
+      }
     }
 
     // Create duplicate

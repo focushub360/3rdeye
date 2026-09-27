@@ -69,6 +69,51 @@ export default function FormsManagementNew() {
   const isSubAdmin = user?.role === "subadmin";
   const canManage = user?.role === "admin" || user?.role === "superadmin" || user?.role === "subadmin";
   const canEdit = canManage && !isInspector;
+  const userPermissions = (user as any)?.permissions || [];
+  const canEditForm = (formId?: string) => {
+    if (canEdit) return true;
+    if (
+      userPermissions.includes('analytics:editForms') ||
+      userPermissions.includes('analytics:manageForms') ||
+      userPermissions.includes('analytics:manage') ||
+      userPermissions.includes('analytics:edit') ||
+      userPermissions.includes('analytics:*')
+    ) return true;
+    if (!formId) return false;
+    return (
+      userPermissions.includes(`analytics:form:${formId}:edit`) ||
+      userPermissions.includes(`analytics:form:${formId}`)
+    );
+  };
+  const canDuplicateForm = (formId?: string) => {
+    if (canEdit) return true;
+    if (
+      userPermissions.includes('analytics:duplicateForms') ||
+      userPermissions.includes('analytics:manageForms') ||
+      userPermissions.includes('analytics:manage') ||
+      userPermissions.includes('analytics:duplicate') ||
+      userPermissions.includes('analytics:*')
+    ) return true;
+    if (!formId) return false;
+    return (
+      userPermissions.includes(`analytics:form:${formId}:duplicate`) ||
+      userPermissions.includes(`analytics:form:${formId}`)
+    );
+  };
+  const canDeleteForm = (formId?: string) => {
+    if (canEdit) return true;
+    if (
+      userPermissions.includes('analytics:deleteForms') ||
+      userPermissions.includes('analytics:manageForms') ||
+      userPermissions.includes('analytics:manage') ||
+      userPermissions.includes('analytics:delete') ||
+      userPermissions.includes('analytics:*')
+    ) return true;
+    if (!formId) return false;
+    return (
+      userPermissions.includes(`analytics:form:${formId}:delete`)
+    );
+  };
   const [searchTerm, setSearchTerm] = useState("");
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [showChildFormsModal, setShowChildFormsModal] = useState(false);
@@ -490,7 +535,7 @@ export default function FormsManagementNew() {
           >
             View
           </button>
-          {canEdit && (
+          {canEditForm(form._id) && (
             <button
               onClick={() => handleEditForm(form._id)}
               className="p-2 text-primary-600 hover:text-primary-800 hover:bg-primary-50 rounded-lg transition-colors"
@@ -520,7 +565,7 @@ export default function FormsManagementNew() {
               <Download className={isChild ? "w-3 h-3" : "w-4 h-4"} />
             )}
           </button>
-          {canEdit && (
+          {canDuplicateForm(form._id) && (
             <button
               onClick={() => handleDuplicate(form._id)}
               className="p-2 text-primary-600 hover:text-primary-800 hover:bg-primary-50 rounded-lg transition-colors"
@@ -530,7 +575,7 @@ export default function FormsManagementNew() {
               <Copy className={isChild ? "w-3 h-3" : "w-4 h-4"} />
             </button>
           )}
-          {canEdit && (
+          {canDeleteForm(form._id) && (
             <button
               onClick={() => handleDelete(form._id, form.title)}
               className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"

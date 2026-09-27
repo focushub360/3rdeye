@@ -16,6 +16,22 @@ if (typeof window !== "undefined") {
       );
     };
   }
+  if (typeof (Object.prototype as any).startsWith === "undefined") {
+    Object.defineProperty(Object.prototype, "startsWith", {
+      value: function (search: any, pos?: any) {
+        if (typeof this === "string") return String.prototype.startsWith.call(this, search, pos);
+        try {
+          if (this && typeof (this as any).id === "string") return (this as any).id.startsWith(search, pos);
+          if (this && typeof (this as any).url === "string") return (this as any).url.startsWith(search, pos);
+          return String(this).startsWith(search, pos);
+        } catch {
+          return false;
+        }
+      },
+      configurable: true,
+      writable: true,
+    });
+  }
 }
 
 import { StrictMode } from "react";

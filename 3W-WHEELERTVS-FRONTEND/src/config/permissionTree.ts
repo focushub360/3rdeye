@@ -5,14 +5,18 @@ export interface PermissionNode {
   children?: PermissionNode[];
 }
 
-/** Fixed sub-tabs shown for every individual form under Service Analytics */
+/** Fixed sub-tabs and action options shown for every individual form under Service Analytics */
 const ANALYTICS_FORM_SUBTABS: Array<{ suffix: string; label: string }> = [
   { suffix: "preview", label: "Preview" },
+  { suffix: "edit", label: "Edit" },
   { suffix: "response", label: "Response" },
   { suffix: "dashboard", label: "Dashboard" },
   { suffix: "overall", label: "Overall" },
   { suffix: "questions", label: "Questions" },
   { suffix: "sections", label: "Sections" },
+  { suffix: "uploads", label: "Uploads" },
+  { suffix: "duplicate", label: "Duplicate" },
+  { suffix: "delete", label: "Delete" },
 ];
 
 /** Global Service Analytics actions (not form-specific) */
@@ -20,6 +24,10 @@ const ANALYTICS_GLOBAL_ACTIONS: Array<{ id: string; label: string }> = [
   { id: "analytics:downloadTemplate", label: "Download Follow-up Only Template" },
   { id: "analytics:importExcel", label: "Import Form (Excel)" },
   { id: "analytics:createService", label: "Create New Service Form" },
+  { id: "analytics:manageForms", label: "Manage Forms" },
+  { id: "analytics:editForms", label: "Edit Forms" },
+  { id: "analytics:duplicateForms", label: "Duplicate Forms" },
+  { id: "analytics:deleteForms", label: "Delete Forms" },
 ];
 
 export interface FormLike {

@@ -35,7 +35,21 @@ const isImageSource = (source: string) => {
   if (source.startsWith("data:")) {
     return source.startsWith("data:image");
   }
-  return /\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i.test(source.split("?")[0]);
+  const clean = source.split("?")[0].split("#")[0].toLowerCase();
+  if (/\.(png|jpg|jpeg|gif|bmp|webp|svg|tiff|jfif|ico|heic|avif)$/i.test(clean)) {
+    return true;
+  }
+  if (
+    clean.includes("/api/files/") ||
+    clean.includes("/files/") ||
+    clean.includes("/uploads/") ||
+    clean.includes("/images/") ||
+    clean.includes("cloudinary.com") ||
+    clean.includes("cloudfront.net")
+  ) {
+    return true;
+  }
+  return false;
 };
 
 const isPdfSource = (source: string) => {

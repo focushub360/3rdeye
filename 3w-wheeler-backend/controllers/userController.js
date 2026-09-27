@@ -54,6 +54,14 @@ const isValidPermissionKey = (permission) => {
     'analytics:downloadTemplate',
     'analytics:importExcel',
     'analytics:createService',
+    'analytics:manageForms',
+    'analytics:editForms',
+    'analytics:duplicateForms',
+    'analytics:deleteForms',
+    'analytics:manage',
+    'analytics:edit',
+    'analytics:duplicate',
+    'analytics:delete',
     // Customer requests & analytics legacy keys
     'analytics:view',
     'requests:view',
@@ -69,7 +77,7 @@ const isValidPermissionKey = (permission) => {
 
   // Check if it's a dynamic analytics form permission
   // Pattern: analytics:form:<formId>:<subType> or analytics:form:<formId>
-  const analyticsFormPattern = /^analytics:form:[a-zA-Z0-9_-]+:(preview|response|dashboard|overall|questions|sections)$/;
+  const analyticsFormPattern = /^analytics:form:[a-zA-Z0-9_-]+:(preview|response|dashboard|overall|questions|sections|edit|duplicate|delete|uploads)$/;
   const analyticsFormParentPattern = /^analytics:form:[a-zA-Z0-9_-]+$/;
   if (analyticsFormPattern.test(permission) || analyticsFormParentPattern.test(permission)) {
     return true;

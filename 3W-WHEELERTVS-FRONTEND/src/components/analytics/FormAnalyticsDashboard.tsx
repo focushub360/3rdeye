@@ -2621,63 +2621,87 @@ export default function FormAnalyticsDashboard() {
           ? `${value.chassisNumber} — ${value.partDescription}`
           : String(value.chassisNumber);
       }
-      return JSON.stringify(value);
+      if (value.value !== undefined && value.value !== null && typeof value.value !== "object") {
+        return String(value.value);
+      }
+      // If it's a defect inspection object (with status, remark, evidenceUrl), it's NOT a chassis!
+      if (value.status !== undefined || value.remark !== undefined || value.evidenceUrl !== undefined || value.defect !== undefined) {
+        return "-";
+      }
+      return "-";
     }
-    return String(value);
+    const str = String(value).trim();
+    if (str.startsWith("{") && str.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(str);
+        if (parsed.chassisNumber) return String(parsed.chassisNumber);
+        if (parsed.value) return String(parsed.value);
+        if (parsed.status !== undefined) return "-";
+      } catch {}
+    }
+    return str;
   };
 
   const chassisQuestionId = useMemo(() => {
     if (!form?.sections) {
       return null;
     }
-    // Priority 1: Explicit tracking flag
+    // Priority 1: Explicit tracking flag (exclude defect inspection questions like zone-in / zone-out)
     for (const section of form.sections) {
       if (section.questions) {
         for (const q of section.questions) {
           if (
-            q.trackResponseRank === true ||
-            q.trackResponseRank === "true" ||
-            q.trackResponseQuestion === true ||
-            q.trackResponseQuestion === "true"
+            (q.trackResponseRank === true ||
+              q.trackResponseRank === "true" ||
+              q.trackResponseQuestion === true ||
+              q.trackResponseQuestion === "true") &&
+            q.type !== "zone-in" &&
+            q.type !== "zone-out"
           ) {
             return q.id;
           }
         }
       }
     }
-    // Priority 2: Specific chassis question types
+    // Priority 2: Question title/text explicitly mentioning Chassis or VIN (exclude defect inspection questions)
+    for (const section of form.sections) {
+      if (section.questions) {
+        for (const q of section.questions) {
+          const t = q.text?.toLowerCase() || "";
+          if (
+            (t.includes("chassis number") ||
+              t.includes("chassis no") ||
+              t.includes("chassis_number") ||
+              t.includes("vin") ||
+              t.trim() === "chassis") &&
+            q.type !== "zone-in" &&
+            q.type !== "zone-out"
+          ) {
+            return q.id;
+          }
+        }
+      }
+    }
+    // Priority 3: Specific dedicated chassis question types
     for (const section of form.sections) {
       if (section.questions) {
         for (const q of section.questions) {
           if (
             q.type === "chassis" ||
             q.type === "chassisWithZone" ||
-            q.type === "chassisWithoutZone" ||
-            q.type === "zone-in" ||
-            q.type === "zone-out"
+            q.type === "chassisWithoutZone"
           ) {
             return q.id;
           }
         }
       }
     }
-    // Priority 3: Chassis Number / Chassis No questions
+    // Priority 4: Other questions mentioning chassis (exclude zone-in/out)
     for (const section of form.sections) {
       if (section.questions) {
         for (const q of section.questions) {
           const t = q.text?.toLowerCase() || "";
-          if (t.includes("chassis number") || t.includes("chassis no") || t.includes("chassis_number")) {
-            return q.id;
-          }
-        }
-      }
-    }
-    // Priority 4: Other questions mentioning chassis
-    for (const section of form.sections) {
-      if (section.questions) {
-        for (const q of section.questions) {
-          const t = q.text?.toLowerCase() || "";
-          if (t.includes("chassis") && !t.includes("selected")) {
+          if (t.includes("chassis") && !t.includes("selected") && q.type !== "zone-in" && q.type !== "zone-out") {
             return q.id;
           }
         }
@@ -2689,13 +2713,15 @@ export default function FormAnalyticsDashboard() {
         for (const q of section.questions) {
           const t = q.text?.toLowerCase() || "";
           if (
-            t.includes("id number") ||
-            t.includes("id_number") ||
-            t.includes("id no") ||
-            t.includes("identification") ||
-            t.includes("vin") ||
-            t.includes("serial") ||
-            t.includes("vehicle")
+            (t.includes("id number") ||
+              t.includes("id_number") ||
+              t.includes("id no") ||
+              t.includes("identification") ||
+              t.includes("vin") ||
+              t.includes("serial") ||
+              t.includes("vehicle")) &&
+            q.type !== "zone-in" &&
+            q.type !== "zone-out"
           ) {
             return q.id;
           }
@@ -2735,33 +2761,60 @@ export default function FormAnalyticsDashboard() {
       return val;
     };
 
-    // 1. Check explicit "Selected Chassis" answer keys (chassis_number, selected_chassis)
+    // 1. Direct top-level r.chassisNumber
+    if (r.chassisNumber && typeof r.chassisNumber === "string" && r.chassisNumber.trim() !== "" && r.chassisNumber !== "N/A" && r.chassisNumber !== "-") {
+      return formatMasterMatch(r.chassisNumber.trim());
+    }
+
+    // 2. Question-level chassisQuestionId from form template (e.g. "Chassis Number" question)
+    if (chassisQuestionId && r.answers) {
+      if (r.answers[chassisQuestionId] !== undefined && r.answers[chassisQuestionId] !== null && r.answers[chassisQuestionId] !== "") {
+        const val = getChassisDisplayValue(r.answers[chassisQuestionId]);
+        if (val && val !== "-" && val !== "N/A" && val !== "None") return formatMasterMatch(val);
+      }
+      const trackingKey = `${chassisQuestionId}_tracking`;
+      if (r.answers[trackingKey] !== undefined && r.answers[trackingKey] !== null && r.answers[trackingKey] !== "") {
+        const val = getChassisDisplayValue(r.answers[trackingKey]);
+        if (val && val !== "-" && val !== "N/A" && val !== "None") return formatMasterMatch(val);
+      }
+    }
+
+    // 3. Check explicit "Selected Chassis" / "Chassis Number" answer keys
     const selectedKeys = [
       "chassis_number",
+      "chassisNumber",
       "selected_chassis",
       "selectedChassis",
       "Selected Chassis",
       "SELECTED CHASSIS",
       "selected_chassis_number",
+      "Chassis Number",
+      "CHASSIS NUMBER",
+      "Chassis / VIN",
+      "VIN",
+      "vin",
+      "chassis",
+      "Chassis",
+      "id_number",
+      "idNumber",
+      "ID NUMBER",
+      "ID Number",
+      "Serial Number",
+      "serialNumber"
     ];
     if (r.answers) {
       for (const k of selectedKeys) {
         const raw = r.answers[k];
         if (raw !== undefined && raw !== null && raw !== "") {
           const val = getChassisDisplayValue(raw);
-          if (val && val !== "-" && val !== "N/A") {
+          if (val && val !== "-" && val !== "N/A" && val !== "None") {
             return formatMasterMatch(val);
           }
         }
       }
     }
 
-    // 2. Direct top-level r.chassisNumber
-    if (r.chassisNumber && typeof r.chassisNumber === "string" && r.chassisNumber.trim() !== "" && r.chassisNumber !== "N/A") {
-      return formatMasterMatch(r.chassisNumber.trim());
-    }
-
-    // 3. Check if ANY answer in r.answers matches one of form.chassisNumbers (e.g. "Saify")
+    // 4. Check if ANY answer in r.answers matches one of form.chassisNumbers (e.g. "Saify")
     if (masterOptions.length > 0 && r.answers && typeof r.answers === "object") {
       for (const val of Object.values(r.answers)) {
         if (typeof val === "string" && val.trim()) {
@@ -2785,33 +2838,12 @@ export default function FormAnalyticsDashboard() {
           }
         }
       }
-      // If form only has 1 chassis configuration (e.g. "Saify"), use it
-      if (masterOptions.length === 1) {
+      // If form only has 1 chassis configuration (e.g. "Saify"), use it ONLY IF no specific chassis question exists
+      if (masterOptions.length === 1 && !chassisQuestionId) {
         const single = masterOptions[0];
         return single.partDescription
           ? `${single.chassisNumber} — ${single.partDescription}`
           : single.chassisNumber;
-      }
-    }
-
-    // 4. Fallback: Only if form has NO master chassis options, use question-level chassisQuestionId
-    if (chassisQuestionId && r.answers && r.answers[chassisQuestionId] !== undefined && r.answers[chassisQuestionId] !== null && r.answers[chassisQuestionId] !== "") {
-      const val = getChassisDisplayValue(r.answers[chassisQuestionId]);
-      if (val && val !== "-" && val !== "N/A") return val;
-    }
-
-    // 5. Fallback: Other known answer keys
-    if (r.answers) {
-      const directKeys = [
-        "chassisNumber", "chassis", "Chassis", "CHASSIS",
-        "id_number", "idNumber", "ID NUMBER", "ID Number", "Id Number", "id_no", "ID No", "ID NO",
-        "Chassis / VIN", "Chassis Number", "VIN", "vin", "Serial Number", "serialNumber"
-      ];
-      for (const k of directKeys) {
-        if (r.answers[k] !== undefined && r.answers[k] !== null && r.answers[k] !== "") {
-          const val = getChassisDisplayValue(r.answers[k]);
-          if (val && val !== "-" && val !== "N/A") return val;
-        }
       }
     }
 
@@ -2871,16 +2903,21 @@ export default function FormAnalyticsDashboard() {
         chassis_number: chassisEditValue,
         ...(chassisQuestionId ? { [chassisQuestionId]: chassisEditValue } : {})
       };
-      await apiClient.updateResponse(response.id, { 
+      const responseIdentifier = response.id || (response as any)._id;
+      await apiClient.updateResponse(responseIdentifier, { 
         answers: updatedAnswers,
         chassisNumber: chassisEditValue 
       });
 
-      setResponses((prev) =>
-        prev.map((r) =>
-          r.id === response.id ? { ...r, answers: updatedAnswers, chassisNumber: chassisEditValue } : r,
-        ),
-      );
+      const updateChassisMatcher = (r: Response) => {
+        const rId = r.id || (r as any)._id;
+        return rId === responseIdentifier || r.id === response.id || (r as any)._id === responseIdentifier
+          ? { ...r, answers: updatedAnswers, chassisNumber: chassisEditValue }
+          : r;
+      };
+
+      setResponses((prev) => prev.map(updateChassisMatcher));
+      setTableResponses((prev) => prev.map(updateChassisMatcher));
 
       setEditingChassisResponseId(null);
       setChassisEditValue("");
@@ -3209,7 +3246,8 @@ export default function FormAnalyticsDashboard() {
 
       // Update local state
       const biwReviewUpdate = (r: Response) => {
-        if (biwBulkUpdateTargetIds.includes(r.id)) {
+        const rId = r.id || (r as any)._id;
+        if (biwBulkUpdateTargetIds.includes(r.id) || (rId && biwBulkUpdateTargetIds.includes(rId))) {
           return {
             ...r,
             biwReview: biwBulkUpdateStatus === null ? undefined : {
@@ -3228,8 +3266,8 @@ export default function FormAnalyticsDashboard() {
       // Also update tableResponses so the table UI reflects the change immediately
       setTableResponses((prev) => prev.map(biwReviewUpdate));
 
-
       setSelectedResponseIds([]);
+      setSelectedBiwIds([]);
       showToast(
         biwBulkUpdateStatus === null
           ? `Cleared BIW review for ${result?.updatedCount ?? biwBulkUpdateTargetIds.length} response(s)`
@@ -3258,8 +3296,9 @@ export default function FormAnalyticsDashboard() {
       // first; fall back to the server-paginated `tableResponses`, which
       // always has the rows actually checked on this page.
       const resp =
-        responses.find((r) => r.id === id) ||
-        tableResponses.find((r) => r.id === id);
+        responses.find((r) => r.id === id || (r as any)._id === id) ||
+        tableResponses.find((r) => r.id === id || (r as any)._id === id) ||
+        displayedTableResponses.find((r) => r.id === id || (r as any)._id === id);
       if (resp) {
         if (status !== null && isSubmitterOfResponse(resp)) {
           selfSubmissionsCount++;
@@ -3284,9 +3323,10 @@ export default function FormAnalyticsDashboard() {
   };
 
   const handleBulkBiwReviewUpdateAll = (status: "Accepted" | "Rejected" | "Reworked" | null) => {
-    if (tableResponses.length === 0) return;
+    const sourceList = displayedTableResponses.length > 0 ? displayedTableResponses : tableResponses;
+    if (sourceList.length === 0) return;
 
-    const allIds = tableResponses.map((r) => r.id);
+    const allIds = sourceList.map((r) => r.id || (r as any)._id).filter(Boolean);
 
     const validResponseIds: string[] = [];
     let selfSubmissionsCount = 0;
@@ -3295,8 +3335,9 @@ export default function FormAnalyticsDashboard() {
       // Same fallback as above: tableResponses always has these rows since
       // allIds was derived from it directly.
       const resp =
-        responses.find((r) => r.id === id) ||
-        tableResponses.find((r) => r.id === id);
+        responses.find((r) => r.id === id || (r as any)._id === id) ||
+        tableResponses.find((r) => r.id === id || (r as any)._id === id) ||
+        displayedTableResponses.find((r) => r.id === id || (r as any)._id === id);
       if (resp) {
         if (status !== null && isSubmitterOfResponse(resp)) {
           selfSubmissionsCount++;
@@ -3347,15 +3388,26 @@ export default function FormAnalyticsDashboard() {
       const modifiedCount = result.modifiedCount ?? 0;
 
       // Reflect the change locally right away instead of waiting on a refetch
-      setResponses((prev) =>
-        prev.map((r) => {
-          const current = r.answers?.chassis_number;
-          const isEmpty = !current || String(current).trim() === "";
-          return isEmpty
-            ? { ...r, answers: { ...r.answers, chassis_number: defaultValue } }
-            : r;
-        }),
-      );
+      const updateChassisInResponse = (r: Response) => {
+        const current = getResponseChassisValue(r);
+        const isEmpty = !current || current === "-" || current === "N/A" || current === "None" || String(current).trim() === "";
+        if (!isEmpty) return r;
+        const newAnswers = { ...(r.answers || {}), chassis_number: defaultValue };
+        if (chassisQuestionId) {
+          newAnswers[chassisQuestionId] = defaultValue;
+        }
+        return {
+          ...r,
+          chassisNumber: defaultValue,
+          answers: newAnswers,
+        };
+      };
+
+      setResponses((prev) => prev.map(updateChassisInResponse));
+      setTableResponses((prev) => prev.map(updateChassisInResponse));
+      if (typeof fetchResponsesPage === "function" && currentResponsesPage) {
+        fetchResponsesPage(currentResponsesPage);
+      }
 
       showToast(
         modifiedCount > 0
@@ -4808,12 +4860,20 @@ export default function FormAnalyticsDashboard() {
     // 1. Explicit tracking question answer
     if (trackingQId && r.answers && r.answers[trackingQId] !== undefined && r.answers[trackingQId] !== null && r.answers[trackingQId] !== "") {
       const ans = r.answers[trackingQId];
-      const val = typeof ans === "object" ? (ans.chassisNumber || ans.value || ans.label || JSON.stringify(ans)) : String(ans).trim();
-      if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) return val.toLowerCase();
+      if (typeof ans === "object") {
+        const candidate = ans.chassisNumber || ans.value || ans.label;
+        if (candidate) {
+          const val = String(candidate).trim();
+          if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) return val.toLowerCase();
+        }
+      } else {
+        const val = String(ans).trim();
+        if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image") && !val.startsWith("{")) return val.toLowerCase();
+      }
     }
 
     // 2. Direct chassis/id properties
-    if (r.chassisNumber && typeof r.chassisNumber === "string" && r.chassisNumber.trim() !== "") {
+    if (r.chassisNumber && typeof r.chassisNumber === "string" && r.chassisNumber.trim() !== "" && r.chassisNumber !== "-" && r.chassisNumber !== "N/A") {
       return r.chassisNumber.trim().toLowerCase();
     }
 
@@ -4827,8 +4887,16 @@ export default function FormAnalyticsDashboard() {
       for (const k of directKeys) {
         if (r.answers[k] !== undefined && r.answers[k] !== null && r.answers[k] !== "") {
           const v = r.answers[k];
-          const val = typeof v === "object" ? (v.chassisNumber || v.value || v.label || JSON.stringify(v)) : String(v).trim();
-          if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) return val.toLowerCase();
+          if (typeof v === "object") {
+            const candidate = v.chassisNumber || v.value || v.label;
+            if (candidate) {
+              const val = String(candidate).trim();
+              if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) return val.toLowerCase();
+            }
+          } else {
+            const val = String(v).trim();
+            if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image") && !val.startsWith("{")) return val.toLowerCase();
+          }
         }
       }
     }
@@ -4838,6 +4906,7 @@ export default function FormAnalyticsDashboard() {
       for (const section of form.sections) {
         if (section.questions) {
           for (const q of section.questions) {
+            if (q.type === "zone-in" || q.type === "zone-out") continue;
             const t = (q.text || "").toLowerCase();
             const isTrackOrId =
               q.trackResponseRank === true || q.trackResponseRank === "true" ||
@@ -4846,9 +4915,17 @@ export default function FormAnalyticsDashboard() {
 
             if (isTrackOrId && r.answers[q.id] !== undefined && r.answers[q.id] !== null && r.answers[q.id] !== "") {
               const ans = r.answers[q.id];
-              const val = typeof ans === "object" ? (ans.chassisNumber || ans.value || ans.label || JSON.stringify(ans)) : String(ans).trim();
-              if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) {
-                return val.toLowerCase();
+              if (typeof ans === "object") {
+                const candidate = ans.chassisNumber || ans.value || ans.label;
+                if (candidate) {
+                  const val = String(candidate).trim();
+                  if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) return val.toLowerCase();
+                }
+              } else {
+                const val = String(ans).trim();
+                if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image") && !val.startsWith("{")) {
+                  return val.toLowerCase();
+                }
               }
             }
           }
@@ -6862,15 +6939,24 @@ export default function FormAnalyticsDashboard() {
           }
         }
 
-        // Handle evidenceUrl
+        // Handle evidenceUrl or other direct evidence fields
+        const directEvidence =
+          value.evidenceUrl ||
+          value.fileUrl ||
+          value.file ||
+          value.imageUrl ||
+          value.evidence ||
+          value.evidenceImage;
+
         if (
-          value.evidenceUrl &&
-          String(value.evidenceUrl).toLowerCase() !== "no response" &&
-          String(value.evidenceUrl).trim()
+          directEvidence &&
+          String(directEvidence).toLowerCase() !== "no response" &&
+          String(directEvidence).trim() &&
+          !parts.some((p) => p.label === "Evidence")
         ) {
           parts.push({
             label: "Evidence",
-            value: String(value.evidenceUrl),
+            value: String(directEvidence),
             zoneColor: "indigo",
             isImage: true,
           });
@@ -6906,8 +6992,8 @@ export default function FormAnalyticsDashboard() {
                     >
                       {part.label}
                     </span>
-                    {part.isImage ? (
-                      <ImageLink text={part.value} />
+                    {part.isImage || part.label === "Evidence" ? (
+                      <ImageLink text={part.value} isImage={true} showImage={true} />
                     ) : (
                       <span
                         className={`px-2 py-1 ${colorClass} text-xs rounded font-medium`}

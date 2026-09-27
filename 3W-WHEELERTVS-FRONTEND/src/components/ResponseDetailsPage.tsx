@@ -1074,8 +1074,8 @@ export default function ResponseDetailsPage() {
                                   <span className={`px-2 py-0.5 ${pc} text-xs rounded font-medium min-w-[70px]`}>
                                     {part.label}
                                   </span>
-                                  {part.isImage ? (
-                                    <ImageLink text={part.value} showImage={true} />
+                                  {part.isImage || part.label === 'Evidence' ? (
+                                    <ImageLink text={part.value} showImage={true} isImage={true} />
                                   ) : (
                                     <span className={`px-2 py-0.5 ${pc} text-xs rounded font-medium`}>
                                       {String(part.value)}

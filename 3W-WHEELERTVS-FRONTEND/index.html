@@ -24,6 +24,23 @@
           };
         }
       }
+      // Safe fallback for .startsWith on non-string objects/values
+      if (typeof Object.prototype.startsWith === "undefined") {
+        Object.defineProperty(Object.prototype, "startsWith", {
+          value: function (search, pos) {
+            if (typeof this === "string") return String.prototype.startsWith.call(this, search, pos);
+            try {
+              if (this && typeof this.id === "string") return this.id.startsWith(search, pos);
+              if (this && typeof this.url === "string") return this.url.startsWith(search, pos);
+              return String(this).startsWith(search, pos);
+            } catch (e) {
+              return false;
+            }
+          },
+          configurable: true,
+          writable: true,
+        });
+      }
     </script>
     <link rel="preconnect" href="https://3-w-s53g.vercel.app" />
     <link rel="dns-prefetch" href="https://3-w-s53g.vercel.app" />
