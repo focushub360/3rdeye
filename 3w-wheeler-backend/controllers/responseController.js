@@ -860,6 +860,62 @@ export const createResponse = async (req, res) => {
       }
     }
 
+    // ========== DUPLICATE SUBMISSION PREVENTION ==========
+    const targetSessionId = sessionId || formSession?.sessionId;
+    if (targetSessionId && !isSectionSubmit) {
+      const existingSessionResponse = await Response.findOne({
+        questionId,
+        $or: [
+          { sessionId: targetSessionId },
+          { 'submissionMetadata.sessionId': targetSessionId }
+        ]
+      });
+      if (existingSessionResponse) {
+        console.log(`[CREATE RESPONSE] Duplicate submission blocked: sessionId ${targetSessionId} already submitted as response ${existingSessionResponse.id}`);
+        const existingAnswers = existingSessionResponse.answers instanceof Map ? Object.fromEntries(existingSessionResponse.answers) : existingSessionResponse.answers;
+        return res.status(200).json({
+          success: true,
+          message: 'Response already submitted successfully',
+          data: {
+            response: {
+              ...existingSessionResponse.toObject(),
+              answers: existingAnswers
+            }
+          }
+        });
+      }
+    }
+
+    if (chassisVal && !isSectionSubmit) {
+      const recentWindow = new Date(Date.now() - 15 * 1000);
+      const duplicateFilter = {
+        questionId,
+        chassisNumber: chassisVal,
+        createdAt: { $gte: recentWindow },
+        isSectionSubmit: { $ne: true }
+      };
+      if (req.user?._id) {
+        duplicateFilter.createdBy = req.user._id;
+      } else if (displayName && displayName !== 'Anonymous') {
+        duplicateFilter.submittedBy = displayName;
+      }
+      const recentDuplicate = await Response.findOne(duplicateFilter);
+      if (recentDuplicate) {
+        console.log(`[CREATE RESPONSE] Rapid duplicate blocked for chassis ${chassisVal} on form ${questionId}`);
+        const dupAnswers = recentDuplicate.answers instanceof Map ? Object.fromEntries(recentDuplicate.answers) : recentDuplicate.answers;
+        return res.status(200).json({
+          success: true,
+          message: 'Response already submitted successfully',
+          data: {
+            response: {
+              ...recentDuplicate.toObject(),
+              answers: dupAnswers
+            }
+          }
+        });
+      }
+    }
+
     // ========== CREATE RESPONSE IMMEDIATELY FOR SUPER FAST SUBMISSION ==========
     const responseData = {
       id: uuidv4(),
@@ -3620,6 +3676,33 @@ export const getResponsesByForm = async (req, res) => {
       query.isSectionSubmit = { $ne: true };
     }
 
+    // Add normalized date range filter if provided
+    const { startDate, endDate } = req.query;
+    if (startDate || endDate) {
+      const dateFilterQuery = {};
+      if (startDate) {
+        const sDate = new Date(startDate);
+        sDate.setUTCHours(0, 0, 0, 0);
+        // 6-hour buffer before UTC midnight ensures morning shifts in IST (UTC+5:30) are included
+        const sDateBuffer = new Date(sDate.getTime() - 6 * 3600 * 1000);
+        dateFilterQuery.$gte = sDateBuffer;
+      }
+      if (endDate) {
+        const eDate = new Date(endDate);
+        eDate.setUTCHours(23, 59, 59, 999);
+        // 12-hour buffer covers night shifts extending past UTC day end
+        const eDateBuffer = new Date(eDate.getTime() + 12 * 3600 * 1000);
+        dateFilterQuery.$lte = eDateBuffer;
+      }
+      if (!query.$and) query.$and = [];
+      query.$and.push({
+        $or: [
+          { createdAt: dateFilterQuery },
+          { submittedAt: dateFilterQuery }
+        ]
+      });
+    }
+
     // Apply granular chassis filtering for chassis-shared users BEFORE querying MongoDB
     if (!isSuperAdmin && !isOwner && hasChassisShare && !isShared) {
       const myAssignedChassis = (form.chassisTenantAssignments || [])
@@ -4241,7 +4324,7 @@ export const getResponsesByForm = async (req, res) => {
 export const exportResponses = async (req, res) => {
   try {
     const { formId } = req.params;
-    const { format = 'json', status, includePartial = 'false' } = req.query;
+    const { format = 'json', status, includePartial = 'false', startDate, endDate } = req.query;
 
     // Verify form exists
     let formSearchQuery = { id: formId };
@@ -4308,6 +4391,29 @@ export const exportResponses = async (req, res) => {
 
     if (status && status !== 'all') {
       query.status = status;
+    }
+
+    if (startDate || endDate) {
+      const dateFilterQuery = {};
+      if (startDate) {
+        const sDate = new Date(startDate);
+        sDate.setUTCHours(0, 0, 0, 0);
+        const sDateBuffer = new Date(sDate.getTime() - 6 * 3600 * 1000);
+        dateFilterQuery.$gte = sDateBuffer;
+      }
+      if (endDate) {
+        const eDate = new Date(endDate);
+        eDate.setUTCHours(23, 59, 59, 999);
+        const eDateBuffer = new Date(eDate.getTime() + 12 * 3600 * 1000);
+        dateFilterQuery.$lte = eDateBuffer;
+      }
+      if (!query.$and) query.$and = [];
+      query.$and.push({
+        $or: [
+          { createdAt: dateFilterQuery },
+          { submittedAt: dateFilterQuery }
+        ]
+      });
     }
 
     let responses = await Response.find(query)

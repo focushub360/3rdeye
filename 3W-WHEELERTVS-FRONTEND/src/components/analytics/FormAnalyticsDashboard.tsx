@@ -210,6 +210,20 @@ const getResponseTimestamp = (response: Response): string | undefined => {
   return undefined;
 };
 
+// Formats timestamp into YYYY-MM-DD in the local timezone (preventing UTC shifts for shift/morning inspections)
+const toLocalDateString = (timestamp: any): string => {
+  if (!timestamp) return "";
+  if (typeof timestamp === "string" && /^\d{4}-\d{2}-\d{2}$/.test(timestamp)) {
+    return timestamp;
+  }
+  const d = new Date(timestamp);
+  if (isNaN(d.getTime())) return "";
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 interface Section {
   weightage(weightage: any): unknown;
   id: string;
@@ -1331,7 +1345,7 @@ const computeDailyPerformanceStats = (
     last.setHours(0, 0, 0, 0);
 
     while (curr <= last) {
-      const dKey = curr.toISOString().split("T")[0];
+      const dKey = toLocalDateString(curr);
       dailyMap.set(dKey, { total: 0, rework: 0, accepted: 0 });
       curr.setDate(curr.getDate() + 1);
     }
@@ -1341,7 +1355,7 @@ const computeDailyPerformanceStats = (
     const timestamp = getResponseTimestamp(response);
     if (!timestamp) return;
 
-    const dateKey = new Date(timestamp).toISOString().split("T")[0];
+    const dateKey = toLocalDateString(timestamp);
     if (!dailyMap.has(dateKey)) {
       dailyMap.set(dateKey, { total: 0, rework: 0, accepted: 0 });
     }
@@ -1350,7 +1364,7 @@ const computeDailyPerformanceStats = (
     dayStats.total += 1;
 
     const status = statuses[response.id];
-    if (status) {
+    if (status && typeof status === "string") {
       if (status.startsWith("Rework") || status === "Rework Accepted") {
         dayStats.rework += 1;
       } else if (status === "Direct Ok" || status === "Accepted") {
@@ -1452,7 +1466,7 @@ const computeMonthlyPerformanceStats = (
     monthStats.total += 1;
 
     const status = statuses[response.id];
-    if (status) {
+    if (status && typeof status === "string") {
       if (status.startsWith("Rework") || status === "Rework Accepted") {
         monthStats.rework += 1;
       } else if (status === "Direct Ok" || status === "Accepted") {
@@ -1532,7 +1546,7 @@ const computeDirectAcceptedDailyStats = (
     last.setHours(0, 0, 0, 0);
 
     while (curr <= last) {
-      const dKey = curr.toISOString().split("T")[0];
+      const dKey = toLocalDateString(curr);
       dailyMap.set(dKey, {
         total: 0,
         direct: 0,
@@ -1549,7 +1563,7 @@ const computeDirectAcceptedDailyStats = (
     const timestamp = getResponseTimestamp(response);
     if (!timestamp) return;
 
-    const dateKey = new Date(timestamp).toISOString().split("T")[0];
+    const dateKey = toLocalDateString(timestamp);
     if (!dailyMap.has(dateKey)) {
       dailyMap.set(dateKey, {
         total: 0,
@@ -1655,7 +1669,7 @@ const computeDailyReworkVolumeStats = (
     last.setHours(0, 0, 0, 0);
 
     while (curr <= last) {
-      const dKey = curr.toISOString().split("T")[0];
+      const dKey = toLocalDateString(curr);
       dailyMap.set(dKey, { rework: 0 });
       curr.setDate(curr.getDate() + 1);
     }
@@ -1667,7 +1681,7 @@ const computeDailyReworkVolumeStats = (
     const timestamp = getResponseTimestamp(response);
     if (!timestamp) return;
 
-    const dateKey = new Date(timestamp).toISOString().split("T")[0];
+    const dateKey = toLocalDateString(timestamp);
     if (!dailyMap.has(dateKey)) {
       dailyMap.set(dateKey, { rework: 0 });
     }
@@ -4322,9 +4336,8 @@ export default function FormAnalyticsDashboard() {
       result = result.filter((item) => {
         if (!item.date) return true;
         try {
-          const d = new Date(item.date);
-          if (isNaN(d.getTime())) return true;
-          const itemDate = d.toISOString().split("T")[0];
+          const itemDate = toLocalDateString(item.date);
+          if (!itemDate) return true;
           if (dateFilter.startDate && dateFilter.endDate) {
             return (
               itemDate >= dateFilter.startDate && itemDate <= dateFilter.endDate
@@ -4528,14 +4541,20 @@ export default function FormAnalyticsDashboard() {
       const responsesData = await apiClient.getAllFormResponses(id, {
         analytics: true,
         forceNetwork: true,
-        onPage: ({ responses: pageResponses, pageNumber, totalPages, isLast }: {
+        onPage: ({ responses: pageResponses, pageNumber, totalPages, totalResponses, isLast }: {
           responses: any[];
           pageNumber: number;
           totalPages: number;
+          totalResponses?: number;
           isLast: boolean;
         }) => {
           accumulator = accumulator.concat(pageResponses);
           setResponses([...accumulator]);
+          if (totalResponses && totalResponses > 0) {
+            setTotalResponsesCount(totalResponses);
+          } else if (accumulator.length > 0) {
+            setTotalResponsesCount((prev) => Math.max(prev, accumulator.length));
+          }
           if (isLast) {
             setAnalyticsResponsesLoading(false);
           }
@@ -4543,6 +4562,7 @@ export default function FormAnalyticsDashboard() {
       });
       if (responsesData.responses && responsesData.responses.length > 0) {
         setResponses(responsesData.responses);
+        setTotalResponsesCount(responsesData.responses.length);
       }
     } catch (err) {
       console.error("Error fetching full analytics responses:", err);
@@ -5993,7 +6013,7 @@ export default function FormAnalyticsDashboard() {
       result = result.filter((response) => {
         const timestamp = getResponseTimestamp(response);
         if (!timestamp) return false;
-        const responseDate = new Date(timestamp).toISOString().split("T")[0];
+        const responseDate = toLocalDateString(timestamp);
 
         if (dateFilter.type === "single" && dateFilter.startDate) {
           return responseDate === dateFilter.startDate;
@@ -6330,7 +6350,7 @@ export default function FormAnalyticsDashboard() {
       result = result.filter((response) => {
         const timestamp = getResponseTimestamp(response);
         if (!timestamp) return false;
-        const responseDate = new Date(timestamp).toISOString().split("T")[0];
+        const responseDate = toLocalDateString(timestamp);
         if (dateFilter.startDate && dateFilter.endDate) {
           return (
             responseDate >= dateFilter.startDate &&
@@ -6458,8 +6478,8 @@ export default function FormAnalyticsDashboard() {
   };
 
   const renderAnswerDisplay = (value: any, question?: any): React.ReactNode => {
-    const ensureAbsoluteFileSource = (input: string) => {
-      if (!input) {
+    const ensureAbsoluteFileSource = (input: any) => {
+      if (!input || typeof input !== "string") {
         return "";
       }
       if (input.startsWith("data:")) {
@@ -6481,8 +6501,8 @@ export default function FormAnalyticsDashboard() {
       return normalized;
     };
 
-    const extractFileName = (input: string | undefined) => {
-      if (!input) {
+    const extractFileName = (input: any) => {
+      if (!input || typeof input !== "string") {
         return undefined;
       }
       try {
@@ -7310,7 +7330,7 @@ export default function FormAnalyticsDashboard() {
       result = result.filter((response) => {
         const timestamp = getResponseTimestamp(response);
         if (!timestamp) return false;
-        const responseDate = new Date(timestamp).toISOString().split("T")[0];
+        const responseDate = toLocalDateString(timestamp);
 
         if (dateFilter.startDate && dateFilter.endDate) {
           return (
@@ -7343,7 +7363,7 @@ export default function FormAnalyticsDashboard() {
       result = result.filter((response) => {
         const timestamp = getResponseTimestamp(response);
         if (!timestamp) return false;
-        const responseDate = new Date(timestamp).toISOString().split("T")[0];
+        const responseDate = toLocalDateString(timestamp);
 
         if (dateFilter.startDate && dateFilter.endDate) {
           return (
@@ -9101,56 +9121,108 @@ export default function FormAnalyticsDashboard() {
       setIsExporting(true);
       showToast("Preparing Excel report...", "info");
 
-      // 1. Ensure full response dataset is loaded
-      let fullResponses = responses;
-      if (
-        !fullResponses ||
-        fullResponses.length === 0 ||
-        (totalResponsesCount > 0 && fullResponses.length < totalResponsesCount) ||
-        analyticsResponsesLoading
-      ) {
-        showToast("Fetching all response records for download...", "info");
-        const resData = await apiClient.getAllFormResponses(id!, {
-          analytics: true,
-          forceNetwork: false,
+      let rowsToExport: Response[] = [];
+
+      // 1. Check if user has explicitly selected rows via checkboxes
+      if (selectedResponseIds.length > 0) {
+        const idSet = new Set(selectedResponseIds);
+        const pool = [...responses, ...tableResponses];
+        const seen = new Set<string>();
+        rowsToExport = pool.filter((r) => {
+          const rId = r.id || (r as any)._id;
+          if (rId && idSet.has(rId) && !seen.has(rId)) {
+            seen.add(rId);
+            return true;
+          }
+          return false;
         });
-        if (resData.responses && resData.responses.length > 0) {
-          fullResponses = resData.responses;
-          setResponses(fullResponses);
-          setTotalResponsesCount(fullResponses.length);
+      } else {
+        // 2. No explicit selection - check if full background streaming is 100% complete
+        const isStreamingComplete =
+          responses.length > 0 &&
+          totalResponsesCount > 0 &&
+          responses.length >= totalResponsesCount &&
+          !analyticsResponsesLoading;
+
+        let fullResponses: Response[] = [];
+
+        if (isStreamingComplete) {
+          fullResponses = responses;
+        } else {
+          showToast("Fetching complete response dataset for export...", "info");
+          const exportParams: {
+            status?: string;
+            startDate?: string;
+            endDate?: string;
+            batchId?: string;
+            uploadOnly?: boolean;
+            forceNetwork?: boolean;
+          } = {
+            forceNetwork: true,
+          };
+
+          if (dateFilter.type !== "all") {
+            if (dateFilter.startDate) exportParams.startDate = dateFilter.startDate;
+            if (dateFilter.endDate) exportParams.endDate = dateFilter.endDate;
+          }
+
+          if (selectedBatchId) {
+            exportParams.batchId = selectedBatchId;
+          } else if (isUploadOnlyFiltered) {
+            exportParams.uploadOnly = true;
+          }
+
+          const fetched = await apiClient.getAllResponsesForExport(id!, exportParams);
+          fullResponses = fetched || [];
+        }
+
+        // Apply filters
+        rowsToExport = fullResponses;
+
+        // Global Date Filter
+        if (dateFilter.type !== "all") {
+          rowsToExport = rowsToExport.filter((response) => {
+            const timestamp = getResponseTimestamp(response);
+            if (!timestamp) return false;
+            const responseDate = toLocalDateString(timestamp);
+
+            if (dateFilter.type === "single" && dateFilter.startDate) {
+              return responseDate === dateFilter.startDate;
+            } else if (dateFilter.type === "range") {
+              if (dateFilter.startDate && dateFilter.endDate) {
+                return (
+                  responseDate >= dateFilter.startDate &&
+                  responseDate <= dateFilter.endDate
+                );
+              } else if (dateFilter.startDate) {
+                return responseDate >= dateFilter.startDate;
+              } else if (dateFilter.endDate) {
+                return responseDate <= dateFilter.endDate;
+              }
+            }
+            return true;
+          });
+        }
+
+        // Upload/Batch Filter
+        if (selectedBatchId) {
+          rowsToExport = rowsToExport.filter(
+            (r) => (r as any).batchId === selectedBatchId
+          );
+        } else if (isUploadOnlyFiltered) {
+          rowsToExport = rowsToExport.filter(
+            (r) =>
+              (r as any).batchId ||
+              r.submittedBy === "Excel Import" ||
+              (r as any).submissionMetadata?.source === "excel_import"
+          );
         }
       }
 
-      if (!fullResponses || fullResponses.length === 0) {
+      if (!rowsToExport || rowsToExport.length === 0) {
         showToast("No responses found to export.", "warning");
         setIsExporting(false);
         return;
-      }
-
-      // 2. Filter responses if user has applied filters
-      let rowsToExport = fullResponses;
-
-      // Global Date Filter
-      if (dateFilter.type !== "all") {
-        rowsToExport = rowsToExport.filter((response) => {
-          const timestamp = getResponseTimestamp(response);
-          if (!timestamp) return false;
-          const responseDate = new Date(timestamp).toISOString().split("T")[0];
-
-          if (dateFilter.type === "single" && dateFilter.startDate) {
-            return responseDate === dateFilter.startDate;
-          } else if (
-            dateFilter.type === "range" &&
-            dateFilter.startDate &&
-            dateFilter.endDate
-          ) {
-            return (
-              responseDate >= dateFilter.startDate &&
-              responseDate <= dateFilter.endDate
-            );
-          }
-          return true;
-        });
       }
 
       // Global Inspector Filter
@@ -11156,6 +11228,7 @@ export default function FormAnalyticsDashboard() {
                   ) : (
                     <Download className="w-4 h-4" />
                   )}
+                </button>
                 <button
                   onClick={handleExportToExcel}
                   disabled={isExporting}

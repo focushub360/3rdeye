@@ -144,6 +144,7 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
   const [form, setForm] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [submitted, setSubmitted] = useState(false);
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
@@ -729,7 +730,8 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting) return;
+    if (submitting || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
 
     let isValid = true;
     formSections.forEach((section) => {
@@ -883,6 +885,7 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
       }
     } finally {
       setSubmitting(false);
+      isSubmittingRef.current = false;
     }
   };
 

@@ -2776,6 +2776,30 @@ export const submitPublicResponse = async (req, res) => {
       }
     }
 
+    // ========== DUPLICATE SUBMISSION PREVENTION ==========
+    const targetSessionId = sessionId || formSession?.sessionId;
+    if (targetSessionId && !isSectionSubmit) {
+      const Response = mongoose.model('Response');
+      const existingSessionResponse = await Response.findOne({
+        $or: [
+          { questionId: id },
+          { formId: id }
+        ],
+        $or: [
+          { sessionId: targetSessionId },
+          { 'submissionMetadata.sessionId': targetSessionId }
+        ]
+      });
+      if (existingSessionResponse) {
+        console.log(`[PUBLIC SUBMIT] Duplicate submission blocked for sessionId: ${targetSessionId}`);
+        return res.status(200).json({
+          success: true,
+          message: 'Response already submitted successfully',
+          data: { response: existingSessionResponse }
+        });
+      }
+    }
+
     // Create the response - include createdBy if user is authenticated
     const responseData = {
       id: uuidv4(),
