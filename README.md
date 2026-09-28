@@ -1,6 +1,6 @@
-# 3W Wheeler Project 🚀
+# 3rd Eye (Focus 3rd Eye) 🚀
 
-A comprehensive form management and analytics system for 3W Wheeler TVS, featuring a powerful backend, a dynamic web frontend, and mobile capabilities.
+A comprehensive manufacturing inspection, form management, and quality analytics system (Focus 3rd Eye / 3rdeye), featuring a powerful backend, dynamic web frontend, and factory-floor mobile client.
 
 ## 📁 Project Structure
 
