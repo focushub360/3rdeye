@@ -9166,9 +9166,11 @@ export default function FormAnalyticsDashboard() {
             if (dateFilter.endDate) exportParams.endDate = dateFilter.endDate;
           }
 
-          if (selectedBatchId) {
-            exportParams.batchId = selectedBatchId;
-          } else if (isUploadOnlyFiltered) {
+          const currentBatchId = searchParams.get("batchId");
+          const isUploadOnly = searchParams.get("uploadOnly") === "true";
+          if (currentBatchId) {
+            exportParams.batchId = currentBatchId;
+          } else if (isUploadOnly) {
             exportParams.uploadOnly = true;
           }
 
@@ -9204,12 +9206,14 @@ export default function FormAnalyticsDashboard() {
           });
         }
 
+        const currentBatchId = searchParams.get("batchId");
+        const isUploadOnly = searchParams.get("uploadOnly") === "true";
         // Upload/Batch Filter
-        if (selectedBatchId) {
+        if (currentBatchId) {
           rowsToExport = rowsToExport.filter(
-            (r) => (r as any).batchId === selectedBatchId
+            (r) => (r as any).batchId === currentBatchId
           );
-        } else if (isUploadOnlyFiltered) {
+        } else if (isUploadOnly) {
           rowsToExport = rowsToExport.filter(
             (r) =>
               (r as any).batchId ||
@@ -12266,7 +12270,7 @@ export default function FormAnalyticsDashboard() {
                                   className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                                   title="Click to sort Chassis Ascending / Descending"
                                 >
-                                  <span>Selected Chassis</span>
+                                  <span>System Chassis</span>
                                   {tableSort?.columnId === "__chassisNumber" ? (
                                     tableSort.direction === "asc" ? (
                                       <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
@@ -12297,7 +12301,7 @@ export default function FormAnalyticsDashboard() {
                                   )}
                                   <TableColumnFilter
                                     columnId="__chassisNumber"
-                                    title="Selected Chassis"
+                                    title="System Chassis"
                                     options={chassisFilterOptions}
                                     selectedValues={columnFilters["__chassisNumber"] || null}
                                     onFilterChange={(columnId, values) => {
@@ -13000,6 +13004,12 @@ export default function FormAnalyticsDashboard() {
                                           status: legacyServerReview.status,
                                           reviewer: legacyServerReview.reviewer || legacyServerReview.name,
                                           flaggedQuestions: legacyServerReview.flaggedQuestions || [],
+                                        };
+                                      } else if (response.biwReview) {
+                                        reviewObj = {
+                                          status: response.biwReview.status,
+                                          reviewer: response.biwReview.reviewedByName || "Reviewer",
+                                          flaggedQuestions: [],
                                         };
                                       }
 

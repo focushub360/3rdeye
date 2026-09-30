@@ -1234,7 +1234,9 @@ export default function FormsAnalytics() {
       String(combinedError).toLowerCase().includes("jwt expired") ||
       String(combinedError).toLowerCase().includes("unauthorized") ||
       String(combinedError).toLowerCase().includes("401") ||
-      String(combinedError).toLowerCase().includes("not authorized"))
+      String(combinedError).toLowerCase().includes("not authorized") ||
+      String(combinedError).toLowerCase().includes("no token provided") ||
+      String(combinedError).toLowerCase().includes("access denied"))
   );
 
   if (combinedError) {

@@ -1,0 +1,182 @@
+src\api\client.ts:7 [hostname] -> hostname.startsWith("192.168.") ||
+src\api\client.ts:8 [hostname] -> hostname.startsWith("10.") ||
+src\api\client.ts:9 [hostname] -> hostname.startsWith("172.");
+src\api\client.ts:21 [hostname] -> if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith("192.168.") || hostname.startsWith("10.") || hostname.startsWith("172.")) {
+src\api\client.ts:21 [hostname] -> if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith("192.168.") || hostname.startsWith("10.") || hostname.startsWith("172.")) {
+src\api\client.ts:21 [hostname] -> if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith("192.168.") || hostname.startsWith("10.") || hostname.startsWith("172.")) {
+src\api\client.ts:111 [key] -> if (key.startsWith("api_cache:")) {
+src\api\client.ts:124 [key] -> if (key.startsWith("api_cache:")) {
+src\api\client.ts:162 [key] -> const isMatch = (key: string) => key === cachePrefix || key.startsWith(`${cachePrefix}?`);
+src\api\client.ts:203 [key] -> if (key.startsWith("api_cache:/forms") && !key.includes(`/${id}`)) {
+src\api\client.ts:215 [key] -> if (key && key.startsWith("api_cache:/forms") && !key.includes(`/${id}`)) {
+src\api\client.ts:247 [key] -> key.startsWith("api_cache:") &&
+src\api\client.ts:272 [key] -> if (key.startsWith("api_cache:/responses") && !key.includes(`/${id}`)) {
+src\api\client.ts:284 [key] -> if (key && key.startsWith("api_cache:/responses") && !key.includes(`/${id}`)) {
+src\api\client.ts:386 [endpoint] -> const affectsCoreEntity = coreEntities.some(entity => endpoint.startsWith(entity));
+src\api\client.ts:393 [key] -> if (key.startsWith("api_cache:")) {
+src\api\client.ts:558 [value] -> value.startsWith("http://") ||
+src\api\client.ts:559 [value] -> value.startsWith("https://") ||
+src\api\client.ts:560 [value] -> value.startsWith("data:")
+src\api\client.ts:564 [value] -> const normalized = value.startsWith("/") ? value : `/${value}`;
+src\api\client.ts:1981 [uploadUrl] -> !presignedData.uploadUrl.startsWith("http") ||
+src\App.tsx:252 [permission] -> permission.startsWith("analytics:form:"),
+src\components\AllResponses.tsx:1637 [input] -> if (input.startsWith("data:")) {
+src\components\AllResponses.tsx:1640 [input] -> if (input.startsWith("http://") || input.startsWith("https://")) {
+src\components\AllResponses.tsx:1640 [input] -> if (input.startsWith("http://") || input.startsWith("https://")) {
+src\components\AllResponses.tsx:1643 [input] -> if (input.startsWith("//")) {
+src\components\AllResponses.tsx:1649 [input] -> const normalized = input.startsWith("/") ? input : `/${input}`;
+src\components\AllResponses.tsx:1677 [candidate] -> if (candidate.startsWith("data:")) {
+src\components\AllResponses.tsx:1684 [candidate] -> candidate.startsWith("http") ||
+src\components\AllResponses.tsx:1685 [candidate] -> candidate.startsWith("//") ||
+src\components\AllResponses.tsx:1686 [candidate] -> candidate.startsWith("/") ||
+src\components\AllResponses.tsx:1687 [candidate] -> candidate.startsWith("uploads/")
+src\components\AllResponses.tsx:1714 [dataValue] -> if (typeof dataValue === "string" && dataValue.startsWith("data:")) {
+src\components\AllResponses.tsx:1752 [value] -> if (value.startsWith("data:")) {
+src\components\AllResponses.tsx:1762 [value] -> value.startsWith("http") ||
+src\components\AllResponses.tsx:1763 [value] -> value.startsWith("//") ||
+src\components\AllResponses.tsx:1764 [value] -> value.startsWith("/") ||
+src\components\AllResponses.tsx:1765 [value] -> value.startsWith("uploads/")
+src\components\AllResponses.tsx:1778 [value] -> if (value.startsWith("http://") || value.startsWith("https://")) {
+src\components\AllResponses.tsx:1778 [value] -> if (value.startsWith("http://") || value.startsWith("https://")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:1354 [status] -> if (status.startsWith("Rework") || status === "Rework Accepted") {
+src\components\analytics\FormAnalyticsDashboard.tsx:1456 [status] -> if (status.startsWith("Rework") || status === "Rework Accepted") {
+src\components\analytics\FormAnalyticsDashboard.tsx:1593 [status] -> (status.startsWith("Rework Accepted") ||
+src\components\analytics\FormAnalyticsDashboard.tsx:1594 [status] -> status.startsWith("Rework Completed"))
+src\components\analytics\FormAnalyticsDashboard.tsx:1597 [status] -> } else if (status && status.startsWith("Rework")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:2634 [str] -> if (str.startsWith("{") && str.endsWith("}")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:4840 [columnId] -> if (columnId.startsWith("__")) return true;
+src\components\analytics\FormAnalyticsDashboard.tsx:4876 [val] -> if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) return val.toLowerCase();
+src\components\analytics\FormAnalyticsDashboard.tsx:4880 [val] -> if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image") && !val.startsWith("{")) return val.toLowerCase();
+src\components\analytics\FormAnalyticsDashboard.tsx:4880 [val] -> if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image") && !val.startsWith("{")) return val.toLowerCase();
+src\components\analytics\FormAnalyticsDashboard.tsx:4903 [val] -> if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) return val.toLowerCase();
+src\components\analytics\FormAnalyticsDashboard.tsx:4907 [val] -> if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image") && !val.startsWith("{")) return val.toLowerCase();
+src\components\analytics\FormAnalyticsDashboard.tsx:4907 [val] -> if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image") && !val.startsWith("{")) return val.toLowerCase();
+src\components\analytics\FormAnalyticsDashboard.tsx:4931 [val] -> if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) return val.toLowerCase();
+src\components\analytics\FormAnalyticsDashboard.tsx:4935 [val] -> if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image") && !val.startsWith("{")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:4935 [val] -> if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image") && !val.startsWith("{")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:4950 [strVal] -> if (!strVal || strVal === "No response" || strVal === "-" || strVal.startsWith("data:image") || strVal.length > 60) continue;
+src\components\analytics\FormAnalyticsDashboard.tsx:5050 [rawStatus] -> if (rawStatus.startsWith("Rework")) return rawStatus;
+src\components\analytics\FormAnalyticsDashboard.tsx:5170 [groupId] -> if (!groupId.startsWith("untracked-")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:5189 [rawStatus] -> } else if (rawStatus.startsWith("Rework")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:5195 [groupId] -> if (!groupId.startsWith("untracked-")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:5866 [v] -> allowedValues.some(v => v === `Attempt ${rank}` || v.startsWith(`Attempt ${rank}`))
+src\components\analytics\FormAnalyticsDashboard.tsx:6472 [input] -> if (input.startsWith("data:")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:6475 [input] -> if (input.startsWith("http://") || input.startsWith("https://")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:6475 [input] -> if (input.startsWith("http://") || input.startsWith("https://")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:6478 [input] -> if (input.startsWith("//")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:6484 [input] -> const normalized = input.startsWith("/") ? input : `/${input}`;
+src\components\analytics\FormAnalyticsDashboard.tsx:6512 [candidate] -> if (candidate.startsWith("data:")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:6519 [candidate] -> candidate.startsWith("http") ||
+src\components\analytics\FormAnalyticsDashboard.tsx:6520 [candidate] -> candidate.startsWith("//") ||
+src\components\analytics\FormAnalyticsDashboard.tsx:6521 [candidate] -> candidate.startsWith("/") ||
+src\components\analytics\FormAnalyticsDashboard.tsx:6522 [candidate] -> candidate.startsWith("uploads/")
+src\components\analytics\FormAnalyticsDashboard.tsx:6550 [dataValue] -> if (typeof dataValue === "string" && dataValue.startsWith("data:")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:6592 [value] -> if (value.startsWith("data:")) {
+src\components\analytics\FormAnalyticsDashboard.tsx:6606 [value] -> value.startsWith("http") ||
+src\components\analytics\FormAnalyticsDashboard.tsx:6607 [value] -> value.startsWith("//") ||
+src\components\analytics\FormAnalyticsDashboard.tsx:6608 [value] -> value.startsWith("/") ||
+src\components\analytics\FormAnalyticsDashboard.tsx:6609 [value] -> value.startsWith("uploads/")
+src\components\analytics\FormAnalyticsDashboard.tsx:7197 [rawStatus] -> (rawStatus.startsWith("rework") ||
+src\components\analytics\FormAnalyticsDashboard.tsx:9713 [key] -> key.startsWith("api_cache:") && (
+src\components\analytics\FormAnalyticsDashboard.tsx:10327 [status] -> : status.startsWith("Rework")
+src\components\analytics\FormUploadsView.tsx:369 [url] -> if (url.startsWith('data:')) {
+src\components\analytics\FormUploadsView.tsx:435 [v] -> if (v.startsWith('data:image/') || v.startsWith('data:application/')) return true;
+src\components\analytics\FormUploadsView.tsx:435 [v] -> if (v.startsWith('data:image/') || v.startsWith('data:application/')) return true;
+src\components\analytics\FormUploadsView.tsx:436 [v] -> if (v.startsWith('http') || v.startsWith('//') || v.startsWith('/') || v.startsWith('uploads/')) return true;
+src\components\analytics\FormUploadsView.tsx:436 [v] -> if (v.startsWith('http') || v.startsWith('//') || v.startsWith('/') || v.startsWith('uploads/')) return true;
+src\components\analytics\FormUploadsView.tsx:436 [v] -> if (v.startsWith('http') || v.startsWith('//') || v.startsWith('/') || v.startsWith('uploads/')) return true;
+src\components\analytics\FormUploadsView.tsx:436 [v] -> if (v.startsWith('http') || v.startsWith('//') || v.startsWith('/') || v.startsWith('uploads/')) return true;
+src\components\analytics\FormUploadsView.tsx:661 [lowerUrl] -> return imageExtensions.some(ext => lowerUrl.includes(ext)) || lowerUrl.startsWith('data:image/');
+src\components\analytics\SectionAnalytics.tsx:355 [candidate] -> if (candidate.startsWith("data:")) return { data: candidate };
+src\components\analytics\SectionAnalytics.tsx:356 [candidate] -> if (candidate.startsWith("http") || candidate.startsWith("//") || candidate.startsWith("/") || candidate.startsWith("uploads/")) {
+src\components\analytics\SectionAnalytics.tsx:356 [candidate] -> if (candidate.startsWith("http") || candidate.startsWith("//") || candidate.startsWith("/") || candidate.startsWith("uploads/")) {
+src\components\analytics\SectionAnalytics.tsx:356 [candidate] -> if (candidate.startsWith("http") || candidate.startsWith("//") || candidate.startsWith("/") || candidate.startsWith("uploads/")) {
+src\components\analytics\SectionAnalytics.tsx:356 [candidate] -> if (candidate.startsWith("http") || candidate.startsWith("//") || candidate.startsWith("/") || candidate.startsWith("uploads/")) {
+src\components\analytics\SectionAnalytics.tsx:364 [dataValue] -> if (dataValue.startsWith("data:")) return { data: dataValue };
+src\components\analytics\SectionAnalytics.tsx:376 [answer] -> if (answer.startsWith("data:")) {
+src\components\analytics\SectionAnalytics.tsx:389 [answer] -> answer.startsWith("http") ||
+src\components\analytics\SectionAnalytics.tsx:390 [answer] -> answer.startsWith("//") ||
+src\components\analytics\SectionAnalytics.tsx:391 [answer] -> answer.startsWith("/") ||
+src\components\analytics\SectionAnalytics.tsx:392 [answer] -> answer.startsWith("uploads/")
+src\components\analytics\ShareAnalyticsModal.tsx:113 [ans] -> if (ans.startsWith("data:image/") || ans.startsWith("data:application/") || ans.length > 500) {
+src\components\analytics\ShareAnalyticsModal.tsx:113 [ans] -> if (ans.startsWith("data:image/") || ans.startsWith("data:application/") || ans.length > 500) {
+src\components\analytics\ShareAnalyticsModal.tsx:125 [url] -> if (ans.url && typeof ans.url === 'string' && !ans.url.startsWith('data:')) {
+src\components\analytics\ShareAnalyticsModal.tsx:128 [url] -> if (ans.data || ans.base64 || (typeof ans.url === 'string' && ans.url.startsWith('data:'))) {
+src\components\analytics\ShareAnalyticsModal.tsx:149 [val] -> if (typeof val === 'string' && (val.startsWith('data:') || val.length > 500)) return "[Photo Attached]";
+src\components\DashboardNew.tsx:2262 [status] -> : status.startsWith("Rework")
+src\components\DashboardNew.tsx:2509 [hostname] -> window.location.hostname.startsWith("192.168.") ||
+src\components\DashboardNew.tsx:2510 [hostname] -> window.location.hostname.startsWith("10.") ||
+src\components\DashboardNew.tsx:2511 [hostname] -> window.location.hostname.startsWith("172.");
+src\components\FilePreview.tsx:35 [source] -> if (source.startsWith("data:")) {
+src\components\FilePreview.tsx:36 [source] -> return source.startsWith("data:image");
+src\components\FilePreview.tsx:59 [source] -> if (source.startsWith("data:")) {
+src\components\FilePreview.tsx:60 [source] -> return source.startsWith("data:application/pdf");
+src\components\FilePreview.tsx:69 [source] -> if (source.startsWith("data:")) {
+src\components\FilePreview.tsx:71 [source] -> source.startsWith("data:application/vnd.ms-excel") ||
+src\components\FilePreview.tsx:72 [source] -> source.startsWith(
+src\components\followup\QuestionEditor.tsx:27 [type] -> if (type.startsWith("chassis-")) {
+src\components\FormCreator.tsx:1723 [nestedKey] -> nestedKey.startsWith(`${fuPrefix}.`) &&
+src\components\FormCreator.tsx:1754 [deeperKey] -> deeperKey.startsWith(`${nestedPrefix}.`) &&
+src\components\FormCreator.tsx:2464 [type] -> const isImage = file.type.startsWith("image/");
+src\components\FormsManagementNew.tsx:843 [hostname] -> hostname.startsWith("192.168.") ||
+src\components\FormsManagementNew.tsx:844 [hostname] -> hostname.startsWith("10.") ||
+src\components\FormsManagementNew.tsx:845 [hostname] -> hostname.startsWith("172.");
+src\components\Header.tsx:349 [permission] -> permission.startsWith("analytics:form:")
+src\components\ImageLink.tsx:30 [clean] -> if (clean.startsWith('http://13.203.137.229/api/')) {
+src\components\ImageLink.tsx:32 [clean] -> } else if (clean.startsWith('http://13.203.137.229/')) {
+src\components\ImageLink.tsx:74 [trimmedText] -> if (trimmedText.startsWith('http://') || trimmedText.startsWith('https://')) {
+src\components\ImageLink.tsx:74 [trimmedText] -> if (trimmedText.startsWith('http://') || trimmedText.startsWith('https://')) {
+src\components\ImageLink.tsx:130 [displayUrl] -> if (displayUrl.startsWith('http')) {
+src\components\management\sections\general\ProfileSection.tsx:29 [type] -> if (!file.type.startsWith("image/")) {
+src\components\management\sections\roles\RoleList.tsx:29 [p] -> const uniqueForms = new Set(permissions.filter(p => p.startsWith("analytics:form:")).map(p => p.split(":")[2]));
+src\components\PerformanceTable.tsx:653 [status] -> : status.startsWith("Rework")
+src\components\PerformanceTable.tsx:898 [status] -> : status.startsWith("Rework")
+src\components\PreviewForm.tsx:1024 [key] -> if (key.startsWith("_") && !key.includes("tracking")) return;
+src\components\PreviewForm.tsx:1674 [key] -> if (key.startsWith("_") || !val || (typeof val === "string" && val.trim() === "")) return;
+src\components\QuestionRenderer.tsx:74 [filename] -> filename.startsWith("data:image/") ||
+src\components\QuestionRenderer.tsx:195 [fileUrl] -> if (fileUrl.startsWith("data:")) {
+src\components\QuestionRenderer.tsx:196 [fileUrl] -> return fileUrl.startsWith("data:image");
+src\components\QuestionRenderer.tsx:643 [key] -> if (key.startsWith("_") && !key.includes("tracking")) return false;
+src\components\QuestionRenderer.tsx:664 [key] -> if (key.startsWith("_") && !key.includes("tracking")) return false;
+src\components\QuestionTypes\FileInput.tsx:29 [type] -> image: (file) => file.type.startsWith("image/"),
+src\components\QuestionTypes\FileInput.tsx:34 [value] -> FILE_ACCEPT_MAP.excel.filter((value) => value.startsWith("application/"))
+src\components\QuestionTypes\FileInput.tsx:71 [fileUrl] -> if (fileUrl.startsWith("data:")) {
+src\components\QuestionTypes\FileInput.tsx:97 [fileUrl] -> if (fileUrl.startsWith("data:")) {
+src\components\QuestionTypes\FileInput.tsx:98 [fileUrl] -> return fileUrl.startsWith("data:image");
+src\components\ResponseForm.tsx:274 [key] -> if (key.startsWith("_") && !key.includes("tracking")) return;
+src\main.tsx:24 [id] -> if (this && typeof (this as any).id === "string") return (this as any).id.startsWith(search, pos);
+src\main.tsx:25 [url] -> if (this && typeof (this as any).url === "string") return (this as any).url.startsWith(search, pos);
+src\utils\answerTemplateUtils.ts:43 [trimmed] -> if (trimmed.startsWith("data:image/")) {
+src\utils\answerTemplateUtils.ts:48 [trimmed] -> if (trimmed.startsWith("blob:")) {
+src\utils\answerTemplateUtils.ts:1130 [lowerH] -> lowerH.startsWith("date ")
+src\utils\answerTemplateUtils.ts:1199 [normH] -> (normalize(qText).length > 3 && normH.startsWith(normalize(qText)))
+src\utils\answerTemplateUtils.ts:1393 [lowerPart] -> if (lowerPart.startsWith("chassis:")) {
+src\utils\answerTemplateUtils.ts:1395 [lowerPart] -> } else if (lowerPart.startsWith("status:")) {
+src\utils\answerTemplateUtils.ts:1397 [lowerPart] -> } else if ((lowerPart.startsWith("zones:") || lowerPart.startsWith("zone:")) && type === "chassis-with-zone") {
+src\utils\answerTemplateUtils.ts:1397 [lowerPart] -> } else if ((lowerPart.startsWith("zones:") || lowerPart.startsWith("zone:")) && type === "chassis-with-zone") {
+src\utils\answerTemplateUtils.ts:1409 [lowerPart] -> } else if (lowerPart.startsWith("category:")) {
+src\utils\answerTemplateUtils.ts:1415 [lowerPart] -> } else if (lowerPart.startsWith("defects:")) {
+src\utils\answerTemplateUtils.ts:1435 [lowerPart] -> } else if (lowerPart.startsWith("evidence:")) {
+src\utils\answerTemplateUtils.ts:1559 [k] -> k.startsWith("synthetic_"),
+src\utils\answerTemplateUtils.ts:1564 [k] -> !k.startsWith("synthetic_") &&
+src\utils\exportUtils.ts:2862 [k] -> const fuSubParam1Column = Object.keys(row).find(k => k.startsWith(`FU${fuIndex}:`) && (k.includes("SubParam1") || k.includes("Main Parameter") || k.includes("Sub Parameter 1")));
+src\utils\exportUtils.ts:2863 [k] -> const fuSubParam2Column = Object.keys(row).find(k => k.startsWith(`FU${fuIndex}:`) && (k.includes("SubParam2") || k.includes("Followup Parameter") || k.includes("Sub Parameter 2") || k.includes("Follow up Parameter")));
+src\utils\formanalyticsexport.ts:211 [status] -> else if (status.startsWith("Rework")) color = "#f59e0b";
+src\utils\formanalyticsexport.ts:230 [status] -> else if (status.startsWith("Rework")) color = "#f59e0b";
+src\utils\pdfExportUtils.ts:193 [url] -> url.startsWith("data:image/")
+src\utils\pdfExportUtils.ts:824 [qNumber] -> if (qNumber.startsWith("S")) {
+src\utils\pdfExportUtils.ts:828 [qNumber] -> if (qNumber.startsWith("Q")) {
+src\utils\pdfExportUtils.ts:1240 [url] -> const isDataUrl = url.startsWith("data:image");
+src\utils\pdfExportUtils.ts:1463 [url] -> const isDataUrl = url.startsWith("data:image");
+src\utils\pdfExportUtils.ts:2732 [url] -> const isDataUrl = url.startsWith("data:image");
+src\utils\pdfExportUtils.ts:2955 [url] -> const isDataUrl = url.startsWith("data:image");
+src\utils\pdfExportUtils.ts:4830 [url] -> if (!url || !isImageUrl(url) || url.startsWith("data:")) return url;
+src\utils\pdfExportUtils.ts:4885 [val] -> !val.startsWith("data:")
+src\utils\responseExportUtils.ts:72 [candidate] -> if (candidate.startsWith("data:") || candidate.startsWith("http")) {
+src\utils\responseExportUtils.ts:72 [candidate] -> if (candidate.startsWith("data:") || candidate.startsWith("http")) {
+src\utils\responseExportUtils.ts:74 [candidate] -> candidate.startsWith("data:image/") ||
+src\utils\responseExportUtils.ts:93 [dataValue] -> (dataValue.startsWith("data:") || dataValue.startsWith("http"))
+src\utils\responseExportUtils.ts:93 [dataValue] -> (dataValue.startsWith("data:") || dataValue.startsWith("http"))
+src\utils\responseExportUtils.ts:96 [dataValue] -> dataValue.startsWith("data:image/") ||
+src\utils\responseExportUtils.ts:130 [link] -> fileLink.link.startsWith("data:image/") ||
+src\utils\responseExportUtils.ts:169 [link] -> nestedFile.link.startsWith("data:image/") ||
