@@ -887,7 +887,7 @@ export const createResponse = async (req, res) => {
     }
 
     if (chassisVal && !isSectionSubmit) {
-      const recentWindow = new Date(Date.now() - 15 * 1000);
+      const recentWindow = new Date(Date.now() - 50 * 1000);
       const duplicateFilter = {
         questionId,
         chassisNumber: chassisVal,

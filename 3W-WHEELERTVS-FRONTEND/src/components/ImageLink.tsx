@@ -28,9 +28,9 @@ export default function ImageLink({
     let clean = raw.trim();
     if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
       if (clean.startsWith('http://13.203.137.229/api/')) {
-        clean = clean.replace('http://13.203.137.229/api/', 'https://www.focus3rdeye.com/api/');
+        clean = clean.replace('http://13.203.137.229/api/', 'https://3wheelertvsbackend.focusengineeringapp.com/api/');
       } else if (clean.startsWith('http://13.203.137.229/')) {
-        clean = clean.replace('http://13.203.137.229/', 'https://www.focus3rdeye.com/');
+        clean = clean.replace('http://13.203.137.229/', 'https://3wheelertvsbackend.focusengineeringapp.com/');
       }
     }
     return clean;

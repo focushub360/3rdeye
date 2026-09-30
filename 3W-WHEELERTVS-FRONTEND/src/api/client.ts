@@ -19,11 +19,20 @@ const API_BASE_URL = (() => {
     
     // Development/Local
     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith("192.168.") || hostname.startsWith("10.") || hostname.startsWith("172.")) {
-      return "http://127.0.0.1:5000/api";
+      return "http://localhost:5000/api";
     }
 
     if (import.meta.env.VITE_API_URL) {
       return import.meta.env.VITE_API_URL;
+    }
+
+    // AWS Production Deployment
+    if (hostname === '3wheelertvs.focusengineeringapp.com') {
+      return "https://3wheelertvsbackend.focusengineeringapp.com/api";
+    }
+
+    if (hostname === '3wtvs.focusengineeringapp.com' || hostname.includes('3wtvs')) {
+      return "https://3wbackend.focusengineeringapp.com/api";
     }
 
     // Developer Test / Staging backend on Vercel
@@ -37,7 +46,7 @@ const API_BASE_URL = (() => {
     }
 
     // Production backend on AWS EC2
-    return "https://www.focus3rdeye.com/api";
+    return "https://3wheelertvsbackend.focusengineeringapp.com/api";
   };
 
   const baseUrl = getBaseUrl();
@@ -1146,6 +1155,8 @@ class ApiClient {
       forceNetwork?: boolean;
       batchId?: string;
       uploadOnly?: boolean;
+      startDate?: string;
+      endDate?: string;
     },
   ) {
     const query = new URLSearchParams();
@@ -1156,6 +1167,8 @@ class ApiClient {
     if (options?.includePartial) query.set("includePartial", "true");
     if (options?.batchId) query.set("batchId", options.batchId);
     if (options?.uploadOnly) query.set("uploadOnly", "true");
+    if (options?.startDate) query.set("startDate", options.startDate);
+    if (options?.endDate) query.set("endDate", options.endDate);
 
     const queryString = query.toString() ? `?${query.toString()}` : "";
     // Analytics requests are now paginated (500 rows/page) instead of
@@ -3489,6 +3502,10 @@ class ApiClient {
       includePartial?: boolean;
       analytics?: boolean;
       forceNetwork?: boolean;
+      startDate?: string;
+      endDate?: string;
+      batchId?: string;
+      uploadOnly?: boolean;
       // Called after each page is fetched, with just that page's rows plus
       // running progress. Lets callers (e.g. the analytics dashboard)
       // render/merge data incrementally instead of waiting for every page
@@ -3500,6 +3517,7 @@ class ApiClient {
         responses: any[];
         pageNumber: number;
         totalPages: number;
+        totalResponses?: number;
         isLast: boolean;
       }) => void;
     },
@@ -3517,17 +3535,23 @@ class ApiClient {
       page: 1,
       limit: pageLimit,
       forceNetwork: options?.forceNetwork,
+      startDate: options?.startDate,
+      endDate: options?.endDate,
+      batchId: options?.batchId,
+      uploadOnly: options?.uploadOnly,
     });
 
     const firstPageResponses = firstResult.responses || [];
     let allResponses = [...firstPageResponses];
     const form = firstResult.form;
     const totalPages = firstResult.pagination?.totalPages ?? 1;
+    const totalResponses = firstResult.pagination?.totalResponses ?? firstPageResponses.length;
 
     options?.onPage?.({
       responses: firstPageResponses,
       pageNumber: 1,
       totalPages,
+      totalResponses,
       isLast: totalPages <= 1,
     });
 
@@ -3547,11 +3571,16 @@ class ApiClient {
               page: p,
               limit: pageLimit,
               forceNetwork: options?.forceNetwork,
+              startDate: options?.startDate,
+              endDate: options?.endDate,
+              batchId: options?.batchId,
+              uploadOnly: options?.uploadOnly,
             }).then((res) => ({ pageNumber: p, responses: res.responses || [] }))
           )
         );
 
-        batchResults.forEach((res) => {
+        for (let idx = 0; idx < batchResults.length; idx++) {
+          const res = batchResults[idx];
           if (res.status === "fulfilled" && res.value) {
             const { pageNumber, responses: pageResponses } = res.value;
             allResponses = allResponses.concat(pageResponses);
@@ -3559,15 +3588,72 @@ class ApiClient {
               responses: pageResponses,
               pageNumber,
               totalPages,
+              totalResponses,
               isLast: pageNumber === totalPages,
             });
+          } else if (res.status === "rejected") {
+            const p = batch[idx];
+            console.warn(`[getAllFormResponses] Retrying page ${p} after failure:`, res.reason);
+            try {
+              const retryRes = await this.getFormResponses(formId, {
+                status: options?.status,
+                includePartial: options?.includePartial,
+                analytics: options?.analytics,
+                page: p,
+                limit: pageLimit,
+                forceNetwork: true,
+                startDate: options?.startDate,
+                endDate: options?.endDate,
+                batchId: options?.batchId,
+                uploadOnly: options?.uploadOnly,
+              });
+              const retryResponses = retryRes.responses || [];
+              allResponses = allResponses.concat(retryResponses);
+              options?.onPage?.({
+                responses: retryResponses,
+                pageNumber: p,
+                totalPages,
+                totalResponses,
+                isLast: p === totalPages,
+              });
+            } catch (retryErr) {
+              console.error(`[getAllFormResponses] Retry failed for page ${p}:`, retryErr);
+            }
           }
-        });
+        }
       }
     }
 
     return { responses: allResponses, form };
   }
+
+  /**
+   * Dedicated export ingestion: Fetches the entire dataset for export across pages,
+   * applying server-side date range and filter constraints.
+   */
+  async getAllResponsesForExport(
+    formId: string,
+    params?: {
+      status?: string;
+      startDate?: string;
+      endDate?: string;
+      batchId?: string;
+      uploadOnly?: boolean;
+      forceNetwork?: boolean;
+    },
+  ): Promise<any[]> {
+    const res = await this.getAllFormResponses(formId, {
+      analytics: true,
+      forceNetwork: params?.forceNetwork ?? true,
+      status: params?.status,
+      startDate: params?.startDate,
+      endDate: params?.endDate,
+      batchId: params?.batchId,
+      uploadOnly: params?.uploadOnly,
+    });
+    return res.responses || [];
+  }
+
   async getBiwSummary(params?: { forceNetwork?: boolean }) {
     return this.get<{
       data: Array<{
