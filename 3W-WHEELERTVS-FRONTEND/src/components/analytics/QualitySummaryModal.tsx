@@ -169,8 +169,8 @@ export const QualitySummaryModal: React.FC<QualitySummaryModalProps> = ({
   const filteredInspectors = useMemo(() => {
     if (!data?.inspectors) return [];
     if (!searchInspector.trim()) return data.inspectors;
-    const q = searchInspector.toLowerCase();
-    return data.inspectors.filter(i => i.name.toLowerCase().includes(q));
+    const q = (searchInspector || '').toLowerCase();
+    return data.inspectors.filter(i => String(i.name || '').toLowerCase().includes(q));
   }, [data?.inspectors, searchInspector]);
 
   // Export to Excel matching the user's Excel sheets
@@ -529,7 +529,7 @@ export const QualitySummaryModal: React.FC<QualitySummaryModalProps> = ({
                             <td className="px-4 py-2.5 border-r border-slate-100 dark:border-slate-800 font-semibold text-indigo-600 dark:text-indigo-400">{row.chassisVin && row.chassisVin !== 'N/A' ? row.chassisVin : (row.partDescription || '-')}</td>
                             <td className="px-4 py-2.5 border-r border-slate-100 dark:border-slate-800 text-slate-800 dark:text-slate-300">{row.submittedBy}</td>
                             <td className="px-4 py-2.5 border-r border-slate-100 dark:border-slate-800">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${row.status.toLowerCase().includes('ok') || row.status.toLowerCase() === 'accepted' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300'}`}>
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${String(row.status || '').toLowerCase().includes('ok') || String(row.status || '').toLowerCase() === 'accepted' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300'}`}>
                                 {row.status}
                               </span>
                             </td>

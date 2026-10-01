@@ -137,8 +137,8 @@ export const QualityDashboard: React.FC = () => {
   const filteredForms = useMemo(() => {
     if (!data?.formsSummary) return [];
     if (!searchForm.trim()) return data.formsSummary;
-    const q = searchForm.toLowerCase().trim();
-    return data.formsSummary.filter(f => f.title.toLowerCase().includes(q));
+    const q = (searchForm || '').toLowerCase().trim();
+    return data.formsSummary.filter(f => String(f.title || '').toLowerCase().includes(q));
   }, [data?.formsSummary, searchForm]);
 
   // Overall Quality Pie Chart State & Real Data Sync
@@ -148,8 +148,8 @@ export const QualityDashboard: React.FC = () => {
   const filteredFormSummaryList = useMemo(() => {
     if (!data?.formsSummary) return [];
     if (!pieSearchQuery.trim()) return data.formsSummary;
-    const q = pieSearchQuery.toLowerCase().trim();
-    return data.formsSummary.filter(f => f.title.toLowerCase().includes(q));
+    const q = (pieSearchQuery || '').toLowerCase().trim();
+    return data.formsSummary.filter(f => String(f.title || '').toLowerCase().includes(q));
   }, [data?.formsSummary, pieSearchQuery]);
 
   const pieChartData = useMemo(() => {
@@ -1152,7 +1152,7 @@ export const QualityDashboard: React.FC = () => {
                                 <td className="px-3 py-1.5 border border-gray-300 font-medium text-gray-900">{row.chassisNumber}</td>
                                 <td className="px-3 py-1.5 border border-gray-300 text-gray-800">{row.submittedBy}</td>
                                 <td className="px-3 py-1.5 border border-gray-300">
-                                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider font-bold ${row.status.toLowerCase().includes('ok') || row.status.toLowerCase() === 'accepted' ? 'text-green-700 bg-green-100/50' : 'text-red-700 bg-red-100/50'}`}>
+                                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider font-bold ${String(row.status || '').toLowerCase().includes('ok') || String(row.status || '').toLowerCase() === 'accepted' ? 'text-green-700 bg-green-100/50' : 'text-red-700 bg-red-100/50'}`}>
                                     {row.status}
                                   </span>
                                 </td>
@@ -1232,7 +1232,7 @@ export const QualityDashboard: React.FC = () => {
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {data.inspectors
-                          .filter(i => i.name.toLowerCase().includes(searchInspector.toLowerCase()))
+                          .filter(i => String(i.name || '').toLowerCase().includes((searchInspector || '').toLowerCase()))
                           .map((insp, idx) => (
                           <tr key={idx} className="hover:bg-blue-50/50 transition-colors group">
                             <td className="px-6 py-4 font-medium text-gray-900">{insp.name}</td>
