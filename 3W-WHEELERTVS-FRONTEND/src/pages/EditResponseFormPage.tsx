@@ -61,11 +61,15 @@ export default function EditResponseFormPage() {
 
     setSaving(true);
     try {
-      const updatedResponse: Response = {
+      const updatedResponse: any = {
         ...response,
         answers,
         timestamp: new Date().toISOString(),
       };
+
+      if (updatedResponse.biwReview && !updatedResponse.biwReview.status) {
+        delete updatedResponse.biwReview;
+      }
 
       await apiClient.updateResponse(responseId, updatedResponse);
       navigate(`/responses/${responseId}`);
@@ -117,9 +121,9 @@ export default function EditResponseFormPage() {
                   question={q}
                   value={answers[q.id ?? q._id]}
                   trackingValue={answers[`${q.id ?? q._id}_tracking`]}
-                  onChange={(value) => setAnswers({ ...answers, [q.id ?? q._id]: value })}
+                  onChange={(value) => setAnswers(prev => ({ ...prev, [q.id ?? q._id]: value }))}
                   onTrackingChange={(value) =>
-                    setAnswers({ ...answers, [`${q.id ?? q._id}_tracking`]: value })
+                    setAnswers(prev => ({ ...prev, [`${q.id ?? q._id}_tracking`]: value }))
                   }
                   isFollowUp={false}
                 />
@@ -146,9 +150,9 @@ export default function EditResponseFormPage() {
                           question={fq}
                           value={answers[fqId]}
                           trackingValue={answers[`${fqId}_tracking`]}
-                          onChange={(value) => setAnswers({ ...answers, [fqId]: value })}
+                          onChange={(value) => setAnswers(prev => ({ ...prev, [fqId]: value }))}
                           onTrackingChange={(value) =>
-                            setAnswers({ ...answers, [`${fqId}_tracking`]: value })
+                            setAnswers(prev => ({ ...prev, [`${fqId}_tracking`]: value }))
                           }
                           isFollowUp={true}
                         />
@@ -172,9 +176,9 @@ export default function EditResponseFormPage() {
                                     question={nfq}
                                     value={answers[nfqId]}
                                     trackingValue={answers[`${nfqId}_tracking`]}
-                                    onChange={(value) => setAnswers({ ...answers, [nfqId]: value })}
+                                    onChange={(value) => setAnswers(prev => ({ ...prev, [nfqId]: value }))}
                                     onTrackingChange={(value) =>
-                                      setAnswers({ ...answers, [`${nfqId}_tracking`]: value })
+                                      setAnswers(prev => ({ ...prev, [`${nfqId}_tracking`]: value }))
                                     }
                                     isFollowUp={true}
                                   />
@@ -203,9 +207,9 @@ export default function EditResponseFormPage() {
                   question={q}
                   value={answers[q.id ?? q._id]}
                   trackingValue={answers[`${q.id ?? q._id}_tracking`]}
-                  onChange={(value) => setAnswers({ ...answers, [q.id ?? q._id]: value })}
+                  onChange={(value) => setAnswers(prev => ({ ...prev, [q.id ?? q._id]: value }))}
                   onTrackingChange={(value) =>
-                    setAnswers({ ...answers, [`${q.id ?? q._id}_tracking`]: value })
+                    setAnswers(prev => ({ ...prev, [`${q.id ?? q._id}_tracking`]: value }))
                   }
                   isFollowUp={false}
                 />
@@ -352,9 +356,9 @@ export default function EditResponseFormPage() {
                       question={q}
                       value={answers[qId]}
                       trackingValue={answers[`${qId}_tracking`]}
-                      onChange={(value) => setAnswers({ ...answers, [qId]: value })}
+                      onChange={(value) => setAnswers(prev => ({ ...prev, [qId]: value }))}
                       onTrackingChange={(value) =>
-                        setAnswers({ ...answers, [`${qId}_tracking`]: value })
+                        setAnswers(prev => ({ ...prev, [`${qId}_tracking`]: value }))
                       }
                       isFollowUp={false}
                     />

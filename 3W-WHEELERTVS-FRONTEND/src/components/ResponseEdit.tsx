@@ -94,9 +94,9 @@ export default function ResponseEdit({
             question={q}
             value={answers[qId]}
             trackingValue={answers[`${qId}_tracking`]}
-            onChange={(value) => setAnswers({ ...answers, [qId]: value })}
+            onChange={(value) => setAnswers(prev => ({ ...prev, [qId]: value }))}
             onTrackingChange={(value) =>
-              setAnswers({ ...answers, [`${qId}_tracking`]: value })
+              setAnswers(prev => ({ ...prev, [`${qId}_tracking`]: value }))
             }
             isFollowUp={depth > 0}
           />

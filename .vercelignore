@@ -1,0 +1,6 @@
+.mongodb_data
+node_modules
+.git
+3w-wheeler-backend
+backups
+node-dist
