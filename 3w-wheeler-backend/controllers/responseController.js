@@ -70,12 +70,23 @@ function parseExcelDateBackend(value) {
     if (fullYear >= 30000 && fullYear <= 100000) {
       return parseExcelDateBackend(fullYear);
     }
+    // If it was read as UTC midnight from Excel, convert to safe midday UTC to prevent timezone boundary flip
+    if (value.getUTCHours() === 0 && value.getUTCMinutes() === 0 && value.getUTCSeconds() === 0) {
+      return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate(), 12, 0, 0));
+    }
     return value;
   }
   if (typeof value === 'number') {
-    const utcMs = (value - 25569) * 86400 * 1000;
+    const isWholeDay = Math.abs(value - Math.round(value)) < 0.0001;
+    const utcMs = Math.round((value - 25569) * 86400 * 1000);
     const d = new Date(utcMs);
-    return isNaN(d.getTime()) ? undefined : d;
+    if (!isNaN(d.getTime())) {
+      if (isWholeDay) {
+        return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0));
+      }
+      return d;
+    }
+    return undefined;
   }
   if (typeof value === 'string') {
     const trimmed = value.trim();
@@ -120,6 +131,7 @@ function parseExcelDateBackend(value) {
       const month = monthNames[mStr];
       let year = parseInt(dMonYMatch[3], 10);
       if (year < 100) year += year < 50 ? 2000 : 1900;
+      const hasTime = Boolean(dMonYMatch[4]);
       let hours = dMonYMatch[4] ? parseInt(dMonYMatch[4], 10) : 0;
       const minutes = dMonYMatch[5] ? parseInt(dMonYMatch[5], 10) : 0;
       const seconds = dMonYMatch[6] ? parseInt(dMonYMatch[6], 10) : 0;
@@ -128,8 +140,12 @@ function parseExcelDateBackend(value) {
       if (ampm === 'am' && hours === 12) hours = 0;
 
       if (month !== undefined && day >= 1 && day <= 31) {
-        const d = new Date(year, month, day, hours, minutes, seconds);
-        if (!isNaN(d.getTime())) return d;
+        if (hasTime) {
+          const d = new Date(year, month, day, hours, minutes, seconds);
+          if (!isNaN(d.getTime())) return d;
+        } else {
+          return new Date(Date.UTC(year, month, day, 12, 0, 0));
+        }
       }
     }
 
@@ -147,6 +163,7 @@ function parseExcelDateBackend(value) {
       } else if (year >= 100 && year < 1000) {
         year += 2000;
       }
+      const hasTime = Boolean(dmyMatch[4]);
       let hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
       const minutes = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
       const seconds = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
@@ -162,8 +179,12 @@ function parseExcelDateBackend(value) {
       }
 
       if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
-        const d = new Date(year, month, day, hours, minutes, seconds);
-        if (!isNaN(d.getTime())) return d;
+        if (hasTime) {
+          const d = new Date(year, month, day, hours, minutes, seconds);
+          if (!isNaN(d.getTime())) return d;
+        } else {
+          return new Date(Date.UTC(year, month, day, 12, 0, 0));
+        }
       }
     }
 
@@ -174,6 +195,7 @@ function parseExcelDateBackend(value) {
       const year = parseInt(ymdMatch[1], 10);
       const month = parseInt(ymdMatch[2], 10) - 1;
       const day = parseInt(ymdMatch[3], 10);
+      const hasTime = Boolean(ymdMatch[4]);
       let hours = ymdMatch[4] ? parseInt(ymdMatch[4], 10) : 0;
       const minutes = ymdMatch[5] ? parseInt(ymdMatch[5], 10) : 0;
       const seconds = ymdMatch[6] ? parseInt(ymdMatch[6], 10) : 0;
@@ -182,13 +204,47 @@ function parseExcelDateBackend(value) {
       if (ampm === 'am' && hours === 12) hours = 0;
 
       if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
-        const d = new Date(year, month, day, hours, minutes, seconds);
-        if (!isNaN(d.getTime())) return d;
+        if (hasTime) {
+          const d = new Date(year, month, day, hours, minutes, seconds);
+          if (!isNaN(d.getTime())) return d;
+        } else {
+          return new Date(Date.UTC(year, month, day, 12, 0, 0));
+        }
+      }
+    }
+
+    const dmMatch = trimmed.match(/^(\d{1,2})[-/.](\d{1,2})$/);
+    if (dmMatch) {
+      const part1 = parseInt(dmMatch[1], 10);
+      const part2 = parseInt(dmMatch[2], 10);
+      let day = part1;
+      let month = part2 - 1;
+      if (part1 <= 12 && part2 > 12) {
+        day = part2;
+        month = part1 - 1;
+      }
+      const year = new Date().getFullYear();
+      if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
+        return new Date(Date.UTC(year, month, day, 12, 0, 0));
+      }
+    }
+
+    const singleDayMatch = trimmed.match(/^(\d{1,2})$/);
+    if (singleDayMatch) {
+      const day = parseInt(singleDayMatch[1], 10);
+      if (day >= 1 && day <= 31) {
+        const now = new Date();
+        return new Date(Date.UTC(now.getFullYear(), now.getMonth(), day, 12, 0, 0));
       }
     }
 
     const parsed = new Date(trimmed);
-    if (!isNaN(parsed.getTime())) return parsed;
+    if (!isNaN(parsed.getTime())) {
+      if (parsed.getUTCHours() === 0 && parsed.getUTCMinutes() === 0 && parsed.getUTCSeconds() === 0) {
+        return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate(), 12, 0, 0));
+      }
+      return parsed;
+    }
   }
   return undefined;
 }
@@ -1465,6 +1521,10 @@ export const batchImportResponses = async (req, res) => {
               responses[index]?.createdAt ||
               responses[index]?.timestamp ||
               processedAnswers["submittedAt"] ||
+              processedAnswers["Submitted Date *"] ||
+              processedAnswers["Submitted Date"] ||
+              processedAnswers["submitted date"] ||
+              processedAnswers["submittedDate"] ||
               processedAnswers["Timestamp"] ||
               processedAnswers["timestamp"] ||
               processedAnswers["Date"] ||
@@ -1485,7 +1545,7 @@ export const batchImportResponses = async (req, res) => {
 
             // Clean up virtual columns so they don't pollute question answers
             const formQuestionIds = new Set(allQuestions.map(q => q.id || (q._id ? q._id.toString() : null)).filter(Boolean));
-            ["Timestamp", "timestamp", "Date", "date", "Status", "status", "Dispatched", "dispatched", "Dispatched At", "dispatched at", "submittedAt", "isDispatched", "dispatchedAt"].forEach(k => {
+            ["Timestamp", "timestamp", "Date", "date", "Status", "status", "Dispatched", "dispatched", "Dispatched At", "dispatched at", "submittedAt", "isDispatched", "dispatchedAt", "Submitted Date", "Submitted Date *", "submitted date", "submittedDate"].forEach(k => {
               if (!formQuestionIds.has(k)) {
                 delete processedAnswers[k];
               }
@@ -1763,6 +1823,10 @@ export const batchImportResponses = async (req, res) => {
             responses[index]?.createdAt ||
             responses[index]?.timestamp ||
             processedAnswers["submittedAt"] ||
+            processedAnswers["Submitted Date *"] ||
+            processedAnswers["Submitted Date"] ||
+            processedAnswers["submitted date"] ||
+            processedAnswers["submittedDate"] ||
             processedAnswers["Timestamp"] ||
             processedAnswers["timestamp"] ||
             processedAnswers["Date"] ||
@@ -1783,7 +1847,7 @@ export const batchImportResponses = async (req, res) => {
 
           // Clean up virtual columns so they don't pollute question answers
           const formQuestionIds = new Set(allQuestions.map(q => q.id || (q._id ? q._id.toString() : null)).filter(Boolean));
-          ["Timestamp", "timestamp", "Date", "date", "Status", "status", "Dispatched", "dispatched", "Dispatched At", "dispatched at", "submittedAt", "isDispatched", "dispatchedAt"].forEach(k => {
+          ["Timestamp", "timestamp", "Date", "date", "Status", "status", "Dispatched", "dispatched", "Dispatched At", "dispatched at", "submittedAt", "isDispatched", "dispatchedAt", "Submitted Date", "Submitted Date *", "submitted date", "submittedDate"].forEach(k => {
             if (!formQuestionIds.has(k)) {
               delete processedAnswers[k];
             }

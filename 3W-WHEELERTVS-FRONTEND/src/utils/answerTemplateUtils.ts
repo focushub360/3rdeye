@@ -924,15 +924,23 @@ export function parseExcelDate(value: any): Date | null {
     if (fullYear >= 30000 && fullYear <= 100000) {
       return parseExcelDate(fullYear);
     }
+    // If it was read as UTC midnight from Excel, convert to safe midday UTC to prevent timezone boundary flip
+    if (value.getUTCHours() === 0 && value.getUTCMinutes() === 0 && value.getUTCSeconds() === 0) {
+      return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate(), 12, 0, 0));
+    }
     return value;
   }
   if (typeof value === "number") {
     // Excel epoch starts at 1899-12-30 (25569 days between 1899-12-30 and 1970-01-01)
-    const utcMs = (value - 25569) * 86400 * 1000;
+    const isWholeDay = Math.abs(value - Math.round(value)) < 0.0001;
+    const utcMs = Math.round((value - 25569) * 86400 * 1000);
     const date = new Date(utcMs);
     if (!isNaN(date.getTime())) {
-      const userTimezoneOffset = date.getTimezoneOffset() * 60000;
-      return new Date(date.getTime() + userTimezoneOffset);
+      if (isWholeDay) {
+        // Safe midday UTC to prevent timezone boundary flipping across IST/UTC
+        return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 12, 0, 0));
+      }
+      return date;
     }
     return null;
   }
@@ -990,6 +998,7 @@ export function parseExcelDate(value: any): Date | null {
       const month = monthNames[mStr];
       let year = parseInt(dMonYMatch[3], 10);
       if (year < 100) year += year < 50 ? 2000 : 1900;
+      const hasTime = Boolean(dMonYMatch[4]);
       let hours = dMonYMatch[4] ? parseInt(dMonYMatch[4], 10) : 0;
       const minutes = dMonYMatch[5] ? parseInt(dMonYMatch[5], 10) : 0;
       const seconds = dMonYMatch[6] ? parseInt(dMonYMatch[6], 10) : 0;
@@ -998,8 +1007,12 @@ export function parseExcelDate(value: any): Date | null {
       if (ampm === "am" && hours === 12) hours = 0;
 
       if (month !== undefined && day >= 1 && day <= 31) {
-        const d = new Date(year, month, day, hours, minutes, seconds);
-        if (!isNaN(d.getTime())) return d;
+        if (hasTime) {
+          const d = new Date(year, month, day, hours, minutes, seconds);
+          if (!isNaN(d.getTime())) return d;
+        } else {
+          return new Date(Date.UTC(year, month, day, 12, 0, 0));
+        }
       }
     }
 
@@ -1018,6 +1031,7 @@ export function parseExcelDate(value: any): Date | null {
       } else if (year >= 100 && year < 1000) {
         year += 2000;
       }
+      const hasTime = Boolean(dmyMatch[4]);
       let hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
       const minutes = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
       const seconds = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
@@ -1036,8 +1050,12 @@ export function parseExcelDate(value: any): Date | null {
       }
 
       if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
-        const d = new Date(year, month, day, hours, minutes, seconds);
-        if (!isNaN(d.getTime())) return d;
+        if (hasTime) {
+          const d = new Date(year, month, day, hours, minutes, seconds);
+          if (!isNaN(d.getTime())) return d;
+        } else {
+          return new Date(Date.UTC(year, month, day, 12, 0, 0));
+        }
       }
     }
 
@@ -1049,6 +1067,7 @@ export function parseExcelDate(value: any): Date | null {
       const year = parseInt(ymdMatch[1], 10);
       const month = parseInt(ymdMatch[2], 10) - 1;
       const day = parseInt(ymdMatch[3], 10);
+      const hasTime = Boolean(ymdMatch[4]);
       let hours = ymdMatch[4] ? parseInt(ymdMatch[4], 10) : 0;
       const minutes = ymdMatch[5] ? parseInt(ymdMatch[5], 10) : 0;
       const seconds = ymdMatch[6] ? parseInt(ymdMatch[6], 10) : 0;
@@ -1057,14 +1076,49 @@ export function parseExcelDate(value: any): Date | null {
       if (ampm === "am" && hours === 12) hours = 0;
 
       if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
-        const d = new Date(year, month, day, hours, minutes, seconds);
-        if (!isNaN(d.getTime())) return d;
+        if (hasTime) {
+          const d = new Date(year, month, day, hours, minutes, seconds);
+          if (!isNaN(d.getTime())) return d;
+        } else {
+          return new Date(Date.UTC(year, month, day, 12, 0, 0));
+        }
       }
     }
 
-    // 4. Fallback to standard Javascript date parsing
+    // 4. Support DD/MM or DD-MM (without year, default to current year)
+    const dmMatch = trimmed.match(/^(\d{1,2})[-/.](\d{1,2})$/);
+    if (dmMatch) {
+      const part1 = parseInt(dmMatch[1], 10);
+      const part2 = parseInt(dmMatch[2], 10);
+      let day = part1;
+      let month = part2 - 1;
+      if (part1 <= 12 && part2 > 12) {
+        day = part2;
+        month = part1 - 1;
+      }
+      const year = new Date().getFullYear();
+      if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
+        return new Date(Date.UTC(year, month, day, 12, 0, 0));
+      }
+    }
+
+    // 5. Support standalone day number (e.g. "24" or "25", default to current month and year)
+    const singleDayMatch = trimmed.match(/^(\d{1,2})$/);
+    if (singleDayMatch) {
+      const day = parseInt(singleDayMatch[1], 10);
+      if (day >= 1 && day <= 31) {
+        const now = new Date();
+        return new Date(Date.UTC(now.getFullYear(), now.getMonth(), day, 12, 0, 0));
+      }
+    }
+
+    // 6. Fallback to standard Javascript date parsing
     const parsed = new Date(trimmed);
     if (!isNaN(parsed.getTime())) {
+      // If it parsed to midnight, normalize to midday UTC to avoid day shift
+      if (parsed.getUTCHours() === 0 && parsed.getUTCMinutes() === 0 && parsed.getUTCSeconds() === 0) {
+        return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate(), 12, 0, 0));
+      }
       return parsed;
     }
   }

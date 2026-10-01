@@ -4538,9 +4538,13 @@ export default function FormAnalyticsDashboard() {
     setAnalyticsResponsesLoading(true);
     let accumulator: any[] = [];
     try {
+      const currentBatchId = searchParams.get("batchId");
+      const isUploadOnly = searchParams.get("uploadOnly") === "true";
       const responsesData = await apiClient.getAllFormResponses(id, {
         analytics: true,
         forceNetwork: true,
+        ...(currentBatchId ? { batchId: currentBatchId } : {}),
+        ...(isUploadOnly ? { uploadOnly: true } : {}),
         onPage: ({ responses: pageResponses, pageNumber, totalPages, totalResponses, isLast }: {
           responses: any[];
           pageNumber: number;
@@ -4580,11 +4584,15 @@ export default function FormAnalyticsDashboard() {
     if (!id) return;
     setLoadingTable(true);
     try {
+      const currentBatchId = searchParams.get("batchId");
+      const isUploadOnly = searchParams.get("uploadOnly") === "true";
       const data = await apiClient.getFormResponses(id, {
         page: page,
         limit: responsesPageSize,
         analytics: false,
         forceNetwork: true,
+        ...(currentBatchId ? { batchId: currentBatchId } : {}),
+        ...(isUploadOnly ? { uploadOnly: true } : {}),
       });
       setTableResponses(data.responses || []);
       setTotalResponsesCount(data.pagination?.totalResponses || 0);
@@ -4623,22 +4631,24 @@ export default function FormAnalyticsDashboard() {
   // these without visiting Dashboard first, load the full set once here.
 
 
-  // Responses tab: server-side paginated fetch for the table rows, loaded
-  // once on first visit. The Status column, however, is computed from the
-  // separate full-dataset `responses` array (see responseStatuses above) -
-  // if the user lands here directly (skipping Dashboard/Question/Section/
-  // Overall), that full set was never requested and the Status column
-  // would spin on "Loading…" forever. Kick it off here too, the same way
-  // the other tabs already do.
+  // Responses tab: server-side paginated fetch for the table rows.
+  // When URL has batchId / uploadOnly (e.g. from Upload History modal or recent import),
+  // ensure we fetch specifically that batch or reload when params change.
+  const urlBatchId = searchParams.get("batchId");
+  const urlUploadOnly = searchParams.get("uploadOnly");
+  const lastBatchParamRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (activeTab === "responses" && !loadedTabs.has("responses") && id) {
-      fetchResponsesPage(1);
-      if (!loadedTabs.has("dashboard") && (responses.length === 0 || (totalResponsesCount > 0 && responses.length < totalResponsesCount))) {
+    const batchKey = `${urlBatchId || ""}_${urlUploadOnly || ""}`;
+    if (activeTab === "responses" && id) {
+      if (!loadedTabs.has("responses") || lastBatchParamRef.current !== batchKey) {
+        lastBatchParamRef.current = batchKey;
+        fetchResponsesPage(1);
         fetchFullAnalyticsResponses();
+        setLoadedTabs((prev) => new Set(prev).add("responses"));
       }
-      setLoadedTabs((prev) => new Set(prev).add("responses"));
     }
-  }, [activeTab, id, loadedTabs, responses.length, totalResponsesCount]);
+  }, [activeTab, id, loadedTabs, urlBatchId, urlUploadOnly]);
 
   // Page / page-size changes on an already-loaded Responses tab re-fetch
   // from the server instead of re-slicing an in-memory array.
@@ -11482,6 +11492,40 @@ export default function FormAnalyticsDashboard() {
           {/* Responses as Table */}
           {analyticsView === "responses" && (
             <div className="space-y-4 sm:space-y-6">
+              {/* Active Upload/Batch Filter Banner */}
+              {(urlBatchId || urlUploadOnly === "true") && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl text-blue-900 dark:text-blue-200 shadow-sm animate-fadeIn">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-xl">📁</span>
+                    <div>
+                      <p className="text-xs sm:text-sm font-bold flex flex-wrap items-center gap-2">
+                        <span>Filtered to Uploaded Data ({activeTotalResponsesCount} records)</span>
+                        {urlBatchId && (
+                          <span className="font-mono text-[11px] bg-blue-100 dark:bg-blue-900/60 px-2 py-0.5 rounded text-blue-800 dark:text-blue-300 font-semibold border border-blue-200 dark:border-blue-700">
+                            {urlBatchId}
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-[11px] text-blue-600 dark:text-blue-400">
+                        Showing records from Excel import. Click "Show All Form Responses" to view the complete history.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const nextParams = new URLSearchParams(searchParams);
+                      nextParams.delete("batchId");
+                      nextParams.delete("uploadOnly");
+                      navigate(`/forms/${id}/analytics?${nextParams.toString()}`);
+                    }}
+                    className="shrink-0 px-3 py-1.5 text-xs font-semibold bg-white dark:bg-gray-800 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 rounded-lg shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer self-start sm:self-center"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Show All Form Responses</span>
+                  </button>
+                </div>
+              )}
+
               <div className="card p-3 sm:p-6">
                 <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex flex-col">
@@ -13206,16 +13250,22 @@ export default function FormAnalyticsDashboard() {
                                       const month = String(d.getMonth() + 1).padStart(2, "0");
                                       const year = d.getFullYear();
                                       const dateFormatted = `${day}/${month}/${year}`;
-                                      const timeFormatted = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+                                      // Suppress time display for synthetic midday UTC (12:00:00Z)
+                                      // which is the sentinel value used by parseExcelDate to prevent
+                                      // timezone day-flips on date-only Excel imports.
+                                      const isSyntheticMidday = d.getUTCHours() === 12 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0;
+                                      const timeFormatted = isSyntheticMidday ? null : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
                                       return (
                                         <div className="flex flex-col gap-0.5 select-text">
                                           <span className="font-semibold text-gray-800 dark:text-gray-200 tracking-tight">
                                             {dateFormatted}
                                           </span>
-                                          <span className="text-[11px] text-gray-500 dark:text-gray-400 font-normal">
-                                            {timeFormatted}
-                                          </span>
+                                          {timeFormatted && (
+                                            <span className="text-[11px] text-gray-500 dark:text-gray-400 font-normal">
+                                              {timeFormatted}
+                                            </span>
+                                          )}
                                         </div>
                                       );
                                     })()}
