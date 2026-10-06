@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'backend',
       script: 'server.js',
-      cwd: '/home/ubuntu/3w-wheeler-backend',
+      cwd: __dirname,
       instances: 2,
       exec_mode: 'cluster',
       autorestart: true,

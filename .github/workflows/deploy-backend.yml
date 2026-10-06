@@ -26,7 +26,7 @@ jobs:
           timeout: 120s
           script: |
             echo "📦 Pulling latest backend code..."
-            cd /home/ubuntu/3w-wheeler-backend
+            cd /home/ubuntu/3rdeye/3w-wheeler-backend || cd /home/ubuntu/3w-wheeler-backend
             git pull origin main
 
             echo "📥 Installing dependencies..."
