@@ -32,9 +32,15 @@ jobs:
             echo "📥 Installing dependencies..."
             npm install --omit=dev
 
-            echo "♻️ Restarting backend with PM2..."
-            pm2 restart backend --update-env
+            echo "♻️ Restarting backend with PM2 Cluster..."
+            pm2 reload ecosystem.config.cjs || pm2 start ecosystem.config.cjs
             pm2 save
+
+            echo "🌐 Reloading Nginx configuration..."
+            if [ -f nginx.conf ]; then
+              sudo cp nginx.conf /etc/nginx/nginx.conf
+              sudo nginx -t && sudo systemctl reload nginx
+            fi
 
             echo "✅ Backend deployed successfully!"
             pm2 status

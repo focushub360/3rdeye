@@ -26,6 +26,11 @@ const API_BASE_URL = (() => {
       return import.meta.env.VITE_API_URL;
     }
 
+    // Focus 3rd Eye domain
+    if (hostname.includes('focus3rdeye.com')) {
+      return "https://www.focus3rdeye.com/api";
+    }
+
     // AWS Production Deployment
     if (hostname === '3wheelertvs.focusengineeringapp.com') {
       return "https://3wheelertvsbackend.focusengineeringapp.com/api";
@@ -46,7 +51,7 @@ const API_BASE_URL = (() => {
     }
 
     // Production backend on AWS EC2
-    return "https://3wheelertvsbackend.focusengineeringapp.com/api";
+    return "https://www.focus3rdeye.com/api";
   };
 
   const baseUrl = getBaseUrl();
