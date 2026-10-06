@@ -4,10 +4,11 @@ module.exports = {
       name: 'backend',
       script: 'server.js',
       cwd: '/home/ubuntu/3w-wheeler-backend',
-      instances: 1,
+      instances: 2,
+      exec_mode: 'cluster',
       autorestart: true,
       watch: false,
-      max_memory_restart: '500M',
+      max_memory_restart: '700M',
       env: {
         NODE_ENV: 'production',
         PORT: 5000,

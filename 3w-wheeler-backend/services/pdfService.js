@@ -1,5 +1,6 @@
 import puppeteer from 'puppeteer';
 import fs from 'fs';
+import os from 'os';
 
 
 class PDFService {
@@ -9,11 +10,26 @@ class PDFService {
     this.initializationPromise = null;
   }
 
+  // Check if there's enough free memory to run Puppeteer safely
+  checkMemory(requiredMB = 150) {
+    const freeMem = os.freemem();
+    const freeMemMB = Math.round(freeMem / 1024 / 1024);
+    const totalMemMB = Math.round(os.totalmem() / 1024 / 1024);
+    console.log(`💾 Memory check: ${freeMemMB}MB free / ${totalMemMB}MB total (need ${requiredMB}MB)`);
+    return { ok: freeMemMB >= requiredMB, freeMemMB, totalMemMB };
+  }
+
   async initBrowser() {
     if (this.initializationPromise) return this.initializationPromise;
 
     this.initializationPromise = (async () => {
       try {
+        // Memory guard — prevent OOM on small instances
+        const memCheck = this.checkMemory(150);
+        if (!memCheck.ok) {
+          throw new Error(`Insufficient memory for PDF generation: ${memCheck.freeMemMB}MB free, need at least 150MB. Server has ${memCheck.totalMemMB}MB total.`);
+        }
+
         console.log('🚀 Launching Puppeteer...');
 
         const launchOptions = {
@@ -25,9 +41,11 @@ class PDFService {
             '--disable-gpu',
             '--no-first-run',
             '--no-zygote',
+            '--single-process',
             '--disable-extensions',
             '--disable-web-resources',
-            '--font-render-hinting=none'
+            '--font-render-hinting=none',
+            '--js-flags=--max-old-space-size=128'
           ],
           defaultViewport: { width: 1280, height: 1600 },
           timeout: 60000

@@ -3632,7 +3632,7 @@ export const deleteMultipleResponses = async (req, res) => {
 export const getResponsesByForm = async (req, res) => {
   try {
     const { formId } = req.params;
-    const { page = 1, limit = 10000, status, includePartial = 'false' } = req.query;
+    const { page = 1, limit = 200, status, includePartial = 'false' } = req.query;
 
     console.log('[getResponsesByForm] Looking for form with ID:', formId);
     // Verify form exists - support either string id or mongo _id in a single lookup
@@ -3841,9 +3841,10 @@ export const getResponsesByForm = async (req, res) => {
         .sort(options.sort)
         .limit(options.limit * 1)
         .skip((options.page - 1) * options.limit)
+        .maxTimeMS(30000)
         .lean();
     
-    const countPromise = Response.countDocuments(query);
+    const countPromise = Response.countDocuments(query).maxTimeMS(15000);
 
     const [responsesRaw, total] = await Promise.all([responsesPromise, countPromise]);
     let responses = responsesRaw;
