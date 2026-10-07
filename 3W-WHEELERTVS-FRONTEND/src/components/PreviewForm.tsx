@@ -641,8 +641,21 @@ export default function PreviewForm({
   };
 
   const performSubmission = async () => {
-    if (chassisNumbers.length > 0) {
-      if (!answers['chassis_number']) {
+    const visibleChassis = chassisNumbers.filter((cn: any) => {
+      if (!user?.tenantId) return true;
+      const assignments = chassisTenantAssignments[cn.chassisNumber];
+      return !assignments || assignments.length === 0 || assignments.includes(user.tenantId);
+    });
+
+    if (visibleChassis.length > 0) {
+      const chassisAns =
+        answers['chassis_number'] ||
+        answers['chassisNumber'] ||
+        answers['id_number'] ||
+        answers['idNumber'] ||
+        answers['Chassis / VIN'] ||
+        answers['Chassis No'];
+      if (!chassisAns) {
         showNotifyError("Please select a Chassis Number before submitting");
         window.scrollTo({ top: 0, behavior: "smooth" });
         return;
@@ -1439,8 +1452,21 @@ export default function PreviewForm({
     }
 
     setSectionStartTime(new Date());
-    if (currentSectionIndex === 0 && chassisNumbers.length > 0) {
-      if (!answers['chassis_number']) {
+    const visibleChassis = chassisNumbers.filter((cn: any) => {
+      if (!user?.tenantId) return true;
+      const assignments = chassisTenantAssignments[cn.chassisNumber];
+      return !assignments || assignments.length === 0 || assignments.includes(user.tenantId);
+    });
+
+    if (currentSectionIndex === 0 && visibleChassis.length > 0) {
+      const chassisAns =
+        answers['chassis_number'] ||
+        answers['chassisNumber'] ||
+        answers['id_number'] ||
+        answers['idNumber'] ||
+        answers['Chassis / VIN'] ||
+        answers['Chassis No'];
+      if (!chassisAns) {
         showNotifyError("Please select a Chassis Number to continue");
         window.scrollTo({ top: 0, behavior: "smooth" });
         return;

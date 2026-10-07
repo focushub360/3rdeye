@@ -1003,8 +1003,9 @@ export const updateForm = async (req, res) => {
     }
 
     // Check permissions
+    const isUserAdminOrSuper = ['admin', 'superadmin', 'subadmin'].includes(req.user.role);
     if (form.createdBy && req.user._id && form.createdBy.toString() !== req.user._id.toString() &&
-      req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+      !isUserAdminOrSuper) {
       const userPerms = req.user.permissions || [];
       const formIdStr = form._id?.toString();
       const customIdStr = form.id?.toString();
@@ -1024,8 +1025,8 @@ export const updateForm = async (req, res) => {
       }
     }
 
-    // For admin, ensure they can only edit forms in their tenant
-    if (req.user.role === 'admin' && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
+    // For admin/subadmin, ensure they can only edit forms in their tenant
+    if (['admin', 'subadmin'].includes(req.user.role) && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only edit forms in your organization.'
@@ -1041,8 +1042,8 @@ export const updateForm = async (req, res) => {
       delete updateData.sharedWithTenants;
       delete updateData.tenantId;
     }
-    // Admin can update sharedWithTenants but not isGlobal or tenantId
-    if (req.user.role === 'admin') {
+    // Admin / subadmin cannot update isGlobal or tenantId
+    if (['admin', 'subadmin'].includes(req.user.role)) {
       delete updateData.isGlobal;
       delete updateData.tenantId;
     }
@@ -1135,7 +1136,7 @@ export const deleteForm = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === 'superadmin';
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin = ['admin', 'subadmin'].includes(req.user.role);
     const formTenantIdStr = (form.tenantId?._id || form.tenantId)?.toString();
     const userTenantIdStr = (req.user.tenantId?._id || req.user.tenantId)?.toString();
     const formCreatorIdStr = (form.createdBy?._id || form.createdBy)?.toString();
@@ -1234,15 +1235,15 @@ export const updateFormVisibility = async (req, res) => {
 
     // Check permissions
     if (form.createdBy && req.user._id && form.createdBy.toString() !== req.user._id.toString() &&
-      req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+      !['admin', 'superadmin', 'subadmin'].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only modify your own forms.'
       });
     }
 
-    // For admin, ensure they can only modify forms in their tenant
-    if (req.user.role === 'admin' && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
+    // For admin/subadmin, ensure they can only modify forms in their tenant
+    if (['admin', 'subadmin'].includes(req.user.role) && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only modify forms in your organization.'
@@ -1296,14 +1297,14 @@ export const updateFormLocationEnabled = async (req, res) => {
     }
 
     if (form.createdBy && req.user._id && form.createdBy.toString() !== req.user._id.toString() &&
-      req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+      !['admin', 'superadmin', 'subadmin'].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only modify your own forms.'
       });
     }
 
-    if (req.user.role === 'admin' && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
+    if (['admin', 'subadmin'].includes(req.user.role) && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only modify forms in your organization.'
@@ -1398,15 +1399,15 @@ export const updateFormActiveStatus = async (req, res) => {
 
     // Check permissions
     if (form.createdBy && req.user._id && form.createdBy.toString() !== req.user._id.toString() &&
-      req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+      !['admin', 'superadmin', 'subadmin'].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only modify your own forms.'
       });
     }
 
-    // For admin, ensure they can only modify forms in their tenant
-    if (req.user.role === 'admin' && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
+    // For admin/subadmin, ensure they can only modify forms in their tenant
+    if (['admin', 'subadmin'].includes(req.user.role) && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only modify forms in your organization.'
@@ -1458,15 +1459,15 @@ export const updateFormViewType = async (req, res) => {
 
     // Check permissions
     if (form.createdBy && req.user._id && form.createdBy.toString() !== req.user._id.toString() &&
-      req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+      !['admin', 'superadmin', 'subadmin'].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only modify your own forms.'
       });
     }
 
-    // For admin, ensure they can only modify forms in their tenant
-    if (req.user.role === 'admin' && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
+    // For admin/subadmin, ensure they can only modify forms in their tenant
+    if (['admin', 'subadmin'].includes(req.user.role) && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only modify forms in your organization.'
@@ -1772,15 +1773,15 @@ export const updateFollowUpConfig = async (req, res) => {
 
     // Check permissions
     if (form.createdBy && req.user._id && form.createdBy.toString() !== req.user._id.toString() &&
-      req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+      !['admin', 'superadmin', 'subadmin'].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only modify your own forms.'
       });
     }
 
-    // For admin, ensure they can only modify forms in their tenant
-    if (req.user.role === 'admin' && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
+    // For admin/subadmin, ensure they can only modify forms in their tenant
+    if (['admin', 'subadmin'].includes(req.user.role) && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only modify forms in your organization.'
@@ -1946,7 +1947,7 @@ export const linkChildForm = async (req, res) => {
 
     // Check permissions
     if (parentForm.createdBy.toString() !== req.user._id.toString() &&
-      req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+      !['admin', 'superadmin', 'subadmin'].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only modify your own forms.'
@@ -2020,7 +2021,7 @@ export const unlinkChildForm = async (req, res) => {
 
     // Check permissions
     if (parentForm.createdBy.toString() !== req.user._id.toString() &&
-      req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+      !['admin', 'superadmin', 'subadmin'].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only modify your own forms.'
@@ -2170,7 +2171,7 @@ export const reorderChildForms = async (req, res) => {
 
     // Check permissions
     if (parentForm.createdBy.toString() !== req.user._id.toString() &&
-      req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+      !['admin', 'superadmin', 'subadmin'].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You can only modify your own forms.'
@@ -2784,14 +2785,19 @@ export const submitPublicResponse = async (req, res) => {
     const targetSessionId = sessionId || formSession?.sessionId;
     if (targetSessionId && !isSectionSubmit) {
       const Response = mongoose.model('Response');
+      const searchFormConditions = [{ questionId: id }, { formId: id }];
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        searchFormConditions.push({ questionId: new mongoose.Types.ObjectId(String(id)) }, { formId: new mongoose.Types.ObjectId(String(id)) });
+      }
       const existingSessionResponse = await Response.findOne({
-        $or: [
-          { questionId: id },
-          { formId: id }
-        ],
-        $or: [
-          { sessionId: targetSessionId },
-          { 'submissionMetadata.sessionId': targetSessionId }
+        $and: [
+          { $or: searchFormConditions },
+          {
+            $or: [
+              { sessionId: targetSessionId },
+              { 'submissionMetadata.sessionId': targetSessionId }
+            ]
+          }
         ]
       });
       if (existingSessionResponse) {

@@ -156,6 +156,8 @@ router.post('/convert-image', async (req, res) => {
 
 // 6. SINGLE RESPONSE CREATION (optional auth - allows public with token if provided)
 router.post('/:tenantSlug/forms/:formId/responses', authenticateOptional, createResponse);
+router.post('/:formId', authenticateOptional, createResponse);
+router.post('/', authenticateOptional, createResponse);
 
 // 7. GET RANK (PUBLIC)
 router.get('/rank', getRank);
@@ -193,9 +195,6 @@ router.post('/assign-multiple', assignResponses);
 
 // Response management
 router.get('/', cacheMiddleware(30), getAllResponses);
-router.post('/', createResponse);
-// Also handle POST /responses/:formId for internal submissions
-router.post('/:formId', createResponse);
 router.get('/:id', getResponseById);
 router.put('/:id', updateResponse);
 router.patch('/:id/assign', assignResponse);

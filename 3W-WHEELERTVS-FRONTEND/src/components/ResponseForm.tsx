@@ -16,6 +16,7 @@ import QuestionRenderer from "./QuestionRenderer";
 import { useQuestionLogic } from "../hooks/useQuestionLogic";
 import ThankYouMessage from "./ThankYouMessage";
 import { apiClient } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 
 const SAMPLE_IMAGE_DATA =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
@@ -136,6 +137,7 @@ interface ResponseFormProps {
 }
 
 export default function ResponseForm({ onSubmit }: ResponseFormProps) {
+  const { user } = useAuth();
   const { id, tenantSlug } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -789,6 +791,30 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
         completedAt: new Date().toISOString(),
         sessionId: sessionTrackingId || undefined, // ✅ Make sure this is included
       };
+
+      if (user) {
+        submitData.submittedBy =
+          user.firstName && user.lastName
+            ? `${user.firstName} ${user.lastName}`.trim()
+            : user.username || user.email || undefined;
+        submitData.submitterContact = {
+          email: user.email || "",
+          phone: user.mobile || user.phone || "",
+        };
+      }
+
+      const chassisVal =
+        answers?.chassis_number ||
+        answers?.chassisNumber ||
+        answers?.id_number ||
+        answers?.idNumber ||
+        answers?.["ID number"] ||
+        answers?.["Chassis / VIN"] ||
+        answers?.["Chassis No"] ||
+        answers?.["CHASSIS NUMBER"];
+      if (chassisVal) {
+        submitData.chassisNumber = typeof chassisVal === "string" ? chassisVal.trim() : chassisVal;
+      }
 
       if (navigator.geolocation) {
         try {

@@ -1083,7 +1083,8 @@ export default function FormCreator() {
         }
 
         showSuccess("Form updated successfully", "Success");
-        navigate("/superadmin/forms");
+        const targetPath = user?.role === "superadmin" ? "/superadmin/forms" : "/forms";
+        navigate(targetPath);
       } else {
         // Create new form
         console.log("Creating new form...");
@@ -1129,7 +1130,8 @@ export default function FormCreator() {
         }
 
         showSuccess("Form created successfully", "Success");
-        navigate("/superadmin/forms");
+        const targetPath = user?.role === "superadmin" ? "/superadmin/forms" : "/forms";
+        navigate(targetPath);
       }
     } catch (error: any) {
       console.error("=== Error saving form ===");
