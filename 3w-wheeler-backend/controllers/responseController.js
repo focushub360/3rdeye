@@ -1199,7 +1199,11 @@ export const batchImportResponses = async (req, res) => {
     }
 
     // Find form (without isVisible check for now)
-    const form = await Form.findOne({ id: actualQuestionId });
+    const searchConditions = [{ id: actualQuestionId }];
+    if (mongoose.Types.ObjectId.isValid(actualQuestionId)) {
+      searchConditions.push({ _id: new mongoose.Types.ObjectId(String(actualQuestionId)) }, { _id: actualQuestionId });
+    }
+    const form = await Form.findOne({ $or: searchConditions });
     if (!form) {
       return res.status(404).json({
         success: false,

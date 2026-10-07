@@ -25,7 +25,7 @@ export default function PreviewFormWrapper() {
   // It is only disabled if an admin explicitly denies/unchecks preview permission for the form.
   const hasPreviewAccess = React.useMemo(() => {
     if (!user) return true; // Unauthenticated / guest access allowed for public preview
-    if (user.role === "admin" || user.role === "superadmin" || user.role === "tenant_admin") return true;
+    if (user.role === "admin" || user.role === "superadmin" || user.role === "tenant_admin" || user.role === "subadmin") return true;
 
     const permissions = user.permissions || [];
 

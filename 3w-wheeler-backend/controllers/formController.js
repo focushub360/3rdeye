@@ -2720,7 +2720,11 @@ export const submitPublicResponse = async (req, res) => {
     }
 
     // Get the form
-    const form = await Form.findOne({ id: id });
+    const searchConditions = [{ id: id }];
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      searchConditions.push({ _id: new mongoose.Types.ObjectId(String(id)) }, { _id: id });
+    }
+    const form = await Form.findOne({ $or: searchConditions });
     console.log("📋 Form found:", form ? "YES" : "NO");
 
     if (!form) {

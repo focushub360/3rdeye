@@ -51,12 +51,12 @@ export const parseUserAgent = (userAgent) => {
  */
 export const getClientIp = (req) => {
   // Check various headers for the real IP address
-  const forwarded = req.headers['x-forwarded-for'];
+  const forwarded = req?.headers?.['x-forwarded-for'];
   if (forwarded) {
     return forwarded.split(',')[0].trim();
   }
   
-  return req.headers['x-real-ip'] || 
+  return req?.headers?.['x-real-ip'] || 
          req.connection?.remoteAddress || 
          req.socket?.remoteAddress ||
          req.ip ||
@@ -129,7 +129,7 @@ export const getLocationFromIp = async (ipAddress) => {
  */
 export const collectSubmissionMetadata = async (req, { includeLocation = true } = {}) => {
   const ipAddress = getClientIp(req);
-  const userAgent = req.headers['user-agent'] || '';
+  const userAgent = req?.headers?.['user-agent'] || req?.get?.('user-agent') || '';
   const { browser, device, os } = parseUserAgent(userAgent);
 
   const location = includeLocation ? await getLocationFromIp(ipAddress) : null;
