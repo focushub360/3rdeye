@@ -22,6 +22,7 @@ import {
   Users,
   Send,
   X,
+  ChevronRight,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useNotification } from "../context/NotificationContext";
@@ -191,6 +192,12 @@ export default function PreviewForm({
   const [globalRank, setGlobalRank] = useState<number | null>(null);
   const [previousAnswers, setPreviousAnswers] = useState<string[]>([]);
   const [showMobileAssistant, setShowMobileAssistant] = useState(false);
+  const [missingQuestionsModal, setMissingQuestionsModal] = useState<Array<{
+    id: string;
+    text: string;
+    sectionIndex: number;
+    sectionTitle: string;
+  }> | null>(null);
   const { darkMode, toggleDarkMode } = useTheme();
   const { showSuccess, showConfirm, showError: showNotifyError } = useNotification();
   const { getOrderedVisibleQuestions } = useQuestionLogic();
@@ -268,6 +275,14 @@ export default function PreviewForm({
       }
       return true;
     }
+    if (q.type === "zone-in" || q.type === "zone-out") {
+      if (!answer) return false;
+      if (typeof answer === "string") return answer.trim() !== "";
+      if (typeof answer === "object") {
+        return typeof answer.status === "string" && answer.status.trim() !== "";
+      }
+      return false;
+    }
     if (q.type === "checkbox") {
       return Array.isArray(answer) && answer.length > 0;
     }
@@ -287,19 +302,82 @@ export default function PreviewForm({
     return answer !== undefined && answer !== null && String(answer).trim() !== "";
   };
 
-  const validateSections = (sectionsToValidate: any[]) => {
+  const jumpToMissingQuestion = (item: { id: string; sectionIndex: number }) => {
+    setMissingQuestionsModal(null);
+    if (item.sectionIndex !== currentSectionIndex) {
+      setCurrentSectionIndex(item.sectionIndex);
+      setNavigationHistory((prev) => Array.from(new Set([...prev, item.sectionIndex])));
+      setSectionNavigationHistory((prev) => [...prev, item.sectionIndex]);
+      setVisitedSectionIndices((prev) => new Set(prev).add(item.sectionIndex));
+    }
+    setTimeout(() => {
+      const el =
+        document.querySelector(`[data-question-id="${item.id}"]`) ||
+        document.getElementById(`question-${item.id}`) ||
+        document.querySelector('[data-error="true"]');
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        const input = el.querySelector("input, select, textarea, button");
+        if (input && (input as HTMLElement).focus) {
+          (input as HTMLElement).focus();
+        }
+      } else {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    }, 250);
+  };
+
+  const validateSections = (sectionsToValidate: any[], isFinalSubmit: boolean = false) => {
     let isValid = true;
     const newErrors = new Set<string>();
+    const missingItems: Array<{
+      id: string;
+      text: string;
+      sectionIndex: number;
+      sectionTitle: string;
+    }> = [];
+
+    const mainSections = getMainSections();
+
+    // Check Chassis Selection if required
+    if (isFinalSubmit || sectionsToValidate.some((s) => mainSections.indexOf(s) === 0)) {
+      const visibleChassis = chassisNumbers.filter((cn: any) => {
+        if (!user?.tenantId) return true;
+        const assignments = chassisTenantAssignments[cn.chassisNumber];
+        return !assignments || assignments.length === 0 || assignments.includes(user.tenantId);
+      });
+
+      if (visibleChassis.length > 0) {
+        const chassisAns =
+          answers['chassis_number'] ||
+          answers['chassisNumber'] ||
+          answers['id_number'] ||
+          answers['idNumber'] ||
+          answers['Chassis / VIN'] ||
+          answers['Chassis No'];
+        if (!chassisAns) {
+          isValid = false;
+          newErrors.add('chassis_number');
+          missingItems.push({
+            id: 'chassis_number',
+            text: 'Chassis Number Selection',
+            sectionIndex: 0,
+            sectionTitle: mainSections[0]?.title || 'Section 1',
+          });
+        }
+      }
+    }
 
     sectionsToValidate.forEach((section) => {
       if (!section) return;
-      const allQuestions = [...section.questions];
+      const sIndex = mainSections.indexOf(section);
+      const allQuestions = [...(section.questions || [])];
       const subSections = form?.sections.filter(
         (s) => s.isSubsection && s.parentSectionId === section.id,
       ) || [];
 
       subSections.forEach((ss) => {
-        allQuestions.push(...ss.questions);
+        allQuestions.push(...(ss.questions || []));
       });
 
       const visibleQuestions = getOrderedVisibleQuestions(allQuestions, answers);
@@ -313,6 +391,12 @@ export default function PreviewForm({
         if (!provided) {
           isValid = false;
           newErrors.add(qId);
+          missingItems.push({
+            id: qId,
+            text: q.text || (q as any).title || "Required Question",
+            sectionIndex: sIndex >= 0 ? sIndex : currentSectionIndex,
+            sectionTitle: section.title || `Section ${sIndex + 1}`,
+          });
         }
       });
     });
@@ -320,13 +404,27 @@ export default function PreviewForm({
     setValidationErrors(newErrors);
 
     if (!isValid) {
-      showNotifyError("Please fill in all required questions");
+      if (isFinalSubmit) {
+        setMissingQuestionsModal(missingItems);
+        showNotifyError(`Please answer all ${missingItems.length} required field(s)`);
+      } else {
+        showNotifyError(`Please fill in all required questions (${missingItems.length} missing)`);
+      }
+
+      // Auto-switch to the section containing the first error if it's not the current section
+      const firstMissing = missingItems[0];
+      if (firstMissing && firstMissing.sectionIndex !== currentSectionIndex && !isFinalSubmit) {
+        setCurrentSectionIndex(firstMissing.sectionIndex);
+      }
+
       setTimeout(() => {
         const firstError = document.querySelector('[data-error="true"]');
         if (firstError) {
           firstError.scrollIntoView({ behavior: "smooth", block: "center" });
         }
-      }, 100);
+      }, 150);
+    } else {
+      setMissingQuestionsModal(null);
     }
 
     return isValid;
@@ -619,16 +717,20 @@ export default function PreviewForm({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e && e.preventDefault) e.preventDefault();
     if (!form || !formId) return;
 
+    console.log("[PreviewForm] handleSubmit triggered. Validating form before submission...");
     const mainSections = getMainSections();
-    const historyIndices = Array.from(new Set(navigationHistory));
-    const sectionsToValidate = mainSections.filter((_, idx) => historyIndices.includes(idx));
+    const sectionsToValidate = mainSections.length > 0 ? mainSections : [form.sections[0]];
 
-    if (!validateSections(sectionsToValidate)) return;
+    if (!validateSections(sectionsToValidate, true)) {
+      console.warn("[PreviewForm] Validation failed. Opened missing questions dialog.");
+      return;
+    }
 
+    console.log("[PreviewForm] Validation passed! Prompting confirmation modal.");
     showConfirm(
       "Are you sure you want to submit your response? You won't be able to change it later.",
       async () => {
@@ -1553,6 +1655,10 @@ export default function PreviewForm({
 
   const handleNextSection = () => {
     const mainSections = getMainSections();
+    const currentMainSection = mainSections[currentSectionIndex];
+    if (currentMainSection && !validateSections([currentMainSection], false)) {
+      return;
+    }
     const nextSectionIndex = getNextSectionIndex();
     if (form && nextSectionIndex < mainSections.length) {
       setNavigationHistory((prev) => [...prev, nextSectionIndex]);
@@ -2259,7 +2365,7 @@ export default function PreviewForm({
                 </div>
               )}
 
-              <form id="customer-form" onSubmit={handleSubmit} className="space-y-0">
+              <form id="customer-form" onSubmit={handleSubmit} noValidate className="space-y-0">
                 <div className="space-y-4">
                   <div
                     className={`rounded-2xl border ${darkMode ? "border-slate-800 bg-slate-900/60 shadow-xl shadow-black/20" : "border-slate-200/80 bg-white shadow-lg shadow-slate-200/50"} overflow-hidden backdrop-blur-sm`}
@@ -2399,11 +2505,10 @@ export default function PreviewForm({
                 </button>
               ) : (
                 <button
-                  type="submit"
-                  form="customer-form"
+                  type="button"
                   onClick={handleSubmit}
                   disabled={submitting}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50 transition-all duration-200 shadow-lg shadow-emerald-500/25"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50 transition-all duration-200 shadow-lg shadow-emerald-500/25 cursor-pointer"
                 >
                   {submitting ? (
                     <>
@@ -2422,6 +2527,90 @@ export default function PreviewForm({
           </div>
         </div>
       </div>
+
+      {/* Incomplete / Missing Questions Validation Modal */}
+      {missingQuestionsModal && missingQuestionsModal.length > 0 && (
+        <div className="fixed inset-0 z-[999999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div
+            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-amber-300 dark:border-amber-900/60 overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-6 py-4 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/40 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-slate-900 dark:text-white">
+                    Required Fields Incomplete
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {missingQuestionsModal.length} required field{missingQuestionsModal.length > 1 ? "s" : ""} need completion before submission
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMissingQuestionsModal(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* List of missing questions */}
+            <div className="p-5 overflow-y-auto space-y-2 flex-1">
+              <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mb-2">
+                Please complete all required questions to submit your inspection:
+              </p>
+              <div className="space-y-1.5 divide-y divide-slate-100 dark:divide-slate-800 max-h-[45vh] overflow-y-auto pr-1">
+                {missingQuestionsModal.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="pt-2 first:pt-0 flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="min-w-0 flex items-center gap-2">
+                      <span className="text-[9px] font-black uppercase text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/80 px-2 py-0.5 rounded flex-shrink-0">
+                        {item.sectionTitle}
+                      </span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                        {item.text}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => jumpToMissingQuestion(item)}
+                      className="px-2.5 py-1 text-[11px] font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors flex-shrink-0 cursor-pointer"
+                    >
+                      Go to Field →
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-3.5 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setMissingQuestionsModal(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              >
+                Review Form
+              </button>
+              <button
+                type="button"
+                onClick={() => jumpToMissingQuestion(missingQuestionsModal[0])}
+                className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>Fix Incomplete Fields</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

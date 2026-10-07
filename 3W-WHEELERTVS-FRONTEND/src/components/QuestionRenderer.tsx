@@ -1565,7 +1565,12 @@ export default function QuestionRenderer({
   const activeError = error || validationError;
 
   return (
-    <div className="space-y-3" data-error={!!activeError}>
+    <div
+      className="space-y-3"
+      data-error={!!activeError}
+      data-question-id={question.id || (question as any)._id}
+      id={`question-${question.id || (question as any)._id}`}
+    >
       {imageUrl ? (
         <div className="relative inline-flex mb-2">
           {isImage ? (
