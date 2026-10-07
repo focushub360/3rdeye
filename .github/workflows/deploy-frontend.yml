@@ -1,11 +1,13 @@
 name: Deploy Frontend to AWS S3 + CloudFront
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
     paths:
       - '3W-WHEELERTVS-FRONTEND/**'
+      - '.github/workflows/deploy-frontend.yml'
 
 jobs:
   deploy:
@@ -60,5 +62,59 @@ jobs:
             --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
             --paths "/*"
 
+      - name: Copy dist to EC2 via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          source: "3W-WHEELERTVS-FRONTEND/dist"
+          target: "/tmp"
+
+      - name: Deploy Frontend to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          timeout: 300s
+          script: |
+            echo "📦 Locating active frontend webroots on EC2..."
+            ASSET_FILE=$(find /var/www /home/ubuntu -name "index-*.js" 2>/dev/null | head -n 1)
+            if [ -n "$ASSET_FILE" ]; then
+              TARGET_DIR=$(dirname $(dirname "$ASSET_FILE"))
+              echo "Active webroot found at: $TARGET_DIR"
+              if [ -d "/tmp/3W-WHEELERTVS-FRONTEND/dist" ]; then
+                sudo cp -r /tmp/3W-WHEELERTVS-FRONTEND/dist/* "$TARGET_DIR/"
+              fi
+            fi
+
+            # Check Nginx document roots
+            NGINX_ROOTS=$(sudo nginx -T 2>/dev/null | grep -E "^\s*root " | awk '{print $2}' | tr -d ';' | sort -u)
+            for r in $NGINX_ROOTS; do
+              if [ -d "$r" ] && [ -d "/tmp/3W-WHEELERTVS-FRONTEND/dist" ]; then
+                echo "Copying to Nginx root: $r"
+                sudo cp -r /tmp/3W-WHEELERTVS-FRONTEND/dist/* "$r/"
+              fi
+            done
+
+            # Update repository dist if folder exists
+            if [ -d "/home/ubuntu/3rdeye/3W-WHEELERTVS-FRONTEND" ]; then
+              mkdir -p /home/ubuntu/3rdeye/3W-WHEELERTVS-FRONTEND/dist
+              if [ -d "/tmp/3W-WHEELERTVS-FRONTEND/dist" ]; then
+                cp -r /tmp/3W-WHEELERTVS-FRONTEND/dist/* /home/ubuntu/3rdeye/3W-WHEELERTVS-FRONTEND/dist/
+              else
+                cd /home/ubuntu/3rdeye/3W-WHEELERTVS-FRONTEND
+                git pull origin main
+                npm install
+                npm run build
+              fi
+            fi
+
+            sudo nginx -t && sudo systemctl reload nginx
+            echo "✅ Frontend deployed to EC2 and Nginx reloaded!"
+
       - name: Done
-        run: echo "✅ Frontend deployed successfully to CloudFront!"
+        run: echo "✅ Frontend deployed successfully to CloudFront and EC2!"

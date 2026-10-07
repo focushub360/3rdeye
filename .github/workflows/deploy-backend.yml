@@ -1,11 +1,13 @@
 name: Deploy Backend to AWS EC2
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
     paths:
       - '3w-wheeler-backend/**'
+      - '.github/workflows/deploy-backend.yml'
 
 jobs:
   deploy:
@@ -36,11 +38,32 @@ jobs:
             pm2 reload ecosystem.config.cjs || pm2 start ecosystem.config.cjs
             pm2 save
 
-            echo "🌐 Reloading Nginx configuration..."
-            if [ -f nginx.conf ]; then
-              sudo cp nginx.conf /etc/nginx/nginx.conf
-              sudo nginx -t && sudo systemctl reload nginx
+            echo "🔍 Finding active frontend asset..."
+            FRONTEND_FILE=$(find /var/www /home/ubuntu -name "index-1SVDXeCg.js" 2>/dev/null | head -n 1)
+            echo "Old frontend asset located at: $FRONTEND_FILE"
+
+            echo "🌐 Inspecting active Nginx root locations..."
+            sudo nginx -T 2>/dev/null | grep -E "server_name|root " | head -n 20
+
+            echo "📦 Building & syncing frontend on EC2..."
+            if [ -d "/home/ubuntu/3rdeye/3W-WHEELERTVS-FRONTEND" ]; then
+              cd /home/ubuntu/3rdeye/3W-WHEELERTVS-FRONTEND
+              git pull origin main
+              npm install
+              npm run build
+              if [ -n "$FRONTEND_FILE" ]; then
+                TARGET_DIR=$(dirname $(dirname "$FRONTEND_FILE"))
+                echo "Syncing dist to active directory: $TARGET_DIR"
+                sudo cp -r dist/* "$TARGET_DIR/"
+              fi
+            elif [ -d "/var/www/3W-WHEELERTVS-FRONTEND" ]; then
+              cd /var/www/3W-WHEELERTVS-FRONTEND
+              git pull origin main
+              npm install
+              npm run build
             fi
 
-            echo "✅ Backend deployed successfully!"
+            echo "🌐 Reloading Nginx..."
+            sudo nginx -t && sudo systemctl reload nginx
+            echo "✅ Deployment complete!"
             pm2 status
