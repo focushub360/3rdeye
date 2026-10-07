@@ -387,9 +387,6 @@ const DefectDetails: React.FC<DefectDetailsProps> = ({
                 </div>
               )}
             </div>
-            {!details.fileUrl && (
-              <p className="text-[10px] text-red-500 font-medium">Evidence photo is required.</p>
-            )}
           </div>
         </div>
       </div>
@@ -856,7 +853,7 @@ const ChassisWithZone: React.FC<ChassisWithZoneProps> = ({
             <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 animate-in fade-in slide-in-from-top-2">
               <div className="flex flex-col gap-2">
                 <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-tight ml-1">
-                  <Upload className="w-3 h-3" /> Evidence Photo <span className="text-red-500">*</span>
+                  <Upload className="w-3 h-3" /> Evidence Photo 
                 </label>
                 <div className="h-[80px]">
                   {evidenceUrl ? (
@@ -925,9 +922,6 @@ const ChassisWithZone: React.FC<ChassisWithZoneProps> = ({
                     </div>
                   )}
                 </div>
-                {!evidenceUrl && (
-                  <p className="text-[10px] text-red-500 font-medium ml-1">Evidence photo is required.</p>
-                )}
               </div>
             </div>
           )}
