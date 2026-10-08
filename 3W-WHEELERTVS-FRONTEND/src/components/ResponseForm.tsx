@@ -153,6 +153,13 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
   const [error, setError] = useState<string | null>(null);
   const { getOrderedVisibleQuestions } = useQuestionLogic();
   const [showDuplicateMessage, setShowDuplicateMessage] = useState(false);
+  const [duplicateChassisWarning, setDuplicateChassisWarning] = useState<{
+    open: boolean;
+    chassisNumber: string;
+    count: number;
+    lastSubmission?: any;
+  } | null>(null);
+  const pendingSubmitDataRef = useRef<any>(null);
   const [sessionTrackingId, setSessionTrackingId] = useState<string | null>(
     null,
   );
@@ -730,114 +737,10 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
     setAnswers(sampleAnswers);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (submitting || isSubmittingRef.current) return;
-    isSubmittingRef.current = true;
-
-    let isValid = true;
-    formSections.forEach((section) => {
-      const allQuestions = [...(section.questions || [])];
-      if (section.subsections && Array.isArray(section.subsections)) {
-        section.subsections.forEach((sub: any) => {
-          allQuestions.push(...(sub.questions || []));
-        });
-      }
-
-      const visibleQuestions = getOrderedVisibleQuestions(
-        allQuestions,
-        answers,
-      );
-      const hasRequiredAnswers = visibleQuestions.every((q) => {
-        const isMainFilled = !q.required || answers[q.id];
-        const isTrackingRequired =
-          q.trackResponseQuestion === true ||
-          String(q.trackResponseQuestion) === "true";
-        const isTrackingFilled =
-          !isTrackingRequired || answers[`${q.id}_tracking`];
-
-        if (q.type === "file") {
-          return (
-            isMainFilled && isValidFileInput(answers[q.id]) && isTrackingFilled
-          );
-        }
-
-        return isMainFilled && isTrackingFilled;
-      });
-      if (!hasRequiredAnswers) {
-        isValid = false;
-      }
-    });
-
-    if (!isValid) {
-      alert(
-        "Please fill in all required fields in all sections before submitting.",
-      );
-      return;
-    }
-
+  const doFinalSubmission = async (submitData: any) => {
     try {
       setSubmitting(true);
       setError(null);
-
-      const submitData: any = {
-        answers,
-        parentResponseId: parentResponseId || undefined,
-        submissionMetadata: {
-          source: "internal",
-          formSessionId: sessionTrackingId,
-        },
-        startedAt: startedAt.toISOString(),
-        completedAt: new Date().toISOString(),
-        sessionId: sessionTrackingId || undefined, // ✅ Make sure this is included
-      };
-
-      if (user) {
-        submitData.submittedBy =
-          user.firstName && user.lastName
-            ? `${user.firstName} ${user.lastName}`.trim()
-            : user.username || user.email || undefined;
-        submitData.submitterContact = {
-          email: user.email || "",
-          phone: user.mobile || user.phone || "",
-        };
-      }
-
-      const chassisVal =
-        answers?.chassis_number ||
-        answers?.chassisNumber ||
-        answers?.id_number ||
-        answers?.idNumber ||
-        answers?.["ID number"] ||
-        answers?.["Chassis / VIN"] ||
-        answers?.["Chassis No"] ||
-        answers?.["CHASSIS NUMBER"];
-      if (chassisVal) {
-        submitData.chassisNumber = typeof chassisVal === "string" ? chassisVal.trim() : chassisVal;
-      }
-
-      if (navigator.geolocation) {
-        try {
-          const position = await new Promise<GeolocationPosition>(
-            (resolve, reject) => {
-              navigator.geolocation.getCurrentPosition(resolve, reject, {
-                enableHighAccuracy: false,
-                timeout: 5000,
-                maximumAge: 0,
-              });
-            },
-          );
-
-          submitData.location = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-            source: "browser",
-          };
-        } catch (geoErr) {
-          console.warn("Geolocation not available:", geoErr);
-        }
-      }
 
       const inviteId = searchParams.get("inviteId");
 
@@ -859,7 +762,7 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
           submissionMetadata: submitData.submissionMetadata,
           startedAt: submitData.startedAt,
           completedAt: submitData.completedAt,
-          sessionId: sessionTrackingId || undefined, // ✅ Include sessionId here too
+          sessionId: sessionTrackingId || undefined,
         });
 
         console.log("Submission successful, response:", submissionResponse);
@@ -910,6 +813,169 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
         setError(err.message || "Failed to submit response. Please try again.");
       }
     } finally {
+      setSubmitting(false);
+      isSubmittingRef.current = false;
+      pendingSubmitDataRef.current = null;
+    }
+  };
+
+  const handleConfirmDuplicateSubmit = async () => {
+    if (!pendingSubmitDataRef.current) return;
+    const dataToSubmit = {
+      ...pendingSubmitDataRef.current,
+      confirmDuplicate: true,
+      confirmDuplicateChassis: true,
+    };
+    setDuplicateChassisWarning(null);
+    await doFinalSubmission(dataToSubmit);
+  };
+
+  const handleCancelDuplicateSubmit = () => {
+    setDuplicateChassisWarning(null);
+    pendingSubmitDataRef.current = null;
+    setSubmitting(false);
+    isSubmittingRef.current = false;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (submitting || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+
+    let isValid = true;
+    formSections.forEach((section) => {
+      const allQuestions = [...(section.questions || [])];
+      if (section.subsections && Array.isArray(section.subsections)) {
+        section.subsections.forEach((sub: any) => {
+          allQuestions.push(...(sub.questions || []));
+        });
+      }
+
+      const visibleQuestions = getOrderedVisibleQuestions(
+        allQuestions,
+        answers,
+      );
+      const hasRequiredAnswers = visibleQuestions.every((q) => {
+        const isMainFilled = !q.required || answers[q.id];
+        const isTrackingRequired =
+          q.trackResponseQuestion === true ||
+          String(q.trackResponseQuestion) === "true";
+        const isTrackingFilled =
+          !isTrackingRequired || answers[`${q.id}_tracking`];
+
+        if (q.type === "file") {
+          return (
+            isMainFilled && isValidFileInput(answers[q.id]) && isTrackingFilled
+          );
+        }
+
+        return isMainFilled && isTrackingFilled;
+      });
+      if (!hasRequiredAnswers) {
+        isValid = false;
+      }
+    });
+
+    if (!isValid) {
+      alert(
+        "Please fill in all required fields in all sections before submitting.",
+      );
+      isSubmittingRef.current = false;
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError(null);
+
+      const submitData: any = {
+        answers,
+        parentResponseId: parentResponseId || undefined,
+        submissionMetadata: {
+          source: "internal",
+          formSessionId: sessionTrackingId,
+        },
+        startedAt: startedAt.toISOString(),
+        completedAt: new Date().toISOString(),
+        sessionId: sessionTrackingId || undefined,
+      };
+
+      if (user) {
+        submitData.submittedBy =
+          user.firstName && user.lastName
+            ? `${user.firstName} ${user.lastName}`.trim()
+            : user.username || user.email || undefined;
+        submitData.submitterContact = {
+          email: user.email || "",
+          phone: user.mobile || user.phone || "",
+        };
+      }
+
+      const chassisVal =
+        answers?.chassis_number ||
+        answers?.chassisNumber ||
+        answers?.id_number ||
+        answers?.idNumber ||
+        answers?.["ID number"] ||
+        answers?.["Chassis / VIN"] ||
+        answers?.["Chassis No"] ||
+        answers?.["CHASSIS NUMBER"];
+      if (chassisVal) {
+        submitData.chassisNumber = typeof chassisVal === "string" ? chassisVal.trim() : chassisVal;
+      }
+
+      if (navigator.geolocation) {
+        try {
+          const position = await new Promise<GeolocationPosition>(
+            (resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(resolve, reject, {
+                enableHighAccuracy: false,
+                timeout: 5000,
+                maximumAge: 0,
+              });
+            },
+          );
+
+          submitData.location = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            source: "browser",
+          };
+        } catch (geoErr) {
+          console.warn("Geolocation not available:", geoErr);
+        }
+      }
+
+      // Check if this chassis has already been submitted for this form
+      if (submitData.chassisNumber) {
+        try {
+          const checkRes = await apiClient.checkChassisExists(
+            id || form?.id,
+            submitData.chassisNumber,
+            tenantSlug,
+          );
+          if (checkRes && checkRes.exists) {
+            pendingSubmitDataRef.current = submitData;
+            setDuplicateChassisWarning({
+              open: true,
+              chassisNumber: submitData.chassisNumber,
+              count: checkRes.count,
+              lastSubmission: checkRes.lastSubmission,
+            });
+            setSubmitting(false);
+            isSubmittingRef.current = false;
+            return;
+          }
+        } catch (checkErr) {
+          console.warn("Chassis existence check failed, proceeding:", checkErr);
+        }
+      }
+
+      await doFinalSubmission(submitData);
+    } catch (err: any) {
+      console.error("Error submitting response:", err);
+      setError(err.message || "Failed to submit response. Please try again.");
       setSubmitting(false);
       isSubmittingRef.current = false;
     }
@@ -1283,6 +1349,85 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
           </div>
         </div>
       </div>
+      {/* Duplicate Chassis Confirmation Modal */}
+      {duplicateChassisWarning?.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-amber-200 max-w-md w-full overflow-hidden p-6 animate-scale-up">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 text-amber-600">
+                <AlertCircle className="w-6 h-6 text-amber-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-gray-900 mb-1">
+                  Chassis Already Entered
+                </h3>
+                <p className="text-sm text-gray-600 leading-relaxed mb-3">
+                  Chassis number{" "}
+                  <span className="font-mono font-bold text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                    {duplicateChassisWarning.chassisNumber}
+                  </span>{" "}
+                  has already been submitted in this form{" "}
+                  <span className="font-semibold text-gray-800">
+                    ({duplicateChassisWarning.count} time
+                    {duplicateChassisWarning.count > 1 ? "s" : ""})
+                  </span>
+                  .
+                </p>
+
+                {duplicateChassisWarning.lastSubmission && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-xs space-y-1.5 text-slate-600">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400">Last Submitter:</span>
+                      <span className="font-semibold text-slate-800">
+                        {duplicateChassisWarning.lastSubmission.submittedBy || "Unknown"}
+                      </span>
+                    </div>
+                    {duplicateChassisWarning.lastSubmission.createdAt && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Submitted At:</span>
+                        <span className="font-medium text-slate-700">
+                          {new Date(
+                            duplicateChassisWarning.lastSubmission.createdAt,
+                          ).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+                    {duplicateChassisWarning.lastSubmission.status && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Status:</span>
+                        <span className="font-bold text-primary-700">
+                          {duplicateChassisWarning.lastSubmission.status}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <p className="text-sm font-medium text-gray-700 mb-6">
+                  Are you sure you want to submit this inspection again?
+                </p>
+
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={handleCancelDuplicateSubmit}
+                    className="px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel & Review
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDuplicateSubmit}
+                    className="px-5 py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 active:bg-amber-800 rounded-xl shadow-sm transition-colors flex items-center gap-1.5"
+                  >
+                    <span>Yes, Submit Again</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

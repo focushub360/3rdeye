@@ -742,7 +742,7 @@ export default function PreviewForm({
     );
   };
 
-  const performSubmission = async () => {
+  const performSubmission = async (skipChassisCheck = false) => {
     const visibleChassis = chassisNumbers.filter((cn: any) => {
       if (!user?.tenantId) return true;
       const assignments = chassisTenantAssignments[cn.chassisNumber];
@@ -835,6 +835,49 @@ export default function PreviewForm({
       }
 
       if (!formId) return;
+
+      const chassisVal =
+        answers?.chassis_number ||
+        answers?.chassisNumber ||
+        answers?.id_number ||
+        answers?.idNumber ||
+        answers?.['ID number'] ||
+        answers?.['Chassis / VIN'] ||
+        answers?.['Chassis No'] ||
+        answers?.['CHASSIS NUMBER'];
+
+      if (chassisVal && !skipChassisCheck && formId !== 'preview') {
+        try {
+          const checkRes = await apiClient.checkChassisExists(
+            formId,
+            String(chassisVal).trim(),
+            tenantSlug,
+          );
+          if (checkRes && checkRes.exists) {
+            setSubmitting(false);
+            const count = checkRes.count;
+            const lastSub = checkRes.lastSubmission;
+            const submitterInfo = lastSub?.submittedBy ? ` (last submitted by ${lastSub.submittedBy})` : '';
+            showConfirm(
+              `Chassis "${chassisVal}" has already been submitted for this form ${count} time${count > 1 ? 's' : ''}${submitterInfo}.\n\nDo you want to submit again anyway?`,
+              async () => {
+                await performSubmission(true);
+              },
+              "Chassis Already Entered",
+              "Yes, Submit Again",
+              "Cancel & Review",
+            );
+            return;
+          }
+        } catch (checkErr) {
+          console.warn("Chassis check failed:", checkErr);
+        }
+      }
+
+      if (skipChassisCheck) {
+        submissionData.confirmDuplicate = true;
+        submissionData.confirmDuplicateChassis = true;
+      }
 
       const response = await apiClient.submitResponse(formId, tenantSlug, submissionData);
       clearSavedData();

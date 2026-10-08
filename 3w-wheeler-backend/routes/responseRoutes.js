@@ -19,7 +19,8 @@ import {
   getQuestionPreviousAnswers,
   autoFillChassisNumbers,
   getBiwSummary,
-  bulkUpdateBiwReview
+  bulkUpdateBiwReview,
+  checkChassisExists
 } from '../controllers/responseController.js';
 import { getReviewsForResponse, getBulkReviewsForResponses } from '../controllers/userController.js';
 import {
@@ -159,7 +160,11 @@ router.post('/:tenantSlug/forms/:formId/responses', authenticateOptional, create
 router.post('/:formId', authenticateOptional, createResponse);
 router.post('/', authenticateOptional, createResponse);
 
-// 7. GET RANK (PUBLIC)
+// 7. CHECK CHASSIS EXISTS (PUBLIC)
+router.get('/check-chassis', checkChassisExists);
+router.get('/:tenantSlug/forms/:formId/check-chassis', checkChassisExists);
+
+// 8. GET RANK (PUBLIC)
 router.get('/rank', getRank);
 router.get('/:tenantSlug/forms/:formId/rank', getRank);
 

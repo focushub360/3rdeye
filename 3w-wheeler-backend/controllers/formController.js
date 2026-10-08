@@ -2782,7 +2782,8 @@ export const submitPublicResponse = async (req, res) => {
     }
 
     // ========== DUPLICATE SUBMISSION PREVENTION ==========
-    const targetSessionId = sessionId || formSession?.sessionId;
+    const isDuplicateConfirmed = req.body?.confirmDuplicate === true || req.body?.confirmDuplicateChassis === true;
+    const targetSessionId = isDuplicateConfirmed ? null : (sessionId || formSession?.sessionId);
     if (targetSessionId && !isSectionSubmit) {
       const Response = mongoose.model('Response');
       const searchFormConditions = [{ questionId: id }, { formId: id }];

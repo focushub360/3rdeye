@@ -917,7 +917,8 @@ export const createResponse = async (req, res) => {
     }
 
     // ========== DUPLICATE SUBMISSION PREVENTION ==========
-    const targetSessionId = sessionId || formSession?.sessionId;
+    const isDuplicateConfirmed = req.body?.confirmDuplicate === true || req.body?.confirmDuplicateChassis === true;
+    const targetSessionId = isDuplicateConfirmed ? null : (sessionId || formSession?.sessionId);
     if (targetSessionId && !isSectionSubmit) {
       const existingSessionResponse = await Response.findOne({
         questionId,
@@ -942,36 +943,7 @@ export const createResponse = async (req, res) => {
       }
     }
 
-    if (chassisVal && !isSectionSubmit) {
-      const recentWindow = new Date(Date.now() - 50 * 1000);
-      const duplicateFilter = {
-        questionId,
-        chassisNumber: chassisVal,
-        createdAt: { $gte: recentWindow },
-        isSectionSubmit: { $ne: true }
-      };
-      if (req.user?._id) {
-        duplicateFilter.createdBy = req.user._id;
-      } else if (displayName && displayName !== 'Anonymous') {
-        duplicateFilter.submittedBy = displayName;
-      }
-      const recentDuplicate = await Response.findOne(duplicateFilter);
-      if (recentDuplicate) {
-        console.log(`[CREATE RESPONSE] Rapid duplicate blocked for chassis ${chassisVal} on form ${questionId}`);
-        const dupAnswers = recentDuplicate.answers instanceof Map ? Object.fromEntries(recentDuplicate.answers) : recentDuplicate.answers;
-        return res.status(200).json({
-          success: true,
-          message: 'Response already submitted successfully',
-          data: {
-            response: {
-              ...recentDuplicate.toObject(),
-              answers: dupAnswers
-            }
-          }
-        });
-      }
-    }
-
+    // Rapid double-click guard removed in favor of user confirmation popup
     // ========== CREATE RESPONSE IMMEDIATELY FOR SUPER FAST SUBMISSION ==========
     const responseData = {
       id: uuidv4(),
@@ -2056,6 +2028,93 @@ export const batchImportResponses = async (req, res) => {
     });
   }
 };
+/**
+ * Check if a chassis number has already been entered/submitted for a form
+ * Used to prompt the user with a confirmation popup if the chassis already exists
+ */
+export const checkChassisExists = async (req, res) => {
+  try {
+    const { formId, chassisNumber } = req.query;
+    const { tenantSlug } = req.params;
+
+    if (!formId || !chassisNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'formId and chassisNumber are required'
+      });
+    }
+
+    const trimmedChassis = String(chassisNumber).trim();
+    if (!trimmedChassis) {
+      return res.status(200).json({
+        success: true,
+        data: { exists: false, count: 0, chassisNumber: '' }
+      });
+    }
+
+    let form = await Form.findOne({ id: formId });
+    if (!form && mongoose.Types.ObjectId.isValid(formId)) {
+      form = await Form.findById(formId);
+    }
+
+    const formIds = form ? getThisFormIds(form, formId) : [formId];
+    const extraQIds = form ? getThisFormExtraQuestionIds(form) : [];
+    const orConditions = buildChassisOrConditions('chassis_number', 'chassis_number_tracking', trimmedChassis, extraQIds);
+
+    const query = {
+      $or: [
+        { questionId: { $in: formIds } },
+        { formId: { $in: formIds } }
+      ],
+      $and: [
+        { $or: orConditions }
+      ],
+      isSectionSubmit: { $ne: true }
+    };
+
+    const count = await Response.countDocuments(query);
+    let lastSubmission = null;
+
+    if (count > 0) {
+      const latest = await Response.findOne(query)
+        .sort({ createdAt: -1 })
+        .select('id _id status submittedBy createdAt biwReview chassisNumber')
+        .lean();
+
+      if (latest) {
+        lastSubmission = {
+          id: latest.id || latest._id,
+          status: latest.status || 'pending',
+          submittedBy: latest.submittedBy || 'Anonymous',
+          createdAt: latest.createdAt,
+          biwReview: latest.biwReview?.status || null
+        };
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        exists: count > 0,
+        count,
+        chassisNumber: trimmedChassis,
+        lastSubmission
+      }
+    });
+  } catch (error) {
+    console.error('Check chassis exists error:', error);
+    res.status(200).json({
+      success: true,
+      data: {
+        exists: false,
+        count: 0,
+        chassisNumber: String(req.query?.chassisNumber || '').trim(),
+        lastSubmission: null
+      }
+    });
+  }
+};
+
 /**
  * Get current rank for a specific question and answer
  * Used for real-time ranking display during form filling

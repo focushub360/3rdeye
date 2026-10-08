@@ -1768,6 +1768,49 @@ class ApiClient {
     );
   }
 
+  async checkChassisExists(
+    formId: string,
+    chassisNumber: string,
+    tenantSlug?: string
+  ): Promise<{
+    exists: boolean;
+    count: number;
+    chassisNumber: string;
+    lastSubmission?: {
+      id: string;
+      status: string;
+      submittedBy: string;
+      createdAt: string;
+      biwReview?: string | null;
+    } | null;
+  }> {
+    const endpoint = tenantSlug
+      ? `/responses/${tenantSlug}/forms/${formId}/check-chassis`
+      : `/responses/check-chassis`;
+
+    const queryParams = new URLSearchParams({
+      formId,
+      chassisNumber: String(chassisNumber).trim(),
+    });
+
+    try {
+      const response = await this.request<{
+        success: boolean;
+        data: {
+          exists: boolean;
+          count: number;
+          chassisNumber: string;
+          lastSubmission?: any;
+        };
+      }>(`${endpoint}?${queryParams.toString()}`, { forceNetwork: true });
+
+      return response?.data || { exists: false, count: 0, chassisNumber };
+    } catch (err) {
+      console.warn('[checkChassisExists] Request failed:', err);
+      return { exists: false, count: 0, chassisNumber };
+    }
+  }
+
   async getAdminPerformance(
     adminId: string,
     params?: { startDate?: string; endDate?: string },
