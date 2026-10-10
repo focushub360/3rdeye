@@ -19,7 +19,7 @@ export default function QuestionTypeSelector({ value, onChange }: QuestionTypeSe
     { value: 'date', label: 'Date' },
     { value: 'time', label: 'Time' },
     { value: 'file', label: 'File Upload' },
-    { value: 'range', label: 'Range' },
+    { value: 'range', label: 'Range [Start and End]' },
     { value: 'rating', label: 'Rating' },
     { value: 'rating-number', label: 'Ratings by Number' },
     { value: 'scale', label: 'Linear Scale' },

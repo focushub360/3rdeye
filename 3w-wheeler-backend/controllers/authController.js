@@ -16,6 +16,9 @@ import smsService from '../services/smsService.js';
 // Helper function to get location from IP address
 const getLocationFromIP = async (ip) => {
   try {
+    if (!ip || typeof ip !== 'string') {
+      return null;
+    }
     // Skip private/local IPs
     if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
       return null;

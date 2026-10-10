@@ -60,7 +60,7 @@ export default function QuestionsList({
     { value: "date", label: "Date" },
     { value: "time", label: "Time" },
     { value: "file", label: "File Upload" },
-    { value: "range", label: "Range" },
+    { value: "range", label: "Range [Start and End]" },
     { value: "rating", label: "Rating" },
     { value: "rating-number", label: "Ratings by Number" },
     { value: "satisfaction-rating", label: "Satisfaction Rating (1-5)" },

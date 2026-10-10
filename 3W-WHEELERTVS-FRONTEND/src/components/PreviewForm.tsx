@@ -1134,7 +1134,7 @@ export default function PreviewForm({
             return normalize(v) === searchValNormalized;
           });
 
-          return hasFieldMatch || rawSuggestions.length > 0;
+          return hasFieldMatch;
         });
 
         const totalAnswersCount = suggestions.length;

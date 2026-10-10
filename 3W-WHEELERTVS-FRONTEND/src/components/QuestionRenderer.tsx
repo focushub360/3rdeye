@@ -33,6 +33,7 @@ import RatingQuestion from "./QuestionTypes/RatingQuestion";
 import RatingNumberQuestion from "./QuestionTypes/RatingNumberQuestion";
 import SatisfactionRatingQuestion from "./QuestionTypes/SatisfactionRatingQuestion";
 import ScaleQuestion from "./QuestionTypes/ScaleQuestion";
+import RangeQuestion from "./QuestionTypes/RangeQuestion";
 import SearchSelect from "./QuestionTypes/SearchSelect";
 import ParagraphInput from "./QuestionTypes/ParagraphInput";
 import SliderFeedback from "./QuestionTypes/SliderFeedback";
@@ -1188,6 +1189,23 @@ export default function QuestionRenderer({
           </div>,
         );
 
+      case "range":
+        return renderInputWrapper(
+          <div className="space-y-1">
+            <RangeQuestion
+              question={question}
+              value={value}
+              onChange={onChange || (() => {})}
+              readOnly={readOnly}
+              error={!!error}
+              isApplied={isApplied}
+            />
+            {renderLoadingIndicator()}
+            {renderNoMatchIndicator()}
+            {renderSuggestions()}
+          </div>,
+        );
+
       case "scale":
         return renderInputWrapper(
           <div className="space-y-1">
@@ -1664,7 +1682,7 @@ export default function QuestionRenderer({
 
             const historyItems = (rankHistory && rankHistory.length > 0)
               ? rankHistory
-              : (Array.isArray(suggestedAnswers) ? suggestedAnswers : []);
+              : [];
 
             const hasActionableContext = dispatchInfo?.isDispatched || historyItems.length > 0 || lastResponseId || biwInfo?.status;
             const showBiw = hasActionableContext && (!isCreator || Boolean(biwInfo?.status));

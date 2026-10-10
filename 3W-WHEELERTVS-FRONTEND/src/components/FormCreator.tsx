@@ -24,6 +24,7 @@ import {
   MessageSquarePlus,
   Download,
   Upload,
+  Sliders,
 } from "lucide-react";
 import { apiClient } from "../api/client";
 import { questionsApi } from "../api/storage";
@@ -113,6 +114,11 @@ interface Question {
     chassisNumber: string;
     assignedTenants: string[];
   }>;
+  min?: number;
+  max?: number;
+  step?: number;
+  minLabel?: string;
+  maxLabel?: string;
 }
 
 interface ShowWhen {
@@ -142,6 +148,11 @@ interface FollowUpQuestion {
   requireFollowUp?: boolean; // Make follow-up mandatory for certain question types
   correctAnswer?: string;
   suggestion?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  minLabel?: string;
+  maxLabel?: string;
 }
 
 export default function FormCreator() {
@@ -3466,6 +3477,14 @@ export default function FormCreator() {
       updates.allowedFileTypes = undefined;
     }
 
+    if (newType === "range") {
+      updates.min = currentQuestion.min !== undefined ? currentQuestion.min : 0;
+      updates.max = currentQuestion.max !== undefined ? currentQuestion.max : 100;
+      updates.step = currentQuestion.step !== undefined ? currentQuestion.step : 1;
+      updates.minLabel = currentQuestion.minLabel || "Start";
+      updates.maxLabel = currentQuestion.maxLabel || "End";
+    }
+
     updateQuestion(sectionId, questionId, updates);
   };
 
@@ -3512,6 +3531,11 @@ export default function FormCreator() {
       value: "file",
       label: "File Upload",
       description: "Upload files/documents",
+    },
+    {
+      value: "range",
+      label: "Range [Start and End]",
+      description: "Numeric slider with configurable start and end values",
     },
     {
       value: "slider-feedback",
@@ -4943,6 +4967,139 @@ export default function FormCreator() {
                                         ? "Respondents can upload any file type."
                                         : `Respondents must upload files matching ${selectedFileTypeOption?.label}.`}
                                     </p>
+                                  </div>
+                                ) : null}
+
+                                {question.type === "range" ? (
+                                  <div className="mt-4 p-5 bg-gradient-to-br from-blue-50/80 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 border-2 border-blue-200 dark:border-blue-800 rounded-2xl space-y-4 shadow-sm">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
+                                          <Sliders className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                          <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">
+                                            Range [Start &amp; End] Configuration
+                                          </h4>
+                                          <p className="text-xs text-blue-600 dark:text-blue-400">
+                                            Configure start limit, end limit, and step size for this slider
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <span className="text-xs px-2.5 py-1 rounded-full font-mono font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200">
+                                        [{question.min ?? 0} &rarr; {question.max ?? 100}]
+                                      </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                      <div>
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 uppercase tracking-wide">
+                                          Start Value (Min) *
+                                        </label>
+                                        <input
+                                          type="number"
+                                          value={question.min !== undefined ? question.min : 0}
+                                          onChange={(e) =>
+                                            updateQuestion(section.id, question.id, {
+                                              min: Number(e.target.value),
+                                            })
+                                          }
+                                          className="w-full px-3 py-2 text-sm font-mono border-2 border-blue-200 dark:border-blue-800 rounded-xl bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500"
+                                          placeholder="0"
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 uppercase tracking-wide">
+                                          End Value (Max) *
+                                        </label>
+                                        <input
+                                          type="number"
+                                          value={question.max !== undefined ? question.max : 100}
+                                          onChange={(e) =>
+                                            updateQuestion(section.id, question.id, {
+                                              max: Number(e.target.value),
+                                            })
+                                          }
+                                          className="w-full px-3 py-2 text-sm font-mono border-2 border-blue-200 dark:border-blue-800 rounded-xl bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500"
+                                          placeholder="100"
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 uppercase tracking-wide">
+                                          Step Increment *
+                                        </label>
+                                        <input
+                                          type="number"
+                                          min="0.001"
+                                          step="any"
+                                          value={question.step !== undefined ? question.step : 1}
+                                          onChange={(e) =>
+                                            updateQuestion(section.id, question.id, {
+                                              step: Number(e.target.value) > 0 ? Number(e.target.value) : 1,
+                                            })
+                                          }
+                                          className="w-full px-3 py-2 text-sm font-mono border-2 border-blue-200 dark:border-blue-800 rounded-xl bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500"
+                                          placeholder="1"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                                      <div>
+                                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                                          Start Label (Optional)
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={question.minLabel || ""}
+                                          onChange={(e) =>
+                                            updateQuestion(section.id, question.id, {
+                                              minLabel: e.target.value,
+                                            })
+                                          }
+                                          className="w-full px-3 py-2 text-xs border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-blue-500"
+                                          placeholder="e.g., Min, Low, Poor"
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                                          End Label (Optional)
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={question.maxLabel || ""}
+                                          onChange={(e) =>
+                                            updateQuestion(section.id, question.id, {
+                                              maxLabel: e.target.value,
+                                            })
+                                          }
+                                          className="w-full px-3 py-2 text-xs border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-blue-500"
+                                          placeholder="e.g., Max, High, Excellent"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    {/* Live Interactive Preview */}
+                                    <div className="p-3.5 bg-white/80 dark:bg-gray-900/80 border border-blue-100 dark:border-blue-900/40 rounded-xl">
+                                      <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1.5 font-medium">
+                                        <span>Preview: {question.minLabel || "Start"} ({question.min ?? 0})</span>
+                                        <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                                          Mid: {Number((((question.min ?? 0) + (question.max ?? 100)) / 2).toFixed(2))}
+                                        </span>
+                                        <span>{question.maxLabel || "End"} ({question.max ?? 100})</span>
+                                      </div>
+                                      <input
+                                        type="range"
+                                        min={question.min ?? 0}
+                                        max={question.max ?? 100}
+                                        step={question.step ?? 1}
+                                        defaultValue={Number((((question.min ?? 0) + (question.max ?? 100)) / 2).toFixed(2))}
+                                        className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                      />
+                                    </div>
                                   </div>
                                 ) : null}
 

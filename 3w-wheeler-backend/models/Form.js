@@ -89,6 +89,8 @@ const FollowUpQuestionSchema = new mongoose.Schema({
   min: Number,
   max: Number,
   step: Number,
+  minLabel: String,
+  maxLabel: String,
   showWhen: ShowWhenSchema,
   parentId: String,
   imageUrl: {
