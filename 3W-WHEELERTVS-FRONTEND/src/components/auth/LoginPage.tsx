@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { User, Lock, Chrome, Facebook, Github, Linkedin, Eye, EyeOff, Mail, ArrowLeft, CheckCircle } from "lucide-react";
+import { User, Lock, Chrome, Facebook, Github, Linkedin, Eye, EyeOff, Mail, ArrowLeft, CheckCircle, WifiOff } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useNavigate, Link } from "react-router-dom";
 import { apiClient } from "../../api/client";
@@ -118,6 +118,12 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setError("No internet connection. Please connect to the internet to sign in.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -364,9 +370,22 @@ export default function LoginPage() {
                   </div>
 
                   {(authError || error) && (
-                    <div className="text-sm text-red-500 bg-red-50 p-3.5 rounded-xl text-center border border-red-100 animate-in fade-in zoom-in duration-300 font-sans">
-                      {authError || error}
-                    </div>
+                    (() => {
+                      const activeErr = authError || error;
+                      const isOfflineErr =
+                        activeErr.toLowerCase().includes("internet") ||
+                        activeErr.toLowerCase().includes("wi-fi") ||
+                        activeErr.toLowerCase().includes("connection") ||
+                        activeErr.toLowerCase().includes("offline") ||
+                        (typeof navigator !== "undefined" && !navigator.onLine);
+
+                      return (
+                        <div className="text-sm text-rose-600 bg-rose-50 p-3.5 rounded-xl border border-rose-200 animate-in fade-in zoom-in duration-300 font-sans flex items-center justify-center gap-2.5">
+                          {isOfflineErr && <WifiOff className="w-4 h-4 text-rose-500 shrink-0" />}
+                          <span className="font-medium text-center">{activeErr}</span>
+                        </div>
+                      );
+                    })()
                   )}
                 </div>
 

@@ -201,6 +201,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     tenantSlug?: string,
     location?: any,
   ) => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setError("No internet connection. Please connect to the internet to sign in.");
+      return false;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -232,9 +237,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return response;
     } catch (err) {
       setLoading(false);
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        setError("No internet connection. Please connect to the internet to sign in.");
+        return false;
+      }
       if (err instanceof ApiError) {
-        if (err.status === 400 || err.status === 401) {
+        if (
+          err.status === 0 ||
+          err.message?.toLowerCase().includes("internet") ||
+          err.message?.toLowerCase().includes("wi-fi") ||
+          err.message?.toLowerCase().includes("offline")
+        ) {
+          setError("No internet connection. Please connect to the internet to sign in.");
+        } else if (err.status === 400 || err.status === 401) {
           setError("Incorrect email or password.");
+        } else if (err.status >= 500) {
+          setError("Server is temporarily unavailable. Please try again shortly.");
         } else {
           const serverMessage =
             (err.response && (err.response as { message?: string }).message) ||
@@ -243,7 +261,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setError(serverMessage);
         }
       } else {
-        setError("Login failed. Please try again.");
+        setError("No internet connection or server unavailable. Please check your connection.");
       }
       return false;
     }

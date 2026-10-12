@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { LogIn, X, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { LogIn, X, Mail, Lock, Eye, EyeOff, WifiOff } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
 interface LoginFormProps {
@@ -52,12 +52,27 @@ export default function LoginForm({ onClose }: LoginFormProps) {
         {/* Form content */}
         <div className="px-6 sm:px-8 py-8 sm:py-10 space-y-6">
           {authError && (
-            <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-2xl border border-red-100 dark:border-red-900/30 flex items-start space-x-3 animate-in shake-2 duration-300">
-              <div className="flex-shrink-0 w-5 h-5 bg-red-100 dark:bg-red-900/40 rounded-full flex items-center justify-center mt-0.5">
-                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-              </div>
-              <div className="text-sm font-medium">{authError}</div>
-            </div>
+            (() => {
+              const isOfflineErr =
+                authError.toLowerCase().includes("internet") ||
+                authError.toLowerCase().includes("wi-fi") ||
+                authError.toLowerCase().includes("connection") ||
+                authError.toLowerCase().includes("offline") ||
+                (typeof navigator !== "undefined" && !navigator.onLine);
+
+              return (
+                <div className="p-4 bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-400 rounded-2xl border border-rose-100 dark:border-rose-900/30 flex items-center space-x-3 animate-in shake-2 duration-300">
+                  <div className="flex-shrink-0 w-8 h-8 bg-rose-100 dark:bg-rose-900/40 rounded-full flex items-center justify-center">
+                    {isOfflineErr ? (
+                      <WifiOff className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                    ) : (
+                      <div className="w-2 h-2 bg-rose-500 rounded-full"></div>
+                    )}
+                  </div>
+                  <div className="text-sm font-medium">{authError}</div>
+                </div>
+              );
+            })()
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">

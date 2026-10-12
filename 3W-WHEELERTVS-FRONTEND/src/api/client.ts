@@ -445,6 +445,11 @@ class ApiClient {
       signal: controller.signal,
     };
 
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      clearTimeout(timeoutId);
+      throw new ApiError(0, null, "No internet connection. Please connect to the internet.");
+    }
+
     try {
       const response = await fetch(url, config);
       clearTimeout(timeoutId);
@@ -507,6 +512,17 @@ class ApiClient {
           null,
           "Request timed out. The server took too long to respond.",
         );
+      }
+      if (
+        (typeof navigator !== "undefined" && navigator.onLine === false) ||
+        (error instanceof TypeError && error.message.toLowerCase().includes("failed to fetch")) ||
+        (error instanceof Error && (
+          error.message.toLowerCase().includes("networkerror") ||
+          error.message.toLowerCase().includes("failed to fetch") ||
+          error.message.toLowerCase().includes("load failed")
+        ))
+      ) {
+        throw new ApiError(0, null, "No internet connection. Please connect to the internet.");
       }
       throw new ApiError(500, null, "Network error or server unavailable");
     }
