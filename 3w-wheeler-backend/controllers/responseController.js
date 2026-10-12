@@ -876,9 +876,11 @@ export const createResponse = async (req, res) => {
       }
     }
 
-    // Extract chassis number from answers
-    const chassisVal = extractAnswerString(
+    // Extract chassis number from answers or form configuration
+    let chassisVal = extractAnswerString(
       answers?.chassis_number ||
+      answers?.selected_chassis ||
+      answers?.selectedChassis ||
       answers?.chassisNumber ||
       answers?.id_number ||
       answers?.idNumber ||
@@ -888,6 +890,45 @@ export const createResponse = async (req, res) => {
       answers?.['CHASSIS NUMBER'] ||
       req.body.chassisNumber
     );
+
+    const configuredFormChassis = (form?.chassisNumbers || [])
+      .map(c => typeof c === 'string' ? c : (c.chassisNumber || c.name))
+      .filter(Boolean);
+
+    if (configuredFormChassis.length > 0) {
+      if (chassisVal && !configuredFormChassis.includes(chassisVal)) {
+        // If chassisVal does not match configured chassis, check if answers has a match
+        const matchingAnswer = Object.values(answers || {}).find(
+          v => typeof v === 'string' && configuredFormChassis.includes(v.trim())
+        );
+        if (matchingAnswer) {
+          chassisVal = typeof matchingAnswer === 'string' ? matchingAnswer.trim() : matchingAnswer;
+        } else if (configuredFormChassis.length === 1) {
+          chassisVal = configuredFormChassis[0];
+        }
+      } else if (!chassisVal && configuredFormChassis.length === 1) {
+        chassisVal = configuredFormChassis[0];
+      }
+    } else if (!chassisVal) {
+      // Form has no configured chassis, check for chassis question or tracking question
+      const allFormQuestions = [];
+      (form?.sections || []).forEach(s => (s.questions || []).forEach(q => allFormQuestions.push(q)));
+      (form?.followUpQuestions || []).forEach(q => allFormQuestions.push(q));
+      for (const q of allFormQuestions) {
+        if (q.trackResponseRank || q.type === 'chassisNumber' || (q.text && q.text.toLowerCase().includes('chassis') && !q.text.toLowerCase().includes('zone'))) {
+          const qVal = extractAnswerString(answers?.[q.id] || answers?.[`${q.id}_tracking`]);
+          if (qVal) {
+            chassisVal = qVal;
+            break;
+          }
+        }
+      }
+    }
+
+    if (chassisVal && answers && !answers.chassis_number) {
+      answers.chassis_number = chassisVal;
+    }
+
 
     let resolvedParentResponseId = parentResponseId;
     // Auto-match to parent response by chassis if form is a child/follow-up form and parentResponseId was not passed
@@ -1194,6 +1235,8 @@ export const batchImportResponses = async (req, res) => {
       const plain = ans instanceof Map ? Object.fromEntries(ans) : ans;
       const val = extractAnswerString(
         plain.chassis_number ||
+        plain.selected_chassis ||
+        plain.selectedChassis ||
         plain.chassisNumber ||
         plain.id_number ||
         plain.idNumber ||
@@ -1486,7 +1529,42 @@ export const batchImportResponses = async (req, res) => {
               }
             }
 
-            const chassisVal = extractChassisFromAns(processedAnswers) || (responses[index]?.chassisNumber ? String(responses[index].chassisNumber).trim() : undefined);
+            let chassisVal = extractChassisFromAns(processedAnswers) || (responses[index]?.chassisNumber ? String(responses[index].chassisNumber).trim() : undefined);
+            const batchConfiguredChassis = (form.chassisNumbers || [])
+              .map(c => typeof c === 'string' ? c : (c.chassisNumber || c.name))
+              .filter(Boolean);
+
+            if (batchConfiguredChassis.length > 0) {
+              if (chassisVal && !batchConfiguredChassis.includes(chassisVal)) {
+                // If chassisVal doesn't match configured options, check answers
+                const matchingAns = Object.values(processedAnswers).find(
+                  v => typeof v === 'string' && batchConfiguredChassis.includes(v.trim())
+                );
+                if (matchingAns) {
+                  chassisVal = typeof matchingAns === 'string' ? matchingAns.trim() : matchingAns;
+                } else if (batchConfiguredChassis.length === 1) {
+                  chassisVal = batchConfiguredChassis[0];
+                }
+              } else if (!chassisVal && batchConfiguredChassis.length === 1) {
+                chassisVal = batchConfiguredChassis[0];
+              }
+            } else if (!chassisVal) {
+              // Form has no configured chassis, check chassis questions
+              for (const q of allQuestions) {
+                if (q.trackResponseRank || q.type === 'chassisNumber' || (q.text && q.text.toLowerCase().includes('chassis') && !q.text.toLowerCase().includes('zone'))) {
+                  const qVal = extractAnswerString(processedAnswers[q.id] || processedAnswers[`${q.id}_tracking`]);
+                  if (qVal) {
+                    chassisVal = qVal;
+                    break;
+                  }
+                }
+              }
+            }
+
+            if (chassisVal && !processedAnswers.chassis_number) {
+              processedAnswers.chassis_number = chassisVal;
+            }
+
             let resolvedParentResponseId = parentResponseId;
             if (!resolvedParentResponseId && chassisVal) {
               resolvedParentResponseId = chassisToParentMap.get(chassisVal.toLowerCase().trim()) || undefined;
@@ -3538,7 +3616,7 @@ export const autoFillChassisNumbers = async (req, res) => {
 
     const result = await Response.updateMany(
       query,
-      { $set: { 'answers.chassis_number': defaultValue } }
+      { $set: { 'answers.chassis_number': defaultValue, chassisNumber: defaultValue } }
     );
 
     console.log(`[AUTO-FILL CHASSIS] Form ${formId}: matched ${result.matchedCount}, modified ${result.modifiedCount}, default "${defaultValue}"`);
@@ -4403,8 +4481,26 @@ export const getResponsesByForm = async (req, res) => {
         };
       }
 
+      const formConfiguredChassis = (form.chassisNumbers || [])
+        .map(c => typeof c === 'string' ? c : (c.chassisNumber || c.name))
+        .filter(Boolean);
+
+      let resolvedChassis = responseObj.chassisNumber || getChassisFromDoc(response) || undefined;
+      if (formConfiguredChassis.length > 0) {
+        if (respAnswers.chassis_number && formConfiguredChassis.includes(respAnswers.chassis_number)) {
+          resolvedChassis = respAnswers.chassis_number;
+        } else if (responseObj.chassisNumber && formConfiguredChassis.includes(responseObj.chassisNumber)) {
+          resolvedChassis = responseObj.chassisNumber;
+        } else if (formConfiguredChassis.length === 1) {
+          resolvedChassis = formConfiguredChassis[0];
+        }
+      }
+      if (resolvedChassis && !respAnswers.chassis_number) {
+        respAnswers.chassis_number = resolvedChassis;
+      }
       return {
         ...responseObj,
+        chassisNumber: resolvedChassis,
         answers: respAnswers,
         responseRanks: toPlainObject(response.responseRanks),
         submissionMetadata: responseObj.submissionMetadata ? {
@@ -4571,12 +4667,34 @@ export const exportResponses = async (req, res) => {
       }
     }
 
+    const formConfiguredChassis = (form.chassisNumbers || [])
+      .map(c => typeof c === 'string' ? c : (c.chassisNumber || c.name))
+      .filter(Boolean);
+
     // Convert Map to Object for JSON serialization
-    const formattedResponses = responses.map(response => ({
-      ...response.toObject(),
-      answers: response.answers ? Object.fromEntries(response.answers) : {},
-      responseRanks: response.responseRanks ? Object.fromEntries(response.responseRanks) : {}
-    }));
+    const formattedResponses = responses.map(response => {
+      const respObj = response.toObject();
+      const ansObj = response.answers ? (response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers) : {};
+      let resolvedChassis = respObj.chassisNumber || ansObj.chassis_number;
+      if (formConfiguredChassis.length > 0) {
+        if (ansObj.chassis_number && formConfiguredChassis.includes(ansObj.chassis_number)) {
+          resolvedChassis = ansObj.chassis_number;
+        } else if (respObj.chassisNumber && formConfiguredChassis.includes(respObj.chassisNumber)) {
+          resolvedChassis = respObj.chassisNumber;
+        } else if (formConfiguredChassis.length === 1) {
+          resolvedChassis = formConfiguredChassis[0];
+        }
+      }
+      if (resolvedChassis && !ansObj.chassis_number) {
+        ansObj.chassis_number = resolvedChassis;
+      }
+      return {
+        ...respObj,
+        chassisNumber: resolvedChassis,
+        answers: ansObj,
+        responseRanks: response.responseRanks ? (response.responseRanks instanceof Map ? Object.fromEntries(response.responseRanks) : response.responseRanks) : {}
+      };
+    });
 
     if (format === 'json') {
       const filename = `${form.title}_responses.json`;

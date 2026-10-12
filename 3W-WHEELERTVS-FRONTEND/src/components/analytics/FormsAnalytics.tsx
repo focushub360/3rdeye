@@ -40,6 +40,7 @@ import {
   History,
   LogIn,
   AlertCircle,
+  SlidersHorizontal,
 } from "lucide-react";
 import ImportHistoryModal from "../history/ImportHistoryModal";
 import { QualitySummaryModal } from "./QualitySummaryModal";
@@ -288,6 +289,8 @@ export default function FormsAnalytics() {
   const [isSavingForm, setIsSavingForm] = useState(false);
   // Add these states for template dropdown
   const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
+  const [isMobileActionsOpen, setIsMobileActionsOpen] = useState(false);
+  const [isMobileTemplatesOpen, setIsMobileTemplatesOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] =
     useState<TemplateOption | null>(null);
 
@@ -437,20 +440,27 @@ export default function FormsAnalytics() {
       ) {
         setIsTemplateDropdownOpen(false);
       }
+      if (
+        mobileActionsDropdownRef.current &&
+        !mobileActionsDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsMobileActionsOpen(false);
+      }
     };
 
-    if (isTemplateDropdownOpen) {
+    if (isTemplateDropdownOpen || isMobileActionsOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isTemplateDropdownOpen]);
+  }, [isTemplateDropdownOpen, isMobileActionsOpen]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const templateDropdownRef = useRef<HTMLDivElement>(null);
+  const mobileActionsDropdownRef = useRef<HTMLDivElement>(null);
 
   const {
     data: formsData,
@@ -1317,141 +1327,335 @@ export default function FormsAnalytics() {
             Create, edit, and analyze service request forms
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+        <div className="w-full sm:w-auto">
           {/* Only show action buttons for users who have permissions or are admin/superadmin */}
           {(userRole === 'admin' || userRole === 'superadmin' || canManage) && (
             <>
-              {/* Summary Box Button */}
-              <button
-                onClick={() => navigate('/forms/analytics/summary')}
-                className="btn-secondary flex items-center justify-center px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-sm font-semibold rounded-lg transition-all whitespace-nowrap"
-                title="View Inspector TVS performance, BIW quality defects & daily trend summary"
-              >
-                <BarChart3 className="w-4 h-4 mr-2 text-blue-600 dark:text-blue-400" />
-                Summary Box
-              </button>
-
-              {/* Download Template - admins always see this, others need permission */}
-              {(userRole === 'admin' || userRole === 'superadmin' || canDownloadTemplate) && (
-                <div
-                  className="relative w-full sm:w-auto"
-                  ref={templateDropdownRef}
+              {/* --- MOBILE VIEW: Single Compact Actions Dropdown --- */}
+              <div className="relative w-full sm:hidden" ref={mobileActionsDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsMobileActionsOpen(!isMobileActionsOpen)}
+                  className="btn-secondary w-full flex items-center justify-between px-3.5 py-2 text-xs font-semibold rounded-lg bg-white dark:bg-gray-800 border border-neutral-200 dark:border-gray-700 shadow-xs"
                 >
-                  <button
-                    onClick={toggleTemplateDropdown}
-                    className="btn-secondary flex items-center justify-center w-full sm:min-w-[240px]"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    <span className="truncate">
-                      {selectedTemplate
-                        ? `Download ${selectedTemplate.label} Template`
-                        : "Download Import Template"}
-                    </span>
-                    <ChevronDown
-                      className={`w-4 h-4 ml-2 flex-shrink-0 transition-transform ${isTemplateDropdownOpen ? "rotate-180" : ""}`}
-                    />
-                  </button>
+                  <div className="flex items-center text-primary-700 dark:text-primary-300">
+                    <SlidersHorizontal className="w-3.5 h-3.5 mr-2 text-primary-600 dark:text-primary-400" />
+                    <span>Form Actions & Tools</span>
+                  </div>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-primary-500 transition-transform ${
+                      isMobileActionsOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
 
-                  {/* Dropdown Menu */}
-                  {isTemplateDropdownOpen && (
-                    <div className="absolute top-full left-0 mt-1 w-full sm:w-72 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-primary-200 py-2 z-50 animate-fadeIn">
-                      <div className="px-4 py-2 border-b border-primary-100">
-                        <p className="text-xs font-medium text-primary-700">
-                          Select Template Type:
-                        </p>
+                {isMobileActionsOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1.5 bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-neutral-200 dark:border-gray-700 p-2 z-50 animate-fadeIn space-y-1">
+                    {/* Create New Service Form */}
+                    {(userRole === 'admin' || userRole === 'superadmin' || canCreateServiceForm) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMobileActionsOpen(false);
+                          navigate("/forms/create", { state: { mode: "create" } });
+                        }}
+                        className="w-full flex items-center px-3 py-2 rounded-lg text-left bg-primary-50/80 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 hover:bg-primary-100 transition-colors"
+                      >
+                        <div className="p-1.5 bg-primary-600 text-white rounded-md mr-2.5 shrink-0">
+                          <PlusCircle className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-bold text-primary-800 dark:text-primary-100">
+                            Create New Service Form
+                          </div>
+                          <div className="text-[10px] text-primary-600 dark:text-primary-400 truncate">
+                            Design a new inspection form
+                          </div>
+                        </div>
+                      </button>
+                    )}
+
+                    {/* Summary Box */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMobileActionsOpen(false);
+                        navigate("/forms/analytics/summary");
+                      }}
+                      className="w-full flex items-center px-3 py-2 rounded-lg text-left hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    >
+                      <div className="p-1.5 bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded-md mr-2.5 shrink-0">
+                        <BarChart3 className="w-3.5 h-3.5" />
                       </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                          Summary Box
+                        </div>
+                        <div className="text-[10px] text-gray-500 truncate">
+                          Inspector performance & daily trends
+                        </div>
+                      </div>
+                    </button>
 
-                      {templateOptions.map((template) => (
+                    {/* Download Template Accordion */}
+                    {(userRole === 'admin' || userRole === 'superadmin' || canDownloadTemplate) && (
+                      <div className="border-t border-b border-gray-100 dark:border-gray-800 py-0.5">
                         <button
-                          key={template.id}
-                          onClick={() => handleTemplateSelect(template)}
-                          className={`w-full flex flex-col items-start px-4 py-3 text-left hover:bg-primary-50 transition-colors ${selectedTemplate?.id === template.id ? "bg-primary-50 border-l-4 border-primary-600" : ""}`}
+                          type="button"
+                          onClick={() => setIsMobileTemplatesOpen(!isMobileTemplatesOpen)}
+                          className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                         >
-                          <div className="flex items-center w-full">
-                            <div
-                              className={`p-1.5 rounded-lg mr-3 ${selectedTemplate?.id === template.id ? "bg-primary-100" : "bg-primary-50"}`}
-                            >
-                              {template.id === "flat" ? (
-                                <Layers className="w-4 h-4 text-primary-600" />
-                              ) : template.id === "bulk-response" ? (
-                                <Upload className="w-4 h-4 text-green-600" />
-                              ) : (
-                                <Layers className="w-4 h-4 text-purple-600" />
-                              )}
+                          <div className="flex items-center min-w-0">
+                            <div className="p-1.5 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded-md mr-2.5 shrink-0">
+                              <Download className="w-3.5 h-3.5" />
                             </div>
-                            <div className="flex-1">
-                              <div className="font-medium text-primary-800 text-sm">
-                                {template.label}
+                            <div className="min-w-0">
+                              <div className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                                Download Import Template
                               </div>
-                              <div className="text-[10px] text-primary-600 mt-0.5">
-                                {template.description}
+                              <div className="text-[10px] text-gray-500 truncate">
+                                Select Excel schema template
                               </div>
                             </div>
-                            {selectedTemplate?.id === template.id && (
-                              <Check className="w-4 h-4 text-primary-600 ml-2" />
-                            )}
+                          </div>
+                          <ChevronDown
+                            className={`w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform ${
+                              isMobileTemplatesOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+
+                        {isMobileTemplatesOpen && (
+                          <div className="pl-9 pr-2 py-1 space-y-1 bg-gray-50 dark:bg-gray-800/40 rounded-lg mt-1">
+                            {templateOptions.map((template) => (
+                              <button
+                                key={template.id}
+                                type="button"
+                                onClick={() => {
+                                  handleTemplateSelect(template);
+                                  setIsMobileActionsOpen(false);
+                                  setIsMobileTemplatesOpen(false);
+                                }}
+                                className="w-full text-left py-1.5 px-2 text-[11px] font-medium text-primary-700 dark:text-primary-300 hover:text-primary-900 flex items-center justify-between rounded hover:bg-primary-50 dark:hover:bg-primary-900/30"
+                              >
+                                <span className="truncate">{template.label} Template</span>
+                                <Download className="w-3 h-3 text-gray-400 shrink-0 ml-1" />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Import Form (Excel) */}
+                    {(userRole === 'admin' || userRole === 'superadmin' || canImportExcel) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMobileActionsOpen(false);
+                          handleImportClick();
+                        }}
+                        disabled={isImporting}
+                        className="w-full flex items-center px-3 py-2 rounded-lg text-left hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                      >
+                        <div className="p-1.5 bg-green-50 dark:bg-green-900/40 text-green-600 dark:text-green-400 rounded-md mr-2.5 shrink-0">
+                          <Upload className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                            {isImporting ? "Importing..." : "Import Form (Excel)"}
+                          </div>
+                          <div className="text-[10px] text-gray-500 truncate">
+                            Upload form schema from workbook
+                          </div>
+                        </div>
+                      </button>
+                    )}
+
+                    {/* Bulk Import Responses & History (if permitted) */}
+                    {canBulkSelectResponses && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMobileActionsOpen(false);
+                            setIsAnswerTemplateOpen(true);
+                          }}
+                          className="w-full flex items-center px-3 py-2 rounded-lg text-left hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                        >
+                          <div className="p-1.5 bg-amber-50 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 rounded-md mr-2.5 shrink-0">
+                            <Upload className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                              Bulk Import Responses
+                            </div>
+                            <div className="text-[10px] text-gray-500 truncate">
+                              Upload historical responses
+                            </div>
                           </div>
                         </button>
-                      ))}
 
-                      <div className="px-4 py-2 border-t border-primary-100 mt-1">
-                        <p className="text-[10px] text-primary-500">
-                          {selectedTemplate?.id === "flat"
-                            ? "Each question can have unlimited main-level follow-ups"
-                            : "Supports hierarchical follow-up questions with nesting"}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMobileActionsOpen(false);
+                            setIsHistoryModalOpen(true);
+                          }}
+                          className="w-full flex items-center px-3 py-2 rounded-lg text-left hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                        >
+                          <div className="p-1.5 bg-purple-50 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded-md mr-2.5 shrink-0">
+                            <History className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                              Import History
+                            </div>
+                            <div className="text-[10px] text-gray-500 truncate">
+                              View uploads & activity history
+                            </div>
+                          </div>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
 
-              {/* Import Form (Excel) - admins always see this, others need permission */}
-              {(userRole === 'admin' || userRole === 'superadmin' || canImportExcel) && (
+              {/* --- DESKTOP VIEW: Full Horizontal Action Buttons --- */}
+              <div className="hidden sm:flex sm:items-center gap-2">
+                {/* Summary Box Button */}
                 <button
-                  onClick={handleImportClick}
-                  className="btn-secondary flex items-center justify-center w-full sm:w-auto"
-                  disabled={isImporting}
+                  onClick={() => navigate('/forms/analytics/summary')}
+                  className="btn-secondary flex items-center justify-center px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-sm font-semibold rounded-lg transition-all whitespace-nowrap"
+                  title="View Inspector TVS performance, BIW quality defects & daily trend summary"
                 >
-                  <Upload className="w-4 h-4 mr-2" />
-                  {isImporting ? "Importing..." : "Import Form (Excel)"}
+                  <BarChart3 className="w-4 h-4 mr-2 text-blue-600 dark:text-blue-400" />
+                  Summary Box
                 </button>
-              )}
 
-              {canBulkSelectResponses && (
-                <>
+                {/* Download Template - admins always see this, others need permission */}
+                {(userRole === 'admin' || userRole === 'superadmin' || canDownloadTemplate) && (
+                  <div
+                    className="relative sm:w-auto"
+                    ref={templateDropdownRef}
+                  >
+                    <button
+                      onClick={toggleTemplateDropdown}
+                      className="btn-secondary flex items-center justify-center sm:min-w-[240px]"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      <span className="truncate">
+                        {selectedTemplate
+                          ? `Download ${selectedTemplate.label} Template`
+                          : "Download Import Template"}
+                      </span>
+                      <ChevronDown
+                        className={`w-4 h-4 ml-2 flex-shrink-0 transition-transform ${isTemplateDropdownOpen ? "rotate-180" : ""}`}
+                      />
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {isTemplateDropdownOpen && (
+                      <div className="absolute top-full left-0 mt-1 sm:w-72 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-primary-200 py-2 z-50 animate-fadeIn">
+                        <div className="px-4 py-2 border-b border-primary-100">
+                          <p className="text-xs font-medium text-primary-700">
+                            Select Template Type:
+                          </p>
+                        </div>
+
+                        {templateOptions.map((template) => (
+                          <button
+                            key={template.id}
+                            onClick={() => handleTemplateSelect(template)}
+                            className={`w-full flex flex-col items-start px-4 py-3 text-left hover:bg-primary-50 transition-colors ${selectedTemplate?.id === template.id ? "bg-primary-50 border-l-4 border-primary-600" : ""}`}
+                          >
+                            <div className="flex items-center w-full">
+                              <div
+                                className={`p-1.5 rounded-lg mr-3 ${selectedTemplate?.id === template.id ? "bg-primary-100" : "bg-primary-50"}`}
+                              >
+                                {template.id === "flat" ? (
+                                  <Layers className="w-4 h-4 text-primary-600" />
+                                ) : template.id === "bulk-response" ? (
+                                  <Upload className="w-4 h-4 text-green-600" />
+                                ) : (
+                                  <Layers className="w-4 h-4 text-purple-600" />
+                                )}
+                              </div>
+                              <div className="flex-1">
+                                <div className="font-medium text-primary-800 text-sm">
+                                  {template.label}
+                                </div>
+                                <div className="text-[10px] text-primary-600 mt-0.5">
+                                  {template.description}
+                                </div>
+                              </div>
+                              {selectedTemplate?.id === template.id && (
+                                <Check className="w-4 h-4 text-primary-600 ml-2" />
+                              )}
+                            </div>
+                          </button>
+                        ))}
+
+                        <div className="px-4 py-2 border-t border-primary-100 mt-1">
+                          <p className="text-[10px] text-primary-500">
+                            {selectedTemplate?.id === "flat"
+                              ? "Each question can have unlimited main-level follow-ups"
+                              : "Supports hierarchical follow-up questions with nesting"}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Import Form (Excel) - admins always see this, others need permission */}
+                {(userRole === 'admin' || userRole === 'superadmin' || canImportExcel) && (
                   <button
-                    onClick={() => setIsAnswerTemplateOpen(true)}
-                    className="btn-secondary flex items-center justify-center w-full sm:w-auto"
-                    title="Bulk import responses for a form"
+                    onClick={handleImportClick}
+                    className="btn-secondary flex items-center justify-center sm:w-auto"
+                    disabled={isImporting}
                   >
                     <Upload className="w-4 h-4 mr-2" />
-                    Bulk Import Responses
+                    {isImporting ? "Importing..." : "Import Form (Excel)"}
                   </button>
+                )}
 
+                {canBulkSelectResponses && (
+                  <>
+                    <button
+                      onClick={() => setIsAnswerTemplateOpen(true)}
+                      className="btn-secondary flex items-center justify-center sm:w-auto"
+                      title="Bulk import responses for a form"
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      Bulk Import Responses
+                    </button>
+
+                    <button
+                      onClick={() => setIsHistoryModalOpen(true)}
+                      className="btn-secondary flex items-center justify-center sm:w-auto text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                      title="View Bulk Import & Activity Timeline History"
+                    >
+                      <History className="w-4 h-4 mr-2" />
+                      Import History
+                    </button>
+                  </>
+                )}
+
+                {/* Create New Service Form - admins always see this, others need permission */}
+                {(userRole === 'admin' || userRole === 'superadmin' || canCreateServiceForm) && (
                   <button
-                    onClick={() => setIsHistoryModalOpen(true)}
-                    className="btn-secondary flex items-center justify-center w-full sm:w-auto text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
-                    title="View Bulk Import & Activity Timeline History"
+                    onClick={() =>
+                      navigate("/forms/create", { state: { mode: "create" } })
+                    }
+                    className="btn-primary flex items-center justify-center sm:w-auto"
                   >
-                    <History className="w-4 h-4 mr-2" />
-                    Import History
+                    <PlusCircle className="w-4 h-4 mr-2" />
+                    Create New Service Form
                   </button>
-                </>
-              )}
-
-              {/* Create New Service Form - admins always see this, others need permission */}
-              {(userRole === 'admin' || userRole === 'superadmin' || canCreateServiceForm) && (
-                <button
-                  onClick={() =>
-                    navigate("/forms/create", { state: { mode: "create" } })
-                  }
-                  className="btn-primary flex items-center justify-center w-full sm:w-auto"
-                >
-                  <PlusCircle className="w-4 h-4 mr-2" />
-                  Create New Service Form
-                </button>
-              )}
+                )}
+              </div>
             </>
           )}
         </div>
@@ -1459,43 +1663,43 @@ export default function FormsAnalytics() {
 
       {/* Stats cards - always show for admins, others need permission */}
       {(userRole === 'admin' || userRole === 'superadmin' || canViewDashboard || canViewOverall) && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          <div className="card p-6">
-            <div className="flex items-center">
-              <div className="p-3 bg-primary-50 rounded-lg mr-4">
-                <FileText className="w-6 h-6 text-primary-600" />
+        <div className="grid grid-cols-3 gap-2 sm:gap-6">
+          <div className="card p-2 sm:p-6">
+            <div className="flex flex-col sm:flex-row items-center sm:items-center text-center sm:text-left">
+              <div className="p-1.5 sm:p-3 bg-primary-50 dark:bg-primary-900/30 rounded-lg mb-1 sm:mb-0 sm:mr-4 shrink-0">
+                <FileText className="w-4 h-4 sm:w-6 sm:h-6 text-primary-600 dark:text-primary-400" />
               </div>
-              <div>
-                <div className="text-2xl font-medium text-primary-600">
+              <div className="min-w-0">
+                <div className="text-base sm:text-2xl font-bold sm:font-medium text-primary-600 dark:text-primary-400 leading-tight">
                   {totalForms}
                 </div>
-                <div className="text-sm text-primary-500">Total Forms</div>
+                <div className="text-[10px] sm:text-sm text-primary-500 dark:text-primary-400 font-medium leading-tight mt-0.5">Total Forms</div>
               </div>
             </div>
           </div>
-          <div className="card p-6">
-            <div className="flex items-center">
-              <div className="p-3 bg-primary-50 rounded-lg mr-4">
-                <Users className="w-6 h-6 text-primary-600" />
+          <div className="card p-2 sm:p-6">
+            <div className="flex flex-col sm:flex-row items-center sm:items-center text-center sm:text-left">
+              <div className="p-1.5 sm:p-3 bg-primary-50 dark:bg-primary-900/30 rounded-lg mb-1 sm:mb-0 sm:mr-4 shrink-0">
+                <Users className="w-4 h-4 sm:w-6 sm:h-6 text-primary-600 dark:text-primary-400" />
               </div>
-              <div>
-                <div className="text-2xl font-medium text-primary-600">
+              <div className="min-w-0">
+                <div className="text-base sm:text-2xl font-bold sm:font-medium text-primary-600 dark:text-primary-400 leading-tight">
                   {totalResponses}
                 </div>
-                <div className="text-sm text-primary-500">Total Responses</div>
+                <div className="text-[10px] sm:text-sm text-primary-500 dark:text-primary-400 font-medium leading-tight mt-0.5">Total Responses</div>
               </div>
             </div>
           </div>
-          <div className="card p-6">
-            <div className="flex items-center">
-              <div className="p-3 bg-primary-50 rounded-lg mr-4">
-                <Layers className="w-6 h-6 text-primary-600" />
+          <div className="card p-2 sm:p-6">
+            <div className="flex flex-col sm:flex-row items-center sm:items-center text-center sm:text-left">
+              <div className="p-1.5 sm:p-3 bg-primary-50 dark:bg-primary-900/30 rounded-lg mb-1 sm:mb-0 sm:mr-4 shrink-0">
+                <Layers className="w-4 h-4 sm:w-6 sm:h-6 text-primary-600 dark:text-primary-400" />
               </div>
-              <div>
-                <div className="text-2xl font-medium text-primary-600">
+              <div className="min-w-0">
+                <div className="text-base sm:text-2xl font-bold sm:font-medium text-primary-600 dark:text-primary-400 leading-tight">
                   {Object.keys(groupedForms).length}
                 </div>
-                <div className="text-sm text-primary-500">Form Groups</div>
+                <div className="text-[10px] sm:text-sm text-primary-500 dark:text-primary-400 font-medium leading-tight mt-0.5">Form Groups</div>
               </div>
             </div>
           </div>

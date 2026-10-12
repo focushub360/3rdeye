@@ -2775,12 +2775,87 @@ export default function FormAnalyticsDashboard() {
       return val;
     };
 
+    const systemChassisKeys = [
+      "chassis_number",
+      "selected_chassis",
+      "selectedChassis",
+      "Selected Chassis",
+      "SELECTED CHASSIS",
+      "selected_chassis_number",
+    ];
+
+    // CASE A: Form HAS configured chassis options in form.chassisNumbers (e.g. "Saify", "Sridevi", "TVS")
+    if (masterOptions.length > 0) {
+      // 1. Check explicit system chassis answer keys first
+      if (r.answers) {
+        for (const k of systemChassisKeys) {
+          const raw = r.answers[k];
+          if (raw !== undefined && raw !== null && raw !== "") {
+            const val = getChassisDisplayValue(raw);
+            if (val && val !== "-" && val !== "N/A" && val !== "None") {
+              const matched = masterOptions.find(m => m.chassisNumber.toLowerCase() === val.toLowerCase());
+              if (matched) {
+                return matched.partDescription
+                  ? `${matched.chassisNumber} — ${matched.partDescription}`
+                  : matched.chassisNumber;
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Check top-level r.chassisNumber - if it matches configured chassis options
+      if (r.chassisNumber && typeof r.chassisNumber === "string" && r.chassisNumber.trim() !== "" && r.chassisNumber !== "N/A" && r.chassisNumber !== "-") {
+        const matched = masterOptions.find(m => m.chassisNumber.toLowerCase() === r.chassisNumber.trim().toLowerCase());
+        if (matched) {
+          return matched.partDescription
+            ? `${matched.chassisNumber} — ${matched.partDescription}`
+            : matched.chassisNumber;
+        }
+      }
+
+      // 3. Check if ANY answer in r.answers matches one of form.chassisNumbers
+      if (r.answers && typeof r.answers === "object") {
+        for (const val of Object.values(r.answers)) {
+          if (typeof val === "string" && val.trim()) {
+            const matched = masterOptions.find(
+              (m) => m.chassisNumber.toLowerCase() === val.trim().toLowerCase()
+            );
+            if (matched) {
+              return matched.partDescription
+                ? `${matched.chassisNumber} — ${matched.partDescription}`
+                : matched.chassisNumber;
+            }
+          } else if (val && typeof val === "object" && (val as any).chassisNumber) {
+            const cn = String((val as any).chassisNumber).trim();
+            const matched = masterOptions.find(
+              (m) => m.chassisNumber.toLowerCase() === cn.toLowerCase()
+            );
+            if (matched) {
+              return matched.partDescription
+                ? `${matched.chassisNumber} — ${matched.partDescription}`
+                : matched.chassisNumber;
+            }
+          }
+        }
+      }
+
+      // 4. Single-option default: if form only has 1 chassis configuration (e.g. "Saify", "Sridevi", "TVS")
+      if (masterOptions.length === 1) {
+        const single = masterOptions[0];
+        return single.partDescription
+          ? `${single.chassisNumber} — ${single.partDescription}`
+          : single.chassisNumber;
+      }
+    }
+
+    // CASE B: Form does NOT have configured chassis in form.chassisNumbers (e.g. unit ID forms)
     // 1. Direct top-level r.chassisNumber
     if (r.chassisNumber && typeof r.chassisNumber === "string" && r.chassisNumber.trim() !== "" && r.chassisNumber !== "N/A" && r.chassisNumber !== "-") {
       return formatMasterMatch(r.chassisNumber.trim());
     }
 
-    // 2. Question-level chassisQuestionId from form template (e.g. "Chassis Number" question)
+    // 2. Question-level chassisQuestionId from form template (typed chassis / VIN)
     if (chassisQuestionId && r.answers) {
       if (r.answers[chassisQuestionId] !== undefined && r.answers[chassisQuestionId] !== null && r.answers[chassisQuestionId] !== "") {
         const val = getChassisDisplayValue(r.answers[chassisQuestionId]);
@@ -2793,31 +2868,32 @@ export default function FormAnalyticsDashboard() {
       }
     }
 
-    // 3. Check explicit "Selected Chassis" / "Chassis Number" answer keys
-    const selectedKeys = [
-      "chassis_number",
-      "chassisNumber",
-      "selected_chassis",
-      "selectedChassis",
-      "Selected Chassis",
-      "SELECTED CHASSIS",
-      "selected_chassis_number",
-      "Chassis Number",
-      "CHASSIS NUMBER",
-      "Chassis / VIN",
-      "VIN",
-      "vin",
-      "chassis",
-      "Chassis",
-      "id_number",
-      "idNumber",
-      "ID NUMBER",
-      "ID Number",
-      "Serial Number",
-      "serialNumber"
-    ];
+    // 3. Fallback answer keys
     if (r.answers) {
-      for (const k of selectedKeys) {
+      for (const k of systemChassisKeys) {
+        const raw = r.answers[k];
+        if (raw !== undefined && raw !== null && raw !== "") {
+          const val = getChassisDisplayValue(raw);
+          if (val && val !== "-" && val !== "N/A" && val !== "None") return formatMasterMatch(val);
+        }
+      }
+      const fallbackKeys = [
+        "chassisNumber",
+        "Chassis Number",
+        "CHASSIS NUMBER",
+        "Chassis / VIN",
+        "VIN",
+        "vin",
+        "chassis",
+        "Chassis",
+        "id_number",
+        "idNumber",
+        "ID NUMBER",
+        "ID Number",
+        "Serial Number",
+        "serialNumber"
+      ];
+      for (const k of fallbackKeys) {
         const raw = r.answers[k];
         if (raw !== undefined && raw !== null && raw !== "") {
           const val = getChassisDisplayValue(raw);
@@ -2825,39 +2901,6 @@ export default function FormAnalyticsDashboard() {
             return formatMasterMatch(val);
           }
         }
-      }
-    }
-
-    // 4. Check if ANY answer in r.answers matches one of form.chassisNumbers (e.g. "Saify")
-    if (masterOptions.length > 0 && r.answers && typeof r.answers === "object") {
-      for (const val of Object.values(r.answers)) {
-        if (typeof val === "string" && val.trim()) {
-          const matched = masterOptions.find(
-            (m) => m.chassisNumber.toLowerCase() === val.trim().toLowerCase()
-          );
-          if (matched) {
-            return matched.partDescription
-              ? `${matched.chassisNumber} — ${matched.partDescription}`
-              : matched.chassisNumber;
-          }
-        } else if (val && typeof val === "object" && (val as any).chassisNumber) {
-          const cn = String((val as any).chassisNumber).trim();
-          const matched = masterOptions.find(
-            (m) => m.chassisNumber.toLowerCase() === cn.toLowerCase()
-          );
-          if (matched) {
-            return matched.partDescription
-              ? `${matched.chassisNumber} — ${matched.partDescription}`
-              : matched.chassisNumber;
-          }
-        }
-      }
-      // If form only has 1 chassis configuration (e.g. "Saify"), use it ONLY IF no specific chassis question exists
-      if (masterOptions.length === 1 && !chassisQuestionId) {
-        const single = masterOptions[0];
-        return single.partDescription
-          ? `${single.chassisNumber} — ${single.partDescription}`
-          : single.chassisNumber;
       }
     }
 
@@ -2915,7 +2958,7 @@ export default function FormAnalyticsDashboard() {
       const updatedAnswers = {
         ...response.answers,
         chassis_number: chassisEditValue,
-        ...(chassisQuestionId ? { [chassisQuestionId]: chassisEditValue } : {})
+        ...(!chassisMasterOptions.length && chassisQuestionId ? { [chassisQuestionId]: chassisEditValue } : {})
       };
       const responseIdentifier = response.id || (response as any)._id;
       await apiClient.updateResponse(responseIdentifier, { 
@@ -3407,7 +3450,7 @@ export default function FormAnalyticsDashboard() {
         const isEmpty = !current || current === "-" || current === "N/A" || current === "None" || String(current).trim() === "";
         if (!isEmpty) return r;
         const newAnswers = { ...(r.answers || {}), chassis_number: defaultValue };
-        if (chassisQuestionId) {
+        if (!chassisMasterOptions.length && chassisQuestionId) {
           newAnswers[chassisQuestionId] = defaultValue;
         }
         return {
@@ -6062,6 +6105,9 @@ export default function FormAnalyticsDashboard() {
         if (status.includes(term)) return true;
 
         // Match chassis number
+        const chResolved = getResponseChassisValue(response);
+        if (chResolved && chResolved !== "-" && chResolved.toLowerCase().includes(term)) return true;
+        if (response.chassisNumber && String(response.chassisNumber).toLowerCase().includes(term)) return true;
         const chVal = response.answers?.chassis_number;
         if (chVal) {
           if (typeof chVal === "object") {
@@ -9256,6 +9302,9 @@ export default function FormAnalyticsDashboard() {
           const status = (responseStatuses[response.id] || "").toLowerCase();
           if (status.includes(term)) return true;
 
+          const chResolved = getResponseChassisValue(response);
+          if (chResolved && chResolved !== "-" && chResolved.toLowerCase().includes(term)) return true;
+          if (response.chassisNumber && String(response.chassisNumber).toLowerCase().includes(term)) return true;
           const chVal = response.answers?.chassis_number;
           if (chVal) {
             if (typeof chVal === "object") {
@@ -12943,25 +12992,36 @@ export default function FormAnalyticsDashboard() {
                                   <td className="px-6 py-3 text-sm text-gray-900 dark:text-white font-medium border border-gray-200 dark:border-gray-700 min-w-40 whitespace-nowrap bg-gray-50/50 dark:bg-gray-800/30">
                                     {editingChassisResponseId === response.id ? (
                                       <div className="flex items-center gap-1.5">
-                                        <select
-                                          value={chassisEditValue}
-                                          onChange={(e) => setChassisEditValue(e.target.value)}
-                                          autoFocus
-                                          className="flex-1 px-2 py-1 text-xs border border-blue-400 dark:border-blue-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                        >
-                                          <option value="">Select Chassis</option>
-                                          {chassisMasterOptions.map((opt) => (
-                                            <option key={opt.value} value={opt.value}>
-                                              {opt.label}
-                                            </option>
-                                          ))}
-                                          {chassisEditValue &&
-                                            !chassisMasterOptions.some((o) => o.value === chassisEditValue) && (
-                                              <option value={chassisEditValue}>
-                                                {chassisEditValue} (current)
+                                        {chassisMasterOptions.length > 0 ? (
+                                          <select
+                                            value={chassisEditValue}
+                                            onChange={(e) => setChassisEditValue(e.target.value)}
+                                            autoFocus
+                                            className="flex-1 px-2 py-1 text-xs border border-blue-400 dark:border-blue-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                          >
+                                            <option value="">Select Chassis</option>
+                                            {chassisMasterOptions.map((opt) => (
+                                              <option key={opt.value} value={opt.value}>
+                                                {opt.label}
                                               </option>
-                                            )}
-                                        </select>
+                                            ))}
+                                            {chassisEditValue &&
+                                              !chassisMasterOptions.some((o) => o.value === chassisEditValue) && (
+                                                <option value={chassisEditValue}>
+                                                  {chassisEditValue} (current)
+                                                </option>
+                                              )}
+                                          </select>
+                                        ) : (
+                                          <input
+                                            type="text"
+                                            value={chassisEditValue}
+                                            onChange={(e) => setChassisEditValue(e.target.value)}
+                                            autoFocus
+                                            placeholder="Enter chassis"
+                                            className="flex-1 px-2 py-1 text-xs border border-blue-400 dark:border-blue-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                          />
+                                        )}
                                         <button
                                           onClick={() => handleSaveChassisEdit(response)}
                                           disabled={isSavingChassis}
@@ -14904,8 +14964,8 @@ export default function FormAnalyticsDashboard() {
                   Selected Response
                 </p>
                 <p className="text-sm font-bold text-gray-700 dark:text-gray-300 truncate">
-                  {actionResponse.answers?.chassis_number
-                    ? getChassisDisplayValue(actionResponse.answers.chassis_number)
+                  {getResponseChassisValue(actionResponse) !== "-"
+                    ? getResponseChassisValue(actionResponse)
                     : actionResponse.submittedBy || "Anonymous"}
                 </p>
               </div>
