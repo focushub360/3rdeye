@@ -2570,20 +2570,32 @@ export default function FormAnalyticsDashboard() {
     null,
   );
 
-  const [showParentMatchColumn, setShowParentMatchColumn] = useState<boolean>(false);
+  const [showParentMatchColumn, setShowParentMatchColumn] = useState<boolean>(() => {
+    try {
+      const formKey = id || "default";
+      const saved = localStorage.getItem(`show_parent_match_${formKey}`);
+      if (saved !== null) {
+        return saved === "true";
+      }
+    } catch (e) {}
+    return false;
+  });
 
-  // Auto-enable Parent Match column whenever form is a child/follow-up form, parent form, or responses contain follow-up linkages
+  // Auto-enable Parent Match column on initial load if user hasn't explicitly set a preference
   useEffect(() => {
-    if (form?.parentFormId || (form?.childForms && form.childForms.length > 0)) {
+    const formKey = id || (form as any)?._id || "default";
+    try {
+      const saved = localStorage.getItem(`show_parent_match_${formKey}`);
+      if (saved !== null) {
+        // User has explicitly set a preference, do not override
+        return;
+      }
+    } catch (e) {}
+
+    if (form?.parentFormId || (form?.childForms && form.childForms.length > 0) || responses?.some((r: any) => r.parentResponseId || (r as any).followUpStatus)) {
       setShowParentMatchColumn(true);
     }
-  }, [form]);
-
-  useEffect(() => {
-    if (!showParentMatchColumn && responses?.some((r: any) => r.parentResponseId || r.followUpStatus)) {
-      setShowParentMatchColumn(true);
-    }
-  }, [responses, showParentMatchColumn]);
+  }, [id, form, responses]);
 
   const [tvsReviews, setTvsReviews] = useState<any[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
@@ -11696,6 +11708,32 @@ export default function FormAnalyticsDashboard() {
                         </button>
                       </div>
                     )}
+
+                    {/* Top Parent Match Tick Box */}
+                    <label
+                      className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer select-none shadow-2xs ${
+                        showParentMatchColumn
+                          ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700 ring-1 ring-indigo-400"
+                          : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
+                      }`}
+                      title={showParentMatchColumn ? "Untick to hide Parent Match column" : "Tick to show Parent Match column"}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={showParentMatchColumn}
+                        onChange={(e) => {
+                          const nextVal = e.target.checked;
+                          setShowParentMatchColumn(nextVal);
+                          try {
+                            const formKey = id || (form as any)?._id || "default";
+                            localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
+                          } catch (err) {}
+                        }}
+                        className="w-4 h-4 text-indigo-600 rounded border-gray-300 dark:border-gray-600 focus:ring-indigo-500 accent-indigo-600 cursor-pointer"
+                      />
+                      <Link2 className={`w-3.5 h-3.5 ${showParentMatchColumn ? "text-indigo-600 dark:text-indigo-400" : "text-gray-400"}`} />
+                      <span className="whitespace-nowrap">Parent Match</span>
+                    </label>
 
                     <button
                       onClick={() => setShowFilterModal(true)}
