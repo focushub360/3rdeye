@@ -423,9 +423,9 @@ class ApiClient {
     };
 
     const effectiveToken = this.token || (typeof localStorage !== "undefined" ? localStorage.getItem("auth_token") : null);
-    if (effectiveToken) {
+    if (effectiveToken && !endpoint.includes("/auth/login")) {
       headers.Authorization = `Bearer ${effectiveToken}`;
-    } else {
+    } else if (!endpoint.includes("/auth/login")) {
       const guestToken = typeof localStorage !== "undefined" ? localStorage.getItem("guest_auth_token") : null;
       if (guestToken) {
         headers.Authorization = `Bearer ${guestToken}`;
@@ -631,6 +631,7 @@ class ApiClient {
     }>("/auth/login", {
       method: "POST",
       body: JSON.stringify(credentials),
+      timeout: 15000,
     });
 
     this.setToken(data.token);
@@ -1535,7 +1536,7 @@ class ApiClient {
       summary: any;
       meta: any;
       pagination: { page: number; limit: number; hasMore: boolean };
-    }>(url, { timeout: 30000 });
+    }>(url, { timeout: 90000 });
   }
 
   async getInternalTrackingPerformance(params?: { page?: number; limit?: number; search?: string; sortBy?: string; sortOrder?: string }) {
@@ -3686,6 +3687,15 @@ class ApiClient {
           }
         }
       }
+
+      // Guarantee completion notification even if the last page failed
+      options?.onPage?.({
+        responses: [],
+        pageNumber: totalPages,
+        totalPages,
+        totalResponses: allResponses.length,
+        isLast: true,
+      });
     }
 
     return { responses: allResponses, form };

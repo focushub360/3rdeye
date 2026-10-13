@@ -5060,7 +5060,7 @@ export default function FormCreator() {
                                             })
                                           }
                                           className="w-full px-3 py-2 text-xs border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-blue-500"
-                                          placeholder="e.g., Min, Low, Poor"
+                                          placeholder="e.g., Start Chassis Number"
                                         />
                                       </div>
 
@@ -5077,28 +5077,9 @@ export default function FormCreator() {
                                             })
                                           }
                                           className="w-full px-3 py-2 text-xs border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-blue-500"
-                                          placeholder="e.g., Max, High, Excellent"
+                                          placeholder="e.g., End Chassis Number"
                                         />
                                       </div>
-                                    </div>
-
-                                    {/* Live Interactive Preview */}
-                                    <div className="p-3.5 bg-white/80 dark:bg-gray-900/80 border border-blue-100 dark:border-blue-900/40 rounded-xl">
-                                      <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1.5 font-medium">
-                                        <span>Preview: {question.minLabel || "Start"} ({question.min ?? 0})</span>
-                                        <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
-                                          Mid: {Number((((question.min ?? 0) + (question.max ?? 100)) / 2).toFixed(2))}
-                                        </span>
-                                        <span>{question.maxLabel || "End"} ({question.max ?? 100})</span>
-                                      </div>
-                                      <input
-                                        type="range"
-                                        min={question.min ?? 0}
-                                        max={question.max ?? 100}
-                                        step={question.step ?? 1}
-                                        defaultValue={Number((((question.min ?? 0) + (question.max ?? 100)) / 2).toFixed(2))}
-                                        className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                                      />
                                     </div>
                                   </div>
                                 ) : null}

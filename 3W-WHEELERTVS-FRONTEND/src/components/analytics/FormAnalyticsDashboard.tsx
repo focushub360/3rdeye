@@ -2572,6 +2572,19 @@ export default function FormAnalyticsDashboard() {
 
   const [showParentMatchColumn, setShowParentMatchColumn] = useState<boolean>(false);
 
+  // Auto-enable Parent Match column whenever form is a child/follow-up form, parent form, or responses contain follow-up linkages
+  useEffect(() => {
+    if (form?.parentFormId || (form?.childForms && form.childForms.length > 0)) {
+      setShowParentMatchColumn(true);
+    }
+  }, [form]);
+
+  useEffect(() => {
+    if (!showParentMatchColumn && responses?.some((r: any) => r.parentResponseId || r.followUpStatus)) {
+      setShowParentMatchColumn(true);
+    }
+  }, [responses, showParentMatchColumn]);
+
   const [tvsReviews, setTvsReviews] = useState<any[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
   const [analyticsView, setAnalyticsView] = useState<"responses" | "dashboard">(() => {
@@ -4957,6 +4970,7 @@ export default function FormAnalyticsDashboard() {
       const directKeys = [
         "chassis_number", "chassisNumber", "chassis", "Chassis", "CHASSIS",
         "id_number", "idNumber", "ID NUMBER", "ID Number", "Id Number", "id_no", "ID No", "ID NO",
+        "Identification Number", "identification_number", "identificationNumber",
         "Chassis / VIN", "Chassis Number", "VIN", "vin", "Serial Number", "serialNumber"
       ];
       for (const k of directKeys) {
@@ -4985,8 +4999,8 @@ export default function FormAnalyticsDashboard() {
             const t = (q.text || "").toLowerCase();
             const isTrackOrId =
               q.trackResponseRank === true || q.trackResponseRank === "true" ||
-              q.type === "chassis" || q.type === "chassisWithZone" || q.type === "chassisWithoutZone" ||
-              t.includes("chassis") || t.includes("id number") || t.includes("id_number") || t.includes("id no") || t.includes("vin") || t.includes("serial");
+              q.type === "chassis" || q.type === "chassisWithZone" || q.type === "chassisWithoutZone" || q.type === "range" ||
+              t.includes("chassis") || t.includes("identification") || t.includes("id number") || t.includes("id_number") || t.includes("id no") || t.includes("vin") || t.includes("serial");
 
             if (isTrackOrId && r.answers[q.id] !== undefined && r.answers[q.id] !== null && r.answers[q.id] !== "") {
               const ans = r.answers[q.id];
@@ -5839,11 +5853,12 @@ export default function FormAnalyticsDashboard() {
     // Check if this response is a parent that has a child follow-up response in the list
     const respId = response?.id || response?._id;
     const chassisVal = getResponseChassisValue(response);
+    const unitId = getChassisOrItemId(response, chassisQuestionId);
     const hasChildMatch = responses?.some(
       (r: any) =>
         (r.parentResponseId && (r.parentResponseId === respId || r.parentResponseId === response?.id)) ||
-        (chassisVal && r.parentResponseId && getResponseChassisValue(r) === chassisVal) ||
-        (chassisVal && r.id !== respId && getResponseChassisValue(r) === chassisVal && (r.batchId?.includes("-t2") || r.batchId?.includes("-fu-")))
+        (unitId && unitId !== "unknown" && r.parentResponseId && getChassisOrItemId(r, chassisQuestionId) === unitId) ||
+        (unitId && unitId !== "unknown" && r.id !== respId && getChassisOrItemId(r, chassisQuestionId) === unitId && (r.batchId?.includes("-t2") || r.batchId?.includes("-fu-")))
     );
 
     if (hasChildMatch) {
@@ -5853,8 +5868,26 @@ export default function FormAnalyticsDashboard() {
         badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
         icon: CheckCircle2,
         subText: "Follow-up Complete",
-        tooltip: `Follow-up inspection completed for chassis "${chassisVal || ""}"`
+        tooltip: `Follow-up inspection completed for chassis "${chassisVal || unitId || ""}"`
       };
+    }
+
+    // Fallback: Check if child response matches a parent response in the list by unique unitId
+    if (!response?.parentResponseId && isChildForm && unitId && unitId !== "unknown") {
+      const parentInList = responses?.find(
+        (r: any) => r.id !== respId && getChassisOrItemId(r, chassisQuestionId) === unitId
+      );
+      if (parentInList) {
+        const parentStatus = tableDisplayStatuses[parentInList.id || parentInList._id] || parentInList.status || "Accepted";
+        return {
+          status: "matched",
+          badgeText: "✓ Parent Matched",
+          badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
+          icon: CheckCircle2,
+          subText: `Status: ${parentStatus}`,
+          tooltip: `Matched parent response by chassis/unit "${unitId}" (Status: ${parentStatus})`
+        };
+      }
     }
 
     // Check if this form is a child/follow-up form or parent form

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { apiClient } from "../api/client";
 import type { Response } from "../types";
 import { useNotification } from "../context/NotificationContext";
@@ -9,6 +9,7 @@ import PreviewForm from "./PreviewForm";
 export default function PreviewFormWrapper() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { tenant, user } = useAuth();
   const { showSuccess, showError } = useNotification();
 
@@ -291,9 +292,9 @@ export default function PreviewFormWrapper() {
     }
 
     // Build submission payload
+    const urlParentResponseId = searchParams.get("parentResponseId") || searchParams.get("parentResponse");
     const submitData: any = {
-      // REMOVED: questionId: id!,
-      // REMOVED: tenantSlug: tenant?.slug,
+      parentResponseId: urlParentResponseId || (response as any).parentResponseId || undefined,
       answers: response.answers,
       timestamp: response.timestamp || (response as any).createdAt || new Date().toISOString(),
       sessionId: sessionId,
@@ -369,6 +370,11 @@ export default function PreviewFormWrapper() {
 
     console.log("📝 Response ID:", responseId);
 
+    const respCount = submissionResult?.count || 1;
+    const successMsg = respCount > 1
+      ? `Successfully submitted ${respCount} responses for chassis range!`
+      : "Response submitted successfully!";
+
     // Auto-assign
     if (responseId && tenant?._id) {
       try {
@@ -376,13 +382,13 @@ export default function PreviewFormWrapper() {
           tenantId: tenant._id,
         });
         console.log("✅ Auto-assign successful");
-        showSuccess("Response submitted and assigned successfully!");
+        showSuccess(respCount > 1 ? `Successfully submitted and assigned ${respCount} responses for chassis range!` : "Response submitted and assigned successfully!");
       } catch (assignErr) {
         console.warn("Auto-assign failed:", assignErr);
-        showSuccess("Response submitted successfully!");
+        showSuccess(successMsg);
       }
     } else {
-      showSuccess("Response submitted successfully!");
+      showSuccess(successMsg);
     }
 
     // Stop heartbeat

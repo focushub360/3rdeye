@@ -141,7 +141,7 @@ export default function ResponseForm({ onSubmit }: ResponseFormProps) {
   const { id, tenantSlug } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const parentResponseId = searchParams.get("parentResponseId");
+  const parentResponseId = searchParams.get("parentResponseId") || searchParams.get("parentResponse");
 
   const [form, setForm] = useState<any>(null);
   const [loading, setLoading] = useState(true);

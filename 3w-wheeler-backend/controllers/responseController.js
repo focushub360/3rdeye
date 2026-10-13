@@ -424,6 +424,88 @@ const buildChassisOrConditions = (questionId, trackingQId, strAnswer, extraQuest
   return orConditions;
 };
 
+// ========== MODULE-LEVEL CHASSIS RANGE BOUNDS DETECTION & EXPANSION ==========
+export const extractRangeBounds = (val) => {
+  if (!val) return null;
+  if (typeof val === 'object') {
+    if (val.start !== undefined && val.end !== undefined && (val.start !== '' || val.end !== '')) {
+      return { start: String(val.start).trim(), end: String(val.end).trim() };
+    }
+  }
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && (parsed.start !== undefined || parsed.end !== undefined)) {
+          return { start: String(parsed.start ?? '').trim(), end: String(parsed.end ?? '').trim() };
+        }
+      } catch {}
+    }
+    if (trimmed.includes(' - ')) {
+      const parts = trimmed.split(' - ');
+      if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
+        return { start: parts[0].trim(), end: parts[1].trim() };
+      }
+    }
+    if (trimmed.toLowerCase().includes(' to ')) {
+      const parts = trimmed.split(/\s+to\s+/i);
+      if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
+        return { start: parts[0].trim(), end: parts[1].trim() };
+      }
+    }
+  }
+  return null;
+};
+
+export const expandChassisRange = (startStr, endStr, maxLimit = 200) => {
+  const start = String(startStr || '').trim();
+  const end = String(endStr || '').trim();
+  if (!start && !end) return [];
+  if (!start) return [end];
+  if (!end) return [start];
+  if (start === end) return [start];
+
+  // 1. Pure numeric (e.g. "30" to "35" or "35" to "30")
+  if (/^\d+$/.test(start) && /^\d+$/.test(end)) {
+    const n1 = parseInt(start, 10);
+    const n2 = parseInt(end, 10);
+    const low = Math.min(n1, n2);
+    const high = Math.max(n1, n2);
+    const count = Math.min(high - low + 1, maxLimit);
+    const padLen = Math.max(start.length, end.length);
+    const list = [];
+    // Descending: from high (e.g. 35) down to low (e.g. 30)
+    for (let i = 0; i < count; i++) {
+      const val = String(high - i);
+      list.push(padLen > 0 ? val.padStart(padLen, '0') : val);
+    }
+    return list;
+  }
+
+  // 2. Prefix + Numeric Suffix (e.g. "S8-VRT-30" to "S8-VRT-35" or "S8-VRT-35" to "S8-VRT-30")
+  const startMatch = start.match(/^(.*?)(\d+)$/);
+  const endMatch = end.match(/^(.*?)(\d+)$/);
+  if (startMatch && endMatch && startMatch[1] === endMatch[1]) {
+    const prefix = startMatch[1];
+    const n1 = parseInt(startMatch[2], 10);
+    const n2 = parseInt(endMatch[2], 10);
+    const low = Math.min(n1, n2);
+    const high = Math.max(n1, n2);
+    const count = Math.min(high - low + 1, maxLimit);
+    const padLen = Math.max(startMatch[2].length, endMatch[2].length);
+    const list = [];
+    // Descending: from high (e.g. S8-VRT-35) down to low (e.g. S8-VRT-30)
+    for (let i = 0; i < count; i++) {
+      const val = String(high - i).padStart(padLen, '0');
+      list.push(`${prefix}${val}`);
+    }
+    return list;
+  }
+
+  return [end, start];
+};
+
 export const createResponse = async (req, res) => {
   try {
     console.log('[CREATE RESPONSE] === START ===');
@@ -929,25 +1011,109 @@ export const createResponse = async (req, res) => {
       answers.chassis_number = chassisVal;
     }
 
+    let detectedRange = null;
+    let rangeQuestionKey = null;
+
+    if (answers && typeof answers === 'object') {
+      const priorityKeys = [
+        'chassis_number', 'chassisNumber', 'ID number', 'id_number', 'idNumber',
+        'selected_chassis', 'selectedChassis', 'Identification Number', 'identification_number'
+      ];
+      for (const pk of priorityKeys) {
+        if (answers[pk] !== undefined) {
+          const r = extractRangeBounds(answers[pk]);
+          if (r && r.start && r.end) {
+            detectedRange = r;
+            rangeQuestionKey = pk;
+            break;
+          }
+        }
+      }
+
+      if (!detectedRange) {
+        const allFormQuestions = [];
+        (form?.sections || []).forEach(s => (s.questions || []).forEach(q => allFormQuestions.push(q)));
+        (form?.followUpQuestions || []).forEach(q => allFormQuestions.push(q));
+
+        for (const q of allFormQuestions) {
+          const rawQVal = answers[q.id] !== undefined ? answers[q.id] : (answers[q.text] !== undefined ? answers[q.text] : answers[`${q.id}_tracking`]);
+          const r = extractRangeBounds(rawQVal);
+          if (r && r.start && r.end) {
+            detectedRange = r;
+            rangeQuestionKey = q.id;
+            break;
+          }
+        }
+      }
+
+      if (!detectedRange) {
+        for (const [key, val] of Object.entries(answers)) {
+          const r = extractRangeBounds(val);
+          if (r && r.start && r.end) {
+            detectedRange = r;
+            rangeQuestionKey = key;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!detectedRange && chassisVal) {
+      detectedRange = extractRangeBounds(chassisVal);
+    }
+
+    let chassisRangeList = [];
+    if (detectedRange && detectedRange.start && detectedRange.end) {
+      chassisRangeList = expandChassisRange(detectedRange.start, detectedRange.end);
+      if (chassisRangeList.length > 0) {
+        if (!configuredFormChassis.length || !configuredFormChassis.includes(chassisVal)) {
+          chassisVal = chassisRangeList[0];
+          if (answers) {
+            answers.chassis_number = chassisVal;
+          }
+        }
+      }
+    }
+
 
     let resolvedParentResponseId = parentResponseId;
     // Auto-match to parent response by chassis if form is a child/follow-up form and parentResponseId was not passed
     if (!resolvedParentResponseId && form?.parentFormId && chassisVal) {
       try {
-        const parentFormIds = [form.parentFormId.toString()];
+        const parentConditions = [{ id: form.parentFormId }];
+        if (mongoose.Types.ObjectId.isValid(form.parentFormId)) {
+          parentConditions.push({ _id: form.parentFormId });
+        }
+        const parentFormDoc = await Form.findOne({ $or: parentConditions }).lean();
+        const parentFormIds = [form.parentFormId.toString()].concat(parentFormDoc ? [parentFormDoc.id, parentFormDoc._id?.toString()].filter(Boolean) : []);
+        const orConditions = [
+          { chassisNumber: chassisVal },
+          { 'answers.chassis_number': chassisVal },
+          { 'answers.chassisNumber': chassisVal },
+          { 'answers.id_number': chassisVal },
+          { 'answers.idNumber': chassisVal },
+          { 'answers.Identification Number': chassisVal },
+          { 'answers.identification_number': chassisVal },
+          { 'answers.identificationNumber': chassisVal },
+          { 'answers.ID number': chassisVal },
+          { 'answers.Chassis / VIN': chassisVal },
+          { 'answers.Chassis No': chassisVal },
+          { 'answers.CHASSIS NUMBER': chassisVal }
+        ];
+        if (parentFormDoc) {
+          (parentFormDoc.sections || []).forEach(s => (s.questions || []).forEach(q => {
+            orConditions.push({ [`answers.${q.id}`]: chassisVal });
+            if (q.text) orConditions.push({ [`answers.${q.text}`]: chassisVal });
+          }));
+          (parentFormDoc.followUpQuestions || []).forEach(q => {
+            orConditions.push({ [`answers.${q.id}`]: chassisVal });
+            if (q.text) orConditions.push({ [`answers.${q.text}`]: chassisVal });
+          });
+        }
         const parentResp = await Response.findOne({
           questionId: { $in: parentFormIds },
           isSectionSubmit: { $ne: true },
-          $or: [
-            { chassisNumber: chassisVal },
-            { 'answers.chassis_number': chassisVal },
-            { 'answers.chassisNumber': chassisVal },
-            { 'answers.id_number': chassisVal },
-            { 'answers.idNumber': chassisVal },
-            { 'answers.Chassis / VIN': chassisVal },
-            { 'answers.Chassis No': chassisVal },
-            { 'answers.CHASSIS NUMBER': chassisVal }
-          ]
+          $or: orConditions
         }).sort({ createdAt: -1 }).lean();
         if (parentResp) {
           resolvedParentResponseId = parentResp.id || (parentResp._id ? parentResp._id.toString() : null);
@@ -1035,31 +1201,202 @@ export const createResponse = async (req, res) => {
       inviteId: inviteId || null
     };
 
-    const response = new Response(responseData);
-    await response.save();
+    let primaryResponse = null;
+    let createdResponses = [];
+    let rangeBatchId = null;
 
-    const answersObj = response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers;
-    const ranksObj = response.responseRanks instanceof Map ? Object.fromEntries(response.responseRanks) : response.responseRanks;
+    if (chassisRangeList && chassisRangeList.length > 1) {
+      rangeBatchId = `range-${Date.now()}`;
+      console.log(`[CHASSIS RANGE] Creating ${chassisRangeList.length} responses for range ${chassisRangeList[0]} down to ${chassisRangeList[chassisRangeList.length - 1]} with batchId ${rangeBatchId}`);
 
-    // Emit real-time event for new response
-    const livePayload = {
-      id: response.id,
-      questionId: response.questionId,
-      status: response.status,
-      submittedBy: response.submittedBy,
-      createdAt: response.createdAt,
-      answers: answersObj,
-      inviteId: inviteId || null,
-      timeSpent: submissionTimeSpent,
-      responseRanks: ranksObj,
-    };
-    emitResponseCreated(questionId, livePayload);
-    if (form?._id && String(form._id) !== String(questionId)) {
-      emitResponseCreated(String(form._id), livePayload);
+      const baseNow = Date.now();
+      const allFormQuestions = [];
+      (form?.sections || []).forEach(s => (s.questions || []).forEach(q => allFormQuestions.push(q)));
+      (form?.followUpQuestions || []).forEach(q => allFormQuestions.push(q));
+
+      // Pre-load parent form definition once for range unit parent matching
+      let parentFormDoc = null;
+      let parentFormIds = [];
+      if (form?.parentFormId) {
+        try {
+          const parentConditions = [{ id: form.parentFormId }];
+          if (mongoose.Types.ObjectId.isValid(form.parentFormId)) {
+            parentConditions.push({ _id: form.parentFormId });
+          }
+          parentFormDoc = await Form.findOne({ $or: parentConditions }).lean();
+          parentFormIds = [form.parentFormId.toString()].concat(parentFormDoc ? [parentFormDoc.id, parentFormDoc._id?.toString()].filter(Boolean) : []);
+        } catch (pfErr) {
+          console.warn('[CREATE RANGE] Error loading parent form:', pfErr);
+        }
+      }
+
+      for (let i = 0; i < chassisRangeList.length; i++) {
+        const currentChassis = chassisRangeList[i];
+        const clonedAnswers = { ...(answers || {}) };
+
+        // Determine if system chassis should be preserved (e.g. 'TVS') or use currentChassis
+        const finalChassisNumber = (configuredFormChassis.length > 0 && configuredFormChassis.includes(chassisVal))
+          ? chassisVal
+          : currentChassis;
+
+        // 1. Explicitly stamp the range question
+        if (rangeQuestionKey) {
+          clonedAnswers[rangeQuestionKey] = currentChassis;
+        }
+
+        // 2. Stamp all questions tracking chassis or identification number or matching text
+        for (const q of allFormQuestions) {
+          if (
+            q.id === rangeQuestionKey ||
+            q.type === 'range' ||
+            q.type === 'chassisNumber' ||
+            q.trackResponseRank ||
+            (q.text && (
+              q.text.toLowerCase().includes('chassis') ||
+              q.text.toLowerCase().includes('identification') ||
+              q.text.toLowerCase().includes('id number')
+            ))
+          ) {
+            if (clonedAnswers[q.id] !== undefined || q.id === rangeQuestionKey) {
+              clonedAnswers[q.id] = currentChassis;
+            }
+            if (q.text && clonedAnswers[q.text] !== undefined) {
+              clonedAnswers[q.text] = currentChassis;
+            }
+          }
+        }
+
+        // 3. Keep common identification keys aligned
+        if (clonedAnswers['ID number'] !== undefined) clonedAnswers['ID number'] = currentChassis;
+        if (clonedAnswers.id_number !== undefined) clonedAnswers.id_number = currentChassis;
+        if (clonedAnswers.idNumber !== undefined) clonedAnswers.idNumber = currentChassis;
+        if (clonedAnswers['Identification Number'] !== undefined) clonedAnswers['Identification Number'] = currentChassis;
+        if (clonedAnswers.identification_number !== undefined) clonedAnswers.identification_number = currentChassis;
+        if (clonedAnswers.identificationNumber !== undefined) clonedAnswers.identificationNumber = currentChassis;
+        if (finalChassisNumber !== currentChassis) {
+          clonedAnswers.chassis_number = finalChassisNumber;
+        } else {
+          clonedAnswers.chassis_number = currentChassis;
+        }
+
+        // 4. Timestamp calculation:
+        // element 0 (high, e.g. S8-VRT-35) gets highest createdAt timestamp
+        // so MongoDB query with .sort({ createdAt: -1 }) guarantees descending display 35 -> 30 in table!
+        const offsetSeconds = (chassisRangeList.length - i);
+        const itemCreatedAt = new Date(baseNow + offsetSeconds * 1000);
+
+        // Auto-match parent response for each unit in the range if this is a follow-up form
+        let itemParentResponseId = resolvedParentResponseId;
+        if (!itemParentResponseId && form?.parentFormId && currentChassis) {
+          try {
+            const orConditions = [
+              { chassisNumber: currentChassis },
+              { 'answers.chassis_number': currentChassis },
+              { 'answers.chassisNumber': currentChassis },
+              { 'answers.id_number': currentChassis },
+              { 'answers.idNumber': currentChassis },
+              { 'answers.Identification Number': currentChassis },
+              { 'answers.identification_number': currentChassis },
+              { 'answers.identificationNumber': currentChassis },
+              { 'answers.ID number': currentChassis },
+              { 'answers.Chassis / VIN': currentChassis },
+              { 'answers.Chassis No': currentChassis },
+              { 'answers.CHASSIS NUMBER': currentChassis }
+            ];
+            if (parentFormDoc) {
+              (parentFormDoc.sections || []).forEach(s => (s.questions || []).forEach(q => {
+                orConditions.push({ [`answers.${q.id}`]: currentChassis });
+                if (q.text) orConditions.push({ [`answers.${q.text}`]: currentChassis });
+              }));
+              (parentFormDoc.followUpQuestions || []).forEach(q => {
+                orConditions.push({ [`answers.${q.id}`]: currentChassis });
+                if (q.text) orConditions.push({ [`answers.${q.text}`]: currentChassis });
+              });
+            }
+            const pUnit = await Response.findOne({
+              questionId: { $in: parentFormIds },
+              isSectionSubmit: { $ne: true },
+              $or: orConditions
+            }).sort({ createdAt: -1 }).lean();
+            if (pUnit) {
+              itemParentResponseId = pUnit.id || (pUnit._id ? pUnit._id.toString() : null);
+            }
+          } catch (pErr) {
+            console.warn('[CREATE RESPONSE] Error auto-linking parent for range item:', pErr);
+          }
+        }
+
+        const singleRespData = {
+          ...responseData,
+          id: uuidv4(),
+          batchId: rangeBatchId,
+          parentResponseId: itemParentResponseId || undefined,
+          chassisNumber: finalChassisNumber,
+          createdAt: itemCreatedAt,
+          timestamp: itemCreatedAt.toISOString(),
+          submittedAt: itemCreatedAt,
+          answers: new Map(Object.entries(clonedAnswers))
+        };
+
+        const respDoc = new Response(singleRespData);
+        await respDoc.save({ timestamps: false });
+        createdResponses.push(respDoc);
+
+        const singleAnswersObj = respDoc.answers instanceof Map ? Object.fromEntries(respDoc.answers) : respDoc.answers;
+        const ranksObj = respDoc.responseRanks instanceof Map ? Object.fromEntries(respDoc.responseRanks) : respDoc.responseRanks;
+        const singlePayload = {
+          id: respDoc.id,
+          questionId: respDoc.questionId,
+          status: respDoc.status,
+          submittedBy: respDoc.submittedBy,
+          createdAt: respDoc.createdAt,
+          answers: singleAnswersObj,
+          inviteId: inviteId || null,
+          timeSpent: submissionTimeSpent,
+          responseRanks: ranksObj,
+        };
+        emitResponseCreated(questionId, singlePayload);
+        if (form?._id && String(form._id) !== String(questionId)) {
+          emitResponseCreated(String(form._id), singlePayload);
+        }
+        if (form?.id && String(form.id) !== String(questionId)) {
+          emitResponseCreated(String(form.id), singlePayload);
+        }
+      }
+      primaryResponse = createdResponses[0];
+    } else {
+      const response = new Response(responseData);
+      await response.save();
+      primaryResponse = response;
+      createdResponses = [response];
+
+      const answersObj = response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers;
+      const ranksObj = response.responseRanks instanceof Map ? Object.fromEntries(response.responseRanks) : response.responseRanks;
+
+      // Emit real-time event for new response
+      const livePayload = {
+        id: response.id,
+        questionId: response.questionId,
+        status: response.status,
+        submittedBy: response.submittedBy,
+        createdAt: response.createdAt,
+        answers: answersObj,
+        inviteId: inviteId || null,
+        timeSpent: submissionTimeSpent,
+        responseRanks: ranksObj,
+      };
+      emitResponseCreated(questionId, livePayload);
+      if (form?._id && String(form._id) !== String(questionId)) {
+        emitResponseCreated(String(form._id), livePayload);
+      }
+      if (form?.id && String(form.id) !== String(questionId)) {
+        emitResponseCreated(String(form.id), livePayload);
+      }
     }
-    if (form?.id && String(form.id) !== String(questionId)) {
-      emitResponseCreated(String(form.id), livePayload);
-    }
+
+    const finalResponse = primaryResponse;
+    const answersObj = finalResponse.answers instanceof Map ? Object.fromEntries(finalResponse.answers) : finalResponse.answers;
+    const ranksObj = finalResponse.responseRanks instanceof Map ? Object.fromEntries(finalResponse.responseRanks) : finalResponse.responseRanks;
 
     // Check OAuth configuration for non-blocking background drive upload
     const driveConfigured = !!(process.env.GOOGLE_DRIVE_CLIENT_ID &&
@@ -1085,7 +1422,7 @@ export const createResponse = async (req, res) => {
           );
           if (processingResult && processingResult.processedAnswers) {
             await Response.updateOne(
-              { id: response.id },
+              { id: finalResponse.id },
               {
                 $set: {
                   answers: processingResult.processedAnswers,
@@ -1111,19 +1448,22 @@ export const createResponse = async (req, res) => {
     // ========== RETURN RESPONSE IMMEDIATELY (<100ms) ==========
     res.status(201).json({
       success: true,
-      message: 'Response submitted successfully',
+      message: createdResponses.length > 1
+        ? `Successfully created ${createdResponses.length} responses for chassis range ${chassisRangeList[0]} to ${chassisRangeList[chassisRangeList.length - 1]}`
+        : 'Response submitted successfully',
       data: {
         response: {
-          id: response.id,
-          questionId: response.questionId,
+          id: finalResponse.id,
+          questionId: finalResponse.questionId,
           answers: answersObj,
           responseRanks: ranksObj,
-          parentResponseId: response.parentResponseId,
-          submittedBy: response.submittedBy,
-          submitterContact: response.submitterContact,
-          status: response.status,
-          createdAt: response.createdAt,
-          updatedAt: response.updatedAt,
+          parentResponseId: finalResponse.parentResponseId,
+          chassisNumber: finalResponse.chassisNumber,
+          submittedBy: finalResponse.submittedBy,
+          submitterContact: finalResponse.submitterContact,
+          status: finalResponse.status,
+          createdAt: finalResponse.createdAt,
+          updatedAt: finalResponse.updatedAt,
           inviteId: inviteId || null,
           imageProcessing: {
             totalImages: 0,
@@ -1137,6 +1477,9 @@ export const createResponse = async (req, res) => {
           questionTimings: formSession?.questionTimings,
           sectionTimings: formSession?.sectionTimings
         },
+        count: createdResponses.length,
+        batchId: rangeBatchId || undefined,
+        responses: createdResponses.map(r => ({ id: r.id, chassisNumber: r.chassisNumber })),
         score: {
           correct,
           total,
@@ -1233,7 +1576,7 @@ export const batchImportResponses = async (req, res) => {
     const extractChassisFromAns = (ans) => {
       if (!ans) return null;
       const plain = ans instanceof Map ? Object.fromEntries(ans) : ans;
-      const val = extractAnswerString(
+      let val = extractAnswerString(
         plain.chassis_number ||
         plain.selected_chassis ||
         plain.selectedChassis ||
@@ -1241,10 +1584,29 @@ export const batchImportResponses = async (req, res) => {
         plain.id_number ||
         plain.idNumber ||
         plain['ID number'] ||
+        plain['Identification Number'] ||
+        plain.identification_number ||
+        plain.identificationNumber ||
         plain['Chassis / VIN'] ||
         plain['Chassis No'] ||
         plain['CHASSIS NUMBER']
       );
+
+      if (!val && form) {
+        const allFormQuestions = [];
+        (form.sections || []).forEach(s => (s.questions || []).forEach(q => allFormQuestions.push(q)));
+        (form.followUpQuestions || []).forEach(q => allFormQuestions.push(q));
+        for (const q of allFormQuestions) {
+          if (q.trackResponseRank || q.type === 'range' || q.type === 'chassisNumber' || (q.text && (q.text.toLowerCase().includes('chassis') || q.text.toLowerCase().includes('identification')))) {
+            const raw = plain[q.id] || plain[q.text] || plain[`${q.id}_tracking`];
+            const str = extractAnswerString(raw);
+            if (str && str !== '-' && str !== 'N/A') {
+              val = str;
+              break;
+            }
+          }
+        }
+      }
       return val ? String(val).trim() : null;
     };
 
@@ -1272,6 +1634,10 @@ export const batchImportResponses = async (req, res) => {
             { 'answers.chassisNumber': { $in: uniqueChassisInBatch } },
             { 'answers.id_number': { $in: uniqueChassisInBatch } },
             { 'answers.idNumber': { $in: uniqueChassisInBatch } },
+            { 'answers.Identification Number': { $in: uniqueChassisInBatch } },
+            { 'answers.identification_number': { $in: uniqueChassisInBatch } },
+            { 'answers.identificationNumber': { $in: uniqueChassisInBatch } },
+            { 'answers.ID number': { $in: uniqueChassisInBatch } },
             { 'answers.Chassis / VIN': { $in: uniqueChassisInBatch } },
             { 'answers.Chassis No': { $in: uniqueChassisInBatch } },
             { 'answers.CHASSIS NUMBER': { $in: uniqueChassisInBatch } }
@@ -1642,8 +2008,53 @@ export const batchImportResponses = async (req, res) => {
               createdAt: rowSubmittedAt
             };
 
-            const response = new Response(responseData);
-            responsesToSave.push(response);
+            const rowRange = extractRangeBounds(chassisVal) ||
+              extractRangeBounds(processedAnswers['Identification Number']) ||
+              extractRangeBounds(processedAnswers['ID number']) ||
+              extractRangeBounds(processedAnswers.chassis_number);
+
+            let rowUnits = [];
+            if (rowRange && rowRange.start && rowRange.end) {
+              rowUnits = expandChassisRange(rowRange.start, rowRange.end);
+            }
+
+            if (rowUnits.length > 1) {
+              const baseTime = rowSubmittedAt.getTime();
+              for (let uIdx = 0; uIdx < rowUnits.length; uIdx++) {
+                const uChassis = rowUnits[uIdx];
+                const uAnswers = { ...processedAnswers };
+                const uFinalChassis = (batchConfiguredChassis.length > 0 && batchConfiguredChassis.includes(chassisVal)) ? chassisVal : uChassis;
+                uAnswers.chassis_number = uFinalChassis;
+                if (uAnswers['Identification Number'] !== undefined) uAnswers['Identification Number'] = uChassis;
+                if (uAnswers['identification_number'] !== undefined) uAnswers['identification_number'] = uChassis;
+                if (uAnswers.identificationNumber !== undefined) uAnswers.identificationNumber = uChassis;
+                if (uAnswers['ID number'] !== undefined) uAnswers['ID number'] = uChassis;
+                if (uAnswers.id_number !== undefined) uAnswers.id_number = uChassis;
+                for (const q of allQuestions) {
+                  if (q.trackResponseRank || q.type === 'range' || (q.text && (q.text.toLowerCase().includes('chassis') || q.text.toLowerCase().includes('identification')))) {
+                    if (uAnswers[q.id] !== undefined) uAnswers[q.id] = uChassis;
+                  }
+                }
+                let uParentId = resolvedParentResponseId;
+                if (!uParentId && uChassis) {
+                  uParentId = chassisToParentMap.get(uChassis.toLowerCase().trim()) || undefined;
+                }
+                const uDate = new Date(baseTime + (rowUnits.length - uIdx) * 1000);
+                const uResponseData = {
+                  ...responseData,
+                  id: uuidv4(),
+                  answers: new Map(Object.entries(uAnswers)),
+                  parentResponseId: uParentId || undefined,
+                  chassisNumber: uFinalChassis,
+                  submittedAt: uDate,
+                  createdAt: uDate
+                };
+                responsesToSave.push(new Response(uResponseData));
+              }
+            } else {
+              const response = new Response(responseData);
+              responsesToSave.push(response);
+            }
           } catch (error) {
             console.error(`[BATCH ${batchId}] Response prep error (index ${index}):`, error.message);
             errors.push({
@@ -1943,9 +2354,58 @@ export const batchImportResponses = async (req, res) => {
             createdAt: rowSubmittedAt
           };
 
-          // Prepare Mongoose document
-          const response = new Response(responseData);
-          responsesToSave.push(response);
+          const noImgConfiguredChassis = (form.chassisNumbers || [])
+            .map(c => typeof c === 'string' ? c : (c.chassisNumber || c.name))
+            .filter(Boolean);
+
+          const rowRange = extractRangeBounds(chassisVal) ||
+            extractRangeBounds(processedAnswers['Identification Number']) ||
+            extractRangeBounds(processedAnswers['ID number']) ||
+            extractRangeBounds(processedAnswers.chassis_number);
+
+          let rowUnits = [];
+          if (rowRange && rowRange.start && rowRange.end) {
+            rowUnits = expandChassisRange(rowRange.start, rowRange.end);
+          }
+
+          if (rowUnits.length > 1) {
+            const baseTime = rowSubmittedAt.getTime();
+            for (let uIdx = 0; uIdx < rowUnits.length; uIdx++) {
+              const uChassis = rowUnits[uIdx];
+              const uAnswers = { ...processedAnswers };
+              const uFinalChassis = (noImgConfiguredChassis.length > 0 && noImgConfiguredChassis.includes(chassisVal)) ? chassisVal : uChassis;
+              uAnswers.chassis_number = uFinalChassis;
+              if (uAnswers['Identification Number'] !== undefined) uAnswers['Identification Number'] = uChassis;
+              if (uAnswers['identification_number'] !== undefined) uAnswers['identification_number'] = uChassis;
+              if (uAnswers.identificationNumber !== undefined) uAnswers.identificationNumber = uChassis;
+              if (uAnswers['ID number'] !== undefined) uAnswers['ID number'] = uChassis;
+              if (uAnswers.id_number !== undefined) uAnswers.id_number = uChassis;
+              for (const q of allQuestions) {
+                if (q.trackResponseRank || q.type === 'range' || (q.text && (q.text.toLowerCase().includes('chassis') || q.text.toLowerCase().includes('identification')))) {
+                  if (uAnswers[q.id] !== undefined) uAnswers[q.id] = uChassis;
+                }
+              }
+              let uParentId = resolvedParentResponseId;
+              if (!uParentId && uChassis) {
+                uParentId = chassisToParentMap.get(uChassis.toLowerCase().trim()) || undefined;
+              }
+              const uDate = new Date(baseTime + (rowUnits.length - uIdx) * 1000);
+              const uResponseData = {
+                ...responseData,
+                id: uuidv4(),
+                answers: new Map(Object.entries(uAnswers)),
+                parentResponseId: uParentId || undefined,
+                chassisNumber: uFinalChassis,
+                submittedAt: uDate,
+                createdAt: uDate
+              };
+              responsesToSave.push(new Response(uResponseData));
+            }
+          } else {
+            // Prepare Mongoose document
+            const response = new Response(responseData);
+            responsesToSave.push(response);
+          }
         } catch (error) {
           console.error(`[BATCH ${batchId}] Response prep error (no images, index ${index}):`, error.message);
           errors.push({
@@ -4039,18 +4499,39 @@ export const getResponsesByForm = async (req, res) => {
     // Helper to safely extract chassis from any response document
     const getChassisFromDoc = (doc) => {
       const ans = doc.answers instanceof Map ? Object.fromEntries(doc.answers) : (doc.answers || {});
-      const val = extractAnswerString(
+      let val = extractAnswerString(
         ans.chassis_number ||
         ans.chassisNumber ||
         ans.id_number ||
         ans.idNumber ||
         ans['ID number'] ||
+        ans['Identification Number'] ||
+        ans.identification_number ||
+        ans.identificationNumber ||
         ans['Chassis / VIN'] ||
         ans['Chassis No'] ||
-        ans['CHASSIS NUMBER'] ||
-        doc.chassisNumber ||
-        (Object.keys(ans).length === 1 ? Object.values(ans)[0] : null)
+        ans['CHASSIS NUMBER']
       );
+
+      if (!val && form) {
+        const allFormQuestions = [];
+        (form.sections || []).forEach(s => (s.questions || []).forEach(q => allFormQuestions.push(q)));
+        (form.followUpQuestions || []).forEach(q => allFormQuestions.push(q));
+        for (const q of allFormQuestions) {
+          if (q.trackResponseRank || q.type === 'range' || q.type === 'chassisNumber' || (q.text && (q.text.toLowerCase().includes('chassis') || q.text.toLowerCase().includes('identification')))) {
+            const raw = ans[q.id] || ans[q.text] || ans[`${q.id}_tracking`];
+            const str = extractAnswerString(raw);
+            if (str && str !== '-' && str !== 'N/A') {
+              val = str;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!val) {
+        val = extractAnswerString(doc.chassisNumber || (Object.keys(ans).length === 1 ? Object.values(ans)[0] : null));
+      }
       return val ? String(val).trim() : null;
     };
 
@@ -4171,6 +4652,10 @@ export const getResponsesByForm = async (req, res) => {
             { 'answers.chassisNumber': { $in: chassisStrings } },
             { 'answers.id_number': { $in: chassisStrings } },
             { 'answers.idNumber': { $in: chassisStrings } },
+            { 'answers.Identification Number': { $in: chassisStrings } },
+            { 'answers.identification_number': { $in: chassisStrings } },
+            { 'answers.identificationNumber': { $in: chassisStrings } },
+            { 'answers.ID number': { $in: chassisStrings } },
             { 'answers.Chassis / VIN': { $in: chassisStrings } },
             { 'answers.Chassis No': { $in: chassisStrings } },
             { 'answers.CHASSIS NUMBER': { $in: chassisStrings } }
@@ -4220,6 +4705,10 @@ export const getResponsesByForm = async (req, res) => {
             { 'answers.chassisNumber': { $in: chassisStrings } },
             { 'answers.id_number': { $in: chassisStrings } },
             { 'answers.idNumber': { $in: chassisStrings } },
+            { 'answers.Identification Number': { $in: chassisStrings } },
+            { 'answers.identification_number': { $in: chassisStrings } },
+            { 'answers.identificationNumber': { $in: chassisStrings } },
+            { 'answers.ID number': { $in: chassisStrings } },
             { 'answers.Chassis / VIN': { $in: chassisStrings } },
             { 'answers.Chassis No': { $in: chassisStrings } },
             { 'answers.CHASSIS NUMBER': { $in: chassisStrings } }
