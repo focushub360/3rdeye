@@ -68,7 +68,7 @@ const handleDirectUpload = async (req, res) => {
 
       const host = req.get('host');
       const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      const fileUrl = `${protocol}://${host}/uploads/${safeFilename}`;
+      const fileUrl = `${protocol}://${host}/api/uploads/${safeFilename}`;
       console.log(`[DIRECT UPLOAD] Stored file locally on disk: ${fileUrl}`);
 
       // Try saving File record in DB if writable, but do not fail upload if DB quota is exceeded

@@ -166,8 +166,13 @@ app.get("/", (req, res) => {
   });
 });
 
-// Serve uploaded files (fallback for any local uploads)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Serve uploaded files (both /uploads and /api/uploads for Nginx proxy compatibility)
+const uploadsDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsDir));
+app.use('/api/uploads', express.static(uploadsDir));
 
 // API Routes
 app.use("/api/auth", authRoutes);

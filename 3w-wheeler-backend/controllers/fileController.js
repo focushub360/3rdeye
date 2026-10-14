@@ -147,7 +147,7 @@ export const uploadFile = async (req, res) => {
 
       const host = req.get('host');
       const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      fileUrl = `${protocol}://${host}/uploads/${filename}`;
+      fileUrl = `${protocol}://${host}/api/uploads/${filename}`;
       console.log(`[FILE UPLOAD] Stored file locally on disk: ${fileUrl}`);
     }
 
