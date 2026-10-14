@@ -5866,6 +5866,11 @@ export default function FormAnalyticsDashboard() {
     const respId = response?.id || response?._id;
     const chassisVal = getResponseChassisValue(response);
     const unitId = getChassisOrItemId(response, chassisQuestionId);
+
+    // Check if this form is a child/follow-up form or parent form
+    const isChildForm = Boolean(form?.parentFormId);
+    const isParentForm = Boolean(form?.childForms && form.childForms.length > 0);
+
     const hasChildMatch = responses?.some(
       (r: any) =>
         (r.parentResponseId && (r.parentResponseId === respId || r.parentResponseId === response?.id)) ||
@@ -5901,10 +5906,6 @@ export default function FormAnalyticsDashboard() {
         };
       }
     }
-
-    // Check if this form is a child/follow-up form or parent form
-    const isChildForm = Boolean(form?.parentFormId);
-    const isParentForm = Boolean(form?.childForms && form.childForms.length > 0);
 
     if (isChildForm) {
       // Child form with no parent matched
