@@ -34,6 +34,9 @@ jobs:
             echo "📥 Installing dependencies..."
             npm install --omit=dev
 
+            echo "⚙️ Configuring production to use local Lightsail MongoDB..."
+            sed -i 's|^MONGODB_URI=.*|MONGODB_URI=mongodb://app_user:YourSecurePassword123@127.0.0.1:27017/3wheelertvs_dev?authSource=3wheelertvs_dev|' .env
+
             echo "♻️ Restarting backend with PM2 Cluster..."
             pm2 reload ecosystem.config.cjs || pm2 start ecosystem.config.cjs
             pm2 save
