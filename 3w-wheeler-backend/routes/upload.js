@@ -2,6 +2,8 @@
 import express from 'express';
 import multer from 'multer';
 import mongoose from 'mongoose';
+import fs from 'fs';
+import path from 'path';
 import { Readable } from 'stream';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -12,7 +14,7 @@ import { authenticate, hasPermission } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Direct upload handler supporting both Cloudinary and MongoDB GridFS fallback
+// Direct upload handler supporting Cloudinary, Local Disk storage, and MongoDB GridFS fallback
 const uploadMiddleware = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 }
@@ -48,11 +50,56 @@ const handleDirectUpload = async (req, res) => {
           });
         }
       } catch (cloudErr) {
-        console.warn(`[DIRECT UPLOAD] Cloudinary upload failed (${cloudErr.message}), falling back to MongoDB GridFS storage...`);
+        console.warn(`[DIRECT UPLOAD] Cloudinary upload failed (${cloudErr.message}), falling back to local disk storage...`);
       }
     }
 
-    // 2. Fallback: Save directly to MongoDB GridFS
+    // 2. Reliable Fallback: Save directly to server disk (/uploads folder)
+    // This avoids consuming MongoDB Atlas storage quota with binary images.
+    try {
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      const ext = mimetype.split('/')[1] || 'jpg';
+      const safeFilename = `${Date.now()}_${uuidv4().slice(0, 8)}.${ext}`;
+      const localFilePath = path.join(uploadsDir, safeFilename);
+      await fs.promises.writeFile(localFilePath, buffer);
+
+      const host = req.get('host');
+      const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+      const fileUrl = `${protocol}://${host}/uploads/${safeFilename}`;
+      console.log(`[DIRECT UPLOAD] Stored file locally on disk: ${fileUrl}`);
+
+      // Try saving File record in DB if writable, but do not fail upload if DB quota is exceeded
+      try {
+        const fileRecord = new File({
+          filename: safeFilename,
+          originalName: originalFilename,
+          mimetype: mimetype,
+          size: buffer.length,
+          url: fileUrl,
+          associatedWith: { type: 'form', id: category },
+          isPublic: true
+        });
+        await fileRecord.save();
+      } catch (dbErr) {
+        console.warn(`[DIRECT UPLOAD] DB record save skipped (cluster read-only/quota):`, dbErr.message);
+      }
+
+      return res.json({
+        success: true,
+        publicUrl: fileUrl,
+        url: fileUrl,
+        key: safeFilename,
+        format: ext,
+        bytes: buffer.length
+      });
+    } catch (diskErr) {
+      console.warn(`[DIRECT UPLOAD] Disk storage fallback failed (${diskErr.message}), trying MongoDB GridFS...`);
+    }
+
+    // 3. Last Fallback: Save to MongoDB GridFS
     console.log(`[DIRECT UPLOAD] Storing file ${originalFilename} in MongoDB GridFS...`);
     const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: 'uploads' });
     const uniqueFilename = `${Date.now()}_${originalFilename.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
