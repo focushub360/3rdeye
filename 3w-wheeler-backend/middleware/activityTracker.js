@@ -277,16 +277,28 @@ export const recordHeartbeat = async (req, res) => {
     if (req.user && req.user._id && req.user.tenantId) {
       // Only log activity if user has a valid tenantId (superadmins without tenantId are skipped)
       try {
-        await ActivityLog.create({
-          userId: req.user._id,
-          tenantId: req.user.tenantId,
-          userRole: req.user.role,
-          action: 'HEARTBEAT',
-          metadata: { url },
-          ipAddress: req.ip,
-          userAgent: req.get('User-Agent'),
-          sessionId: sessionId || req.sessionID
-        });
+        // Debounce heartbeat logs: update the existing heartbeat record for this user within the past hour
+        // This avoids creating hundreds of thousands of individual heartbeat documents and exhausting MongoDB storage
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        await ActivityLog.findOneAndUpdate(
+          {
+            userId: req.user._id,
+            action: 'HEARTBEAT',
+            createdAt: { $gte: oneHourAgo }
+          },
+          {
+            $set: {
+              tenantId: req.user.tenantId,
+              userRole: req.user.role,
+              'metadata.url': url,
+              ipAddress: req.ip,
+              userAgent: req.get('User-Agent'),
+              sessionId: sessionId || req.sessionID,
+              lastSeen: new Date()
+            }
+          },
+          { upsert: true, setDefaultsOnInsert: true }
+        );
       } catch (logErr) {
         // Non-critical — don't fail the heartbeat if ActivityLog fails
         console.warn('[Heartbeat] ActivityLog skipped:', logErr.message);
