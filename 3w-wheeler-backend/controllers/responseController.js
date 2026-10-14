@@ -1505,8 +1505,9 @@ export const createResponse = async (req, res) => {
     console.error('Create response error:', error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: error.message || 'Internal server error',
+      error: error.message || String(error),
+      stack: error.stack
     });
   }
 }
