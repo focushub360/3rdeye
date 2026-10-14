@@ -402,10 +402,11 @@ export default function PreviewFormWrapper() {
       console.log("🏃 Navigating NOW to responses tab...");
       navigate(`/forms/${id}/analytics?tab=responses`);
     }, 100);
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ Submission failed:", err);
     console.error("❌ Error details:", err?.message, err?.stack);
-    showError("Failed to submit response. Please try again.");
+    showError(err?.message || "Failed to submit response. Please try again.");
+    throw err;
   }
 };
 

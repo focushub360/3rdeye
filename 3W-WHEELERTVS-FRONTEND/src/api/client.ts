@@ -1230,14 +1230,26 @@ class ApiClient {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60000);
-
     try {
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(responseData),
         signal: controller.signal,
       });
+
+      // If token is invalid or expired (401), retry without Authorization header
+      if (res.status === 401 && headers.Authorization) {
+        console.warn("[ApiClient] createResponse received 401 with token. Retrying unauthenticated...");
+        const retryHeaders = { ...headers };
+        delete retryHeaders.Authorization;
+        res = await fetch(url, {
+          method: "POST",
+          headers: retryHeaders,
+          body: JSON.stringify(responseData),
+          signal: controller.signal,
+        });
+      }
 
       clearTimeout(timeoutId);
       const json = await res.json();
