@@ -113,10 +113,35 @@ jobs:
               fi
             fi
 
+            sudo ufw allow 80/tcp || true
+            sudo ufw allow 443/tcp || true
+            sudo ufw allow 'Nginx Full' || true
             sudo nginx -t
             sudo systemctl enable nginx
             sudo systemctl restart nginx
             echo "✅ Frontend deployed to EC2 and Nginx restarted!"
+
+      - name: Fetch and Upload Server Diag to S3
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${{ secrets.EC2_HOST }} "
+            echo '=== HOST IP ==='
+            curl -s ifconfig.me
+            echo ''
+            echo '=== NGINX STATUS ==='
+            sudo systemctl status nginx --no-pager
+            echo '=== LISTENING PORTS ==='
+            sudo ss -tulpn
+            echo '=== UFW STATUS ==='
+            sudo ufw status verbose
+            echo '=== CERTBOT CERTS ==='
+            sudo certbot certificates 2>/dev/null || true
+            echo '=== NGINX CONFIG ==='
+            sudo nginx -T 2>/dev/null | grep -E 'server_name|listen |ssl_certificate'
+          " > server_status.txt 2>&1
+          aws s3 cp server_status.txt s3://${{ secrets.S3_BUCKET_FRONTEND }}/server_status.txt --content-type "text/plain"
 
       - name: Done
         run: echo "✅ Frontend deployed successfully to CloudFront and EC2!"
