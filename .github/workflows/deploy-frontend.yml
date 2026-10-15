@@ -69,7 +69,7 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
-          source: "3W-WHEELERTVS-FRONTEND/dist"
+          source: "3W-WHEELERTVS-FRONTEND/dist,3W-WHEELERTVS-FRONTEND/nginx.conf"
           target: "/tmp"
 
       - name: Deploy Frontend to EC2 via SSH
@@ -113,75 +113,20 @@ jobs:
               fi
             fi
 
+            if [ -f "/tmp/3W-WHEELERTVS-FRONTEND/nginx.conf" ]; then
+              echo "Applying restored master /etc/nginx/nginx.conf..."
+              sudo cp /tmp/3W-WHEELERTVS-FRONTEND/nginx.conf /etc/nginx/nginx.conf
+            fi
+
             sudo ufw allow 80/tcp || true
             sudo ufw allow 443/tcp || true
             sudo ufw allow 'Nginx Full' || true
             sudo nginx -t
             sudo systemctl enable nginx
             sudo systemctl restart nginx
-            echo "✅ Frontend deployed to EC2 and Nginx restarted!"
-
-      - name: Fetch and Upload Server Diag to S3
-        env:
-          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-        run: |
-          TRIMMED_HOST=$(echo "$EC2_HOST" | tr -d '[:space:]')
-          printf "%s\n" "$SSH_KEY" > key.pem
-          chmod 600 key.pem
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i key.pem "ubuntu@$TRIMMED_HOST" '
-            cat << "EOF" | sudo tee /etc/nginx/nginx.conf
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-include /etc/nginx/modules-enabled/*.conf;
-
-events {
-    worker_connections 2048;
-    multi_accept on;
-    use epoll;
-}
-
-http {
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 65;
-    types_hash_max_size 2048;
-    client_max_body_size 200M;
-
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-
-    # SSL Settings
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers on;
-
-    # Logging
-    access_log /var/log/nginx/access.log;
-    error_log /var/log/nginx/error.log;
-
-    # Gzip
-    gzip on;
-    gzip_vary on;
-    gzip_proxied any;
-    gzip_comp_level 6;
-    gzip_min_length 1024;
-    gzip_types text/plain text/css text/javascript application/json application/javascript application/xml image/svg+xml;
-
-    # Rate limiting
-    limit_req_zone $binary_remote_addr zone=api:10m rate=100r/s;
-
-    # Virtual Host Configs (loads /etc/nginx/sites-enabled/default with SSL & Frontend & API)
-    include /etc/nginx/conf.d/*.conf;
-    include /etc/nginx/sites-enabled/*;
-}
-EOF
-            sudo nginx -t && sudo systemctl restart nginx
             sudo systemctl status nginx --no-pager
             sudo ss -tulpn | grep nginx
-          ' > server_info.txt 2>&1 || true
-          aws s3 cp server_info.txt s3://${{ secrets.S3_BUCKET_FRONTEND }}/server_info.txt --content-type "text/plain"
+            echo "✅ Frontend deployed to EC2 and Nginx restarted with full SSL and SPA routing!"
 
       - name: Done
         run: echo "✅ Frontend deployed successfully to CloudFront and EC2!"
