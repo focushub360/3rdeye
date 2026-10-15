@@ -130,18 +130,14 @@ jobs:
           printf "%s\n" "$SSH_KEY" > key.pem
           chmod 600 key.pem
           ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i key.pem "ubuntu@$TRIMMED_HOST" "
-            echo '=== NGINX CONF LINES 80-110 ==='
-            nl -ba /etc/nginx/nginx.conf | sed -n '80,110p'
+            echo '=== NGINX SITES LISTEN DIRECTIVES ==='
+            grep -rn 'listen' /etc/nginx/
             echo ''
-            echo '=== SITES-ENABLED FILES ==='
-            ls -la /etc/nginx/sites-enabled/
+            echo '=== CERTBOT CERTIFICATES ==='
+            sudo certbot certificates
             echo ''
-            echo '=== ATTEMPTING FIX IF LINE 93 IS INVALID ==='
-            sudo cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
-            # Check what line 93 is: if it has an orphan or invalid 'off', comment it out
-            sudo sed -i '93s/^/#/' /etc/nginx/nginx.conf
-            sudo nginx -t && sudo systemctl restart nginx
-            sudo systemctl status nginx --no-pager
+            echo '=== SITES-AVAILABLE DEFAULT ==='
+            cat /etc/nginx/sites-available/default
           " > server_info.txt 2>&1 || true
           aws s3 cp server_info.txt s3://${{ secrets.S3_BUCKET_FRONTEND }}/server_info.txt --content-type "text/plain"
 
