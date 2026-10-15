@@ -1637,11 +1637,14 @@ const computeDirectAcceptedDailyStats = (
 };
 
 const computeDailyReworkVolumeStats = (
-  form: Form | null,
+  _form: Form | null,
   responses: Response[],
   startDate?: string,
   endDate?: string,
 ): { date: string; dateKey: string; reworkCount: number }[] => {
+  // ✅ FIX: Count rework at the RESPONSE level (matching computeDailyPerformanceStats)
+  // instead of summing question-level reworks, so the numbers match the Performance
+  // Trend graph perfectly.
   const dailyMap = new Map<string, { rework: number }>();
 
   let start: Date | null = null;
@@ -1662,6 +1665,16 @@ const computeDailyReworkVolumeStats = (
     end.setHours(23, 59, 59, 999);
   }
 
+  if (responses.length > 0 && !startDate && !endDate) {
+    const timestamps = responses.map((r) =>
+      new Date(getResponseTimestamp(r) || 0).getTime(),
+    );
+    const minTS = Math.min(...timestamps);
+    const maxTS = Math.max(...timestamps);
+    if (start && minTS < start.getTime()) start = new Date(minTS);
+    if (end && maxTS > end.getTime()) end = new Date(maxTS);
+  }
+
   if (start && end) {
     const curr = new Date(start);
     curr.setHours(0, 0, 0, 0);
@@ -1675,8 +1688,6 @@ const computeDailyReworkVolumeStats = (
     }
   }
 
-  if (!form?.sections) return [];
-
   responses.forEach((response) => {
     const timestamp = getResponseTimestamp(response);
     if (!timestamp) return;
@@ -1688,51 +1699,32 @@ const computeDailyReworkVolumeStats = (
 
     const dayStats = dailyMap.get(dateKey)!;
 
-    form.sections.forEach((section) => {
-      section.questions.forEach((question: any) => {
-        const answer = response.answers?.[question.id];
-        if (answer === null || answer === undefined || answer === "") return;
+    // ✅ Response-level rework detection — check if ANY answer in the response
+    // indicates a rework status. If so, count this response as 1 rework,
+    // matching the logic used by computeDailyPerformanceStats.
+    let hasRework = false;
+    if (response.answers) {
+      for (const answer of Object.values(response.answers)) {
+        if (answer === null || answer === undefined || answer === "") continue;
 
-        if (typeof answer === "object" && answer.status) {
-          const status = String(answer.status).toLowerCase().trim();
-          if (
-            status === "rework" ||
-            status === "reworked" ||
-            status.includes("re-rework")
-          ) {
-            dayStats.rework += 1;
+        if (typeof answer === "object" && (answer as any).status) {
+          const status = String((answer as any).status).toLowerCase().trim();
+          if (status === "rework" || status === "reworked" || status.includes("re-rework")) {
+            hasRework = true;
+            break;
           }
         } else {
           const answerStr = String(answer).toLowerCase().trim();
-          if (
-            answerStr === "rework" ||
-            answerStr === "reworked" ||
-            answerStr.includes("re-rework")
-          ) {
-            dayStats.rework += 1;
-          } else if (
-            question.type === "yesNoNA" ||
-            question.type === "chassisWithZone" ||
-            question.type === "chassisWithoutZone" ||
-            question.type === "chassis" ||
-            question.type === "zone-in" ||
-            question.type === "zone-out" ||
-            question.text?.toLowerCase().includes("chassis")
-          ) {
-            const options = question.options || [];
-            if (options.length >= 3) {
-              const naOption = String(options[2]).toLowerCase().trim();
-              const normalizedValues = extractYesNoValues(answer);
-              normalizedValues.forEach((val) => {
-                if (val === naOption) {
-                  dayStats.rework += 1;
-                }
-              });
-            }
+          if (answerStr === "rework" || answerStr === "reworked" || answerStr.includes("re-rework")) {
+            hasRework = true;
+            break;
           }
         }
-      });
-    });
+      }
+    }
+    if (hasRework) {
+      dayStats.rework += 1;
+    }
   });
 
   return Array.from(dailyMap.entries())
@@ -3615,6 +3607,8 @@ export default function FormAnalyticsDashboard() {
   const [selectedInspectorForTrend, setSelectedInspectorForTrend] =
     useState<string>("Overall");
   const [localFilterName, setLocalFilterName] = useState<string>("All");
+  const [biwFilterStartDate, setBiwFilterStartDate] = useState<string>("");
+  const [biwFilterEndDate, setBiwFilterEndDate] = useState<string>("");
 
   // BIW Review Table data — computed client-side from the full `responses`
   // dataset (not the server-paginated `tableResponses`), grouped by
@@ -3622,6 +3616,29 @@ export default function FormAnalyticsDashboard() {
   // Table. Accepted/Rejected/Reworked/Total Reviewed here only count BIW
   // review clicks, not the regular review flow.
   const biwReviewTableData = useMemo(() => {
+    // Determine effective date range: local BIW date filter takes priority,
+    // then fall back to global dateFilter if set
+    const effectiveStart = biwFilterStartDate || dateFilter.startDate || "";
+    const effectiveEnd = biwFilterEndDate || dateFilter.endDate || "";
+
+    // Filter responses by effective date range
+    let filteredByDate = responses;
+    if (effectiveStart || effectiveEnd) {
+      filteredByDate = responses.filter((response) => {
+        const timestamp = getResponseTimestamp(response);
+        if (!timestamp) return false;
+        const responseDate = toLocalDateString(timestamp);
+        if (effectiveStart && effectiveEnd) {
+          return responseDate >= effectiveStart && responseDate <= effectiveEnd;
+        } else if (effectiveStart) {
+          return responseDate >= effectiveStart;
+        } else if (effectiveEnd) {
+          return responseDate <= effectiveEnd;
+        }
+        return true;
+      });
+    }
+
     const byUser = new Map<
       string,
       {
@@ -3634,7 +3651,7 @@ export default function FormAnalyticsDashboard() {
       }
     >();
 
-    responses.forEach((response) => {
+    filteredByDate.forEach((response) => {
       const name =
         response.submittedBy || response.createdBy || "Anonymous";
       if (!byUser.has(name)) {
@@ -3665,7 +3682,7 @@ export default function FormAnalyticsDashboard() {
           : 0;
       return { ...stats, totalReviewed, performanceScore };
     });
-  }, [responses]);
+  }, [responses, biwFilterStartDate, biwFilterEndDate, dateFilter.startDate, dateFilter.endDate]);
   const [localFilterShift, setLocalFilterShift] = useState<string>("All");
   const [localFilterDate, setLocalFilterDate] = useState<string>("");
   const [dateFilter, setDateFilter] = useState<{
@@ -7752,10 +7769,13 @@ export default function FormAnalyticsDashboard() {
 
       if (chartSortOrder === "percentage") {
         filtered = [...filtered].sort((a, b) => {
-          const percentA = ((a.rejected + a.rework) / a.total) * 100;
-          const percentB = ((b.rejected + b.rework) / b.total) * 100;
+          const percentA = ((a.rejected + a.rework) / (a.total || 1)) * 100;
+          const percentB = ((b.rejected + b.rework) / (b.total || 1)) * 100;
           return percentB - percentA;
         });
+      } else {
+        // ✅ FIX: Default sort is Pareto order — descending by total defect count
+        filtered = [...filtered].sort((a, b) => (b.rejected + b.rework) - (a.rejected + a.rework));
       }
 
       return filtered.slice(0, 20);
@@ -7763,11 +7783,9 @@ export default function FormAnalyticsDashboard() {
 
 
 
-    if (
-      !processedQuestions.length &&
-      !dateFilter.startDate &&
-      !dateFilter.endDate
-    )
+    // ✅ FIX: Always render the chart section (show "No Defects Found" state
+    // instead of hiding entirely, so 603 and 604 both display this card)
+    if (!processedQuestions.length && !chartQuestionPerformanceStats.length)
       return null;
 
     const data = {
@@ -7998,13 +8016,67 @@ export default function FormAnalyticsDashboard() {
             </p>
           </div>
         ) : (
-          <div
-            className={chartOrientation === "h" ? "overflow-y-auto" : "w-full"}
-          >
-            <div style={containerStyle} id="issue-percentage-chart">
-              <Bar data={data} options={options} />
+          <>
+            <div
+              className={chartOrientation === "h" ? "overflow-y-auto" : "w-full"}
+            >
+              <div style={containerStyle} id="issue-percentage-chart">
+                <Bar data={data} options={options} />
+              </div>
             </div>
-          </div>
+
+            {/* ✅ Pareto Defect Distribution Table */}
+            {processedQuestions.length > 0 && (() => {
+              const grandTotal = processedQuestions.reduce((sum, q) => sum + q.rejected + q.rework, 0);
+              let cumulativeCount = 0;
+              return (
+                <div className="mt-6 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700 rounded-xl border border-gray-200 dark:border-gray-700">
+                  <table className="w-full text-sm text-left border-collapse">
+                    <thead className="bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-md sticky top-0 z-10 text-gray-500 dark:text-gray-400 uppercase text-[10px] font-black tracking-[0.15em]">
+                      <tr>
+                        <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap">#</th>
+                        <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap">Defect / Question</th>
+                        <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">Category</th>
+                        <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-red-600">{complianceLabels.no} Count</th>
+                        <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center text-gray-600">{complianceLabels.na} Count</th>
+                        <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center font-extrabold">Total</th>
+                        <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">% of Total</th>
+                        <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">Cumulative %</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
+                      {processedQuestions.map((q, idx) => {
+                        const totalDefects = q.rejected + q.rework;
+                        cumulativeCount += totalDefects;
+                        const pctOfTotal = grandTotal > 0 ? ((totalDefects / grandTotal) * 100).toFixed(1) : "0.0";
+                        const cumulativePct = grandTotal > 0 ? ((cumulativeCount / grandTotal) * 100).toFixed(1) : "0.0";
+                        return (
+                          <tr key={q.id || idx} className="hover:bg-red-50/30 dark:hover:bg-red-900/10 transition-colors">
+                            <td className="px-4 py-3 font-bold text-gray-500 tabular-nums">{idx + 1}</td>
+                            <td className="px-4 py-3 font-bold text-gray-900 dark:text-white max-w-[280px] truncate" title={q.text}>{q.text}</td>
+                            <td className="px-4 py-3 text-center text-gray-500 text-xs">{q.sectionTitle || "-"}</td>
+                            <td className="px-4 py-3 font-black text-center text-red-600 tabular-nums">{q.rejected}</td>
+                            <td className="px-4 py-3 font-black text-center text-gray-600 dark:text-gray-400 tabular-nums">{q.rework}</td>
+                            <td className="px-4 py-3 font-black text-center tabular-nums">{totalDefects}</td>
+                            <td className="px-4 py-3 font-bold text-center tabular-nums">{pctOfTotal}%</td>
+                            <td className="px-4 py-3 text-center">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black tabular-nums ${
+                                parseFloat(cumulativePct) <= 80
+                                  ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
+                                  : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400"
+                              }`}>
+                                {cumulativePct}%
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+          </>
         )}
       </div>
     );
@@ -9103,7 +9175,7 @@ export default function FormAnalyticsDashboard() {
                 Inspection Status Trends For REWORK
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Daily Rework Volume (Sum of question-level reworks)
+                Daily Rework Volume (Response-level rework count)
               </p>
             </div>
           </div>
@@ -10783,15 +10855,53 @@ export default function FormAnalyticsDashboard() {
 
     return (
       <div className="mt-12 border-t border-gray-100 dark:border-gray-700 pt-8">
-        <div className="flex items-center gap-4 mb-6">
-          <div className="w-2 h-8 bg-purple-600 rounded-full shadow-sm shadow-purple-500/20"></div>
-          <div>
-            <h3 className="text-xl font-black text-gray-900 dark:text-white leading-none mb-1">
-              BIW Review Table
-            </h3>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-              Performance based on BIW review checkmarks
-            </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-4">
+            <div className="w-2 h-8 bg-purple-600 rounded-full shadow-sm shadow-purple-500/20"></div>
+            <div>
+              <h3 className="text-xl font-black text-gray-900 dark:text-white leading-none mb-1">
+                BIW Review Table
+              </h3>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                Performance based on BIW review checkmarks
+                {(biwFilterStartDate || biwFilterEndDate) && (
+                  <span className="text-purple-500 ml-1">
+                    {biwFilterStartDate && biwFilterEndDate
+                      ? ` (${new Date(biwFilterStartDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${new Date(biwFilterEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })})`
+                      : biwFilterStartDate
+                        ? ` (From ${new Date(biwFilterStartDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })})`
+                        : ` (Until ${new Date(biwFilterEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })})`}
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* ✅ Date filter inputs for BIW Review Table */}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="date"
+              value={biwFilterStartDate}
+              onChange={(e) => { setBiwFilterStartDate(e.target.value); setBiwReviewPage(1); }}
+              className="text-[10px] font-bold bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-purple-500/50 shadow-sm"
+              title="Start Date"
+            />
+            <span className="text-[10px] font-bold text-gray-400">to</span>
+            <input
+              type="date"
+              value={biwFilterEndDate}
+              onChange={(e) => { setBiwFilterEndDate(e.target.value); setBiwReviewPage(1); }}
+              className="text-[10px] font-bold bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-purple-500/50 shadow-sm"
+              title="End Date"
+            />
+            {(biwFilterStartDate || biwFilterEndDate) && (
+              <button
+                onClick={() => { setBiwFilterStartDate(""); setBiwFilterEndDate(""); setBiwReviewPage(1); }}
+                className="text-[10px] font-bold text-red-500 hover:text-red-700 px-2 py-1.5 rounded-lg border border-red-200 hover:border-red-400 bg-red-50 hover:bg-red-100 transition-colors"
+              >
+                Clear
+              </button>
+            )}
           </div>
         </div>
 
