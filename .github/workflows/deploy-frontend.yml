@@ -113,8 +113,10 @@ jobs:
               fi
             fi
 
-            sudo nginx -t && sudo systemctl reload nginx
-            echo "✅ Frontend deployed to EC2 and Nginx reloaded!"
+            sudo nginx -t
+            sudo systemctl enable nginx
+            sudo systemctl restart nginx
+            echo "✅ Frontend deployed to EC2 and Nginx restarted!"
 
       - name: Done
         run: echo "✅ Frontend deployed successfully to CloudFront and EC2!"

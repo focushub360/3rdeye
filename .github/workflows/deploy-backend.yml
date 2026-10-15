@@ -66,7 +66,7 @@ jobs:
               npm run build
             fi
 
-            echo "🌐 Reloading Nginx..."
-            sudo nginx -t && sudo systemctl reload nginx
+            echo "🌐 Restarting Nginx..."
+            sudo nginx -t && sudo systemctl enable nginx && sudo systemctl restart nginx
             echo "✅ Deployment complete!"
             pm2 status
