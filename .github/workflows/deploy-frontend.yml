@@ -130,14 +130,14 @@ jobs:
           printf "%s\n" "$SSH_KEY" > key.pem
           chmod 600 key.pem
           ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i key.pem "ubuntu@$TRIMMED_HOST" "
-            echo '=== NGINX SITES LISTEN DIRECTIVES ==='
-            grep -rn 'listen' /etc/nginx/
+            echo '=== NGINX PORTS ==='
+            sudo ss -tulpn | grep nginx
             echo ''
-            echo '=== CERTBOT CERTIFICATES ==='
-            sudo certbot certificates
+            echo '=== NGINX.CONF INCLUDES ==='
+            grep -rn 'include' /etc/nginx/nginx.conf
             echo ''
-            echo '=== SITES-AVAILABLE DEFAULT ==='
-            cat /etc/nginx/sites-available/default
+            echo '=== CAT NGINX.CONF ==='
+            cat /etc/nginx/nginx.conf
           " > server_info.txt 2>&1 || true
           aws s3 cp server_info.txt s3://${{ secrets.S3_BUCKET_FRONTEND }}/server_info.txt --content-type "text/plain"
 
