@@ -1506,7 +1506,7 @@ const allResponsesMemoryCache = {
     return darkMode ? color.d : color.l;
   };
 
-  const hasAnswerValue = (value: any) => {
+  function hasAnswerValue(value: any) {
     if (value === null || value === undefined) {
       return false;
     }
@@ -1522,7 +1522,7 @@ const allResponsesMemoryCache = {
     return true;
   };
 
-  const renderAnswerDisplay = (value: any, question?: any): React.ReactNode => {
+  function renderAnswerDisplay(value: any, question?: any): React.ReactNode {
     const renderHighlightedAnswer = (val: any) => {
       const isArray = Array.isArray(val);
       const strValue = isArray ? val.join(", ") : String(val || "");

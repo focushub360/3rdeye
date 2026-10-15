@@ -2289,164 +2289,6 @@ export default function FormAnalyticsDashboard() {
     !isGuest && (user?.role === "superadmin" || user?.role === "admin");
 
 
-  const renderSuggestion = (suggestion: any) => {
-    if (!suggestion || Object.keys(suggestion).length === 0) return null;
-
-    // Check if this is a chassis-with-zone or chassis-without-zone structure
-    const isChassisStructure =
-      suggestion.status !== undefined ||
-      suggestion.chassisNumber !== undefined ||
-      suggestion.zonesData !== undefined ||
-      suggestion.zone !== undefined;
-
-    if (isChassisStructure) {
-      // Format chassis structure with proper headings
-      const sections: JSX.Element[] = [];
-
-      // Status
-      if (suggestion.status && suggestion.status.trim()) {
-        const statusColor =
-          suggestion.status.toLowerCase() === "accepted"
-            ? "text-green-600 bg-green-50 border-green-200"
-            : suggestion.status.toLowerCase() === "rejected"
-              ? "text-red-600 bg-red-50 border-red-200"
-              : "text-amber-600 bg-amber-50 border-amber-200";
-
-        sections.push(
-          <div
-            key="status"
-            className="flex items-center gap-2 p-2 rounded-lg border"
-            style={{ backgroundColor: "rgba(var(--status-bg), 0.1)" }}
-          >
-            <span
-              className={`px-2 py-1 rounded-md text-[11px] font-black uppercase ${statusColor} border shadow-sm`}
-            >
-              Status: {suggestion.status}
-            </span>
-          </div>,
-        );
-      }
-
-      // Chassis Number
-      if (suggestion.chassisNumber && suggestion.chassisNumber.trim()) {
-        sections.push(
-          <div
-            key="chassis"
-            className="p-2 rounded-lg border border-gray-200 dark:border-gray-700"
-          >
-            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
-              Chassis Number
-            </span>
-            <span className="text-[11px] font-mono font-bold text-gray-700 dark:text-gray-300">
-              {suggestion.chassisNumber}
-            </span>
-          </div>,
-        );
-      }
-
-      // Handle zonesData (with zones)
-      if (suggestion.zonesData && typeof suggestion.zonesData === "object") {
-        Object.entries(suggestion.zonesData).forEach(
-          ([zoneName, zoneData]: [string, any]) => {
-            if (zoneData?.categories && Array.isArray(zoneData.categories)) {
-              zoneData.categories.forEach((category: any) => {
-                const categoryName = category.name;
-                const defects = category.defects || [];
-
-                defects.forEach((defect: any) => {
-                  const defectName = defect.name;
-                  const remark = defect.details?.remark || defect.remark || "";
-                  const fileUrl =
-                    defect.details?.fileUrl || defect.fileUrl || "";
-
-                  sections.push(
-                    <div
-                      key={`${zoneName}-${categoryName}-${defectName}`}
-                      className="p-3 rounded-lg border-l-4 border-indigo-400 bg-indigo-50/30 dark:bg-indigo-900/20 space-y-2"
-                    >
-                      <div className="grid grid-cols-1 gap-2">
-                        {zoneName && (
-                          <div>
-                            <span className="text-[9px] font-bold text-blue-500 uppercase tracking-wider">
-                              Zone
-                            </span>
-                            <p className="text-[11px] font-bold text-gray-700 dark:text-gray-300">
-                              {zoneName}
-                            </p>
-                          </div>
-                        )}
-                        {categoryName && (
-                          <div>
-                            <span className="text-[9px] font-bold text-purple-500 uppercase tracking-wider">
-                              Category
-                            </span>
-                            <p className="text-[11px] font-bold text-gray-700 dark:text-gray-300">
-                              {categoryName}
-                            </p>
-                          </div>
-                        )}
-                        {defectName && (
-                          <div>
-                            <span className="text-[9px] font-bold text-amber-500 uppercase tracking-wider">
-                              Defect
-                            </span>
-                            <p className="text-[11px] font-bold text-gray-700 dark:text-gray-300">
-                              {defectName}
-                            </p>
-                          </div>
-                        )}
-                        {remark && remark.trim() && (
-                          <div>
-                            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">
-                              Remark
-                            </span>
-                            <p className="text-[10px] italic text-gray-600 dark:text-gray-400">
-                              "{remark}"
-                            </p>
-                          </div>
-                        )}
-                        {fileUrl && fileUrl.trim() && (
-                          <div>
-                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                              Evidence :
-                            </span>
-                            <a
-                              href={fileUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:underline mt-0 "
-                            >
-                              <Eye className="w-4 h-2 mt-1 " />
-                              View Evidence
-                            </a>
-                          </div>
-                        )}
-                      </div>
-                    </div>,
-                  );
-                });
-              });
-            }
-          },
-        );
-      }
-
-      return <div className="space-y-2">{sections}</div>;
-    }
-
-    // Default: for simple fields like text, select, radio
-    return (
-      <div className="p-2.5 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800">
-        <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest block mb-1">
-          Revised Answer
-        </span>
-        <div className="text-[11px] font-bold text-gray-800 dark:text-gray-200">
-          {renderAnswerDisplay(suggestion, { type: "text" } as any)}
-        </div>
-      </div>
-    );
-  };
-
   // In-memory cache to enable 0ms instant dashboard switching between forms
   const formAnalyticsMemoryCache = new Map<string, {
     form: any;
@@ -2558,6 +2400,23 @@ export default function FormAnalyticsDashboard() {
   const [isExporting, setIsExporting] = useState(false);
   const [isBulkDispatching, setIsBulkDispatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error" | "info";
+    id: string;
+  } | null>(null);
+
+  const showToast = (
+    message: string,
+    type: "success" | "error" | "info" = "success",
+  ) => {
+    const id = Date.now().toString();
+    setToast({ message, type, id });
+    setTimeout(() => {
+      setToast(null);
+    }, 3000);
+  };
   const [autoOpenSectionId, setAutoOpenSectionId] = useState<string | null>(
     null,
   );
@@ -3610,7 +3469,13 @@ export default function FormAnalyticsDashboard() {
   const [biwFilterStartDate, setBiwFilterStartDate] = useState<string>("");
   const [biwFilterEndDate, setBiwFilterEndDate] = useState<string>("");
 
-  // BIW Review Table data — computed client-side from the full `responses`
+  const [dateFilter, setDateFilter] = useState<{
+    type: "all" | "single" | "range";
+    startDate: string;
+    endDate: string;
+  }>({ type: "all", startDate: "", endDate: "" });
+
+    // BIW Review Table data — computed client-side from the full `responses`
   // dataset (not the server-paginated `tableResponses`), grouped by
   // submitter, the same way the User Name rows are read in the Performance
   // Table. Accepted/Rejected/Reworked/Total Reviewed here only count BIW
@@ -3685,11 +3550,7 @@ export default function FormAnalyticsDashboard() {
   }, [responses, biwFilterStartDate, biwFilterEndDate, dateFilter.startDate, dateFilter.endDate]);
   const [localFilterShift, setLocalFilterShift] = useState<string>("All");
   const [localFilterDate, setLocalFilterDate] = useState<string>("");
-  const [dateFilter, setDateFilter] = useState<{
-    type: "all" | "single" | "range";
-    startDate: string;
-    endDate: string;
-  }>({ type: "all", startDate: "", endDate: "" });
+
 
   const commonDateRangeLabel = useMemo(() => {
     if (dateFilter.startDate && dateFilter.endDate) {
@@ -4182,11 +4043,7 @@ export default function FormAnalyticsDashboard() {
     }
   };
 
-  const [toast, setToast] = useState<{
-    message: string;
-    type: "success" | "error" | "info";
-    id: string;
-  } | null>(null);
+
   const [selectedResponse, setSelectedResponse] = useState<Response | null>(
     null,
   );
@@ -6242,26 +6099,26 @@ export default function FormAnalyticsDashboard() {
         columnId === "chassis_number" ||
         (chassisQuestionId && columnId === chassisQuestionId)
       ) {
-        const valA = String(getResponseChassisValue(a) || "");
-        const valB = String(getResponseChassisValue(b) || "");
-        const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
-        return isAsc ? cmp : -cmp;
+        const chassisValA = String(getResponseChassisValue(a) || "");
+        const chassisValB = String(getResponseChassisValue(b) || "");
+        const chassisCmp = chassisValA.localeCompare(chassisValB, undefined, { numeric: true, sensitivity: "base" });
+        return isAsc ? chassisCmp : -chassisCmp;
       }
 
       // Submitted by sorting
       if (columnId === "__submittedBy") {
-        const valA = String(a.submittedBy || (a as any).createdBy?.name || (a as any).createdBy || "");
-        const valB = String(b.submittedBy || (b as any).createdBy?.name || (b as any).createdBy || "");
-        const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
-        return isAsc ? cmp : -cmp;
+        const subValA = String(a.submittedBy || (a as any).createdBy?.name || (a as any).createdBy || "");
+        const subValB = String(b.submittedBy || (b as any).createdBy?.name || (b as any).createdBy || "");
+        const subCmp = subValA.localeCompare(subValB, undefined, { numeric: true, sensitivity: "base" });
+        return isAsc ? subCmp : -subCmp;
       }
 
       // Status sorting
       if (columnId === "__status") {
-        const valA = String(tableDisplayStatuses[a.id] || responseStatuses[a.id] || a.status || "");
-        const valB = String(tableDisplayStatuses[b.id] || responseStatuses[b.id] || b.status || "");
-        const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: "base" });
-        return isAsc ? cmp : -cmp;
+        const statusValA = String(tableDisplayStatuses[a.id] || responseStatuses[a.id] || a.status || "");
+        const statusValB = String(tableDisplayStatuses[b.id] || responseStatuses[b.id] || b.status || "");
+        const statusCmp = statusValA.localeCompare(statusValB, undefined, { numeric: true, sensitivity: "base" });
+        return isAsc ? statusCmp : -statusCmp;
       }
 
       // Timestamp sorting
@@ -6289,8 +6146,8 @@ export default function FormAnalyticsDashboard() {
       if (columnId === "__parentMatch") {
         const matchA = computeParentMatch(a).badgeText;
         const matchB = computeParentMatch(b).badgeText;
-        const cmp = String(matchA).localeCompare(String(matchB));
-        return isAsc ? cmp : -cmp;
+        const parentCmp = String(matchA).localeCompare(String(matchB));
+        return isAsc ? parentCmp : -parentCmp;
       }
 
       // Generic question answer sorting
@@ -9292,6 +9149,8 @@ export default function FormAnalyticsDashboard() {
   const handleExportToExcel = async () => {
     if (isExporting) return;
     try {
+      const currentBatchId = searchParams.get("batchId");
+      const isUploadOnly = searchParams.get("uploadOnly") === "true";
       setIsExporting(true);
       showToast("Preparing Excel report...", "info");
 
@@ -9340,8 +9199,7 @@ export default function FormAnalyticsDashboard() {
             if (dateFilter.endDate) exportParams.endDate = dateFilter.endDate;
           }
 
-          const currentBatchId = searchParams.get("batchId");
-          const isUploadOnly = searchParams.get("uploadOnly") === "true";
+          // currentBatchId & isUploadOnly defined at top of handleExportToExcel
           if (currentBatchId) {
             exportParams.batchId = currentBatchId;
           } else if (isUploadOnly) {
@@ -9380,8 +9238,7 @@ export default function FormAnalyticsDashboard() {
           });
         }
 
-        const currentBatchId = searchParams.get("batchId");
-        const isUploadOnly = searchParams.get("uploadOnly") === "true";
+        // currentBatchId & isUploadOnly defined at top of handleExportToExcel
         // Upload/Batch Filter
         if (currentBatchId) {
           rowsToExport = rowsToExport.filter(
@@ -9887,16 +9744,7 @@ export default function FormAnalyticsDashboard() {
     setEditFormNotes("");
   };
 
-  const showToast = (
-    message: string,
-    type: "success" | "error" | "info" = "success",
-  ) => {
-    const id = Date.now().toString();
-    setToast({ message, type, id });
-    setTimeout(() => {
-      setToast(null);
-    }, 3000);
-  };
+
   const [isDashboardRefreshing, setIsDashboardRefreshing] = useState(false);
   const refreshDashboardData = async () => {
     setIsDashboardRefreshing(true);
