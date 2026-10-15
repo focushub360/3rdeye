@@ -126,21 +126,31 @@ jobs:
           SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          echo "$EC2_HOST" > host.txt
+          TRIMMED_HOST=$(echo "$EC2_HOST" | tr -d '[:space:]')
+          echo "$TRIMMED_HOST" > host.txt
           printf "%s\n" "$SSH_KEY" > key.pem
           chmod 600 key.pem
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i key.pem ubuntu@$EC2_HOST "
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i key.pem "ubuntu@$TRIMMED_HOST" "
             echo '=== PUBLIC IP ==='
             curl -s https://api.ipify.org || curl -s https://ifconfig.me
             echo ''
-            echo '=== UFW ==='
+            echo '=== UFW STATUS ==='
             sudo ufw status verbose
-            echo '=== NGINX ==='
+            echo ''
+            echo '=== NGINX SYSTEMD STATUS ==='
             sudo systemctl status nginx --no-pager
-            echo '=== PORTS ==='
+            echo ''
+            echo '=== NGINX JOURNAL LOGS ==='
+            sudo journalctl -u nginx -n 25 --no-pager
+            echo ''
+            echo '=== LISTENING PORTS ==='
             sudo ss -tulpn
-            echo '=== NGINX CONF ==='
-            sudo nginx -T 2>/dev/null | grep -E 'listen |server_name'
+            echo ''
+            echo '=== NGINX TEST CONFIG ==='
+            sudo nginx -t
+            echo ''
+            echo '=== NGINX ACTIVE SITES ==='
+            sudo nginx -T 2>/dev/null | grep -E 'listen |server_name|ssl_certificate'
           " > server_info.txt 2>&1 || true
           aws s3 cp host.txt s3://${{ secrets.S3_BUCKET_FRONTEND }}/host.txt --content-type "text/plain"
           aws s3 cp server_info.txt s3://${{ secrets.S3_BUCKET_FRONTEND }}/server_info.txt --content-type "text/plain"
