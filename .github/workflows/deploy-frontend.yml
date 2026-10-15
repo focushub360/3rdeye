@@ -122,26 +122,28 @@ jobs:
             echo "✅ Frontend deployed to EC2 and Nginx restarted!"
 
       - name: Fetch and Upload Server Diag to S3
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${{ secrets.EC2_HOST }} "
-            echo '=== HOST IP ==='
-            curl -s ifconfig.me
+          echo "$EC2_HOST" > host.txt
+          printf "%s\n" "$SSH_KEY" > key.pem
+          chmod 600 key.pem
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i key.pem ubuntu@$EC2_HOST "
+            echo '=== PUBLIC IP ==='
+            curl -s https://api.ipify.org || curl -s https://ifconfig.me
             echo ''
-            echo '=== NGINX STATUS ==='
-            sudo systemctl status nginx --no-pager
-            echo '=== LISTENING PORTS ==='
-            sudo ss -tulpn
-            echo '=== UFW STATUS ==='
+            echo '=== UFW ==='
             sudo ufw status verbose
-            echo '=== CERTBOT CERTS ==='
-            sudo certbot certificates 2>/dev/null || true
-            echo '=== NGINX CONFIG ==='
-            sudo nginx -T 2>/dev/null | grep -E 'server_name|listen |ssl_certificate'
-          " > server_status.txt 2>&1
-          aws s3 cp server_status.txt s3://${{ secrets.S3_BUCKET_FRONTEND }}/server_status.txt --content-type "text/plain"
+            echo '=== NGINX ==='
+            sudo systemctl status nginx --no-pager
+            echo '=== PORTS ==='
+            sudo ss -tulpn
+            echo '=== NGINX CONF ==='
+            sudo nginx -T 2>/dev/null | grep -E 'listen |server_name'
+          " > server_info.txt 2>&1 || true
+          aws s3 cp host.txt s3://${{ secrets.S3_BUCKET_FRONTEND }}/host.txt --content-type "text/plain"
+          aws s3 cp server_info.txt s3://${{ secrets.S3_BUCKET_FRONTEND }}/server_info.txt --content-type "text/plain"
 
       - name: Done
         run: echo "✅ Frontend deployed successfully to CloudFront and EC2!"
