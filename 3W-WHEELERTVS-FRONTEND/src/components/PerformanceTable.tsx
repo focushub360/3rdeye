@@ -87,12 +87,10 @@ const PerformanceTable = ({
           `/internal-tracking/performance?startDate=${perfStartDate}&endDate=${perfEndDate}&page=${performancePage}&limit=${performancePageSize}`
         );
       } else {
-        // ✅ FIX: Call getPerformanceTable with date parameters
+        // ✅ FIX: Call getPerformanceTable with date parameters across the full range
         tableResponse = await apiClient.getPerformanceTable({
           startDate: perfStartDate,
           endDate: perfEndDate,
-          page: performancePage,
-          limit: performancePageSize,
         });
       }
 
@@ -644,8 +642,18 @@ const PerformanceTable = ({
                     {performanceStatuses
                       .filter((status) => status !== "Dispatched")
                       .map((status) => {
+                        const statusKeyMap: Record<string, string> = {
+                          "Direct Ok": "directOk",
+                          "Rework QC Completed": "reworkQcCompleted",
+                          "Rework QC Pending": "reworkQcPending",
+                          "Rejected": "rejected",
+                        };
+                        const key = statusKeyMap[status];
                         const count =
-                          inspectorStatusMap[row.name]?.[status] || 0;
+                          (inspectorStatusMap[row.name]?.[status] !== undefined
+                            ? inspectorStatusMap[row.name][status]
+                            : undefined) ??
+                          (key && row[key] !== undefined ? row[key] : 0);
                         const isZero = count === 0;
                         const colorClass =
                           status === "Direct Ok" || status === "Rework Accepted"
@@ -666,12 +674,13 @@ const PerformanceTable = ({
                       })}
                     {(() => {
                       const directOk =
-                        inspectorStatusMap[row.name]?.["Direct Ok"] || 0;
+                        inspectorStatusMap[row.name]?.["Direct Ok"] ?? row.directOk ?? 0;
                       const reworkQCCompleted =
-                        inspectorStatusMap[row.name]?.["Rework QC Completed"] ||
+                        inspectorStatusMap[row.name]?.["Rework QC Completed"] ??
+                        row.reworkQcCompleted ??
                         0;
                       const dispatched =
-                        inspectorStatusMap[row.name]?.["Dispatched"] || 0;
+                        inspectorStatusMap[row.name]?.["Dispatched"] ?? row.dispatched ?? 0;
                       const dispatchPending = Math.max(
                         0,
                         directOk + reworkQCCompleted - dispatched,
@@ -688,7 +697,7 @@ const PerformanceTable = ({
                     {performanceStatuses.includes("Dispatched") &&
                       (() => {
                         const count =
-                          inspectorStatusMap[row.name]?.["Dispatched"] || 0;
+                          inspectorStatusMap[row.name]?.["Dispatched"] ?? row.dispatched ?? 0;
                         const isZero = count === 0;
                         return (
                           <td

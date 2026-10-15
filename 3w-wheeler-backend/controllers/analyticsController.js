@@ -1870,6 +1870,14 @@ export const getInspectorSummary = async (req, res) => {
 
     let matchFilter = {};
 
+    // Helper to get array of [string, ObjectId] for any tenantId
+    const getTenantValues = (tId) => {
+      if (!tId) return [];
+      const tIdStr = tId.toString();
+      const tIdObj = mongoose.Types.ObjectId.isValid(tIdStr) ? new mongoose.Types.ObjectId(tIdStr) : null;
+      return [tIdStr, tIdObj].filter(Boolean);
+    };
+
     // Internal Tracking: Check for cross-tenant access first
     if (queryTenantId && queryTenantId !== userTenantId?.toString()) {
       let hasAccess = false;
@@ -1886,7 +1894,8 @@ export const getInspectorSummary = async (req, res) => {
       }
 
       if (hasAccess) {
-        matchFilter = { tenantId: new mongoose.Types.ObjectId(queryTenantId) };
+        const vals = getTenantValues(queryTenantId);
+        matchFilter = { tenantId: vals.length === 1 ? vals[0] : { $in: vals } };
       } else {
         return res.status(403).json({ success: false, message: 'Access to this tenant is denied for Inspector Summary.' });
       }
@@ -1895,12 +1904,13 @@ export const getInspectorSummary = async (req, res) => {
       if (role === 'superadmin') {
         // No initial filter for superadmin, can see all
       } else if (role === 'admin' || role === 'subadmin') {
-        matchFilter.tenantId = new mongoose.Types.ObjectId(userTenantId);
+        const vals = getTenantValues(userTenantId);
+        matchFilter.tenantId = vals.length === 1 ? vals[0] : { $in: vals };
       } else if (role === 'inspector') {
         matchFilter.createdBy = new mongoose.Types.ObjectId(userId);
       } else {
-        // Default for other roles if any
-        matchFilter.tenantId = new mongoose.Types.ObjectId(userTenantId);
+        const vals = getTenantValues(userTenantId);
+        matchFilter.tenantId = vals.length === 1 ? vals[0] : { $in: vals };
       }
     }
 
@@ -1908,17 +1918,15 @@ export const getInspectorSummary = async (req, res) => {
       matchFilter.questionId = formId;
     }
 
-    // Date filtering - handle inclusive days
+    // Date filtering - handle inclusive days and IST timezone boundaries
     if (startDate || endDate) {
       matchFilter.createdAt = {};
       if (startDate) {
-        const s = new Date(startDate);
-        s.setHours(0, 0, 0, 0);
+        const s = new Date(startDate.includes('T') ? startDate : `${startDate}T00:00:00.000Z`);
         matchFilter.createdAt.$gte = s;
       }
       if (endDate) {
-        const e = new Date(endDate);
-        e.setHours(23, 59, 59, 999);
+        const e = new Date(endDate.includes('T') ? endDate : `${endDate}T23:59:59.999Z`);
         matchFilter.createdAt.$lte = e;
       }
     }
@@ -2404,27 +2412,18 @@ export const getPerformanceTable = async (req, res) => {
       Object.assign(responseBaseFilter, tenantFilter);
     }
 
-    // ── Total count (for hasMore) + paginated fetch ────────────────────
-    // NOTE: pagination here is applied to the *responses* query itself
-    // (skip/limit), not to the aggregated per-user table below - the
-    // aggregation is computed only over the current page of responses.
-    // This keeps memory bounded and response times fast even with
-    // thousands of responses, at the cost of the performance table
-    // reflecting only the responses in the current page rather than the
-    // full date range in one shot. The frontend pages through with
-    // `hasMore` to see the rest.
+    // ── Fetch all responses in date range (up to 10,000) for full per-user aggregation ──
     const [totalResponsesInRange, allResponses] = await Promise.all([
       Response.countDocuments(responseBaseFilter).maxTimeMS(30000),
       Response.find(responseBaseFilter)
         .select('createdBy submittedBy isDispatched biwReview answers questionId createdAt id _id')
         .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
+        .limit(10000)
         .maxTimeMS(30000)
         .lean(),
     ]);
 
-    console.log(`[Performance Table] Found ${allResponses.length} responses on page ${page} (of ${totalResponsesInRange} total in range)`);
+    console.log(`[Performance Table] Found ${allResponses.length} responses (of ${totalResponsesInRange} total in range)`);
 
     // Filter responses for chassis-shared tenants
     let filteredResponses = allResponses;

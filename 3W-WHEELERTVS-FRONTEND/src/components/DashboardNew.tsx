@@ -2692,6 +2692,9 @@ export default function DashboardNew() {
         {/* Inspection Summary Table - Visible for all but specially important for inspectors */}
         {renderSummaryTable()}
 
+        {/* BIW Review Table - Real-time quality review performance across all inspectors */}
+        {renderBiwReviewTable()}
+
         {/* Performance Table - Visible for admins and superadmins */}
         <PerformanceTable />
       </div>
