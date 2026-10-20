@@ -27,6 +27,7 @@ import {
   TrendingUp,
   PieChart,
   Download,
+  FileSpreadsheet,
   Table,
   Edit,
   Trash2,
@@ -82,6 +83,7 @@ import FilePreview from "../FilePreview";
 import TableColumnFilter from "./TableColumnFilter";
 import ShareAnalyticsModal from "./ShareAnalyticsModal";
 import AutoSendModal from "../forms/AutoSendModal";
+import { BiwReviewExcelModal } from "./BiwReviewExcelModal";
 
 import { useTheme } from "../../context/ThemeContext";
 
@@ -2398,6 +2400,7 @@ export default function FormAnalyticsDashboard() {
   const [form, setForm] = useState<Form | null>(null);
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
+  const [isBiwExcelModalOpen, setIsBiwExcelModalOpen] = useState(false);
   const [isBulkDispatching, setIsBulkDispatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -11995,6 +11998,14 @@ export default function FormAnalyticsDashboard() {
                         {isExporting ? "Exporting..." : "Export"}
                       </span>
                     </button>
+                    <button
+                      onClick={() => setIsBiwExcelModalOpen(true)}
+                      className="px-3 sm:px-4 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 shadow-sm"
+                      title="BIW Review Excel (Dropdown validations, bulk import, & email template)"
+                    >
+                      <FileSpreadsheet className="w-4 h-4" />
+                      <span className="hidden xs:inline">BIW Review Excel</span>
+                    </button>
                     {selectedResponseIds.length > 0 && !isGuest && (
                       <>
                         <button
@@ -16275,6 +16286,23 @@ export default function FormAnalyticsDashboard() {
           </div>
         </div>
       )}
+
+      {/* BIW Review Excel Modal (Dropdown validation, Bulk import & Email template) */}
+      <BiwReviewExcelModal
+        isOpen={isBiwExcelModalOpen}
+        onClose={() => setIsBiwExcelModalOpen(false)}
+        formId={id || ""}
+        form={form}
+        formTitle={form?.title || "Form Analytics"}
+        currentChassisNumbers={responses.map((r) => r.chassisNumber || (r as any).systemChassisNumber).filter(Boolean)}
+        onImportSuccess={() => {
+          showToast("BIW Reviews imported successfully!", "success");
+          if (typeof fetchResponsesPage === "function" && currentResponsesPage) {
+            fetchResponsesPage(currentResponsesPage);
+          }
+          refreshDashboardData();
+        }}
+      />
     </div>
   );
 }

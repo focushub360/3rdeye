@@ -1463,6 +1463,24 @@ class ApiClient {
     });
   }
 
+  async importBiwReviews(formId: string, reviews: any[], fileName?: string) {
+    console.log("API Client: Importing BIW reviews via Excel", { formId, count: reviews.length, fileName });
+    return this.request<{
+      success: boolean;
+      message: string;
+      data: {
+        total: number;
+        updatedCount: number;
+        unmatchedCount: number;
+        skippedCount: number;
+        errors: Array<{ row: number; chassis: string; error: string }>;
+      };
+    }>(`/responses/biw-reviews/import`, {
+      method: "POST",
+      body: JSON.stringify({ formId, reviews, fileName }),
+    });
+  }
+
   async assignResponse(id: string, assignedTo: string) {
     return this.request(`/responses/${id}/assign`, {
       method: "PATCH",

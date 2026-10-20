@@ -20,7 +20,8 @@ import {
   autoFillChassisNumbers,
   getBiwSummary,
   bulkUpdateBiwReview,
-  checkChassisExists
+  checkChassisExists,
+  bulkImportBiwExcelReviews
 } from '../controllers/responseController.js';
 import { getReviewsForResponse, getBulkReviewsForResponses } from '../controllers/userController.js';
 import {
@@ -196,6 +197,7 @@ router.post('/form/:formId/auto-fill-chassis', autoFillChassisNumbers);
 router.get('/biw-summary', authenticate, getBiwSummary);
 router.get('/unassigned', getUnassignedResponses);
 router.patch('/bulk-biw-review', bulkUpdateBiwReview);
+router.post('/biw-reviews/import', authenticate, bulkImportBiwExcelReviews);
 router.post('/assign-multiple', assignResponses);
 
 // Response management

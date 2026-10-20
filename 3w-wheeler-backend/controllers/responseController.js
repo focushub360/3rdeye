@@ -5517,3 +5517,264 @@ export const bulkUpdateBiwReview = async (req, res) => {
     });
   }
 };
+
+export const bulkImportBiwExcelReviews = async (req, res) => {
+  try {
+    const { formId, reviews, fileName } = req.body;
+
+    if (!formId) {
+      return res.status(400).json({ success: false, message: 'formId is required' });
+    }
+
+    if (!Array.isArray(reviews) || reviews.length === 0) {
+      return res.status(400).json({ success: false, message: 'reviews array is required and cannot be empty' });
+    }
+
+    const form = await Form.findOne({
+      $or: [
+        { id: formId },
+        ...(mongoose.Types.ObjectId.isValid(formId) ? [{ _id: formId }] : [])
+      ]
+    });
+
+    if (!form) {
+      return res.status(404).json({ success: false, message: 'Form not found' });
+    }
+
+    const formKey = form.id || form._id.toString();
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superadmin';
+    const reviewerName = req.user?.username || req.user?.name || req.user?.email || 'BIW Reviewer';
+    const reviewerEmail = req.user?.email || '';
+    const userIdStr = req.user?._id ? req.user._id.toString() : '';
+
+    // Fetch all responses under this form
+    const candidateResponses = await Response.find({
+      $or: [
+        { questionId: formKey },
+        { questionId: form._id.toString() },
+        { formId: formKey },
+        { formId: form._id.toString() }
+      ]
+    });
+
+    // Check tenant access
+    const accessFlags = await Promise.all(
+      candidateResponses.map(r => canAccessResponseTenant(req, r))
+    );
+    const accessibleResponses = candidateResponses.filter((_, idx) => accessFlags[idx]);
+
+    // Map responses by chassisNumber (case-insensitive)
+    const responsesByChassis = new Map();
+    for (const resp of accessibleResponses) {
+      const chassisList = [resp.chassisNumber, resp.systemChassisNumber];
+      if (resp.answers && typeof resp.answers.forEach === 'function') {
+        resp.answers.forEach((val) => {
+          if (typeof val === 'string' && val.length >= 2 && val.length <= 40) {
+            chassisList.push(val);
+          }
+        });
+      }
+
+      for (const ch of chassisList) {
+        if (!ch) continue;
+        const normalized = String(ch).trim().toUpperCase();
+        if (!responsesByChassis.has(normalized)) {
+          responsesByChassis.set(normalized, []);
+        }
+        responsesByChassis.get(normalized).push(resp);
+      }
+    }
+
+    let updatedCount = 0;
+    let skippedCount = 0;
+    let unmatchedCount = 0;
+    const errors = [];
+
+    for (let i = 0; i < reviews.length; i++) {
+      const row = reviews[i];
+      const rawChassis = String(
+        row.chassisNumber || row.chassisNo || row.che || row['Chassis Number'] || row['Che'] || ''
+      ).trim();
+
+      if (!rawChassis) {
+        skippedCount++;
+        continue;
+      }
+
+      const normalizedChassis = rawChassis.toUpperCase();
+      const matchedList = responsesByChassis.get(normalizedChassis);
+
+      if (!matchedList || matchedList.length === 0) {
+        unmatchedCount++;
+        errors.push({ row: i + 1, chassis: rawChassis, error: 'Chassis number not found in this form' });
+        continue;
+      }
+
+      // Pick latest response for this chassis
+      const targetResponse = matchedList.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+
+      // Anti-tamper check
+      const originalSubmittedBy = targetResponse.submittedBy;
+      const isExcelImport = originalSubmittedBy === 'Excel Import';
+      const isSubmitter =
+        !isAdmin &&
+        !isExcelImport &&
+        (
+          originalSubmittedBy === reviewerEmail ||
+          originalSubmittedBy === reviewerName ||
+          (targetResponse.submitterContact && targetResponse.submitterContact.email === reviewerEmail) ||
+          (targetResponse.createdBy && targetResponse.createdBy.toString() === userIdStr)
+        );
+
+      if (isSubmitter) {
+        skippedCount++;
+        errors.push({ row: i + 1, chassis: rawChassis, error: 'Cannot review your own submission' });
+        continue;
+      }
+
+      let rowUpdated = false;
+
+      // 1. Process BIW Feedback
+      const rawBiwFeedback = String(
+        row.biwFeedback || row['BIW Feed back'] || row['BIW Feedback'] || row['BIW Feed back(Accept,Rework,Reject)'] || ''
+      ).trim().toLowerCase();
+
+      let biwStatus = null;
+      if (rawBiwFeedback.includes('accept')) {
+        biwStatus = 'Accepted';
+      } else if (rawBiwFeedback.includes('rework')) {
+        biwStatus = 'Reworked';
+      } else if (rawBiwFeedback.includes('reject')) {
+        biwStatus = 'Rejected';
+      }
+
+      if (biwStatus) {
+        const biwReason = String(
+          row.biwReason || row.reworkAndRejectedReason || row['Rework and Rejected Resion (Rust..)'] || row['Rework and Rejected Resion'] || ''
+        ).trim();
+        const biwRemark = String(row.biwRemark || row.remark || row['Remark'] || '').trim();
+        const biwFileUrl = String(row.biwFileUrl || row.fileUpload || row['File Upload'] || '').trim();
+
+        targetResponse.biwReview = {
+          status: biwStatus,
+          reviewedBy: req.user._id,
+          reviewedByName: reviewerName,
+          reviewedAt: new Date(),
+          reason: biwReason,
+          remark: biwRemark,
+          evidenceUrl: biwFileUrl
+        };
+        rowUpdated = true;
+      }
+
+      // 2. Process TVS Feedback
+      const rawTvsFeedback = String(
+        row.tvsFeedback || row['TVS Feed back'] || row['TVS Feedback'] || ''
+      ).trim().toLowerCase();
+
+      let tvsStatus = null;
+      if (rawTvsFeedback.includes('accept')) {
+        tvsStatus = 'Accepted';
+      } else if (rawTvsFeedback.includes('rework')) {
+        tvsStatus = 'Rework';
+      } else if (rawTvsFeedback.includes('reject')) {
+        tvsStatus = 'Rejected';
+      }
+
+      if (tvsStatus) {
+        const tvsReason = String(
+          row.tvsReason || row.tvsReworkReason || row['Rework Resion (Rust..)'] || ''
+        ).trim();
+        const tvsRejectReason = String(
+          row.tvsRejectReason || row['Rework and Rejected Resion (Rust..)_1'] || ''
+        ).trim();
+        const tvsRemark = String(row.tvsRemark || row['Remark_1'] || '').trim();
+        const tvsFileUrl = String(row.tvsFileUrl || row['File Upload_1'] || '').trim();
+
+        const respIdStr = targetResponse._id ? targetResponse._id.toString() : targetResponse.id;
+        await Review.findOneAndUpdate(
+          { responseId: respIdStr, reviewerId: req.user._id },
+          {
+            responseId: respIdStr,
+            reviewerId: req.user._id,
+            reviewerName: reviewerName,
+            reviewerEmail: reviewerEmail,
+            submitterId: targetResponse.submittedBy || targetResponse.createdBy?.toString() || 'System',
+            reviewOption: tvsStatus,
+            scoreChange: 0,
+            tenantId: targetResponse.tenantId || req.user.tenantId
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+
+        targetResponse.review = {
+          reviewOption: tvsStatus,
+          reviewerId: req.user._id,
+          reviewerName: reviewerName,
+          createdAt: new Date(),
+          remark: tvsRemark,
+          reason: tvsReason || tvsRejectReason,
+          evidenceUrl: tvsFileUrl
+        };
+        rowUpdated = true;
+      }
+
+      if (rowUpdated) {
+        await targetResponse.save();
+        try {
+          emitResponseUpdated(formKey, targetResponse);
+        } catch (sockErr) {
+          console.warn('[BIW EXCEL IMPORT] Socket emit failed (non-critical):', sockErr.message);
+        }
+        updatedCount++;
+      } else {
+        skippedCount++;
+      }
+    }
+
+    // Record in history log
+    recordImportHistory({
+      tenantId: req.user?.tenantId,
+      userId: req.user?._id,
+      userName: reviewerName,
+      userEmail: reviewerEmail,
+      userRole: req.user?.role || 'admin',
+      actionType: 'EXCEL_BIW_REVIEW_IMPORT',
+      actionTitle: 'BIW Review Excel Import',
+      formId: formKey,
+      formTitle: form.title || 'BIW Review',
+      fileName: fileName || 'BIW_Review_Import.xlsx',
+      batchId: `biw-review-${Date.now()}`,
+      dataCount: {
+        total: reviews.length,
+        success: updatedCount,
+        failed: unmatchedCount + skippedCount
+      },
+      details: {
+        notes: `Excel Review Import: ${updatedCount} updated, ${unmatchedCount} unmatched, ${skippedCount} skipped.`,
+        sampleChassis: reviews.slice(0, 5).map(r => r.chassisNumber || r.chassisNo || r.che).filter(Boolean)
+      },
+      status: updatedCount > 0 ? 'success' : 'failed'
+    }).catch(err => console.error('[IMPORT HISTORY LOG ERROR]', err));
+
+    return res.json({
+      success: true,
+      message: `BIW Review Excel Import completed: ${updatedCount} updated, ${unmatchedCount} unmatched, ${skippedCount} skipped.`,
+      data: {
+        total: reviews.length,
+        updatedCount,
+        unmatchedCount,
+        skippedCount,
+        errors: errors.slice(0, 20)
+      }
+    });
+
+  } catch (error) {
+    console.error('Bulk Import BIW Excel Reviews Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to import BIW Excel reviews',
+      error: error.message
+    });
+  }
+};

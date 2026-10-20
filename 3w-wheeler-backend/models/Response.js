@@ -217,6 +217,9 @@ const ResponseSchema = new mongoose.Schema({
       questionId: String,
       questionText: String
     }]
+  },
+  review: {
+    type: mongoose.Schema.Types.Mixed
   }
 }, {
   timestamps: true,
