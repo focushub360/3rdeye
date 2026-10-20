@@ -98,14 +98,39 @@ export default function Header() {
     ["admin", "superadmin", "inspector", "subadmin"].includes(user?.role || "")
   );
 
-  // Filter forms based on permissions
+  // Filter forms based on permissions, visibility, and exclude child/follow-up forms
   const visibleForms = React.useMemo(() => {
     if (!isAuthenticated || !user) return [];
     const forms = formsData?.forms || [];
 
+    // Collect all child form IDs linked in any form's childForms array or with parentFormId
+    const childFormIdSet = new Set<string>();
+    forms.forEach((form: any) => {
+      if (Array.isArray(form.childForms)) {
+        form.childForms.forEach((cf: any) => {
+          const cfId = typeof cf === "string" ? cf : cf.formId || cf.id || cf._id;
+          if (cfId) childFormIdSet.add(String(cfId));
+        });
+      }
+      if (form.parentFormId) {
+        if (form.id) childFormIdSet.add(String(form.id));
+        if (form._id) childFormIdSet.add(String(form._id));
+      }
+    });
+
     return forms.filter((form: any) => {
       const formId = form._id || form.id;
       if (!formId) return false;
+
+      // Exclude forms marked as not visible, inactive, or deleted
+      if (form.isVisible === false || form.isActive === false || form.isDeleted || form.deleted) {
+        return false;
+      }
+
+      // Exclude follow-up / child forms so only top-level primary forms appear in Service Analytics
+      if (form.parentFormId || childFormIdSet.has(String(formId))) {
+        return false;
+      }
 
       // Admins and superadmins see all forms
       if (user.role === 'admin' || user.role === 'superadmin' || user.role === 'tenant_admin') {

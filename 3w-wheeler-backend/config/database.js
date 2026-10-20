@@ -39,11 +39,11 @@ const connectDB = async () => {
     const opts = {
       maxPoolSize: isServerless ? 2 : 100,
       minPoolSize: isServerless ? 0 : 5,
-      maxIdleTimeMS: 30000,
-      serverSelectionTimeoutMS: 30000,
-      socketTimeoutMS: 90000,
-      connectTimeoutMS: 30000,
-      heartbeatFrequencyMS: 10000,
+      maxIdleTimeMS: 45000,
+      serverSelectionTimeoutMS: 60000,
+      socketTimeoutMS: 120000,
+      connectTimeoutMS: 45000,
+      heartbeatFrequencyMS: 30000,
       ...(isReplicaSet ? { retryWrites: true, w: 'majority' } : { retryWrites: false })
     };
 

@@ -2667,62 +2667,18 @@ export const getPerformanceTable = async (req, res) => {
 
     console.log(`[Performance Table] Total users available: ${Object.keys(userMap).length}`);
 
-    // Process reviews and build review map. `submitterIdType` (when present
-    // on the review doc) short-circuits the lookup instead of trying every
-    // map in sequence.
-    const reviewMap = {};
-
+    // Process reviews indexed by responseId so that review outcomes (Accepted,
+    // Rejected, Reworked) are credited to the INSPECTOR who submitted the response,
+    // rather than the reviewer who performed the review.
+    const reviewsByResponseId = new Map();
     reviews.forEach(review => {
-      const submitterId = review.submitterId || review.submittedBy || review.createdBy || review.userId || review.revieweeId;
-
-      if (!submitterId) return;
-
-      let submitterIdStr = String(submitterId);
-      let mappedUserId = null;
-
-      if (userMap[submitterIdStr]) {
-        mappedUserId = submitterIdStr;
-      } else if (review.submitterIdType === 'email' && emailToUserId[submitterIdStr.toLowerCase()]) {
-        mappedUserId = emailToUserId[submitterIdStr.toLowerCase()];
-      } else if (review.submitterIdType === 'username' && usernameToUserId[submitterIdStr.toLowerCase()]) {
-        mappedUserId = usernameToUserId[submitterIdStr.toLowerCase()];
-      } else if (emailToUserId[submitterIdStr.toLowerCase()]) {
-        mappedUserId = emailToUserId[submitterIdStr.toLowerCase()];
-      } else if (usernameToUserId[submitterIdStr.toLowerCase()]) {
-        mappedUserId = usernameToUserId[submitterIdStr.toLowerCase()];
-      } else if (nameToUserId[submitterIdStr.toLowerCase()]) {
-        mappedUserId = nameToUserId[submitterIdStr.toLowerCase()];
-      } else if (mongoose.Types.ObjectId.isValid(submitterIdStr)) {
-        try {
-          const objId = new mongoose.Types.ObjectId(submitterIdStr);
-          if (userMap[objId.toString()]) {
-            mappedUserId = objId.toString();
-          }
-        } catch (err) {
-          // Not a valid ObjectId
-        }
-      }
-
-      const finalUserId = mappedUserId || submitterIdStr;
-
-      if (!reviewMap[finalUserId]) {
-        reviewMap[finalUserId] = { total: 0, accepted: 0, rejected: 0, rework: 0 };
-      }
-
-      const reviewOption = review.reviewOption || review.status || review.option || review.reviewStatus;
-
-      reviewMap[finalUserId].total++;
-
-      if (reviewOption === 'Accepted' || reviewOption === 'accept' || reviewOption === 'approved') {
-        reviewMap[finalUserId].accepted++;
-      } else if (reviewOption === 'Rejected' || reviewOption === 'reject' || reviewOption === 'rejected') {
-        reviewMap[finalUserId].rejected++;
-      } else if (reviewOption === 'Rework' || reviewOption === 'rework' || reviewOption === 'reworked') {
-        reviewMap[finalUserId].rework++;
+      const rId = String(review.responseId || review.response_id || review.response || '');
+      if (rId && !reviewsByResponseId.has(rId)) {
+        reviewsByResponseId.set(rId, review);
       }
     });
 
-    console.log(`[Performance Table] Review map has ${Object.keys(reviewMap).length} entries`);
+    console.log(`[Performance Table] Reviews by response ID map has ${reviewsByResponseId.size} entries`);
 
     // Helper: Determine inspection status
     const getInspectionStatus = (response) => {
@@ -2802,61 +2758,43 @@ export const getPerformanceTable = async (req, res) => {
       });
     });
 
-    // Add reviewers who aren't in the user map
-    Object.keys(reviewMap).forEach(reviewerId => {
-      if (!userStatsMap.has(reviewerId)) {
-        if (/^[0-9a-f]{24}$/i.test(reviewerId)) {
-          userStatsMap.set(reviewerId, {
-            userId: reviewerId,
-            userName: `User ${reviewerId.substring(0, 8)}`,
-            userEmail: '',
-            userRole: 'unknown',
-            tenantId: null,
-            tenantName: 'Cross-Tenant User',
-            totalSubmitted: 0,
-            directOk: 0,
-            reworkQcCompleted: 0,
-            reworkQcPending: 0,
-            rejected: 0,
-            dispatchPending: 0,
-            dispatched: 0,
-            totalReviewed: 0,
-            reviewPending: 0,
-            accepted: 0,
-            rejectedReview: 0,
-            reworked: 0,
-            performanceScore: 0,
-            responses: []
-          });
-        }
-      }
-    });
-
-    // Process responses (same logic as before, just over the current page)
+    // Process responses based on form submission accountability (submittedBy).
     filteredResponses.forEach(response => {
-      let userId = response.createdBy?.toString();
+      // Normalize whitespace including non-breaking spaces
+      const rawSubmittedBy = (response.submittedBy || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+      let matchedUser = null;
 
-      if (!userId) {
-        const userBySubmitted = users.find(u =>
-          u.email === response.submittedBy ||
-          u.username === response.submittedBy ||
-          `${u.firstName} ${u.lastName}` === response.submittedBy
-        );
-        if (userBySubmitted) {
-          userId = userBySubmitted._id.toString();
-        } else {
-          userId = response.submittedBy || 'unknown';
-        }
+      if (rawSubmittedBy && rawSubmittedBy.toLowerCase() !== 'excel import') {
+        const rawLower = rawSubmittedBy.toLowerCase();
+        matchedUser = users.find(u => {
+          const fullName = `${u.firstName || ''} ${u.lastName || ''}`.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+          return (
+            (fullName && fullName === rawLower) ||
+            (u.email && u.email.toLowerCase() === rawLower) ||
+            (u.username && u.username.toLowerCase() === rawLower) ||
+            (u.firstName && u.firstName.toLowerCase() === rawLower)
+          );
+        });
       }
+
+      // If submittedBy did not match any user in DB, but createdBy exists and submittedBy was empty / excel import
+      if (!matchedUser && (!rawSubmittedBy || rawSubmittedBy.toLowerCase() === 'excel import') && response.createdBy) {
+        matchedUser = userMap[response.createdBy.toString()];
+      }
+
+      const userId = matchedUser ? matchedUser._id.toString() : (rawSubmittedBy || 'unknown');
+      const userName = matchedUser
+        ? `${matchedUser.firstName} ${matchedUser.lastName}`.trim()
+        : (rawSubmittedBy || 'Unknown User');
 
       if (!userStatsMap.has(userId)) {
         userStatsMap.set(userId, {
           userId,
-          userName: response.submittedBy || 'Unknown User',
-          userEmail: '',
-          userRole: 'inspector',
-          tenantId: null,
-          tenantName: 'Cross-Tenant User',
+          userName: userName,
+          userEmail: matchedUser?.email || '',
+          userRole: matchedUser?.role || 'inspector',
+          tenantId: matchedUser?.tenantId?.toString() || null,
+          tenantName: matchedUser?.tenantId?.name || matchedUser?.tenantId?.companyName || 'Cross-Tenant User',
           totalSubmitted: 0,
           directOk: 0,
           reworkQcCompleted: 0,
@@ -2883,6 +2821,8 @@ export const getPerformanceTable = async (req, res) => {
       else if (status === 'Rework QC Pending') stats.reworkQcPending++;
       else if (status === 'Rejected') stats.rejected++;
 
+      // Dispatched count is credited to the inspector who submitted the inspection form,
+      // regardless of who clicked the dispatch action.
       if (response.isDispatched) {
         stats.dispatched++;
       } else {
@@ -2892,38 +2832,38 @@ export const getPerformanceTable = async (req, res) => {
         }
       }
 
-      const biwStatus = response.biwReview?.status;
-      if (biwStatus === 'Accepted') {
-        stats.accepted++;
-        stats.totalReviewed++;
-      } else if (biwStatus === 'Rejected') {
-        stats.rejectedReview++;
-        stats.totalReviewed++;
-      } else if (biwStatus === 'Reworked') {
-        stats.reworked++;
-        stats.totalReviewed++;
-      }
-    });
+      // Review outcomes are credited to the submitter of this inspected chassis
+      const rId1 = response._id ? response._id.toString() : '';
+      const rId2 = response.id ? String(response.id) : '';
+      const review = reviewsByResponseId.get(rId1) || reviewsByResponseId.get(rId2);
+      const biwStatus = response.biwReview?.status || review?.reviewOption || review?.status;
 
-    // Apply review stats
-    console.log('[Performance Table] Applying review stats to users...');
-
-    Object.entries(reviewMap).forEach(([reviewerId, reviewData]) => {
-      if (userStatsMap.has(reviewerId)) {
-        const stats = userStatsMap.get(reviewerId);
-        stats.accepted += reviewData.accepted;
-        stats.rejectedReview += reviewData.rejected;
-        stats.reworked += reviewData.rework;
-        stats.totalReviewed += reviewData.total;
+      if (biwStatus) {
+        const bsLower = String(biwStatus).toLowerCase();
+        if (
+          bsLower.includes('accept') ||
+          bsLower.includes('direct ok') ||
+          bsLower.includes('ok') ||
+          bsLower === 'verified'
+        ) {
+          stats.accepted++;
+          stats.totalReviewed++;
+        } else if (bsLower.includes('reject')) {
+          stats.rejectedReview++;
+          stats.totalReviewed++;
+        } else if (bsLower.includes('rework')) {
+          stats.reworked++;
+          stats.totalReviewed++;
+        }
       }
     });
 
     // Calculate final metrics
     for (const [userId, stats] of userStatsMap) {
-      stats.reviewPending = Math.max(0, stats.dispatched - stats.totalReviewed);
+      stats.reviewPending = Math.max(0, stats.totalSubmitted - stats.totalReviewed);
       stats.performanceScore = stats.totalReviewed > 0
         ? Math.round((stats.accepted / stats.totalReviewed) * 100)
-        : 0;
+        : (stats.totalSubmitted > 0 ? 100 : 0);
 
       if (stats.responses.length > 0) {
         const chassisGroups = new Map();

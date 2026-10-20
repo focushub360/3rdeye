@@ -3477,10 +3477,9 @@ export const getBiwSummary = async (req, res) => {
       respQuery.questionId = { $in: formIds };
     }
 
-    // Fast query returning lean response docs
+    // Fast query returning lean response docs without heavy answers payload
     const responses = await Response.find(respQuery)
-      .select('submittedBy createdBy isDispatched biwReview status answers')
-      .sort({ createdAt: -1 })
+      .select('submittedBy createdBy isDispatched biwReview status')
       .lean();
 
     console.log(`[BIW] Total responses found: ${responses.length}`);
@@ -4465,7 +4464,7 @@ export const getResponsesByForm = async (req, res) => {
     let reviewsByResponse = {};
     let messagesByResponse = {};
 
-    if (responses.length > 0) {
+    if (!isAnalytics && responses.length > 0) {
       const responseIds = responses.flatMap(r => [r.id, r._id ? r._id.toString() : null]).filter(Boolean);
       const [reviews, chatMessages] = await Promise.all([
         Review.find({ responseId: { $in: responseIds } })
@@ -4563,8 +4562,8 @@ export const getResponsesByForm = async (req, res) => {
       r.parentResponseId || (r.batchId && (r.batchId.includes('-t2') || r.batchId.includes('-fu-')))
     );
 
-    // Query parent/child matches if we have responses on this page and this form has parent/child relationships or follow-up responses
-    if (responses.length > 0 && (isChildForm || isParentForm || hasFollowUpResponsesInBatch)) {
+    // Query parent/child matches if we have responses on this page and this form has parent/child relationships or follow-up responses (table view only)
+    if (!isAnalytics && responses.length > 0 && (isChildForm || isParentForm || hasFollowUpResponsesInBatch)) {
       const pageChassisList = responses.map(r => getChassisFromDoc(r)).filter(Boolean);
       const pageChassisSet = new Set(pageChassisList.map(c => c.toLowerCase().trim()));
       const chassisStrings = Array.from(pageChassisSet);

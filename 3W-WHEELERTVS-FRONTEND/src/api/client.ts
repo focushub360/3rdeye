@@ -3603,8 +3603,7 @@ class ApiClient {
     // trips" - that's exactly what made a single request take minutes on
     // large forms. Now it matches the backend's per-page cap (500) so each
     // round trip stays fast and predictable regardless of the form's total
-    // response count.
-    const pageLimit = options?.analytics ? 1000 : 5000;
+    const pageLimit = options?.analytics ? 500 : 2000;
     const firstResult = await this.getFormResponses(formId, {
       status: options?.status,
       includePartial: options?.includePartial,
@@ -3633,8 +3632,8 @@ class ApiClient {
     });
 
     if (totalPages > 1) {
-      // Fetch remaining pages in parallel batches of 4 for fast sub-second loading
-      const batchSize = 4;
+      // Fetch remaining pages in small parallel batches of 2 for smooth sub-second streaming
+      const batchSize = 2;
       const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
 
       for (let i = 0; i < remainingPages.length; i += batchSize) {
