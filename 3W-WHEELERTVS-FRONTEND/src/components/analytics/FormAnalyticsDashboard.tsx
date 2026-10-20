@@ -3699,6 +3699,10 @@ export default function FormAnalyticsDashboard() {
   // (status, flagged questions, remark, evidence).
   const [showBiwViewModal, setShowBiwViewModal] = useState(false);
   const [biwViewResponse, setBiwViewResponse] = useState<Response | null>(null);
+  const [biwChatMessages, setBiwChatMessages] = useState<any[]>([]);
+  const [isLoadingBiwChat, setIsLoadingBiwChat] = useState(false);
+  const [biwNewMessage, setBiwNewMessage] = useState("");
+  const [isSendingBiwMessage, setIsSendingBiwMessage] = useState(false);
 
 
   // Server-side pagination for the "Responses" table tab: fetches only the
@@ -5392,6 +5396,33 @@ export default function FormAnalyticsDashboard() {
     ];
   }, []);
 
+  // Filter options for Review column
+  const reviewFilterOptions = useMemo(() => {
+    const opts = new Set<string>();
+    opts.add("Accepted");
+    opts.add("Reworked");
+    opts.add("Rejected");
+    opts.add("No review yet");
+
+    responses.forEach((r) => {
+      const localRev = reviewedBy[r.id];
+      const legacyRev = (r as any).review;
+      const biwRev = r.biwReview;
+      const reviewer =
+        localRev?.reviewer ||
+        localRev?.name ||
+        legacyRev?.reviewer ||
+        legacyRev?.name ||
+        biwRev?.reviewedByName;
+
+      if (reviewer && reviewer !== "Reviewer") {
+        opts.add(reviewer);
+      }
+    });
+
+    return Array.from(opts);
+  }, [responses, reviewedBy]);
+
   // Filter options for Dispatch
   const dispatchFilterOptions = useMemo(() => {
     return [
@@ -5471,6 +5502,64 @@ export default function FormAnalyticsDashboard() {
       fetchChatHistory(chatResponse.id);
     }
   }, [showChatModal, chatResponse]);
+
+  // Fetch chat messages when BIW View modal opens
+  useEffect(() => {
+    if (showBiwViewModal && biwViewResponse) {
+      const respId = biwViewResponse.id;
+      setIsLoadingBiwChat(true);
+      apiClient
+        .get<any[]>(`/messages/response/${respId}`)
+        .then((res) => {
+          const msgs = Array.isArray(res.data) ? res.data : [];
+          setBiwChatMessages(msgs);
+        })
+        .catch((err) => {
+          console.error("[BIW View] Error fetching chat messages:", err);
+          setBiwChatMessages([]);
+        })
+        .finally(() => setIsLoadingBiwChat(false));
+    } else {
+      setBiwChatMessages([]);
+      setBiwNewMessage("");
+    }
+  }, [showBiwViewModal, biwViewResponse]);
+
+  const handleSendBiwChatMessage = async () => {
+    if (!biwNewMessage.trim() || !biwViewResponse || isSendingBiwMessage) return;
+    setIsSendingBiwMessage(true);
+    try {
+      const createdByObj = biwViewResponse.createdBy;
+      const createdByEmail =
+        createdByObj && typeof createdByObj === "object"
+          ? (createdByObj as any).email || (createdByObj as any)._id?.toString()
+          : typeof createdByObj === "string"
+            ? createdByObj
+            : "inspector@focus.com";
+
+      const res = await apiClient.post<any>("/messages/send", {
+        toEmail: createdByEmail,
+        message: biwNewMessage.trim(),
+        responseId: biwViewResponse.id,
+        formId: id,
+        tenantId: form?.tenantId || (user?.tenantId as any)?._id || user?.tenantId,
+      });
+
+      setBiwNewMessage("");
+      if (res.data?.data) {
+        setBiwChatMessages((prev) => [...prev, res.data.data]);
+      } else {
+        const fresh = await apiClient.get<any[]>(`/messages/response/${biwViewResponse.id}`);
+        setBiwChatMessages(Array.isArray(fresh.data) ? fresh.data : []);
+      }
+      showToast("Message sent", "success");
+    } catch (err: any) {
+      console.error("[BIW View] Send message failed:", err);
+      showToast("Failed to send message", "error");
+    } finally {
+      setIsSendingBiwMessage(false);
+    }
+  };
 
   // Auto-open chat modal if responseId is in URL
   useEffect(() => {
@@ -5924,13 +6013,60 @@ export default function FormAnalyticsDashboard() {
 
     // 6. __biwReview
     if (columnId === "__biwReview") {
-      const biwStatus = (response.biwReview?.status || "").toLowerCase().trim();
+      const biwStatus = (
+        response.biwReview?.status ||
+        reviewedBy[response.id]?.status ||
+        reviewedBy[response.id]?.option ||
+        ""
+      ).toLowerCase().trim();
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
         if (avLower === "no review yet" || avLower === "pending review") {
           return !biwStatus || biwStatus === "pending review";
         }
+        if (avLower === "rework" || avLower === "reworked") {
+          return biwStatus === "rework" || biwStatus === "reworked";
+        }
         return biwStatus === avLower;
+      });
+    }
+
+    // 6b. __review (Review section / column filter)
+    if (columnId === "__review") {
+      const localReview = reviewedBy[response.id];
+      const legacyServerReview = (response as any).review;
+      let revStatus = "";
+      let revReviewer = "";
+
+      if (localReview) {
+        revStatus = String(localReview.option || localReview.status || "").toLowerCase().trim();
+        revReviewer = String(localReview.reviewer || localReview.name || "").toLowerCase().trim();
+      } else if (legacyServerReview) {
+        revStatus = String(legacyServerReview.status || "").toLowerCase().trim();
+        revReviewer = String(legacyServerReview.reviewer || legacyServerReview.name || "").toLowerCase().trim();
+      } else if (response.biwReview) {
+        revStatus = String(response.biwReview.status || "").toLowerCase().trim();
+        revReviewer = String(response.biwReview.reviewedByName || "").toLowerCase().trim();
+      }
+
+      return allowedValues.some((av) => {
+        const avLower = av.toLowerCase().trim();
+        if (avLower === "no review yet" || avLower === "pending review" || avLower === "unreviewed") {
+          return !revStatus;
+        }
+        if (avLower === "accepted") {
+          return revStatus === "accepted";
+        }
+        if (avLower === "rejected") {
+          return revStatus === "rejected";
+        }
+        if (avLower === "reworked" || avLower === "rework") {
+          return revStatus === "reworked" || revStatus === "rework";
+        }
+        if (revReviewer && (revReviewer === avLower || revReviewer.includes(avLower))) {
+          return true;
+        }
+        return false;
       });
     }
 
@@ -6148,6 +6284,26 @@ export default function FormAnalyticsDashboard() {
         const matchB = computeParentMatch(b).badgeText;
         const parentCmp = String(matchA).localeCompare(String(matchB));
         return isAsc ? parentCmp : -parentCmp;
+      }
+
+      // Review column sorting
+      if (columnId === "__review") {
+        const localRevA = reviewedBy[a.id];
+        const legacyRevA = (a as any).review;
+        const biwRevA = a.biwReview;
+        const statusA = localRevA?.option || localRevA?.status || legacyRevA?.status || biwRevA?.status || "";
+        const reviewerA = localRevA?.reviewer || localRevA?.name || legacyRevA?.reviewer || legacyRevA?.name || biwRevA?.reviewedByName || "";
+
+        const localRevB = reviewedBy[b.id];
+        const legacyRevB = (b as any).review;
+        const biwRevB = b.biwReview;
+        const statusB = localRevB?.option || localRevB?.status || legacyRevB?.status || biwRevB?.status || "";
+        const reviewerB = localRevB?.reviewer || localRevB?.name || legacyRevB?.reviewer || legacyRevB?.name || biwRevB?.reviewedByName || "";
+
+        const strA = `${statusA} ${reviewerA}`.trim();
+        const strB = `${statusB} ${reviewerB}`.trim();
+        const cmp = strA.localeCompare(strB, undefined, { numeric: true, sensitivity: "base" });
+        return isAsc ? cmp : -cmp;
       }
 
       // Generic question answer sorting
@@ -7721,11 +7877,12 @@ export default function FormAnalyticsDashboard() {
           stacked: true,
           ticks: {
             color: document.documentElement.classList.contains("dark")
-              ? "#e5e7eb"
-              : "#374151",
-            font: { size: 10, weight: "600" as const },
-            maxRotation: chartOrientation === "v" ? 45 : 0,
-            minRotation: 0,
+              ? "#f1f5f9"
+              : "#0f172a",
+            font: { size: 11, weight: "700" as const },
+            maxRotation: chartOrientation === "v" ? 55 : 0,
+            minRotation: chartOrientation === "v" ? 40 : 0,
+            autoSkip: false,
           },
           grid: {
             display: false,
@@ -7951,64 +8108,86 @@ export default function FormAnalyticsDashboard() {
       });
       const uniqueResponses = Array.from(uniqueResponsesMap.values());
 
-      console.log("=== BIW DEBUG (DEDUPLICATED) ===");
-      console.log("Original responses:", defectChartResponses.length);
-      console.log("Unique responses:", uniqueResponses.length);
-
-      // ✅ STEP 2: Filter to only responses with BIW reviews
-      const responsesWithBiw = uniqueResponses.filter(r => r.biwReview?.flaggedQuestions?.length > 0);
-      console.log("Unique responses with BIW reviews:", responsesWithBiw.length);
-
-      // ✅ STEP 3: Log each unique response
-      responsesWithBiw.forEach((r, idx) => {
-        console.log(`Response ${idx + 1}:`, {
-          id: r.id,
-          status: r.biwReview?.status,
-          flaggedQuestions: r.biwReview?.flaggedQuestions?.map(fq => fq.questionId)
-        });
-      });
-
       const qMap = new Map<string, { id: string; text: string; rejected: number; rework: number }>();
 
-      responsesWithBiw.forEach((response) => {
-        const status = response.biwReview?.status;
-        response.biwReview?.flaggedQuestions?.forEach((fq) => {
-          if (!qMap.has(fq.questionId)) {
-            console.log(`New question found: ${fq.questionId} - ${fq.questionText}`);
-            qMap.set(fq.questionId, {
-              id: fq.questionId,
-              text: fq.questionText || "Unknown",
-              rejected: 0,
-              rework: 0
-            });
-          }
-          const stat = qMap.get(fq.questionId)!;
-          if (status === "Rejected") {
-            stat.rejected++;
-            console.log(`  ✅ ${fq.questionId}: Rejected++ (now ${stat.rejected})`);
-          } else if (status === "Reworked") {
-            stat.rework++;
-            console.log(`  🔄 ${fq.questionId}: Rework++ (now ${stat.rework})`);
-          }
+      // Pre-map question text from form sections
+      const questionTextMap = new Map<string, string>();
+      form?.sections?.forEach((section: any) => {
+        section?.questions?.forEach((q: any) => {
+          if (q?.id) questionTextMap.set(q.id, q.text || q.title || q.id);
         });
       });
 
-      console.log("Final counts (deduplicated):");
-      qMap.forEach((value, key) => {
-        console.log(`  ${key}: Rejected=${value.rejected}, Rework=${value.rework}, Total=${value.rejected + value.rework}`);
+      uniqueResponses.forEach((response) => {
+        const biwStatus = response.biwReview?.status;
+        const hasBiwFlagged = response.biwReview?.flaggedQuestions && response.biwReview.flaggedQuestions.length > 0;
+
+        if (hasBiwFlagged) {
+          response.biwReview.flaggedQuestions.forEach((fq: any) => {
+            const qId = fq.questionId;
+            const qText = fq.questionText || questionTextMap.get(qId) || qId;
+            if (!qMap.has(qId)) {
+              qMap.set(qId, {
+                id: qId,
+                text: qText,
+                rejected: 0,
+                rework: 0
+              });
+            }
+            const stat = qMap.get(qId)!;
+            if (biwStatus === "Rejected") {
+              stat.rejected++;
+            } else {
+              stat.rework++;
+            }
+          });
+        } else {
+          // Extract defect/rework answers directly from response.answers
+          const answersObj = response.answers instanceof Map
+            ? Object.fromEntries(response.answers)
+            : response.answers;
+
+          if (answersObj) {
+            for (const [qId, ans] of Object.entries(answersObj)) {
+              if (ans === null || ans === undefined || qId.includes("chassis") || qId === "chassis_number") continue;
+
+              let ansStatus = "";
+              if (typeof ans === "object" && ans !== null) {
+                ansStatus = (ans as any).status || "";
+              } else if (typeof ans === "string") {
+                ansStatus = ans;
+              }
+
+              const sLower = ansStatus.toLowerCase().trim();
+              const isRejected = sLower === "rejected" || sLower === "no";
+              const isRework = sLower === "rework" || sLower === "reworked" || sLower.includes("re-rework") || sLower === "not ok" || sLower === "defect";
+
+              if (isRejected || isRework) {
+                const qText = questionTextMap.get(qId) || qId;
+                if (!qMap.has(qId)) {
+                  qMap.set(qId, {
+                    id: qId,
+                    text: qText,
+                    rejected: 0,
+                    rework: 0
+                  });
+                }
+                const stat = qMap.get(qId)!;
+                if (isRejected || biwStatus === "Rejected") {
+                  stat.rejected++;
+                } else {
+                  stat.rework++;
+                }
+              }
+            }
+          }
+        }
       });
 
       let filtered = Array.from(qMap.values()).map(q => ({
         ...q,
         total: q.rejected + q.rework
       })).filter(q => q.rejected > 0 || q.rework > 0);
-
-      console.log("Chart data (deduplicated):", filtered.map(q => ({
-        text: q.text,
-        rejected: q.rejected,
-        rework: q.rework,
-        total: q.total
-      })));
 
       if (chartSortOrder === "percentage") {
         filtered = [...filtered].sort((a, b) => {
@@ -8021,7 +8200,7 @@ export default function FormAnalyticsDashboard() {
       }
 
       return filtered.slice(0, 20);
-    }, [defectChartResponses, chartSortOrder]);
+    }, [defectChartResponses, chartSortOrder, form]);
 
     if (
       !biwProcessedQuestions.length &&
@@ -8038,8 +8217,8 @@ export default function FormAnalyticsDashboard() {
         {
           label: "Rejected (BIW)",
           data: biwProcessedQuestions.map((q) => q.rejected),
-          backgroundColor: "rgba(153, 27, 27, 0.85)", // Dark Red
-          borderColor: "rgb(127, 29, 29)",
+          backgroundColor: "rgba(220, 38, 38, 0.9)", // Crimson Red
+          borderColor: "rgb(185, 28, 28)",
           borderWidth: 1,
           barPercentage: biwProcessedQuestions.length <= 2 ? 0.3 : 0.7,
           categoryPercentage: 0.8,
@@ -8053,8 +8232,8 @@ export default function FormAnalyticsDashboard() {
         {
           label: "Rework (BIW)",
           data: biwProcessedQuestions.map((q) => q.rework),
-          backgroundColor: "rgba(55, 65, 81, 0.85)", // Dark Gray
-          borderColor: "rgb(31, 41, 55)",
+          backgroundColor: "rgba(71, 85, 105, 0.9)", // Slate Gray
+          borderColor: "rgb(51, 65, 85)",
           borderWidth: 1,
           barPercentage: biwProcessedQuestions.length <= 2 ? 0.3 : 0.7,
           categoryPercentage: 0.8,
@@ -8101,6 +8280,7 @@ export default function FormAnalyticsDashboard() {
           },
         },
       },
+      
       scales: {
         x: {
           stacked: true,
@@ -8142,10 +8322,10 @@ export default function FormAnalyticsDashboard() {
     const containerStyle =
       chartOrientation === "h"
         ? {
-          height: `${Math.max(450, biwProcessedQuestions.length * 40)}px`,
+          height: `${Math.max(500, biwProcessedQuestions.length * 45)}px`,
           position: "relative" as const,
         }
-        : { height: "450px", position: "relative" as const };
+        : { height: "400px", position: "relative" as const };
 
     return (
       <div
@@ -8281,41 +8461,108 @@ export default function FormAnalyticsDashboard() {
       });
       const uniqueReviews = Array.from(uniqueReviewsMap.values());
 
-      console.log("=== TVS DEBUG (DEDUPLICATED) ===");
-      console.log("Original reviews:", tvsReviews.length);
-      console.log("Unique reviews:", uniqueReviews.length);
+      // Pre-map question text from form sections
+      const questionTextMap = new Map<string, string>();
+      form?.sections?.forEach((section: any) => {
+        section?.questions?.forEach((q: any) => {
+          if (q?.id) questionTextMap.set(q.id, q.text || q.title || q.id);
+        });
+      });
 
       const qMap = new Map<string, { id: string; text: string; rejected: number; rework: number; accepted: number }>();
 
-      uniqueReviews.forEach((review) => {  // Use uniqueReviews instead of tvsReviews
+      // 1. Process reviews from uniqueReviews
+      uniqueReviews.forEach((review) => {
+        const status = review.reviewOption || review.option;
         if (review.questionContexts?.length) {
-          const status = review.reviewOption;
           review.questionContexts.forEach((qc: any) => {
-            if (!qMap.has(qc.questionId)) {
-              qMap.set(qc.questionId, {
-                id: qc.questionId,
-                text: qc.title || "Unknown",
+            const qId = qc.questionId || qc.id;
+            const qText = qc.title || qc.text || questionTextMap.get(qId) || "Unknown";
+            if (!qMap.has(qId)) {
+              qMap.set(qId, {
+                id: qId,
+                text: qText,
                 rejected: 0,
                 rework: 0,
                 accepted: 0
               });
             }
-            const stat = qMap.get(qc.questionId)!;
+            const stat = qMap.get(qId)!;
             if (status === "Rejected") {
               stat.rejected++;
-            } else if (status === "Rework") {
+            } else if (status === "Rework" || status === "Reworked") {
               stat.rework++;
             } else if (status === "Accepted") {
               stat.accepted++;
             }
           });
+        } else {
+          // Match review to response
+          const rId = String(review.responseId || "");
+          const resp = defectChartResponses.find(r => String(r.id || r._id) === rId);
+          if (resp && resp.answers) {
+            const answersObj = resp.answers instanceof Map ? Object.fromEntries(resp.answers) : resp.answers;
+            for (const [qId, ans] of Object.entries(answersObj)) {
+              if (ans === null || ans === undefined || qId.includes("chassis") || qId === "chassis_number") continue;
+              const qText = questionTextMap.get(qId) || qId;
+              let ansStatus = "";
+              if (typeof ans === "object" && ans !== null) {
+                ansStatus = (ans as any).status || "";
+              } else if (typeof ans === "string") {
+                ansStatus = ans;
+              }
+              const sLower = ansStatus.toLowerCase().trim();
+              const isDefect = sLower === "rework" || sLower === "rejected" || sLower === "not ok" || sLower === "defect";
+
+              if (!qMap.has(qId)) {
+                qMap.set(qId, { id: qId, text: qText, rejected: 0, rework: 0, accepted: 0 });
+              }
+              const stat = qMap.get(qId)!;
+              if (status === "Rejected" && isDefect) {
+                stat.rejected++;
+              } else if ((status === "Rework" || status === "Reworked") && isDefect) {
+                stat.rework++;
+              } else if (status === "Accepted" && !isDefect) {
+                stat.accepted++;
+              }
+            }
+          }
         }
       });
 
-      // Log final counts
-      console.log("Final TVS counts (deduplicated):");
-      qMap.forEach((value, key) => {
-        console.log(`  ${key}: Accepted=${value.accepted}, Rejected=${value.rejected}, Rework=${value.rework}, Total=${value.accepted + value.rejected + value.rework}`);
+      // 2. Also process responses where biwReview was performed by a TVS reviewer
+      defectChartResponses.forEach((response) => {
+        const reviewerName = (response.biwReview?.reviewedByName || "").toLowerCase();
+        if (reviewerName.includes("tvs")) {
+          const status = response.biwReview?.status;
+          const answersObj = response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers;
+          if (answersObj) {
+            for (const [qId, ans] of Object.entries(answersObj)) {
+              if (ans === null || ans === undefined || qId.includes("chassis") || qId === "chassis_number") continue;
+              const qText = questionTextMap.get(qId) || qId;
+              let ansStatus = "";
+              if (typeof ans === "object" && ans !== null) {
+                ansStatus = (ans as any).status || "";
+              } else if (typeof ans === "string") {
+                ansStatus = ans;
+              }
+              const sLower = ansStatus.toLowerCase().trim();
+              const isDefect = sLower === "rework" || sLower === "rejected" || sLower === "not ok" || sLower === "defect";
+
+              if (!qMap.has(qId)) {
+                qMap.set(qId, { id: qId, text: qText, rejected: 0, rework: 0, accepted: 0 });
+              }
+              const stat = qMap.get(qId)!;
+              if (status === "Rejected" && isDefect) {
+                stat.rejected++;
+              } else if (status === "Reworked" && isDefect) {
+                stat.rework++;
+              } else if (status === "Accepted" && !isDefect) {
+                stat.accepted++;
+              }
+            }
+          }
+        }
       });
 
       let filtered = Array.from(qMap.values()).map(q => ({
@@ -8334,7 +8581,7 @@ export default function FormAnalyticsDashboard() {
       }
 
       return filtered.slice(0, 20);
-    }, [tvsReviews, chartSortOrder]);
+    }, [tvsReviews, defectChartResponses, chartSortOrder, form]);
 
 
     if (
@@ -8430,6 +8677,7 @@ export default function FormAnalyticsDashboard() {
           },
         },
       },
+      
       scales: {
         x: {
           stacked: true,
@@ -11962,6 +12210,7 @@ export default function FormAnalyticsDashboard() {
                             else if (colId === "__chassisNumber") colLabel = "Chassis";
                             else if (colId === "__parentMatch") colLabel = "Parent Match";
                             else if (colId === "__biwReview") colLabel = "BIW Review";
+                            else if (colId === "__review") colLabel = "Review";
                             else if (colId === "__dispatch") colLabel = "Dispatch";
                             else if (colId === "__attemptRank") colLabel = "Attempt";
                             else {
@@ -12486,8 +12735,49 @@ export default function FormAnalyticsDashboard() {
                                 </div>
                               </th>
                             )}
-                            <th className="text-left px-6 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              Review
+                            <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <div
+                                  onClick={() => {
+                                    startFilterTransition(() => {
+                                      setTableSort((prev) =>
+                                        prev?.columnId === "__review"
+                                          ? prev.direction === "asc"
+                                            ? { columnId: "__review", direction: "desc" }
+                                            : null
+                                          : { columnId: "__review", direction: "asc" }
+                                      );
+                                    });
+                                  }}
+                                  className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                  title="Click to sort Review Ascending / Descending"
+                                >
+                                  <span>Review</span>
+                                  {tableSort?.columnId === "__review" ? (
+                                    tableSort.direction === "asc" ? (
+                                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    ) : (
+                                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    )
+                                  ) : (
+                                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
+                                  )}
+                                </div>
+                                <TableColumnFilter
+                                  columnId="__review"
+                                  title="Review"
+                                  options={reviewFilterOptions}
+                                  selectedValues={columnFilters["__review"] || null}
+                                  onFilterChange={(columnId, values) => {
+                                    startFilterTransition(() => {
+                                      setColumnFilters((prev) => ({
+                                        ...prev,
+                                        [columnId]: values,
+                                      }));
+                                    });
+                                  }}
+                                />
+                              </div>
                             </th>
                             <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-44 whitespace-nowrap bg-purple-50 dark:bg-purple-900/20">
                               <div className="flex flex-col items-center gap-1.5 justify-center">
@@ -12841,7 +13131,7 @@ export default function FormAnalyticsDashboard() {
                                                 )}
 
                                                 {/* Review & Discussion */}
-                                                {response.isDispatched && (
+                                                {(response.isDispatched || response.biwReview?.status || reviewedBy[response.id] || (response as any).review) && (
                                                   <button
                                                     onClick={() => {
                                                       setChatResponse(response);
@@ -13303,9 +13593,9 @@ export default function FormAnalyticsDashboard() {
                                             </span>
                                           )}
 
-                                          {/* NEW - Eye icon: once a review is saved (any status), open
-                                              the read-only view modal showing remark/questions/evidence. */}
-                                          {currentStatus && (
+                                          {/* Eye icon: once a review is saved (any status) or chat exists, open
+                                              view modal showing remark/questions/evidence and chassis chat. */}
+                                          {(currentStatus || reviewedBy[response.id] || (response as any).review) && (
                                             <button
                                               type="button"
                                               onClick={(e) => {
@@ -13314,7 +13604,7 @@ export default function FormAnalyticsDashboard() {
                                                 setShowBiwViewModal(true);
                                               }}
                                               className="flex items-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300 border-t border-gray-200 dark:border-gray-700 pt-1.5 mt-0.5"
-                                              title="View BIW review details"
+                                              title="View BIW review & chassis chat"
                                             >
                                               <Eye className="w-3.5 h-3.5" />
                                               <span>View</span>
@@ -14806,120 +15096,258 @@ export default function FormAnalyticsDashboard() {
       )}
 
       {/* NEW - BIW Review Eye/View Modal (read-only) */}
-      {showBiwViewModal && biwViewResponse && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-md w-full max-h-[85vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-                BIW Review Details
-              </h3>
-              <button
-                onClick={() => {
-                  setShowBiwViewModal(false);
-                  setBiwViewResponse(null);
-                }}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {showBiwViewModal && biwViewResponse && (() => {
+        const biwRev = biwViewResponse.biwReview;
+        const localRev = reviewedBy[biwViewResponse.id];
+        const legacyRev = (biwViewResponse as any).review;
+        const currentReviewStatus = biwRev?.status || localRev?.option || localRev?.status || legacyRev?.status || "";
+        const currentReviewerName = biwRev?.reviewedByName || localRev?.reviewer || localRev?.name || legacyRev?.reviewer || legacyRev?.name || "Reviewer";
+        const currentReviewedAt = biwRev?.reviewedAt || legacyRev?.createdAt;
+        const chassisVal = getResponseChassisValue(biwViewResponse);
 
-            <div className="px-5 py-4 space-y-4 overflow-y-auto">
-              {/* Status */}
-              <div className="flex items-center gap-2">
-                {biwViewResponse.biwReview?.status === "Accepted" && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                    <CheckCircle className="w-3.5 h-3.5" /> Accepted
-                  </span>
-                )}
-                {biwViewResponse.biwReview?.status === "Rejected" && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                    <XCircle className="w-3.5 h-3.5" /> Rejected
-                  </span>
-                )}
-                {biwViewResponse.biwReview?.status === "Reworked" && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
-                    <RotateCcw className="w-3.5 h-3.5" /> Rework
-                  </span>
-                )}
-              </div>
-
-              {/* Reviewer / date */}
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Reviewed by{" "}
-                <span className="font-semibold text-gray-700 dark:text-gray-300">
-                  {biwViewResponse.biwReview?.reviewedByName || "Reviewer"}
-                </span>
-                {biwViewResponse.biwReview?.reviewedAt && (
-                  <>
-                    {" "}
-                    on{" "}
-                    {new Date(biwViewResponse.biwReview.reviewedAt).toLocaleString()}
-                  </>
-                )}
-              </p>
-
-              {/* Flagged questions */}
-              {biwViewResponse.biwReview?.flaggedQuestions &&
-                biwViewResponse.biwReview.flaggedQuestions.length > 0 && (
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide block mb-1.5">
-                      Flagged Question(s)
-                    </label>
-                    <ul className="space-y-1 list-disc list-inside">
-                      {biwViewResponse.biwReview.flaggedQuestions.map((q, idx) => (
-                        <li key={`${q.questionId}-${idx}`} className="text-xs text-gray-700 dark:text-gray-300">
-                          {q.questionText}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-              {/* Remark */}
-              {biwViewResponse.biwReview?.remark && (
+        return (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-xl w-full max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-150 overflow-hidden border border-gray-200 dark:border-gray-700">
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-gray-800 dark:to-gray-800/80">
                 <div>
-                  <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide block mb-1.5">
-                    Remark
-                  </label>
-                  <p className="text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900/40 p-2.5 rounded-lg whitespace-pre-wrap">
-                    {biwViewResponse.biwReview.remark}
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                      BIW Review & Discussion
+                    </h3>
+                    {chassisVal && chassisVal !== "-" && (
+                      <span className="px-2 py-0.5 text-xs font-mono font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded border border-purple-200 dark:border-purple-800">
+                        Chassis: {chassisVal}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Submitted by: <span className="font-semibold text-gray-700 dark:text-gray-300">{biwViewResponse.submittedBy || "Inspector"}</span>
                   </p>
                 </div>
-              )}
+                <button
+                  onClick={() => {
+                    setShowBiwViewModal(false);
+                    setBiwViewResponse(null);
+                  }}
+                  className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-              {/* Evidence */}
-              {biwViewResponse.biwReview?.evidenceUrl && (
-                <div>
-                  <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide block mb-1.5">
-                    Evidence
-                  </label>
-                  <img
-                    src={biwViewResponse.biwReview.evidenceUrl}
-                    alt="Evidence"
-                    className="w-full max-h-64 object-contain rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer"
-                    onClick={() =>
-                      window.open(biwViewResponse.biwReview!.evidenceUrl!, "_blank")
-                    }
-                  />
+              {/* Scrollable Content */}
+              <div className="px-5 py-4 space-y-4 overflow-y-auto max-h-[calc(90vh-140px)]">
+                {/* Review Status Card */}
+                <div className="bg-gray-50 dark:bg-gray-900/40 p-3.5 rounded-xl border border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      {String(currentReviewStatus).toLowerCase().trim() === "accepted" && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800">
+                          <CheckCircle className="w-3.5 h-3.5" /> Accepted
+                        </span>
+                      )}
+                      {String(currentReviewStatus).toLowerCase().trim() === "rejected" && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800">
+                          <XCircle className="w-3.5 h-3.5" /> Rejected
+                        </span>
+                      )}
+                      {(String(currentReviewStatus).toLowerCase().trim() === "reworked" ||
+                        String(currentReviewStatus).toLowerCase().trim() === "rework") && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800">
+                          <RotateCcw className="w-3.5 h-3.5" /> Rework
+                        </span>
+                      )}
+                      {!currentReviewStatus && (
+                        <span className="text-xs font-medium text-gray-500">No review status recorded yet</span>
+                      )}
+                    </div>
+                    {currentReviewerName && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Reviewed by <span className="font-semibold text-gray-800 dark:text-gray-200">{currentReviewerName}</span>
+                        {currentReviewedAt && (
+                          <span className="text-gray-400 ml-1">
+                            on {new Date(currentReviewedAt).toLocaleString()}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Flagged questions */}
+                  {biwRev?.flaggedQuestions && biwRev.flaggedQuestions.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                      <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide block mb-1">
+                        Flagged Question(s)
+                      </label>
+                      <ul className="space-y-1 list-disc list-inside">
+                        {biwRev.flaggedQuestions.map((q, idx) => (
+                          <li key={`${q.questionId}-${idx}`} className="text-xs text-gray-700 dark:text-gray-300">
+                            {q.questionText}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Remark */}
+                  {biwRev?.remark && (
+                    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                      <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide block mb-1">
+                        Review Remark
+                      </label>
+                      <p className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                        {biwRev.remark}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Evidence Image */}
+                  {biwRev?.evidenceUrl && (
+                    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                      <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide block mb-1.5">
+                        Evidence Image
+                      </label>
+                      <img
+                        src={biwRev.evidenceUrl}
+                        alt="Evidence"
+                        className="w-full max-h-48 object-contain rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:opacity-95 transition-opacity"
+                        onClick={() => window.open(biwRev.evidenceUrl!, "_blank")}
+                        title="Click to view full size"
+                      />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            <div className="flex justify-end px-5 py-4 border-t border-gray-200 dark:border-gray-700">
-              <button
-                onClick={() => {
-                  setShowBiwViewModal(false);
-                  setBiwViewResponse(null);
-                }}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors font-medium text-sm"
-              >
-                Close
-              </button>
+                {/* Chassis Chat & Discussion History */}
+                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <MessageCircle className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                      <span className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider">
+                        Chassis Discussion & Chat ({biwChatMessages.length})
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChatResponse(biwViewResponse);
+                        setShowBiwViewModal(false);
+                        setShowChatModal(true);
+                      }}
+                      className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors"
+                      title="Open full interactive review & discussion modal"
+                    >
+                      Open Full Discussion →
+                    </button>
+                  </div>
+
+                  {/* Chat messages stream */}
+                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-3 border border-gray-200 dark:border-gray-700 max-h-56 overflow-y-auto space-y-2.5">
+                    {isLoadingBiwChat ? (
+                      <div className="flex items-center justify-center py-6 text-xs text-gray-500 gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                        Loading chassis chat history...
+                      </div>
+                    ) : biwChatMessages.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-gray-400 dark:text-gray-500">
+                        No discussion messages yet for this chassis. Send a note or message below.
+                      </div>
+                    ) : (
+                      biwChatMessages.map((msg: any, i: number) => {
+                        const isMe =
+                          msg.from?._id === user?._id ||
+                          msg.from === user?._id ||
+                          msg.fromEmail === user?.email;
+                        const senderName =
+                          msg.from?.name ||
+                          msg.from?.username ||
+                          msg.fromEmail ||
+                          "User";
+                        const timeStr = msg.createdAt
+                          ? new Date(msg.createdAt).toLocaleString([], {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "";
+
+                        return (
+                          <div
+                            key={msg._id || i}
+                            className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
+                          >
+                            <div className="flex items-center gap-1.5 mb-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                              <span className="font-semibold text-gray-700 dark:text-gray-300">
+                                {isMe ? "You" : senderName}
+                              </span>
+                              {timeStr && <span>• {timeStr}</span>}
+                            </div>
+                            <div
+                              className={`px-3 py-2 rounded-xl text-xs max-w-[85%] break-words shadow-2xs ${
+                                isMe
+                                  ? "bg-indigo-600 text-white rounded-br-xs"
+                                  : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-bl-xs"
+                              }`}
+                            >
+                              <p className="whitespace-pre-wrap">{msg.message}</p>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Reply Input */}
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={biwNewMessage}
+                      onChange={(e) => setBiwNewMessage(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendBiwChatMessage();
+                        }
+                      }}
+                      placeholder="Type a message or note for this chassis..."
+                      className="flex-1 px-3 py-2 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      disabled={isSendingBiwMessage}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSendBiwChatMessage}
+                      disabled={isSendingBiwMessage || !biwNewMessage.trim()}
+                      className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      title="Send Message"
+                    >
+                      {isSendingBiwMessage ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex justify-end px-5 py-3.5 border-t border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
+                <button
+                  onClick={() => {
+                    setShowBiwViewModal(false);
+                    setBiwViewResponse(null);
+                  }}
+                  className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors font-medium text-xs"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Bulk Dispatch Confirmation Modal */}
       {showBulkDispatchConfirm && (

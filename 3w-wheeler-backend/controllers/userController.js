@@ -1186,17 +1186,23 @@ export const getBulkReviewsForResponses = async (req, res) => {
     }
 
     const Review = mongoose.model('Review');
-    const reviews = await Review.find({ responseId: { $in: responseIds } }).sort({ createdAt: -1 }).lean();
+    const reviews = await Review.find({
+      $or: [
+        { responseId: { $in: responseIds } },
+        { response_id: { $in: responseIds } }
+      ]
+    }).sort({ createdAt: -1 }).lean();
 
     const formattedReviews = reviews.map(review => ({
       id: review._id,
-      responseId: review.responseId,
+      responseId: review.responseId || review.response_id,
       reviewer: {
         id: review.reviewerId,
         name: review.reviewerName || 'Unknown',
         email: review.reviewerEmail || ''
       },
-      option: review.reviewOption,
+      reviewOption: review.reviewOption || review.option,
+      option: review.reviewOption || review.option,
       scoreChange: review.scoreChange,
       createdAt: review.createdAt
     }));
