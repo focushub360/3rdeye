@@ -21,7 +21,7 @@ import {
   generateBiwEmailSummaryHtml,
   type BiwExcelRow
 } from "../../utils/biwReviewExcelUtils";
-import { ApiClient } from "../../api/client";
+import { apiClient } from "../../api/client";
 import type { Form } from "../../types/forms";
 
 interface BiwReviewExcelModalProps {
@@ -108,7 +108,6 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
     setImportResult(null);
 
     try {
-      const apiClient = ApiClient.getInstance();
       const res = await apiClient.importBiwReviews(
         formId,
         parsedRows,

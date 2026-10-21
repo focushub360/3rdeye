@@ -3794,4 +3794,4 @@ class ApiClient {
 
 // Create and export a singleton instance
 export const apiClient = new ApiClient();
-export { ApiError };
+export { ApiClient, ApiError };
