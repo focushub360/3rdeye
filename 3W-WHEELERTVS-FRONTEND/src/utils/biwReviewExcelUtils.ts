@@ -19,7 +19,7 @@ export interface BiwExcelRow {
 }
 
 export const BIW_REVIEW_COLUMNS = [
-  "Chassis Number",
+  "Che",
   "BIW Feed back(Accept,Rework,Reject)",
   "Rework and Rejected Resion (Rust..)",
   "Remark",
@@ -45,35 +45,71 @@ const STANDARD_DEFECTS = [
 ];
 
 /**
- * Extracts defect checkpoint questions from the active form.
+ * Extracts defect checkpoint questions from the active form and current responses.
  */
-export function extractFormDefectReasons(form?: Form | null): string[] {
+export function extractFormDefectReasons(form?: Form | null, responses?: any[]): string[] {
   const defectReasons: string[] = [];
 
+  const addReason = (txt?: string) => {
+    if (!txt || typeof txt !== "string") return;
+    const clean = txt.trim();
+    if (!clean || clean.length < 2) return;
+    const lower = clean.toLowerCase();
+    // Exclude purely administrative/meta fields
+    if (
+      lower === "signature" ||
+      lower.includes("geo location") ||
+      lower.includes("gps") ||
+      lower.includes("inspector name") ||
+      lower.includes("timestamp") ||
+      lower.includes("chassis")
+    ) {
+      return;
+    }
+    if (!defectReasons.includes(clean)) {
+      defectReasons.push(clean);
+    }
+  };
+
+  // 1. Extract from form sections
   if (form?.sections && Array.isArray(form.sections)) {
     form.sections.forEach((sec: Section) => {
       if (sec.questions && Array.isArray(sec.questions)) {
-        sec.questions.forEach((q: Question) => {
-          if (q.text && typeof q.text === "string") {
-            const cleanText = q.text.trim();
-            if (cleanText && !defectReasons.includes(cleanText)) {
-              defectReasons.push(cleanText);
-            }
+        sec.questions.forEach((q: any) => {
+          addReason(q.text || q.title);
+        });
+      }
+    });
+  }
+
+  // 2. Extract from root form questions (question-wise mode)
+  if ((form as any)?.questions && Array.isArray((form as any).questions)) {
+    (form as any).questions.forEach((q: any) => {
+      addReason(q.text || q.title);
+    });
+  }
+
+  // 3. Fallback to response answer keys/titles if available
+  if (responses && Array.isArray(responses)) {
+    responses.forEach((resp) => {
+      if (resp.answers && typeof resp.answers === "object") {
+        Object.keys(resp.answers).forEach((k) => {
+          if (!k.startsWith("_") && k.length > 2) {
+            addReason(k);
           }
         });
       }
     });
   }
 
-  // Combine form checkpoints with standard defect terms, avoiding duplicates
-  const combined = [...defectReasons];
+  // 4. Combine form checkpoints with standard defect terms
   STANDARD_DEFECTS.forEach((d) => {
-    if (!combined.some((item) => item.toLowerCase() === d.toLowerCase())) {
-      combined.push(d);
+    if (!defectReasons.some((item) => item.toLowerCase() === d.toLowerCase())) {
+      defectReasons.push(d);
     }
   });
 
-  return combined;
+  return defectReasons;
 }
 
 /**
@@ -83,11 +119,12 @@ export function downloadBiwReviewTemplate(options: {
   form?: Form | null;
   formTitle?: string;
   chassisNumbers?: string[];
+  responses?: any[];
   filename?: string;
 }) {
-  const { form, formTitle, chassisNumbers = [], filename } = options;
+  const { form, formTitle, chassisNumbers = [], responses = [], filename } = options;
 
-  const defectOptions = extractFormDefectReasons(form);
+  const defectOptions = extractFormDefectReasons(form, responses);
   const statusOptions = ["Accepted", "Rework", "Rejected"];
 
   // 1. Prepare Main Sheet Data (Header + Rows)
@@ -96,11 +133,11 @@ export function downloadBiwReviewTemplate(options: {
   // Header row
   mainSheetData.push(BIW_REVIEW_COLUMNS);
 
-  // Prefill chassis numbers or 10 empty sample rows
+  // Prefill chassis numbers or 15 sample rows
   const targetChassis = chassisNumbers.length > 0 ? chassisNumbers : Array.from({ length: 15 }, (_, i) => `CH-${1000 + i}`);
   targetChassis.forEach((chassis) => {
     mainSheetData.push([
-      chassis, // Col 1: Chassis Number
+      chassis, // Col 1: Che
       "",      // Col 2: BIW Feed back
       "",      // Col 3: BIW Reason
       "",      // Col 4: BIW Remark
@@ -117,15 +154,15 @@ export function downloadBiwReviewTemplate(options: {
 
   // Column widths
   mainWs["!cols"] = [
-    { wch: 18 }, // Chassis Number
-    { wch: 32 }, // BIW Feed back(Accept,Rework,Reject)
-    { wch: 34 }, // Rework and Rejected Resion (Rust..)
-    { wch: 22 }, // Remark
+    { wch: 20 }, // Che
+    { wch: 34 }, // BIW Feed back(Accept,Rework,Reject)
+    { wch: 36 }, // Rework and Rejected Resion (Rust..)
+    { wch: 24 }, // Remark
     { wch: 22 }, // File Upload
     { wch: 20 }, // TVS Feed back
-    { wch: 26 }, // Rework Resion (Rust..)
-    { wch: 34 }, // Rework and Rejected Resion (Rust..)
-    { wch: 22 }, // Remark
+    { wch: 28 }, // Rework Resion (Rust..)
+    { wch: 36 }, // Rework and Rejected Resion (Rust..)
+    { wch: 24 }, // Remark
     { wch: 22 }  // File Upload
   ];
 
@@ -196,7 +233,7 @@ export function downloadBiwReviewTemplate(options: {
   }
 
   const lookupWs = XLSX_STYLE.utils.aoa_to_sheet(lookupSheetData);
-  lookupWs["!cols"] = [{ wch: 20 }, { wch: 45 }];
+  lookupWs["!cols"] = [{ wch: 20 }, { wch: 50 }];
 
   // 3. Add Data Validation for Dropdowns
   const statusLastRow = statusOptions.length + 1;
@@ -240,12 +277,11 @@ export function downloadBiwReviewTemplate(options: {
 
   // 4. Build Workbook
   const wb = XLSX_STYLE.utils.book_new();
-  XLSX_STYLE.utils.book_append_sheet(wb, mainWs, "BIW Review");
+  XLSX_STYLE.utils.book_append_sheet(wb, mainWs, "BIW template");
   XLSX_STYLE.utils.book_append_sheet(wb, lookupWs, "Lookups");
 
-  const actualFilename =
-    filename ||
-    `BIW_Review_Template_${(formTitle || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const cleanTitle = (formTitle || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_");
+  const actualFilename = filename || `BIW template - ${cleanTitle}.xlsx`;
 
   XLSX_STYLE.writeFile(wb, actualFilename);
 }
@@ -267,12 +303,12 @@ export async function parseBiwReviewWorkbook(file: File): Promise<BiwExcelRow[]>
   const range = XLSX.utils.decode_range(ws["!ref"] || "A1:A1");
   const rows: BiwExcelRow[] = [];
 
-  // Determine starting row: find row containing chassis/che/feedback
+  // Determine starting row: find row containing chassis/che/vin
   let headerRowIndex = 0;
   for (let r = range.s.r; r <= Math.min(range.e.r, 5); r++) {
     const firstCell = ws[XLSX.utils.encode_cell({ r, c: 0 })]?.v;
     const str = String(firstCell || "").trim().toLowerCase();
-    if (str.includes("che") || str.includes("chassis") || str.includes("vin")) {
+    if (str.includes("che") || str.includes("chassis") || str.includes("vin") || str.includes("id")) {
       headerRowIndex = r;
       break;
     }
@@ -328,67 +364,84 @@ export function generateBiwEmailSummaryHtml(options: {
 <div style="font-family: Arial, sans-serif; color: #1e293b; max-width: 800px; margin: 0 auto; line-height: 1.5;">
   <div style="background: linear-gradient(135deg, #1e40af, #3b82f6); padding: 20px; border-radius: 8px 8px 0 0; color: white;">
     <h2 style="margin: 0 0 6px 0; font-size: 20px;">BIW & Inspection Review Report</h2>
-    <p style="margin: 0; font-size: 14px; opacity: 0.9;">Form: <strong>${formTitle}</strong> | Total Units: <strong>${rows.length}</strong> | Date: <strong>${new Date().toLocaleDateString()}</strong></p>
+    <p style="margin: 0; opacity: 0.9; font-size: 13px;">Form: <b>${formTitle}</b> | Date: ${new Date().toLocaleDateString()}</p>
   </div>
-  
-  <div style="padding: 16px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-top: none;">
-    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-      <span style="display: inline-block; padding: 6px 12px; background: #dcfce7; color: #15803d; border-radius: 6px; font-weight: bold; font-size: 13px;">✅ Accepted: ${accepted}</span>
-      <span style="display: inline-block; padding: 6px 12px; background: #fef3c7; color: #b45309; border-radius: 6px; font-weight: bold; font-size: 13px;">⚠️ Rework: ${rework}</span>
-      <span style="display: inline-block; padding: 6px 12px; background: #fee2e2; color: #b91c1c; border-radius: 6px; font-weight: bold; font-size: 13px;">❌ Rejected: ${rejected}</span>
+
+  <div style="padding: 24px; border: 1px solid #e2e8f0; border-top: none; background: #ffffff;">
+    <div style="display: flex; gap: 12px; margin-bottom: 24px;">
+      <div style="flex: 1; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 8px; text-align: center;">
+        <span style="display: block; font-size: 11px; font-weight: bold; color: #166534; text-transform: uppercase;">Accepted</span>
+        <span style="font-size: 24px; font-weight: bold; color: #15803d;">${accepted}</span>
+      </div>
+      <div style="flex: 1; background: #fefce8; border: 1px solid #fef08a; padding: 12px; border-radius: 8px; text-align: center;">
+        <span style="display: block; font-size: 11px; font-weight: bold; color: #854d0e; text-transform: uppercase;">Rework</span>
+        <span style="font-size: 24px; font-weight: bold; color: #a16207;">${rework}</span>
+      </div>
+      <div style="flex: 1; background: #fef2f2; border: 1px solid #fecaca; padding: 12px; border-radius: 8px; text-align: center;">
+        <span style="display: block; font-size: 11px; font-weight: bold; color: #991b1b; text-transform: uppercase;">Rejected</span>
+        <span style="font-size: 24px; font-weight: bold; color: #b91c1c;">${rejected}</span>
+      </div>
     </div>
 
-    <table style="width: 100%; border-collapse: collapse; font-size: 12px; background: white; border: 1px solid #cbd5e1;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 16px;">
       <thead>
-        <tr style="background: #0f172a; color: white; text-align: left;">
-          <th style="padding: 8px; border: 1px solid #cbd5e1;">Chassis</th>
-          <th style="padding: 8px; border: 1px solid #cbd5e1;">BIW Status</th>
-          <th style="padding: 8px; border: 1px solid #cbd5e1;">BIW Defect / Reason</th>
-          <th style="padding: 8px; border: 1px solid #cbd5e1;">Remark</th>
-          <th style="padding: 8px; border: 1px solid #cbd5e1;">TVS Status</th>
-          <th style="padding: 8px; border: 1px solid #cbd5e1;">Evidence</th>
+        <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left;">
+          <th style="padding: 10px 12px; color: #475569;">Chassis No</th>
+          <th style="padding: 10px 12px; color: #475569;">BIW Feedback</th>
+          <th style="padding: 10px 12px; color: #475569;">Defect Reason</th>
+          <th style="padding: 10px 12px; color: #475569;">Remark</th>
+          <th style="padding: 10px 12px; color: #475569;">TVS Feedback</th>
         </tr>
       </thead>
       <tbody>
         ${rows
           .map(
             (r, i) => `
-        <tr style="background-color: ${i % 2 === 0 ? "#ffffff" : "#f8fafc"};">
-          <td style="padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: bold;">${r.chassisNumber}</td>
-          <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">${r.biwFeedback || "-"}</td>
-          <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">${r.biwReason || "-"}</td>
-          <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">${r.biwRemark || r.tvsRemark || "-"}</td>
-          <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">${r.tvsFeedback || "-"}</td>
-          <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">${
-            r.biwFileUrl
-              ? `<a href="${r.biwFileUrl}" target="_blank" style="color: #2563eb; text-decoration: underline;">View File</a>`
-              : "-"
-          }</td>
-        </tr>`
+          <tr style="border-bottom: 1px solid #e2e8f0; background: ${i % 2 === 0 ? "#ffffff" : "#f8fafc"};">
+            <td style="padding: 10px 12px; font-weight: bold; color: #0f172a;">${r.chassisNumber}</td>
+            <td style="padding: 10px 12px;">
+              <span style="padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; background: ${
+                String(r.biwFeedback).toLowerCase().includes("accept")
+                  ? "#dcfce7; color: #166534;"
+                  : String(r.biwFeedback).toLowerCase().includes("rework")
+                  ? "#fef9c3; color: #854d0e;"
+                  : "#fee2e2; color: #991b1b;"
+              }">
+                ${r.biwFeedback || "—"}
+              </span>
+            </td>
+            <td style="padding: 10px 12px; color: #475569;">${r.biwReason || "—"}</td>
+            <td style="padding: 10px 12px; color: #64748b;">${r.biwRemark || "—"}</td>
+            <td style="padding: 10px 12px; color: #475569;">${r.tvsFeedback || "—"}</td>
+          </tr>`
           )
           .join("")}
       </tbody>
     </table>
 
-    <p style="margin-top: 16px; font-size: 11px; color: #64748b;">
-      Generated via Focus 3rd Eye Quality Inspection System ${senderName ? `by ${senderName}` : ""}.
-    </p>
+    <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: right;">
+      Generated via Focus 3rd Eye BIW Review System ${senderName ? `by ${senderName}` : ""}
+    </div>
   </div>
 </div>
-  `.trim();
+`;
 
   const text = `
-BIW & Inspection Review Report
-Form: ${formTitle} | Total Units: ${rows.length} | Date: ${new Date().toLocaleDateString()}
+BIW & TVS REVIEW SUMMARY
+Form: ${formTitle}
+Date: ${new Date().toLocaleDateString()}
+Total Units: ${rows.length} | Accepted: ${accepted} | Rework: ${rework} | Rejected: ${rejected}
 
-Summary:
-- Accepted: ${accepted}
-- Rework: ${rework}
-- Rejected: ${rejected}
-
-Chassis Details:
-${rows.map((r) => `* ${r.chassisNumber}: BIW [${r.biwFeedback || "N/A"}] Reason: ${r.biwReason || "None"} | TVS [${r.tvsFeedback || "N/A"}] Remark: ${r.biwRemark || r.tvsRemark || "None"}`).join("\n")}
-  `.trim();
+CHASSIS UNIT DETAILS:
+----------------------------------------------------------------------------------------------------
+${rows
+  .map(
+    (r) =>
+      `• ${r.chassisNumber} | BIW: ${r.biwFeedback || "N/A"} | Defect: ${r.biwReason || "None"} | Remark: ${r.biwRemark || "None"} | TVS: ${r.tvsFeedback || "N/A"}`
+  )
+  .join("\n")}
+----------------------------------------------------------------------------------------------------
+`;
 
   return { html, text, subject };
 }

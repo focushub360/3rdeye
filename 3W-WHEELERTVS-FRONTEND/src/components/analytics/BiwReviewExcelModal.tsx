@@ -203,7 +203,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
             }`}
           >
             <Download className="w-4 h-4" />
-            Download Review Template (.xlsx)
+            BIW Template
           </button>
           <button
             onClick={() => setActiveTab("email")}
@@ -487,7 +487,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                 className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-600/20 transition-all flex items-center justify-center gap-2"
               >
                 <Download className="w-4 h-4" />
-                Download BIW Review Excel Template (.xlsx)
+                Download BIW Template (.xlsx)
               </button>
             </div>
           )}
