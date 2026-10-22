@@ -598,9 +598,15 @@ const ChassisWithoutZone: React.FC<ChassisWithoutZoneProps> = ({
   const isRejectedOrRework = statusValue === 'Rejected' || statusValue === 'Rework';
 
   const reworkCount = suggestions?.filter(s => {
-    const status = s.answers?.status || (s.value && typeof s.value === 'object' ? s.value.status : null);
-    return status === 'Rework';
+    const st = String(s.answers?.status || (s.value && typeof s.value === 'object' ? s.value.status : s.value) || "").toLowerCase();
+    return st.includes('rework') && !st.includes('completed');
   }).length || 0;
+
+  const prevData = suggestions && suggestions.length > 0 ? getPreviousAttemptData(suggestions[0]) : null;
+  const isPrevRework = Boolean(
+    (prevData?.status && String(prevData.status).toLowerCase().includes('rework') && !String(prevData.status).toLowerCase().includes('completed')) ||
+    reworkCount > 0
+  );
 
   const getPreviousAttemptData = (s: any) => {
     if (!s) return null;
@@ -723,10 +729,26 @@ const ChassisWithoutZone: React.FC<ChassisWithoutZoneProps> = ({
 
   return (
     <div
-      className="space-y-6 bg-gray-50/50 dark:bg-gray-900/20 p-4 rounded-xl border border-gray-100 dark:border-gray-800"
+      className={`space-y-6 p-4 rounded-xl transition-all duration-300 ${
+        isPrevRework
+          ? "border-2 border-amber-400 dark:border-amber-500 bg-amber-50/40 dark:bg-amber-950/20 shadow-[0_0_24px_rgba(245,158,11,0.22)] ring-1 ring-amber-400/50"
+          : "bg-gray-50/50 dark:bg-gray-900/20 border border-gray-100 dark:border-gray-800"
+      }`}
       onFocus={onFocus}
       onBlur={onBlur}
     >
+      {/* Neon Banner for previous attempt rework */}
+      {isPrevRework && (
+        <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 text-white font-black text-xs shadow-md animate-pulse">
+          <div className="flex items-center gap-2">
+            <RotateCcw className="w-4 h-4 stroke-[3]" />
+            <span className="uppercase tracking-wider">⚡ REWORK REQUIRED FROM PREVIOUS ATTEMPT</span>
+          </div>
+          <span className="bg-black/25 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide">
+            Attempt #{prevData?.rank || 1} Rework
+          </span>
+        </div>
+      )}
 
       {/* Step 2: Status Selection */}
       {hasChassis && (
@@ -740,21 +762,30 @@ const ChassisWithoutZone: React.FC<ChassisWithoutZoneProps> = ({
               { id: 'Rework', icon: RotateCcw, color: 'text-amber-500', bg: 'bg-amber-50', darkBg: 'dark:bg-amber-900/20', border: 'border-amber-200' },
               { id: 'Rejected', icon: XCircle, color: 'text-red-500', bg: 'bg-red-50', darkBg: 'dark:bg-red-900/20', border: 'border-red-200' }
             ].map((status) => {
-              const prevData = suggestions && suggestions.length > 0 ? getPreviousAttemptData(suggestions[0]) : null;
-              const isPrevChoice = prevData?.status && prevData.status.toLowerCase() === status.id.toLowerCase();
+              const isSelected = statusValue === status.id;
+              const isReworkButton = status.id === 'Rework';
+              const isReworkHighlight = isReworkButton && (reworkCount > 0 || isPrevChoice || isPrevRework);
+
+              let buttonStyle = "";
+              if (isSelected) {
+                buttonStyle = `${status.bg} ${status.darkBg} ${status.border} ${status.color} shadow-sm ring-4 ring-${status.id === 'Accepted' ? 'emerald' : (status.id === 'Rejected' ? 'red' : 'amber')}-500/10 font-black`;
+              } else if (isReworkHighlight) {
+                // Neon Highlight for RE-REWORK when previous attempt was rework!
+                buttonStyle = "border-2 border-amber-400 dark:border-amber-500 bg-amber-100/90 dark:bg-amber-900/50 text-amber-950 dark:text-amber-100 shadow-[0_0_15px_rgba(245,158,11,0.35)] ring-2 ring-amber-400/50 hover:bg-amber-200 font-black";
+              } else {
+                buttonStyle = "border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-950 text-gray-500 hover:border-gray-300";
+              }
+
               return (
               <button
                 key={status.id}
                 type="button"
                 onClick={() => !disabled && handleStatusChange(status.id)}
                 disabled={disabled}
-                className={`relative flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all duration-200 ${statusValue === status.id
-                    ? `${status.bg} ${status.darkBg} ${status.border} ${status.color} shadow-sm ring-4 ring-${status.id === 'Accepted' ? 'emerald' : (status.id === 'Rejected' ? 'red' : 'amber')}-500/10`
-                    : "border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-950 text-gray-400 hover:border-gray-200"
-                  }`}
+                className={`relative flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all duration-200 cursor-pointer ${buttonStyle}`}
               >
-                <status.icon className={`w-5 h-5 mb-1.5 ${statusValue === status.id ? status.color : 'text-gray-300'}`} />
-                <span className="text-[11px] font-bold uppercase tracking-tight text-center leading-tight">
+                <status.icon className={`w-5 h-5 mb-1.5 ${isSelected ? status.color : (isReworkHighlight ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400')}`} />
+                <span className={`text-[11px] font-bold uppercase tracking-tight text-center leading-tight ${isReworkHighlight && !isSelected ? 'text-amber-950 dark:text-amber-100 font-black' : ''}`}>
                   {status.id === 'Accepted'
                     ? (reworkCount > 0 ? 'REWORK COMPLETED' : 'Accepted')
                     : (status.id === 'Rework' && reworkCount > 0)
@@ -763,8 +794,8 @@ const ChassisWithoutZone: React.FC<ChassisWithoutZoneProps> = ({
                   }
                 </span>
                 {isPrevChoice && (
-                  <span className="mt-1 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700 shadow-2xs">
-                    Prev Attempt #{prevData.rank}
+                  <span className="mt-1 text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500 text-white border border-amber-600 shadow-xs animate-bounce">
+                    Prev Attempt #{prevData?.rank || 1} Rework
                   </span>
                 )}
               </button>

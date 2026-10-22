@@ -676,6 +676,16 @@ export default function QuestionRenderer({
   const suggestedMatches = getSuggestedValue(qId);
   const suggestedValue = Array.isArray(suggestedMatches) ? suggestedMatches[0]?.value : null;
 
+  const wasReworkEarlier = useMemo(() => {
+    if (!Array.isArray(suggestedMatches) || suggestedMatches.length === 0) return false;
+    return suggestedMatches.some((m: any) => {
+      const v = m.value;
+      const statusFromVal = typeof v === "object" && v !== null ? v.status : null;
+      const st = String(statusFromVal || m.status || (typeof v === "string" ? v : "") || "").toLowerCase().trim();
+      return st.includes("rework") && !st.includes("completed") && !st.includes("accept");
+    });
+  }, [suggestedMatches]);
+
   const hasRanked = suggestedMatches && suggestedMatches.length > 0;
   const hasPrevious = previousAnswers.length > 0;
 
@@ -764,10 +774,10 @@ export default function QuestionRenderer({
     const getStatusBadgeStyle = (statusStr: string) => {
       const s = String(statusStr || "").toLowerCase().trim();
       if (s.includes("reject")) {
-        return "bg-rose-50 text-rose-700 border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/60";
+        return "bg-rose-500 text-white font-bold border-rose-600 shadow-xs";
       }
       if (s.includes("rework") && !s.includes("accept") && !s.includes("completed")) {
-        return "bg-amber-50 text-amber-700 border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60";
+        return "bg-gradient-to-r from-amber-500 to-orange-500 text-white font-black border-amber-600 shadow-sm animate-pulse ring-2 ring-amber-400/50";
       }
       if (s.includes("accept") || s.includes("direct ok") || s.includes("ok") || s.includes("completed")) {
         return "bg-emerald-50 text-emerald-700 border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60";
@@ -776,13 +786,21 @@ export default function QuestionRenderer({
     };
 
     return (
-      <div className="mt-3 overflow-hidden rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-900/40 shadow-xs backdrop-blur-xs transition-all animate-in fade-in slide-in-from-top-1 duration-200">
-        <div className="flex items-center justify-between px-3.5 py-2 border-b border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-slate-950/50">
-          <div className="flex items-center gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-300">
-            <History className="w-3.5 h-3.5 text-indigo-500" />
-            <span>Previous Attempt History</span>
+      <div className={`mt-3 overflow-hidden rounded-xl border transition-all duration-300 ${
+        wasReworkEarlier
+          ? "border-2 border-amber-400 dark:border-amber-500 bg-amber-50/70 dark:bg-amber-950/40 shadow-[0_0_16px_rgba(245,158,11,0.25)] ring-1 ring-amber-400/40"
+          : "border-slate-200/80 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-900/40 shadow-xs"
+      }`}>
+        <div className={`flex items-center justify-between px-3.5 py-2 border-b ${
+          wasReworkEarlier
+            ? "border-amber-300 dark:border-amber-800 bg-amber-100/90 dark:bg-amber-900/40 text-amber-950 dark:text-amber-100 font-extrabold"
+            : "border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-slate-950/50 text-slate-700 dark:text-slate-300 font-bold"
+        }`}>
+          <div className="flex items-center gap-2 text-[11px]">
+            <History className={`w-3.5 h-3.5 ${wasReworkEarlier ? "text-amber-600 dark:text-amber-400" : "text-indigo-500"}`} />
+            <span>{wasReworkEarlier ? "⚡ Previous Attempt Defect History (REWORK)" : "Previous Attempt History"}</span>
           </div>
-          <span className="text-[10px] font-bold text-slate-400">
+          <span className={`text-[10px] font-bold ${wasReworkEarlier ? "text-amber-800 dark:text-amber-200 bg-amber-200/70 dark:bg-amber-800/60 px-2 py-0.5 rounded-full" : "text-slate-400"}`}>
             {suggestedMatches.length} record{suggestedMatches.length > 1 ? "s" : ""}
           </span>
         </div>
@@ -1584,7 +1602,11 @@ export default function QuestionRenderer({
 
   return (
     <div
-      className="space-y-3"
+      className={`space-y-3 transition-all duration-300 ${
+        wasReworkEarlier
+          ? "border-2 border-amber-400 dark:border-amber-500 bg-amber-50/20 dark:bg-amber-950/20 shadow-[0_0_20px_rgba(245,158,11,0.2)] ring-1 ring-amber-400/40 rounded-2xl p-4 my-2"
+          : ""
+      }`}
       data-error={!!activeError}
       data-question-id={question.id || (question as any)._id}
       id={`question-${question.id || (question as any)._id}`}
@@ -1671,6 +1693,12 @@ export default function QuestionRenderer({
           <div className="flex flex-wrap items-center gap-2">
             <span>{questionText}</span>
             {question.required && <span className="text-red-500">*</span>}
+            {wasReworkEarlier && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm animate-pulse">
+                <RotateCcw className="w-3 h-3 stroke-[3]" />
+                <span>Rework In Prev Attempt</span>
+              </span>
+            )}
             {loadingRank && (
               <span className="inline-flex items-center">
                 <span className="animate-spin h-3 w-3 border-2 border-blue-500 border-t-transparent rounded-full"></span>
