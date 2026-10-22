@@ -16389,12 +16389,25 @@ export default function FormAnalyticsDashboard() {
         formId={id || ""}
         form={form}
         formTitle={form?.title || "Form Analytics"}
-        currentChassisNumbers={responses.map((r) => r.chassisNumber || (r as any).systemChassisNumber).filter(Boolean)}
+        currentChassisNumbers={Array.from(
+          new Set(
+            responses.flatMap((r) => {
+              const a = r.answers || {};
+              const vals: string[] = [];
+              if (r.chassisNumber) vals.push(String(r.chassisNumber).trim());
+              if ((r as any).systemChassisNumber) vals.push(String((r as any).systemChassisNumber).trim());
+              Object.values(a).forEach((v) => {
+                if (typeof v === "string" && v.trim().length >= 1 && v.trim().length <= 60) {
+                  vals.push(v.trim());
+                }
+              });
+              return vals;
+            }).filter(Boolean)
+          )
+        )}
         onImportSuccess={() => {
           showToast("BIW Reviews imported successfully!", "success");
-          if (typeof fetchResponsesPage === "function" && currentResponsesPage) {
-            fetchResponsesPage(currentResponsesPage);
-          }
+          fetchResponsesPage(responsesPage || 1);
           refreshDashboardData();
         }}
       />

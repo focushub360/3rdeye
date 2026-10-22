@@ -5553,7 +5553,8 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
         { questionId: formKey },
         { questionId: form._id.toString() },
         { formId: formKey },
-        { formId: form._id.toString() }
+        { formId: form._id.toString() },
+        ...(mongoose.Types.ObjectId.isValid(formId) ? [{ formId: new mongoose.Types.ObjectId(formId) }] : [])
       ]
     });
 
@@ -5567,12 +5568,24 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
     const responsesByChassis = new Map();
     for (const resp of accessibleResponses) {
       const chassisList = [resp.chassisNumber, resp.systemChassisNumber];
-      if (resp.answers && typeof resp.answers.forEach === 'function') {
-        resp.answers.forEach((val) => {
-          if (typeof val === 'string' && val.length >= 2 && val.length <= 40) {
-            chassisList.push(val);
-          }
-        });
+
+      // Deeply extract chassis identifiers from answers (plain object, Map, or JSON)
+      if (resp.answers) {
+        let answerObj = resp.answers;
+        if (typeof resp.answers.toJSON === 'function') {
+          answerObj = resp.answers.toJSON();
+        } else if (resp.answers instanceof Map) {
+          answerObj = Object.fromEntries(resp.answers);
+        }
+        if (answerObj && typeof answerObj === 'object') {
+          Object.values(answerObj).forEach((val) => {
+            if (typeof val === 'string' && val.trim().length >= 1 && val.trim().length <= 60) {
+              chassisList.push(val.trim());
+            } else if (val && typeof val === 'object' && val.chassisNumber) {
+              chassisList.push(String(val.chassisNumber).trim());
+            }
+          });
+        }
       }
 
       for (const ch of chassisList) {
@@ -5593,7 +5606,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
     for (let i = 0; i < reviews.length; i++) {
       const row = reviews[i];
       const rawChassis = String(
-        row.chassisNumber || row.chassisNo || row.che || row['Chassis Number'] || row['Che'] || ''
+        row.chassisNumber || row.chassisNo || row.che || row.cha || row['Chassis Number'] || row['chasis number'] || row['Che'] || row['cha'] || ''
       ).trim();
 
       if (!rawChassis) {
@@ -5662,8 +5675,10 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           reviewedAt: new Date(),
           reason: biwReason,
           remark: biwRemark,
-          evidenceUrl: biwFileUrl
+          evidenceUrl: biwFileUrl,
+          flaggedQuestions: biwReason ? [{ questionId: 'biw-excel', questionText: biwReason }] : []
         };
+        targetResponse.markModified('biwReview');
         rowUpdated = true;
       }
 
@@ -5716,6 +5731,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           reason: tvsReason || tvsRejectReason,
           evidenceUrl: tvsFileUrl
         };
+        targetResponse.markModified('review');
         rowUpdated = true;
       }
 
