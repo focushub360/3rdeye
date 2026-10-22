@@ -748,16 +748,17 @@ const ChassisWithoutZone: React.FC<ChassisWithoutZoneProps> = ({
             ].map((status) => {
               const isSelected = statusValue === status.id;
               const isReworkButton = status.id === 'Rework';
-              const isReworkHighlight = isReworkButton && (reworkCount > 0 || isPrevChoice || isPrevRework);
+              const hasChosenOtherStatus = Boolean(statusValue && statusValue !== 'Rework');
+              const isReworkHighlight = isReworkButton && (reworkCount > 0 || isPrevChoice || isPrevRework) && !hasChosenOtherStatus;
 
               let buttonStyle = "";
               if (isSelected) {
                 buttonStyle = `${status.bg} ${status.darkBg} ${status.border} ${status.color} shadow-sm ring-4 ring-${status.id === 'Accepted' ? 'emerald' : (status.id === 'Rejected' ? 'red' : 'amber')}-500/10 font-black`;
               } else if (isReworkHighlight) {
-                // Neon Highlight for RE-REWORK when previous attempt was rework!
+                // Neon Highlight for RE-REWORK when earlier attempt was rework and not yet changed!
                 buttonStyle = "border-2 border-amber-400 dark:border-amber-500 bg-amber-100/90 dark:bg-amber-900/50 text-amber-950 dark:text-amber-100 shadow-[0_0_15px_rgba(245,158,11,0.35)] ring-2 ring-amber-400/50 hover:bg-amber-200 font-black";
               } else {
-                buttonStyle = "border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-950 text-gray-500 hover:border-gray-300";
+                buttonStyle = "border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-950 text-gray-400 hover:border-gray-200";
               }
 
               return (
@@ -768,7 +769,7 @@ const ChassisWithoutZone: React.FC<ChassisWithoutZoneProps> = ({
                 disabled={disabled}
                 className={`relative flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all duration-200 cursor-pointer ${buttonStyle}`}
               >
-                <status.icon className={`w-5 h-5 mb-1.5 ${isSelected ? status.color : (isReworkHighlight ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400')}`} />
+                <status.icon className={`w-5 h-5 mb-1.5 ${isSelected ? status.color : (isReworkHighlight ? 'text-amber-600 dark:text-amber-400' : 'text-gray-300')}`} />
                 <span className={`text-[11px] font-bold uppercase tracking-tight text-center leading-tight ${isReworkHighlight && !isSelected ? 'text-amber-950 dark:text-amber-100 font-black' : ''}`}>
                   {status.id === 'Accepted'
                     ? (reworkCount > 0 ? 'REWORK COMPLETED' : 'Accepted')
@@ -777,8 +778,8 @@ const ChassisWithoutZone: React.FC<ChassisWithoutZoneProps> = ({
                       : status.id
                   }
                 </span>
-                {isPrevChoice && (
-                  <span className="mt-1 text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500 text-white border border-amber-600 shadow-xs animate-bounce">
+                {isPrevChoice && !hasChosenOtherStatus && (
+                  <span className="mt-1 text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500 text-white border border-amber-600 shadow-xs">
                     Prev Attempt #{prevData?.rank || 1} Rework
                   </span>
                 )}

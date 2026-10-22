@@ -140,7 +140,8 @@ const ZoneOut: React.FC<ZoneOutProps> = ({
               ].map((status) => {
                 const isSelected = statusValue === status.id;
                 const isReworkButton = status.id === 'Rework';
-                const isReworkHighlight = isReworkButton && (reworkCount > 0 || isPrevRework);
+                const hasChosenOtherStatus = Boolean(statusValue && statusValue !== 'Rework');
+                const isReworkHighlight = isReworkButton && (reworkCount > 0 || isPrevRework) && !hasChosenOtherStatus;
 
                 let buttonStyle = "";
                 if (isSelected) {
@@ -148,7 +149,7 @@ const ZoneOut: React.FC<ZoneOutProps> = ({
                 } else if (isReworkHighlight) {
                   buttonStyle = "border-2 border-amber-400 dark:border-amber-500 bg-amber-100/90 dark:bg-amber-900/50 text-amber-950 dark:text-amber-100 shadow-[0_0_15px_rgba(245,158,11,0.35)] ring-2 ring-amber-400/50 hover:bg-amber-200 font-black";
                 } else {
-                  buttonStyle = "border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-950 text-gray-500 hover:border-gray-300";
+                  buttonStyle = "border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-950 text-gray-400 hover:border-gray-200";
                 }
 
                 return (
