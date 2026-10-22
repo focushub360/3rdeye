@@ -2399,6 +2399,7 @@ export default function FormAnalyticsDashboard() {
 
   const [responses, setResponses] = useState<Response[]>([]);
   const [form, setForm] = useState<Form | null>(null);
+  const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [isBiwExcelModalOpen, setIsBiwExcelModalOpen] = useState(false);
   const [isBiwDropdownOpen, setIsBiwDropdownOpen] = useState(false);
