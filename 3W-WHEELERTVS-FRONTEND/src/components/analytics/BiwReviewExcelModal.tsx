@@ -118,9 +118,12 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         selectedFile?.name || "BIW_Review_Import.xlsx"
       );
 
-      if (res && res.data) {
-        setImportResult(res.data);
-        if (onImportSuccess && res.data.updatedCount > 0) {
+      // apiClient.request unwraps data.data, so res may already be the result payload
+      const resultData = (res && (res as any).data) ? (res as any).data : res;
+
+      if (resultData && typeof resultData.updatedCount === "number") {
+        setImportResult(resultData);
+        if (onImportSuccess && resultData.updatedCount > 0) {
           onImportSuccess();
         }
       } else {
