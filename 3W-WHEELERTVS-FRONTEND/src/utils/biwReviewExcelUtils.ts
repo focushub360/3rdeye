@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import XLSX_STYLE from "xlsx-js-style";
+import JSZip from "jszip";
 import type { Form, Section, Question } from "../types/forms";
 
 export interface BiwExcelRow {
@@ -19,7 +20,7 @@ export interface BiwExcelRow {
 }
 
 export const BIW_REVIEW_COLUMNS = [
-  "Che",
+  "cha",
   "BIW Feed back(Accept,Rework,Reject)",
   "Rework and Rejected Resion (Rust..)",
   "Remark",
@@ -62,7 +63,8 @@ export function extractFormDefectReasons(form?: Form | null, responses?: any[]):
       lower.includes("gps") ||
       lower.includes("inspector name") ||
       lower.includes("timestamp") ||
-      lower.includes("chassis")
+      lower.includes("chassis") ||
+      lower.includes("date")
     ) {
       return;
     }
@@ -113,9 +115,9 @@ export function extractFormDefectReasons(form?: Form | null, responses?: any[]):
 }
 
 /**
- * Generates and downloads the BIW Review Excel Template with dropdown data validations.
+ * Generates and downloads the BIW Review Excel Template with native OpenXML dropdown data validations.
  */
-export function downloadBiwReviewTemplate(options: {
+export async function downloadBiwReviewTemplate(options: {
   form?: Form | null;
   formTitle?: string;
   chassisNumbers?: string[];
@@ -133,28 +135,33 @@ export function downloadBiwReviewTemplate(options: {
   // Header row
   mainSheetData.push(BIW_REVIEW_COLUMNS);
 
-  // Prefill chassis numbers or 15 sample rows
-  const targetChassis = chassisNumbers.length > 0 ? chassisNumbers : Array.from({ length: 15 }, (_, i) => `CH-${1000 + i}`);
-  targetChassis.forEach((chassis) => {
+  // Filter out system tags like "TVS" or blank values
+  const validChassis = chassisNumbers
+    .map((c) => String(c || "").trim())
+    .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import");
+
+  // If specific chassis numbers are available, prefill them; otherwise provide empty rows with column format
+  const rowsCount = Math.max(validChassis.length, 25);
+  for (let i = 0; i < rowsCount; i++) {
     mainSheetData.push([
-      chassis, // Col 1: Che
-      "",      // Col 2: BIW Feed back
-      "",      // Col 3: BIW Reason
-      "",      // Col 4: BIW Remark
-      "",      // Col 5: BIW File URL
-      "",      // Col 6: TVS Feed back
-      "",      // Col 7: TVS Rework Reason
-      "",      // Col 8: TVS Rework & Rejected Reason
-      "",      // Col 9: TVS Remark
-      ""       // Col 10: TVS File URL
+      validChassis[i] || "", // Col 1: cha
+      "",                    // Col 2: BIW Feed back
+      "",                    // Col 3: BIW Reason
+      "",                    // Col 4: BIW Remark
+      "",                    // Col 5: BIW File URL
+      "",                    // Col 6: TVS Feed back
+      "",                    // Col 7: TVS Rework Reason
+      "",                    // Col 8: TVS Rework & Rejected Reason
+      "",                    // Col 9: TVS Remark
+      ""                     // Col 10: TVS File URL
     ]);
-  });
+  }
 
   const mainWs = XLSX_STYLE.utils.aoa_to_sheet(mainSheetData);
 
   // Column widths
   mainWs["!cols"] = [
-    { wch: 20 }, // Che
+    { wch: 18 }, // cha
     { wch: 34 }, // BIW Feed back(Accept,Rework,Reject)
     { wch: 36 }, // Rework and Rejected Resion (Rust..)
     { wch: 24 }, // Remark
@@ -169,7 +176,6 @@ export function downloadBiwReviewTemplate(options: {
   // Header Styles
   const range = XLSX.utils.decode_range(mainWs["!ref"] || "A1:J1");
 
-  // Style header cells
   for (let c = range.s.c; c <= range.e.c; c++) {
     const cellRef = XLSX.utils.encode_cell({ r: 0, c });
     if (!mainWs[cellRef]) continue;
@@ -235,47 +241,7 @@ export function downloadBiwReviewTemplate(options: {
   const lookupWs = XLSX_STYLE.utils.aoa_to_sheet(lookupSheetData);
   lookupWs["!cols"] = [{ wch: 20 }, { wch: 50 }];
 
-  // 3. Add Data Validation for Dropdowns
-  const statusLastRow = statusOptions.length + 1;
-  const defectLastRow = defectOptions.length + 1;
-  const maxRows = Math.max(500, targetChassis.length + 50);
-
-  const dataValidations: any[] = [
-    // Col B: BIW Feedback (Index 1)
-    {
-      sqref: `B2:B${maxRows}`,
-      type: "list",
-      formula1: `=Lookups!$A$2:$A$${statusLastRow}`
-    },
-    // Col C: BIW Defect Reason (Index 2)
-    {
-      sqref: `C2:C${maxRows}`,
-      type: "list",
-      formula1: `=Lookups!$B$2:$B$${defectLastRow}`
-    },
-    // Col F: TVS Feedback (Index 5)
-    {
-      sqref: `F2:F${maxRows}`,
-      type: "list",
-      formula1: `=Lookups!$A$2:$A$${statusLastRow}`
-    },
-    // Col G: TVS Rework Reason (Index 6)
-    {
-      sqref: `G2:G${maxRows}`,
-      type: "list",
-      formula1: `=Lookups!$B$2:$B$${defectLastRow}`
-    },
-    // Col H: TVS Rework/Reject Reason (Index 7)
-    {
-      sqref: `H2:H${maxRows}`,
-      type: "list",
-      formula1: `=Lookups!$B$2:$B$${defectLastRow}`
-    }
-  ];
-
-  mainWs["!datavalidation"] = dataValidations;
-
-  // 4. Build Workbook
+  // 3. Build Initial Workbook
   const wb = XLSX_STYLE.utils.book_new();
   XLSX_STYLE.utils.book_append_sheet(wb, mainWs, "BIW template");
   XLSX_STYLE.utils.book_append_sheet(wb, lookupWs, "Lookups");
@@ -283,7 +249,44 @@ export function downloadBiwReviewTemplate(options: {
   const cleanTitle = (formTitle || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_");
   const actualFilename = filename || `BIW template - ${cleanTitle}.xlsx`;
 
-  XLSX_STYLE.writeFile(wb, actualFilename);
+  // 4. Generate array buffer and inject native OpenXML dataValidations via JSZip
+  const initialBuf = XLSX_STYLE.write(wb, { type: "array", bookType: "xlsx" });
+  const zip = await JSZip.loadAsync(initialBuf);
+  let sheet1Xml = await zip.file("xl/worksheets/sheet1.xml")?.async("text");
+
+  if (sheet1Xml) {
+    const defectLastRow = defectOptions.length + 1;
+    // Native OpenXML dataValidations: sqref applies to row 2 through 2000 fully
+    const dataValidationsXml =
+      `<dataValidations count="5">` +
+      `<dataValidation sqref="B2:B2000" allowBlank="1" type="list"><formula1>&quot;Accepted,Rework,Rejected&quot;</formula1></dataValidation>` +
+      `<dataValidation sqref="C2:C2000" allowBlank="1" type="list"><formula1>Lookups!$B$2:$B$${defectLastRow}</formula1></dataValidation>` +
+      `<dataValidation sqref="F2:F2000" allowBlank="1" type="list"><formula1>&quot;Accepted,Rework,Rejected&quot;</formula1></dataValidation>` +
+      `<dataValidation sqref="G2:G2000" allowBlank="1" type="list"><formula1>Lookups!$B$2:$B$${defectLastRow}</formula1></dataValidation>` +
+      `<dataValidation sqref="H2:H2000" allowBlank="1" type="list"><formula1>Lookups!$B$2:$B$${defectLastRow}</formula1></dataValidation>` +
+      `</dataValidations>`;
+
+    let insertPos = sheet1Xml.indexOf("<pageMargins");
+    if (insertPos === -1) insertPos = sheet1Xml.indexOf("</worksheet>");
+
+    sheet1Xml = sheet1Xml.slice(0, insertPos) + dataValidationsXml + sheet1Xml.slice(insertPos);
+    zip.file("xl/worksheets/sheet1.xml", sheet1Xml);
+  }
+
+  // 5. Generate final Blob with dataValidations and trigger browser download
+  const finalBlob = await zip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  });
+
+  const url = URL.createObjectURL(finalBlob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = actualFilename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 /**
@@ -303,12 +306,12 @@ export async function parseBiwReviewWorkbook(file: File): Promise<BiwExcelRow[]>
   const range = XLSX.utils.decode_range(ws["!ref"] || "A1:A1");
   const rows: BiwExcelRow[] = [];
 
-  // Determine starting row: find row containing chassis/che/vin
+  // Determine starting row: find row containing cha/che/chassis/vin
   let headerRowIndex = 0;
   for (let r = range.s.r; r <= Math.min(range.e.r, 5); r++) {
     const firstCell = ws[XLSX.utils.encode_cell({ r, c: 0 })]?.v;
     const str = String(firstCell || "").trim().toLowerCase();
-    if (str.includes("che") || str.includes("chassis") || str.includes("vin") || str.includes("id")) {
+    if (str.includes("cha") || str.includes("che") || str.includes("vin") || str.includes("id")) {
       headerRowIndex = r;
       break;
     }
@@ -386,7 +389,7 @@ export function generateBiwEmailSummaryHtml(options: {
     <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 16px;">
       <thead>
         <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left;">
-          <th style="padding: 10px 12px; color: #475569;">Chassis No</th>
+          <th style="padding: 10px 12px; color: #475569;">cha</th>
           <th style="padding: 10px 12px; color: #475569;">BIW Feedback</th>
           <th style="padding: 10px 12px; color: #475569;">Defect Reason</th>
           <th style="padding: 10px 12px; color: #475569;">Remark</th>

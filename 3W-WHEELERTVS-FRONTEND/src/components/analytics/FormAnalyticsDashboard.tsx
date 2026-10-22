@@ -8427,18 +8427,26 @@ export default function FormAnalyticsDashboard() {
 
             {/* Direct BIW Template Download */}
             <button
-              onClick={() => {
-                const targetChassis = (responses || [])
-                  .map((r) => r.chassisNumber || (r as any).systemChassisNumber || (r as any).answers?.chassisNumber || (r as any).answers?.che)
-                  .filter(Boolean);
-                downloadBiwReviewTemplate({
-                  form,
-                  formTitle: form?.title || "Muffler",
-                  chassisNumbers: targetChassis,
-                  responses,
-                  filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
-                });
-                showToast("BIW template downloaded successfully!", "success");
+              onClick={async () => {
+                try {
+                  const targetChassis = (responses || [])
+                    .map((r) => {
+                      const a = r.answers || {};
+                      const val = a["Identification no"] || a["identification no"] || a["Identification No"] || a["chassisNumber"] || a["cha"] || a["che"] || (r.chassisNumber && r.chassisNumber !== "TVS" && r.chassisNumber !== "Excel Import" ? r.chassisNumber : "");
+                      return String(val || "").trim();
+                    })
+                    .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import");
+                  await downloadBiwReviewTemplate({
+                    form,
+                    formTitle: form?.title || "Muffler",
+                    chassisNumbers: targetChassis,
+                    responses,
+                    filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
+                  });
+                  showToast("BIW template downloaded successfully!", "success");
+                } catch (err: any) {
+                  showToast(`Failed to generate template: ${err.message || err}`, "error");
+                }
               }}
               className="px-2.5 py-1 text-[10px] sm:text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg transition-all flex items-center gap-1 shadow-xs"
               title="Download BIW Template Excel with form defect checkpoints dropdown"
@@ -11583,18 +11591,26 @@ export default function FormAnalyticsDashboard() {
                   )}
                 </button>
                 <button
-                  onClick={() => {
-                    const targetChassis = (responses || [])
-                      .map((r) => r.chassisNumber || (r as any).systemChassisNumber || (r as any).answers?.chassisNumber || (r as any).answers?.che)
-                      .filter(Boolean);
-                    downloadBiwReviewTemplate({
-                      form,
-                      formTitle: form?.title || "Muffler",
-                      chassisNumbers: targetChassis,
-                      responses,
-                      filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
-                    });
-                    showToast("BIW template downloaded successfully!", "success");
+                  onClick={async () => {
+                    try {
+                      const targetChassis = (responses || [])
+                        .map((r) => {
+                          const a = r.answers || {};
+                          const val = a["Identification no"] || a["identification no"] || a["Identification No"] || a["chassisNumber"] || a["cha"] || a["che"] || (r.chassisNumber && r.chassisNumber !== "TVS" && r.chassisNumber !== "Excel Import" ? r.chassisNumber : "");
+                          return String(val || "").trim();
+                        })
+                        .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import");
+                      await downloadBiwReviewTemplate({
+                        form,
+                        formTitle: form?.title || "Muffler",
+                        chassisNumbers: targetChassis,
+                        responses,
+                        filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
+                      });
+                      showToast("BIW template downloaded successfully!", "success");
+                    } catch (err: any) {
+                      showToast(`Failed to generate template: ${err.message || err}`, "error");
+                    }
                   }}
                   className="px-2.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs"
                   title="Download BIW Template Excel with form defect checkpoints dropdown"
@@ -12049,18 +12065,26 @@ export default function FormAnalyticsDashboard() {
                       </span>
                     </button>
                     <button
-                      onClick={() => {
-                        const targetChassis = (responses || [])
-                          .map((r) => r.chassisNumber || (r as any).systemChassisNumber || (r as any).answers?.chassisNumber || (r as any).answers?.che)
-                          .filter(Boolean);
-                        downloadBiwReviewTemplate({
-                          form,
-                          formTitle: form?.title || "Muffler",
-                          chassisNumbers: targetChassis,
-                          responses,
-                          filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
-                        });
-                        showToast("BIW template downloaded successfully!", "success");
+                      onClick={async () => {
+                        try {
+                          const targetChassis = (responses || [])
+                            .map((r) => {
+                              const a = r.answers || {};
+                              const val = a["Identification no"] || a["identification no"] || a["Identification No"] || a["chassisNumber"] || a["cha"] || a["che"] || (r.chassisNumber && r.chassisNumber !== "TVS" && r.chassisNumber !== "Excel Import" ? r.chassisNumber : "");
+                              return String(val || "").trim();
+                            })
+                            .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import");
+                          await downloadBiwReviewTemplate({
+                            form,
+                            formTitle: form?.title || "Muffler",
+                            chassisNumbers: targetChassis,
+                            responses,
+                            filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
+                          });
+                          showToast("BIW template downloaded successfully!", "success");
+                        } catch (err: any) {
+                          showToast(`Failed to generate template: ${err.message || err}`, "error");
+                        }
                       }}
                       className="px-3 sm:px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm"
                       title="Download BIW Template Excel with form defect checkpoints dropdown"

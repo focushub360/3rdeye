@@ -93,12 +93,16 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
     }
   };
 
-  const handleDownloadTemplate = () => {
-    downloadBiwReviewTemplate({
-      form,
-      formTitle,
-      chassisNumbers: prefillChassis ? uniqueChassisList : []
-    });
+  const handleDownloadTemplate = async () => {
+    try {
+      await downloadBiwReviewTemplate({
+        form,
+        formTitle,
+        chassisNumbers: prefillChassis ? uniqueChassisList : []
+      });
+    } catch (err: any) {
+      alert(`Error downloading template: ${err.message || err}`);
+    }
   };
 
   const handleExecuteImport = async () => {
