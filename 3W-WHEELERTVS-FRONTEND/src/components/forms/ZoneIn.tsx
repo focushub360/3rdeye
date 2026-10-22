@@ -112,26 +112,10 @@ const ZoneIn: React.FC<ZoneInProps> = ({
 
   return (
     <div 
-      className={`space-y-6 p-4 rounded-xl transition-all duration-300 ${
-        isPrevRework
-          ? "border-2 border-amber-400 dark:border-amber-500 bg-amber-50/40 dark:bg-amber-950/20 shadow-[0_0_24px_rgba(245,158,11,0.22)] ring-1 ring-amber-400/50"
-          : "bg-gray-50/50 dark:bg-gray-900/20 border border-gray-100 dark:border-gray-800"
-      }`}
+      className="space-y-6 bg-gray-50/50 dark:bg-gray-900/20 p-4 rounded-xl border border-gray-100 dark:border-gray-800"
       onFocus={onFocus}
       onBlur={onBlur}
     >
-      {/* Neon Banner for previous attempt rework */}
-      {isPrevRework && (
-        <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 text-white font-black text-xs shadow-md animate-pulse">
-          <div className="flex items-center gap-2">
-            <RotateCcw className="w-4 h-4 stroke-[3]" />
-            <span className="uppercase tracking-wider">⚡ REWORK REQUIRED FROM PREVIOUS ATTEMPT</span>
-          </div>
-          <span className="bg-black/25 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide">
-            Rework Detected
-          </span>
-        </div>
-      )}
       {/* Step 1: Chassis Number */}
       {!hideChassisNumber && (
         <div className="space-y-2">
