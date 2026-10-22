@@ -158,25 +158,78 @@ export async function downloadBiwReviewTemplate(options: {
   // Header row
   mainSheetData.push(BIW_REVIEW_COLUMNS);
 
-  // Filter out system tags like "TVS" or blank values
-  const validChassis = chassisNumbers
-    .map((c) => String(c || "").trim())
-    .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import");
+  // Map existing responses by chassis identifiers to pre-load current review status
+  const responseMap = new Map<string, any>();
+  if (responses && Array.isArray(responses)) {
+    responses.forEach((r) => {
+      const a = r.answers || {};
+      const keys: string[] = [
+        r.chassisNumber,
+        (r as any).systemChassisNumber,
+        a["Identification no"],
+        a["identification no"],
+        a["Identification No"],
+        a["chassisNumber"],
+        a["cha"],
+        a["che"]
+      ];
+      Object.values(a).forEach((v) => {
+        if (typeof v === "string" && v.trim().length >= 1 && v.trim().length <= 60) {
+          keys.push(v.trim());
+        }
+      });
+      keys.filter(Boolean).forEach((k) => {
+        const norm = String(k).trim().toUpperCase();
+        if (!responseMap.has(norm)) {
+          responseMap.set(norm, r);
+        }
+      });
+    });
+  }
 
-  // Provide rows: prefill actual chassis numbers if valid, else empty rows ready for entry
+  // Provide rows: prefill actual chassis numbers and their current BIW status
   const rowsCount = Math.max(validChassis.length, 30);
   for (let i = 0; i < rowsCount; i++) {
+    const ch = validChassis[i] || "";
+    const matchedResp = ch ? responseMap.get(ch.toUpperCase()) : null;
+
+    let biwStatus = "";
+    if (matchedResp?.biwReview?.status) {
+      const st = String(matchedResp.biwReview.status).toLowerCase();
+      if (st.includes("accept")) biwStatus = "Accepted";
+      else if (st.includes("reject")) biwStatus = "Rejected";
+      else if (st.includes("rework")) biwStatus = "Rework";
+    }
+
+    const biwReason =
+      matchedResp?.biwReview?.reason ||
+      matchedResp?.biwReview?.flaggedQuestions?.[0]?.questionText ||
+      "";
+    const biwRemark = matchedResp?.biwReview?.remark || "";
+    const biwFileUrl = matchedResp?.biwReview?.evidenceUrl || "";
+
+    let tvsStatus = "";
+    if (matchedResp?.review?.reviewOption) {
+      const st = String(matchedResp.review.reviewOption).toLowerCase();
+      if (st.includes("accept")) tvsStatus = "Accepted";
+      else if (st.includes("reject")) tvsStatus = "Rejected";
+      else if (st.includes("rework")) tvsStatus = "Rework";
+    }
+    const tvsReason = matchedResp?.review?.reason || "";
+    const tvsRemark = matchedResp?.review?.remark || "";
+    const tvsFileUrl = matchedResp?.review?.evidenceUrl || "";
+
     mainSheetData.push([
-      validChassis[i] || "", // Col 1: Chassis Number
-      "",                    // Col 2: BIW Feed back
-      "",                    // Col 3: BIW Reason
-      "",                    // Col 4: BIW Remark
-      "",                    // Col 5: BIW File URL
-      "",                    // Col 6: TVS Feed back
-      "",                    // Col 7: TVS Rework Reason
-      "",                    // Col 8: TVS Rework & Rejected Reason
-      "",                    // Col 9: TVS Remark
-      ""                     // Col 10: TVS File URL
+      ch,          // Col 1: Chassis Number
+      biwStatus,   // Col 2: BIW Feed back (pre-loaded if already reviewed)
+      biwReason,   // Col 3: BIW Reason
+      biwRemark,   // Col 4: BIW Remark
+      biwFileUrl,  // Col 5: BIW File URL
+      tvsStatus,   // Col 6: TVS Feed back
+      tvsReason,   // Col 7: TVS Rework Reason
+      "",          // Col 8: TVS Rework & Rejected Reason
+      tvsRemark,   // Col 9: TVS Remark
+      tvsFileUrl   // Col 10: TVS File URL
     ]);
   }
 

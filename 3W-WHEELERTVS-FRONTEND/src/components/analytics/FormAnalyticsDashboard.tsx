@@ -49,10 +49,10 @@ import {
   Camera,
   Loader2,
   Maximize,
-  RotateCcw,
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  ClipboardCheck,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Pie, Doughnut, Radar } from "react-chartjs-2";
@@ -2399,9 +2399,54 @@ export default function FormAnalyticsDashboard() {
 
   const [responses, setResponses] = useState<Response[]>([]);
   const [form, setForm] = useState<Form | null>(null);
-  const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [isBiwExcelModalOpen, setIsBiwExcelModalOpen] = useState(false);
+  const [isBiwDropdownOpen, setIsBiwDropdownOpen] = useState(false);
+  const biwDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close BIW dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (biwDropdownRef.current && !biwDropdownRef.current.contains(event.target as Node)) {
+        setIsBiwDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Downloads BIW template pre-loaded with current table chassis & reviews
+  const handleDownloadBiwTemplate = async () => {
+    try {
+      const targetChassis = (responses || [])
+        .map((r) => {
+          const a = r.answers || {};
+          const val =
+            a["Identification no"] ||
+            a["identification no"] ||
+            a["Identification No"] ||
+            a["chassisNumber"] ||
+            a["cha"] ||
+            a["che"] ||
+            (r.chassisNumber && r.chassisNumber !== "TVS" && r.chassisNumber !== "Excel Import"
+              ? r.chassisNumber
+              : "");
+          return String(val || "").trim();
+        })
+        .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import");
+
+      await downloadBiwReviewTemplate({
+        form,
+        formTitle: form?.title || "Muffler",
+        chassisNumbers: targetChassis,
+        responses,
+        filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
+      });
+      showToast("BIW template downloaded with current status!", "success");
+    } catch (err: any) {
+      showToast(`Failed to generate template: ${err.message || err}`, "error");
+    }
+  };
   const [isBulkDispatching, setIsBulkDispatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -11590,41 +11635,6 @@ export default function FormAnalyticsDashboard() {
                     <Table className="w-4 h-4" />
                   )}
                 </button>
-                <button
-                  onClick={async () => {
-                    try {
-                      const targetChassis = (responses || [])
-                        .map((r) => {
-                          const a = r.answers || {};
-                          const val = a["Identification no"] || a["identification no"] || a["Identification No"] || a["chassisNumber"] || a["cha"] || a["che"] || (r.chassisNumber && r.chassisNumber !== "TVS" && r.chassisNumber !== "Excel Import" ? r.chassisNumber : "");
-                          return String(val || "").trim();
-                        })
-                        .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import");
-                      await downloadBiwReviewTemplate({
-                        form,
-                        formTitle: form?.title || "Muffler",
-                        chassisNumbers: targetChassis,
-                        responses,
-                        filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
-                      });
-                      showToast("BIW template downloaded successfully!", "success");
-                    } catch (err: any) {
-                      showToast(`Failed to generate template: ${err.message || err}`, "error");
-                    }
-                  }}
-                  className="px-2.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs"
-                  title="Download BIW Template Excel with form defect checkpoints dropdown"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>BIW Template</span>
-                </button>
-                <button
-                  onClick={() => setIsBiwExcelModalOpen(true)}
-                  className="p-1.5 sm:p-2 text-gray-500 hover:text-indigo-600 dark:text-gray-400 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
-                  title="Import BIW Excel / Review Suite"
-                >
-                  <Upload className="w-4 h-4" />
-                </button>
               </div>
             </div>
             {isGuest && (
@@ -12064,43 +12074,65 @@ export default function FormAnalyticsDashboard() {
                         {isExporting ? "Exporting..." : "Export"}
                       </span>
                     </button>
-                    <button
-                      onClick={async () => {
-                        try {
-                          const targetChassis = (responses || [])
-                            .map((r) => {
-                              const a = r.answers || {};
-                              const val = a["Identification no"] || a["identification no"] || a["Identification No"] || a["chassisNumber"] || a["cha"] || a["che"] || (r.chassisNumber && r.chassisNumber !== "TVS" && r.chassisNumber !== "Excel Import" ? r.chassisNumber : "");
-                              return String(val || "").trim();
-                            })
-                            .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import");
-                          await downloadBiwReviewTemplate({
-                            form,
-                            formTitle: form?.title || "Muffler",
-                            chassisNumbers: targetChassis,
-                            responses,
-                            filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
-                          });
-                          showToast("BIW template downloaded successfully!", "success");
-                        } catch (err: any) {
-                          showToast(`Failed to generate template: ${err.message || err}`, "error");
-                        }
-                      }}
-                      className="px-3 sm:px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm"
-                      title="Download BIW Template Excel with form defect checkpoints dropdown"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>BIW Template</span>
-                    </button>
-                    <button
-                      onClick={() => setIsBiwExcelModalOpen(true)}
-                      className="px-3 sm:px-4 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm"
-                      title="Upload Filled BIW Review Excel / Review Suite"
-                    >
-                      <Upload className="w-4 h-4" />
-                      <span className="hidden xs:inline">Import BIW Excel</span>
-                      <span className="xs:hidden">Import</span>
-                    </button>
+                    {/* Unified BIW Review Dropdown */}
+                    <div className="relative inline-block text-left" ref={biwDropdownRef}>
+                      <button
+                        onClick={() => setIsBiwDropdownOpen((prev) => !prev)}
+                        className="px-3 sm:px-4 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm"
+                        title="BIW Review: Download pre-filled template or import & validate review results"
+                      >
+                        <ClipboardCheck className="w-4 h-4" />
+                        <span>BIW Review</span>
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isBiwDropdownOpen ? "rotate-180" : ""}`} />
+                      </button>
+
+                      {isBiwDropdownOpen && (
+                        <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                          <button
+                            onClick={async () => {
+                              setIsBiwDropdownOpen(false);
+                              await handleDownloadBiwTemplate();
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-3 transition-colors"
+                          >
+                            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg text-emerald-600 dark:text-emerald-300">
+                              <Download className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div className="font-semibold text-gray-900 dark:text-white">Download BIW Template</div>
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400">Pre-loads current chassis & BIW status</div>
+                            </div>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setIsBiwDropdownOpen(false);
+                              setIsBiwExcelModalOpen(true);
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
+                          >
+                            <div className="p-2 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg text-indigo-600 dark:text-indigo-300">
+                              <Upload className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div className="font-semibold text-gray-900 dark:text-white">Import & Validate Reviews</div>
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400">Validate chassis & fill review table</div>
+                            </div>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setIsBiwDropdownOpen(false);
+                              setIsBiwExcelModalOpen(true);
+                            }}
+                            className="w-full px-4 py-2 text-left text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
+                          >
+                            <Mail className="w-4 h-4 text-gray-400 ml-1" />
+                            <span>Email Report Summary</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     {selectedResponseIds.length > 0 && !isGuest && (
                       <>
                         <button
