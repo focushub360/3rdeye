@@ -2490,22 +2490,6 @@ export default function FormAnalyticsDashboard() {
     return false;
   });
 
-  // Auto-enable Parent Match column on initial load if user hasn't explicitly set a preference
-  useEffect(() => {
-    const formKey = id || (form as any)?._id || "default";
-    try {
-      const saved = localStorage.getItem(`show_parent_match_${formKey}`);
-      if (saved !== null) {
-        // User has explicitly set a preference, do not override
-        return;
-      }
-    } catch (e) {}
-
-    if (form?.parentFormId || (form?.childForms && form.childForms.length > 0) || responses?.some((r: any) => r.parentResponseId || (r as any).followUpStatus)) {
-      setShowParentMatchColumn(true);
-    }
-  }, [id, form, responses]);
-
   const [tvsReviews, setTvsReviews] = useState<any[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
   const [analyticsView, setAnalyticsView] = useState<"responses" | "dashboard">(() => {
