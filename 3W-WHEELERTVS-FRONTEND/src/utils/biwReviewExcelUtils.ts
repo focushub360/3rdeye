@@ -47,24 +47,44 @@ const STANDARD_DEFECTS = [
 
 /**
  * Extracts defect checkpoint questions from the active form and current responses.
- */
 export function extractFormDefectReasons(form?: Form | null, responses?: any[]): string[] {
   const defectReasons: string[] = [];
+
+  const isUUID = (s: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s) ||
+    /^[0-9a-f]{24}$/i.test(s);
+
+  // Build question text lookup map from form schema
+  const questionMap: Record<string, string> = {};
+  if (form?.sections && Array.isArray(form.sections)) {
+    form.sections.forEach((sec: Section) => {
+      if (sec.questions && Array.isArray(sec.questions)) {
+        sec.questions.forEach((q: any) => {
+          const txt = q.text || q.title || (q as any).question;
+          if (q.id && txt) questionMap[q.id] = txt;
+          if (q._id && txt) questionMap[String(q._id)] = txt;
+        });
+      }
+    });
+  }
 
   const addReason = (txt?: string) => {
     if (!txt || typeof txt !== "string") return;
     const clean = txt.trim();
     if (!clean || clean.length < 2) return;
+    if (isUUID(clean)) return; // Never display raw UUIDs in the dropdown
+
     const lower = clean.toLowerCase();
     // Exclude purely administrative/meta fields
     if (
-      lower === "signature" ||
+      lower.includes("identification") ||
+      lower.includes("chassis") ||
+      lower.includes("signature") ||
       lower.includes("geo location") ||
       lower.includes("gps") ||
       lower.includes("inspector name") ||
       lower.includes("timestamp") ||
-      lower.includes("chassis") ||
-      lower.includes("date")
+      lower.includes("date and part no")
     ) {
       return;
     }
@@ -73,12 +93,12 @@ export function extractFormDefectReasons(form?: Form | null, responses?: any[]):
     }
   };
 
-  // 1. Extract from form sections
+  // 1. Extract from form checkpoint sections
   if (form?.sections && Array.isArray(form.sections)) {
     form.sections.forEach((sec: Section) => {
       if (sec.questions && Array.isArray(sec.questions)) {
         sec.questions.forEach((q: any) => {
-          addReason(q.text || q.title);
+          addReason(q.text || q.title || (q as any).question);
         });
       }
     });
@@ -87,16 +107,18 @@ export function extractFormDefectReasons(form?: Form | null, responses?: any[]):
   // 2. Extract from root form questions (question-wise mode)
   if ((form as any)?.questions && Array.isArray((form as any).questions)) {
     (form as any).questions.forEach((q: any) => {
-      addReason(q.text || q.title);
+      addReason(q.text || q.title || (q as any).question);
     });
   }
 
-  // 3. Fallback to response answer keys/titles if available
+  // 3. Extract from response answers by mapping UUID to question title
   if (responses && Array.isArray(responses)) {
     responses.forEach((resp) => {
       if (resp.answers && typeof resp.answers === "object") {
         Object.keys(resp.answers).forEach((k) => {
-          if (!k.startsWith("_") && k.length > 2) {
+          if (questionMap[k]) {
+            addReason(questionMap[k]);
+          } else if (!isUUID(k) && !k.startsWith("_") && k.length > 2) {
             addReason(k);
           }
         });
