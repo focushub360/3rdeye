@@ -8424,6 +8424,28 @@ export default function FormAnalyticsDashboard() {
                 </svg>
               </button>
             </div>
+
+            {/* Direct BIW Template Download */}
+            <button
+              onClick={() => {
+                const targetChassis = (responses || [])
+                  .map((r) => r.chassisNumber || (r as any).systemChassisNumber || (r as any).answers?.chassisNumber || (r as any).answers?.che)
+                  .filter(Boolean);
+                downloadBiwReviewTemplate({
+                  form,
+                  formTitle: form?.title || "Muffler",
+                  chassisNumbers: targetChassis,
+                  responses,
+                  filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
+                });
+                showToast("BIW template downloaded successfully!", "success");
+              }}
+              className="px-2.5 py-1 text-[10px] sm:text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg transition-all flex items-center gap-1 shadow-xs"
+              title="Download BIW Template Excel with form defect checkpoints dropdown"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>BIW Template</span>
+            </button>
           </div>
         </div>
 
@@ -11559,6 +11581,33 @@ export default function FormAnalyticsDashboard() {
                   ) : (
                     <Table className="w-4 h-4" />
                   )}
+                </button>
+                <button
+                  onClick={() => {
+                    const targetChassis = (responses || [])
+                      .map((r) => r.chassisNumber || (r as any).systemChassisNumber || (r as any).answers?.chassisNumber || (r as any).answers?.che)
+                      .filter(Boolean);
+                    downloadBiwReviewTemplate({
+                      form,
+                      formTitle: form?.title || "Muffler",
+                      chassisNumbers: targetChassis,
+                      responses,
+                      filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
+                    });
+                    showToast("BIW template downloaded successfully!", "success");
+                  }}
+                  className="px-2.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs"
+                  title="Download BIW Template Excel with form defect checkpoints dropdown"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>BIW Template</span>
+                </button>
+                <button
+                  onClick={() => setIsBiwExcelModalOpen(true)}
+                  className="p-1.5 sm:p-2 text-gray-500 hover:text-indigo-600 dark:text-gray-400 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
+                  title="Import BIW Excel / Review Suite"
+                >
+                  <Upload className="w-4 h-4" />
                 </button>
               </div>
             </div>
