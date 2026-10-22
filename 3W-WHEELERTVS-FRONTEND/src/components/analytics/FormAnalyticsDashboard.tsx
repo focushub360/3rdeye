@@ -49,6 +49,7 @@ import {
   Camera,
   Loader2,
   Maximize,
+  RotateCcw,
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
