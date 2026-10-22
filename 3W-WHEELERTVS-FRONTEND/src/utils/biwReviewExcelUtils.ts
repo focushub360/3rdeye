@@ -174,8 +174,12 @@ export async function downloadBiwReviewTemplate(options: {
         a["che"]
       ];
       Object.values(a).forEach((v) => {
-        if (typeof v === "string" && v.trim().length >= 1 && v.trim().length <= 60) {
-          keys.push(v.trim());
+        if (
+          (typeof v === "string" || typeof v === "number") &&
+          String(v).trim().length >= 1 &&
+          String(v).trim().length <= 60
+        ) {
+          keys.push(String(v).trim());
         }
       });
       keys.filter(Boolean).forEach((k) => {

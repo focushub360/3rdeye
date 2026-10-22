@@ -5579,10 +5579,14 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
         }
         if (answerObj && typeof answerObj === 'object') {
           Object.values(answerObj).forEach((val) => {
-            if (typeof val === 'string' && val.trim().length >= 1 && val.trim().length <= 60) {
-              chassisList.push(val.trim());
-            } else if (val && typeof val === 'object' && val.chassisNumber) {
-              chassisList.push(String(val.chassisNumber).trim());
+            if (
+              (typeof val === 'string' || typeof val === 'number') &&
+              String(val).trim().length >= 1 &&
+              String(val).trim().length <= 60
+            ) {
+              chassisList.push(String(val).trim());
+            } else if (val && typeof val === 'object' && (val.chassisNumber || val.chassis)) {
+              chassisList.push(String(val.chassisNumber || val.chassis).trim());
             }
           });
         }
