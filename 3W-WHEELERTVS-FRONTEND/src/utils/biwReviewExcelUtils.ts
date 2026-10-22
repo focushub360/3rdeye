@@ -187,6 +187,22 @@ export async function downloadBiwReviewTemplate(options: {
     });
   }
 
+  // Filter out system tags like "TVS" or blank values and collect unique chassis numbers
+  let validChassis = Array.from(
+    new Set(
+      chassisNumbers
+        .map((c) => String(c || "").trim())
+        .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import")
+    )
+  );
+
+  // If no chassis was explicitly passed, extract from responses
+  if (validChassis.length === 0 && responseMap.size > 0) {
+    validChassis = Array.from(responseMap.keys()).filter(
+      (k) => k.toUpperCase() !== "TVS" && k !== "EXCEL IMPORT"
+    );
+  }
+
   // Provide rows: prefill actual chassis numbers and their current BIW status
   const rowsCount = Math.max(validChassis.length, 30);
   for (let i = 0; i < rowsCount; i++) {
