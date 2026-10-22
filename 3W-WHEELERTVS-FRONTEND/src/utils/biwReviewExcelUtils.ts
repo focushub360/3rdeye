@@ -140,8 +140,8 @@ export async function downloadBiwReviewTemplate(options: {
     .map((c) => String(c || "").trim())
     .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import");
 
-  // If specific chassis numbers are available, prefill them; otherwise provide empty rows with column format
-  const rowsCount = Math.max(validChassis.length, 25);
+  // Provide rows: prefill actual chassis numbers if valid, else empty rows ready for entry
+  const rowsCount = Math.max(validChassis.length, 30);
   for (let i = 0; i < rowsCount; i++) {
     mainSheetData.push([
       validChassis[i] || "", // Col 1: cha
@@ -252,21 +252,34 @@ export async function downloadBiwReviewTemplate(options: {
   // 4. Generate array buffer and inject native OpenXML dataValidations via JSZip
   const initialBuf = XLSX_STYLE.write(wb, { type: "array", bookType: "xlsx" });
   const zip = await JSZip.loadAsync(initialBuf);
-  let sheet1Xml = await zip.file("xl/worksheets/sheet1.xml")?.async("text");
 
-  if (sheet1Xml) {
+  // 4a. Add Defined Name for DefectList in workbook.xml (Universal Excel cross-sheet validation)
+  let wbXml = await zip.file("xl/workbook.xml")?.async("text");
+  if (wbXml) {
     const defectLastRow = defectOptions.length + 1;
-    // Native OpenXML dataValidations: sqref applies to row 2 through 2000 fully
+    const definedNamesXml = `<definedNames><definedName name="DefectList">Lookups!$B$2:$B$${defectLastRow}</definedName></definedNames>`;
+    if (wbXml.includes("<definedNames>")) {
+      wbXml = wbXml.replace("</definedNames>", `<definedName name="DefectList">Lookups!$B$2:$B$${defectLastRow}</definedName></definedNames>`);
+    } else {
+      wbXml = wbXml.replace("</sheets>", `</sheets>${definedNamesXml}`);
+    }
+    zip.file("xl/workbook.xml", wbXml);
+  }
+
+  // 4b. Add dataValidations in sheet1.xml (strictly BEFORE <ignoredErrors or </worksheet>)
+  let sheet1Xml = await zip.file("xl/worksheets/sheet1.xml")?.async("text");
+  if (sheet1Xml) {
     const dataValidationsXml =
       `<dataValidations count="5">` +
       `<dataValidation sqref="B2:B2000" allowBlank="1" type="list"><formula1>&quot;Accepted,Rework,Rejected&quot;</formula1></dataValidation>` +
-      `<dataValidation sqref="C2:C2000" allowBlank="1" type="list"><formula1>Lookups!$B$2:$B$${defectLastRow}</formula1></dataValidation>` +
+      `<dataValidation sqref="C2:C2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
       `<dataValidation sqref="F2:F2000" allowBlank="1" type="list"><formula1>&quot;Accepted,Rework,Rejected&quot;</formula1></dataValidation>` +
-      `<dataValidation sqref="G2:G2000" allowBlank="1" type="list"><formula1>Lookups!$B$2:$B$${defectLastRow}</formula1></dataValidation>` +
-      `<dataValidation sqref="H2:H2000" allowBlank="1" type="list"><formula1>Lookups!$B$2:$B$${defectLastRow}</formula1></dataValidation>` +
+      `<dataValidation sqref="G2:G2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
+      `<dataValidation sqref="H2:H2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
       `</dataValidations>`;
 
-    let insertPos = sheet1Xml.indexOf("<pageMargins");
+    let insertPos = sheet1Xml.indexOf("<ignoredErrors");
+    if (insertPos === -1) insertPos = sheet1Xml.indexOf("<pageMargins");
     if (insertPos === -1) insertPos = sheet1Xml.indexOf("</worksheet>");
 
     sheet1Xml = sheet1Xml.slice(0, insertPos) + dataValidationsXml + sheet1Xml.slice(insertPos);
