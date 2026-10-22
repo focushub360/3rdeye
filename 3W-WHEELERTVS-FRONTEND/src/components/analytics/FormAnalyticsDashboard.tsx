@@ -2417,13 +2417,20 @@ export default function FormAnalyticsDashboard() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Downloads BIW template pre-loaded with current table chassis & reviews
+  // Downloads BIW template pre-loaded with current table chassis & reviews according to any active form
   const handleDownloadBiwTemplate = async () => {
     try {
       const targetChassis = (responses || [])
         .map((r) => {
           const a = r.answers || {};
+          const tracked = chassisQuestionId ? a[chassisQuestionId] : null;
+          const trackedVal =
+            typeof tracked === "object"
+              ? tracked?.chassisNumber || tracked?.value || tracked?.label
+              : tracked;
+
           const val =
+            trackedVal ||
             a["Identification no"] ||
             a["identification no"] ||
             a["Identification No"] ||
@@ -2439,7 +2446,7 @@ export default function FormAnalyticsDashboard() {
 
       await downloadBiwReviewTemplate({
         form,
-        formTitle: form?.title || "Muffler",
+        formTitle: form?.title || "Inspection",
         chassisNumbers: targetChassis,
         responses,
         filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
@@ -16430,6 +16437,11 @@ export default function FormAnalyticsDashboard() {
               const vals: string[] = [];
               if (r.chassisNumber) vals.push(String(r.chassisNumber).trim());
               if ((r as any).systemChassisNumber) vals.push(String((r as any).systemChassisNumber).trim());
+              if (chassisQuestionId && a[chassisQuestionId] !== undefined) {
+                const tr = a[chassisQuestionId];
+                const trVal = typeof tr === "object" ? tr?.chassisNumber || tr?.value : tr;
+                if (trVal) vals.push(String(trVal).trim());
+              }
               Object.values(a).forEach((v) => {
                 if (
                   (typeof v === "string" || typeof v === "number") &&
