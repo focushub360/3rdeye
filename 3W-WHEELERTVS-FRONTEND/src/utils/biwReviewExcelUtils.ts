@@ -47,6 +47,7 @@ const STANDARD_DEFECTS = [
 
 /**
  * Extracts defect checkpoint questions from the active form and current responses.
+ */
 export function extractFormDefectReasons(form?: Form | null, responses?: any[]): string[] {
   const defectReasons: string[] = [];
 
