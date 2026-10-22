@@ -20,7 +20,7 @@ export interface BiwExcelRow {
 }
 
 export const BIW_REVIEW_COLUMNS = [
-  "cha",
+  "Chassis Number",
   "BIW Feed back(Accept,Rework,Reject)",
   "Rework and Rejected Resion (Rust..)",
   "Remark",
@@ -127,7 +127,7 @@ export async function downloadBiwReviewTemplate(options: {
   const { form, formTitle, chassisNumbers = [], responses = [], filename } = options;
 
   const defectOptions = extractFormDefectReasons(form, responses);
-  const statusOptions = ["Accepted", "Rework", "Rejected"];
+  const statusOptions = ["Accepted", "Rejected", "Rework"];
 
   // 1. Prepare Main Sheet Data (Header + Rows)
   const mainSheetData: any[][] = [];
@@ -144,7 +144,7 @@ export async function downloadBiwReviewTemplate(options: {
   const rowsCount = Math.max(validChassis.length, 30);
   for (let i = 0; i < rowsCount; i++) {
     mainSheetData.push([
-      validChassis[i] || "", // Col 1: cha
+      validChassis[i] || "", // Col 1: Chassis Number
       "",                    // Col 2: BIW Feed back
       "",                    // Col 3: BIW Reason
       "",                    // Col 4: BIW Remark
@@ -161,7 +161,7 @@ export async function downloadBiwReviewTemplate(options: {
 
   // Column widths
   mainWs["!cols"] = [
-    { wch: 18 }, // cha
+    { wch: 22 }, // Chassis Number
     { wch: 34 }, // BIW Feed back(Accept,Rework,Reject)
     { wch: 36 }, // Rework and Rejected Resion (Rust..)
     { wch: 24 }, // Remark
@@ -253,13 +253,18 @@ export async function downloadBiwReviewTemplate(options: {
   const initialBuf = XLSX_STYLE.write(wb, { type: "array", bookType: "xlsx" });
   const zip = await JSZip.loadAsync(initialBuf);
 
-  // 4a. Add Defined Name for DefectList in workbook.xml (Universal Excel cross-sheet validation)
+  // 4a. Add Defined Names for StatusList and DefectList in workbook.xml
   let wbXml = await zip.file("xl/workbook.xml")?.async("text");
   if (wbXml) {
     const defectLastRow = defectOptions.length + 1;
-    const definedNamesXml = `<definedNames><definedName name="DefectList">Lookups!$B$2:$B$${defectLastRow}</definedName></definedNames>`;
+    const definedNamesXml =
+      `<definedNames>` +
+      `<definedName name="StatusList">Lookups!$A$2:$A$4</definedName>` +
+      `<definedName name="DefectList">Lookups!$B$2:$B$${defectLastRow}</definedName>` +
+      `</definedNames>`;
+
     if (wbXml.includes("<definedNames>")) {
-      wbXml = wbXml.replace("</definedNames>", `<definedName name="DefectList">Lookups!$B$2:$B$${defectLastRow}</definedName></definedNames>`);
+      wbXml = wbXml.replace("</definedNames>", `<definedName name="StatusList">Lookups!$A$2:$A$4</definedName><definedName name="DefectList">Lookups!$B$2:$B$${defectLastRow}</definedName></definedNames>`);
     } else {
       wbXml = wbXml.replace("</sheets>", `</sheets>${definedNamesXml}`);
     }
@@ -271,9 +276,9 @@ export async function downloadBiwReviewTemplate(options: {
   if (sheet1Xml) {
     const dataValidationsXml =
       `<dataValidations count="5">` +
-      `<dataValidation sqref="B2:B2000" allowBlank="1" type="list"><formula1>&quot;Accepted,Rework,Rejected&quot;</formula1></dataValidation>` +
+      `<dataValidation sqref="B2:B2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
       `<dataValidation sqref="C2:C2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
-      `<dataValidation sqref="F2:F2000" allowBlank="1" type="list"><formula1>&quot;Accepted,Rework,Rejected&quot;</formula1></dataValidation>` +
+      `<dataValidation sqref="F2:F2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
       `<dataValidation sqref="G2:G2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
       `<dataValidation sqref="H2:H2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
       `</dataValidations>`;
@@ -319,12 +324,12 @@ export async function parseBiwReviewWorkbook(file: File): Promise<BiwExcelRow[]>
   const range = XLSX.utils.decode_range(ws["!ref"] || "A1:A1");
   const rows: BiwExcelRow[] = [];
 
-  // Determine starting row: find row containing cha/che/chassis/vin
+  // Determine starting row: find row containing chassis/vin/che/cha/id
   let headerRowIndex = 0;
   for (let r = range.s.r; r <= Math.min(range.e.r, 5); r++) {
     const firstCell = ws[XLSX.utils.encode_cell({ r, c: 0 })]?.v;
     const str = String(firstCell || "").trim().toLowerCase();
-    if (str.includes("cha") || str.includes("che") || str.includes("vin") || str.includes("id")) {
+    if (str.includes("chassis") || str.includes("cha") || str.includes("che") || str.includes("vin") || str.includes("id")) {
       headerRowIndex = r;
       break;
     }
@@ -402,7 +407,7 @@ export function generateBiwEmailSummaryHtml(options: {
     <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 16px;">
       <thead>
         <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left;">
-          <th style="padding: 10px 12px; color: #475569;">cha</th>
+          <th style="padding: 10px 12px; color: #475569;">Chassis Number</th>
           <th style="padding: 10px 12px; color: #475569;">BIW Feedback</th>
           <th style="padding: 10px 12px; color: #475569;">Defect Reason</th>
           <th style="padding: 10px 12px; color: #475569;">Remark</th>
