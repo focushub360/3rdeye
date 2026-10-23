@@ -1233,6 +1233,30 @@ export default function PreviewForm({
     return question;
   }, [triggeringQuestionId, lastSuggestionSource, allFormQuestions]);
 
+  const activeChassisDisplay = useMemo(() => {
+    const directKeys = ['chassis_number', 'chassisNumber', 'id_number', 'idNumber', 'Chassis / VIN', 'Chassis No'];
+    for (const key of directKeys) {
+      if (answers[key]) {
+        const val = answers[key];
+        const s = typeof val === 'object' ? (val.chassisNumber || val.value || '') : String(val).trim();
+        if (s) return s;
+      }
+    }
+    for (const q of allFormQuestions) {
+      const qId = q.id || (q as any)._id;
+      if (!qId) continue;
+      const isChassisQ = q.trackResponseRank || q.trackResponseQuestion ||
+        (q.text && q.text.toLowerCase().includes('chassis')) ||
+        (q.type && q.type.toLowerCase().includes('chassis'));
+      if (isChassisQ && answers[qId]) {
+        const val = answers[qId];
+        const str = typeof val === 'object' ? (val.chassisNumber || val.value || val.text || '') : String(val).trim();
+        if (str) return str;
+      }
+    }
+    return '';
+  }, [answers, allFormQuestions]);
+
   const handleLoadSampleData = () => {
     if (!form) return;
 
@@ -2418,24 +2442,33 @@ export default function PreviewForm({
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1">
-                          <div className="inline-flex items-center gap-3 mb-3">
-                            <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-blue-600 text-white font-bold text-sm shadow-md shadow-blue-500/20">
-                              {currentSectionIndex + 1}
+                          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                            <div className="inline-flex items-center gap-3">
+                              <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-blue-600 text-white font-bold text-sm shadow-md shadow-blue-500/20">
+                                {currentSectionIndex + 1}
+                              </div>
+                              <div className="flex flex-col">
+                                <span className={`text-xs font-bold uppercase tracking-wider ${darkMode ? "text-slate-400" : "text-slate-400"}`}>
+                                  {effectiveViewType === "question-wise" && currentSection.isVirtual
+                                    ? `Section ${currentSection.originalSectionIndex + 1}`
+                                    : "Current Phase"}
+                                </span>
+                                <span className={`text-xs font-bold ${darkMode ? "text-blue-400" : "text-blue-600"}`}>
+                                  {effectiveViewType === "question-wise" && currentSection.isVirtual ? (
+                                    <>Question {currentSection.questionIndex + 1} of {currentSection.totalQuestionsInSection}</>
+                                  ) : (
+                                    <>Section {currentSectionIndex + 1} of {mainSections.length}</>
+                                  )}
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex flex-col">
-                              <span className={`text-xs font-bold uppercase tracking-wider ${darkMode ? "text-slate-400" : "text-slate-400"}`}>
-                                {effectiveViewType === "question-wise" && currentSection.isVirtual
-                                  ? `Section ${currentSection.originalSectionIndex + 1}`
-                                  : "Current Phase"}
-                              </span>
-                              <span className={`text-xs font-bold ${darkMode ? "text-blue-400" : "text-blue-600"}`}>
-                                {effectiveViewType === "question-wise" && currentSection.isVirtual ? (
-                                  <>Question {currentSection.questionIndex + 1} of {currentSection.totalQuestionsInSection}</>
-                                ) : (
-                                  <>Section {currentSectionIndex + 1} of {mainSections.length}</>
-                                )}
-                              </span>
-                            </div>
+
+                            {activeChassisDisplay && (
+                              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-xs font-semibold text-purple-700 dark:text-purple-300 shadow-xs">
+                                <span className="opacity-70 font-normal">Chassis:</span>
+                                <span className="font-bold">{activeChassisDisplay}</span>
+                              </div>
+                            )}
                           </div>
                           {currentSection.title && (
                             <h2 className={`text-xl sm:text-2xl font-bold tracking-tight ${darkMode ? "text-white" : "text-slate-900"}`}>

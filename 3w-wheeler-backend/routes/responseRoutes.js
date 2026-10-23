@@ -165,9 +165,9 @@ router.post('/', authenticateOptional, createResponse);
 router.get('/check-chassis', checkChassisExists);
 router.get('/:tenantSlug/forms/:formId/check-chassis', checkChassisExists);
 
-// 8. GET RANK (PUBLIC)
-router.get('/rank', getRank);
-router.get('/:tenantSlug/forms/:formId/rank', getRank);
+// 8. GET RANK (PUBLIC / OPTIONAL AUTH)
+router.get('/rank', authenticateOptional, getRank);
+router.get('/:tenantSlug/forms/:formId/rank', authenticateOptional, getRank);
 
 // 8. GET SUGGESTIONS (PUBLIC)
 router.get('/suggestions', getSuggestedAnswers);

@@ -2751,7 +2751,7 @@ export const getRank = async (req, res) => {
     };
 
     const matchingResponses = await Response.find(query)
-      .select('id _id status answers createdAt isDispatched dispatchedAt dispatchedByName biwReview submittedBy createdBy')
+      .select('id _id status answers createdAt isDispatched dispatchedAt dispatchedByName biwReview submittedBy createdBy tenantId')
       .lean();
 
     const sortedResponses = matchingResponses.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -2894,6 +2894,96 @@ export const getRank = async (req, res) => {
       }
     }
 
+    // Calculate previous tenant's last track rank for this chassis
+    let previousTenantRank = null;
+    const currentTenantIdStr = (req.user?.tenantId ? req.user.tenantId.toString() : null) ||
+      (tenantId ? tenantId.toString() : null) ||
+      (req.query.currentTenantId ? String(req.query.currentTenantId) : null);
+    const formTenantIdStr = form.tenantId ? form.tenantId.toString() : null;
+
+    // Filter responses in current form that belong to a different tenant (e.g. owning tenant)
+    const otherTenantResponsesInForm = sortedResponses.filter(r => {
+      const respTId = r.tenantId ? r.tenantId.toString() : null;
+      if (!respTId) return false;
+      if (currentTenantIdStr) return respTId !== currentTenantIdStr;
+      return formTenantIdStr && respTId === formTenantIdStr;
+    });
+
+    let prevTenantCandidateList = otherTenantResponsesInForm;
+
+    // If no candidate in this form, check parent form or cross-tenant responses for this chassis
+    if (prevTenantCandidateList.length === 0) {
+      try {
+        const crossTenantQuery = {
+          $and: [
+            { $or: orConditions },
+            ...(currentTenantIdStr ? [{ tenantId: { $ne: currentTenantIdStr } }] : []),
+            { isSectionSubmit: { $ne: true } }
+          ]
+        };
+        const crossResponses = await Response.find(crossTenantQuery)
+          .select('id _id status answers createdAt isDispatched dispatchedAt dispatchedByName biwReview submittedBy createdBy tenantId')
+          .sort({ createdAt: 1 })
+          .limit(20)
+          .lean();
+
+        if (crossResponses.length > 0) {
+          prevTenantCandidateList = crossResponses;
+        }
+      } catch (crossErr) {
+        console.warn('Error checking cross-tenant responses in getRank:', crossErr.message);
+      }
+    }
+
+    if (prevTenantCandidateList.length > 0) {
+      const lastPrev = prevTenantCandidateList[prevTenantCandidateList.length - 1];
+      const pTenantId = lastPrev.tenantId?.toString() || formTenantIdStr;
+      let tenantName = 'Previous Tenant';
+      if (pTenantId) {
+        try {
+          const tDoc = await Tenant.findById(pTenantId).select('name slug').lean();
+          if (tDoc?.name) tenantName = tDoc.name;
+        } catch (_) {}
+      }
+
+      // Compute status for previous tenant's last response
+      const pAnswersMap = lastPrev.answers instanceof Map ? Object.fromEntries(lastPrev.answers) : (lastPrev.answers || {});
+      let pHasRework = false;
+      let pHasReject = false;
+      for (const val of Object.values(pAnswersMap)) {
+        if (val && typeof val === 'object' && val.status) {
+          const s = String(val.status).toLowerCase().trim();
+          if (s === 'rework' || s.includes('rework')) pHasRework = true;
+          if (s === 'rejected' || s === 'reject') pHasReject = true;
+        } else if (typeof val === 'string') {
+          const s = val.toLowerCase().trim();
+          if (s === 'rework' || s.includes('rework')) pHasRework = true;
+          if (s === 'rejected' || s === 'reject') pHasReject = true;
+        }
+      }
+
+      let computedPStatus = 'Direct Ok';
+      if (pHasReject) computedPStatus = 'Rejected';
+      else if (pHasRework) computedPStatus = 'Rework';
+      else if (lastPrev.status && lastPrev.status !== 'pending') computedPStatus = lastPrev.status;
+
+      previousTenantRank = {
+        exists: true,
+        tenantId: pTenantId,
+        tenantName: tenantName,
+        rank: prevTenantCandidateList.length,
+        status: lastPrev.status && lastPrev.status !== 'pending' ? lastPrev.status : computedPStatus,
+        id: lastPrev.id || lastPrev._id?.toString(),
+        responseId: lastPrev.id || lastPrev._id?.toString(),
+        createdAt: lastPrev.createdAt,
+        submittedBy: lastPrev.submittedBy || lastPrev.createdBy || null,
+        isDispatched: Boolean(lastPrev.isDispatched),
+        dispatchedAt: lastPrev.dispatchedAt || null,
+        dispatchedByName: lastPrev.dispatchedByName || null,
+        biwReview: lastPrev.biwReview || null
+      };
+    }
+
     return res.status(200).json({
       success: true,
       data: {
@@ -2909,7 +2999,8 @@ export const getRank = async (req, res) => {
         chatCount: chatCount,
         lastSubmittedBy: lastResponse ? (lastResponse.submittedBy || lastResponse.createdBy || null) : null,
         parentMatch: followUpBadge,
-        followUpStatus: followUpBadge
+        followUpStatus: followUpBadge,
+        previousTenantRank: previousTenantRank
       }
     });
 

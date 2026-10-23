@@ -517,13 +517,25 @@ export default function PreviewFormWrapper() {
   const formTenantId = String(form?.tenantId?._id || form?.tenantId || "");
   const isSharedForm = Boolean(formTenantId && currentTenantId && formTenantId !== currentTenantId);
 
-  const effectiveChassisNumbers = isSharedForm
-    ? []
-    : (form.chassisNumbers || []).map((cn: any) =>
-        typeof cn === "string"
-          ? { chassisNumber: cn, partDescription: "" }
-          : cn,
-      );
+  // Keep chassis numbers available for both owned and shared forms
+  const rawChassisNumbers = form.chassisNumbers || [];
+  const effectiveChassisNumbers = rawChassisNumbers.map((cn: any) =>
+    typeof cn === "string"
+      ? { chassisNumber: cn, partDescription: "" }
+      : cn,
+  );
+
+  // Normalize chassisTenantAssignments to { [chassisNumber: string]: string[] }
+  const normalizedAssignments: Record<string, string[]> = {};
+  if (Array.isArray(form.chassisTenantAssignments)) {
+    form.chassisTenantAssignments.forEach((a: any) => {
+      if (a.chassisNumber) {
+        normalizedAssignments[a.chassisNumber] = Array.isArray(a.assignedTenants) ? a.assignedTenants : [];
+      }
+    });
+  } else if (form.chassisTenantAssignments && typeof form.chassisTenantAssignments === "object") {
+    Object.assign(normalizedAssignments, form.chassisTenantAssignments);
+  }
 
   const formData = {
     id: form.id,
@@ -532,8 +544,8 @@ export default function PreviewFormWrapper() {
     description: form.description,
     sections: flattenedSections,
     followUpQuestions: form.followUpQuestions || [],
-    chassisNumbers: isSharedForm ? [] : form.chassisNumbers || [],
-    chassisTenantAssignments: isSharedForm ? {} : form.chassisTenantAssignments || {},
+    chassisNumbers: form.chassisNumbers || [],
+    chassisTenantAssignments: normalizedAssignments,
   };
 
   return (
@@ -546,7 +558,7 @@ export default function PreviewFormWrapper() {
       onSectionComplete={handleSectionComplete}
       formSessionId={formSessionIdRef.current}
       chassisNumbers={effectiveChassisNumbers}
-      chassisTenantAssignments={isSharedForm ? {} : form.chassisTenantAssignments || {}}
+      chassisTenantAssignments={normalizedAssignments}
       tenantId={form.tenantId}
     />
   );

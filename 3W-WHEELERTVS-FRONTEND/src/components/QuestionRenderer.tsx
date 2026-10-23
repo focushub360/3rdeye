@@ -21,6 +21,7 @@ import {
   RotateCcw,
   History,
   Check,
+  Building2,
 } from "lucide-react";
 import type { FollowUpQuestion } from "../types";
 import { useTheme } from "../context/ThemeContext";
@@ -252,6 +253,21 @@ export default function QuestionRenderer({
     badgeText: string;
     statusLabel?: string;
     history?: any[];
+  } | null>(null);
+  const [previousTenantRank, setPreviousTenantRank] = useState<{
+    exists: boolean;
+    tenantId?: string;
+    tenantName?: string;
+    rank?: number;
+    status?: string;
+    id?: string;
+    responseId?: string;
+    createdAt?: string;
+    submittedBy?: string | null;
+    isDispatched?: boolean;
+    dispatchedAt?: string | null;
+    dispatchedByName?: string | null;
+    biwReview?: any;
   } | null>(null);
 
   const userStr = typeof window !== 'undefined' ? window.localStorage.getItem('user') : null;
@@ -490,6 +506,8 @@ export default function QuestionRenderer({
       setLastSubmittedBy(null);
       setBiwInfo(null);
       setChatCount(0);
+      setParentMatchInfo(null);
+      setPreviousTenantRank(null);
       setLoadingRank(false);
       return;
     }
@@ -542,6 +560,8 @@ export default function QuestionRenderer({
         setBiwInfo(biw);
         setChatCount(chatCnt);
         setParentMatchInfo(pMatch);
+        const prevTenant = (response && response.previousTenantRank) || (response && response.data && response.data.previousTenantRank) || null;
+        setPreviousTenantRank(prevTenant);
       } catch (err) {
         if (!isCancelled) {
           console.error("Failed to fetch rank:", err);
@@ -552,6 +572,7 @@ export default function QuestionRenderer({
           setBiwInfo(null);
           setChatCount(0);
           setParentMatchInfo(null);
+          setPreviousTenantRank(null);
         }
       } finally {
         if (!isCancelled) {
@@ -1774,11 +1795,61 @@ export default function QuestionRenderer({
               );
             };
 
+            // Render previous tenant rank badge
+            const renderPrevTenantBadge = () => {
+              if (!previousTenantRank || !previousTenantRank.exists) return null;
+
+              const tName = previousTenantRank.tenantName || "Prev Tenant";
+              const pRank = previousTenantRank.rank || 1;
+              const pStatus = previousTenantRank.status || "Direct Ok";
+              const sStr = String(pStatus).toLowerCase();
+              const isPRej = sStr.includes("reject");
+              const isPAccepted = sStr.includes("accept") || sStr.includes("direct ok") || sStr.includes("ok") || sStr === "verified";
+
+              const chipStyle = isPRej
+                ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
+                : isPAccepted
+                  ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800"
+                  : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
+
+              const respId = previousTenantRank.responseId || previousTenantRank.id;
+
+              if (respId) {
+                return (
+                  <a
+                    key="prev-tenant-rank-badge"
+                    href={`/responses/${respId}?tab=responses`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border transition-all hover:scale-105 cursor-pointer shadow-xs ${chipStyle}`}
+                    title={`Previous Tenant (${tName}) Inspection - Attempt #${pRank} (${pStatus})${previousTenantRank.submittedBy ? ` by ${previousTenantRank.submittedBy}` : ''} - Click to view response`}
+                  >
+                    <Building2 className="w-3 h-3 opacity-70" />
+                    <span>{tName ? `${tName} Rank:` : 'Prev Tenant Rank:'} Attempt #{pRank}</span>
+                    <span className="text-[10px] font-medium opacity-85">({pStatus})</span>
+                    <Eye className="w-3 h-3 ml-0.5 opacity-70" />
+                  </a>
+                );
+              }
+
+              return (
+                <span
+                  key="prev-tenant-rank-badge"
+                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border shadow-xs ${chipStyle}`}
+                  title={`Previous Tenant (${tName}) Inspection - Attempt #${pRank} (${pStatus})`}
+                >
+                  <Building2 className="w-3 h-3 opacity-70" />
+                  <span>{tName ? `${tName} Rank:` : 'Prev Tenant Rank:'} Attempt #{pRank}</span>
+                  <span className="text-[10px] font-medium opacity-85">({pStatus})</span>
+                </span>
+              );
+            };
+
             // Rank badges & action icons
 
             if (rank === 1 && historyItems.length === 0) {
               return (
-                <div className="flex items-center gap-1.5 ml-2">
+                <div className="flex flex-wrap items-center gap-1.5 ml-2">
                   <span
                     className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md border text-xs font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
                     title="Inspection Attempt #1 (Initial inspection)"
@@ -1786,6 +1857,7 @@ export default function QuestionRenderer({
                     <span>Attempt #1</span>
                     <span className="text-[10px] font-medium opacity-80">(Initial)</span>
                   </span>
+                  {renderPrevTenantBadge()}
                   {renderActionIcons()}
                 </div>
               );
@@ -1793,6 +1865,7 @@ export default function QuestionRenderer({
 
             return (
               <div className="flex flex-wrap items-center gap-1.5 ml-2 mt-1 sm:mt-0">
+                {renderPrevTenantBadge()}
                 {/* Historical attempts */}
                 {historyItems.map((hist: any) => {
                   const sStr = String(hist.status || "").toLowerCase().trim();
