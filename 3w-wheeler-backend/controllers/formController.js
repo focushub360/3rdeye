@@ -807,25 +807,6 @@ export const getFormById = async (req, res) => {
       });
     }
 
-    // Debug logging - ADD THIS TO CHECK SUGGESTION
-    console.log('=== DEBUG: Checking suggestions in form ===');
-    console.log('Form ID:', form.id);
-    console.log('Form type:', typeof form);
-
-    if (form.sections && form.sections.length > 0) {
-      form.sections.forEach((section, idx) => {
-        console.log(`Section ${idx}: ${section.title}, Questions: ${section.questions?.length || 0}`);
-        if (section.questions) {
-          section.questions.forEach((q, qIdx) => {
-            console.log(`  Q${qIdx}: "${q.text}"`);
-            console.log(`    Has suggestion field?`, 'suggestion' in q);
-            console.log(`    Suggestion value:`, q.suggestion);
-            console.log(`    All keys:`, Object.keys(q));
-          });
-        }
-      });
-    }
-
     // Check for invite status if inviteId is provided in query
     if (req.query.inviteId) {
       const FormInvite = mongoose.model('FormInvite');

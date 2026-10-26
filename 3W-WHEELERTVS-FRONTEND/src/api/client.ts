@@ -631,7 +631,7 @@ class ApiClient {
     }>("/auth/login", {
       method: "POST",
       body: JSON.stringify(credentials),
-      timeout: 15000,
+      timeout: 45000,
     });
 
     this.setToken(data.token);
