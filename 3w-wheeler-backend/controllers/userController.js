@@ -960,30 +960,52 @@ export const submitReview = async (req, res) => {
       }
     }
 
-    // Check if review already exists
+    // Check if review already exists - if so, update it
+    let savedReview;
     const existingReview = await Review.findOne({ responseId, reviewerId });
     if (existingReview) {
-      console.log('[submitReview] Review already exists');
-      return res.status(400).json({
-        success: false,
-        message: 'You have already reviewed this response'
+      console.log('[submitReview] Updating existing review:', existingReview._id);
+      existingReview.reviewOption = reviewOption;
+      existingReview.submitterId = resolvedSubmitterId;
+      existingReview.reviewerName = reviewerName;
+      existingReview.reviewerEmail = reviewer.email || '';
+      savedReview = await existingReview.save();
+    } else {
+      // Create review record
+      const review = new Review({
+        responseId,
+        reviewerId,
+        reviewerName: reviewerName,
+        reviewerEmail: reviewer.email || '',
+        submitterId: resolvedSubmitterId,
+        reviewOption,
+        scoreChange: 0, // No longer used for ratio formula
+        tenantId
       });
+      savedReview = await review.save();
     }
-
-    // Create review record
-    const review = new Review({
-      responseId,
-      reviewerId,
-      reviewerName: reviewerName,
-      reviewerEmail: reviewer.email || '',
-      submitterId: resolvedSubmitterId,
-      reviewOption,
-      scoreChange: 0, // No longer used for ratio formula
-      tenantId
-    });
-
-    const savedReview = await review.save();
     console.log('[submitReview] Review saved successfully:', savedReview._id);
+
+    // Sync review status to Response document
+    try {
+      const Response = mongoose.models.Response || mongoose.model('Response');
+      const respQuery = mongoose.Types.ObjectId.isValid(responseId)
+        ? { $or: [{ _id: responseId }, { id: responseId }] }
+        : { id: responseId };
+
+      await Response.findOneAndUpdate(respQuery, {
+        $set: {
+          'review.status': reviewOption,
+          'review.reviewOption': reviewOption,
+          'review.reviewedBy': reviewer._id,
+          'review.reviewedByName': reviewerName,
+          'review.reviewedAt': new Date()
+        }
+      });
+      console.log('[submitReview] Synced review state to Response document for responseId:', responseId);
+    } catch (respErr) {
+      console.warn('[submitReview] Could not sync review to Response document:', respErr.message);
+    }
 
     // Only update performance score if submitterId is a valid ObjectId
     if (mongoose.Types.ObjectId.isValid(resolvedSubmitterId)) {
@@ -1124,8 +1146,7 @@ export const getReviewsForResponse = async (req, res) => {
     console.log(`[getReviewsForResponse] Fetching reviews for response: ${responseId}`);
 
     // Import models
-    const Response = mongoose.model('Response');
-    const Review = mongoose.model('Review');
+    const Response = mongoose.models.Response || mongoose.model('Response');
 
     // Optional: Check if response exists (don't block if not found)
     try {
@@ -1185,11 +1206,16 @@ export const getBulkReviewsForResponses = async (req, res) => {
       return res.json({ success: true, data: [] });
     }
 
-    const Review = mongoose.model('Review');
+    const stringIds = responseIds.map(id => String(id));
+    const objectIds = responseIds
+      .filter(id => mongoose.Types.ObjectId.isValid(id))
+      .map(id => new mongoose.Types.ObjectId(id));
+    const allIds = [...new Set([...stringIds, ...objectIds])];
+
     const reviews = await Review.find({
       $or: [
-        { responseId: { $in: responseIds } },
-        { response_id: { $in: responseIds } }
+        { responseId: { $in: allIds } },
+        { response_id: { $in: allIds } }
       ]
     }).sort({ createdAt: -1 }).lean();
 

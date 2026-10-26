@@ -2527,14 +2527,13 @@ export default function FormAnalyticsDashboard() {
           return;
         }
 
-        const data = await apiClient.request<{ success: boolean; data: any[] }>("/responses/reviews/bulk", {
+        const data = await apiClient.request<any>("/responses/reviews/bulk", {
           method: "POST",
           body: JSON.stringify({ responseIds }),
         });
 
-        if (data && data.success) {
-          setTvsReviews(data.data || []);
-        }
+        const reviewsList = Array.isArray(data) ? data : (data?.data || []);
+        setTvsReviews(reviewsList);
       } catch (err) {
         console.error("Error fetching bulk TVS reviews:", err);
       } finally {
@@ -4013,22 +4012,17 @@ export default function FormAnalyticsDashboard() {
       return;
     }
 
-    // Don't allow self-review
-    if (submitterId && reviewerId === submitterId) {
+    // Don't allow self-review (except admins/superadmins)
+    const isAdmin = user?.role === "admin" || user?.role === "superadmin";
+    if (!isAdmin && submitterId && reviewerId === submitterId) {
       showToast("You cannot review your own submissions", "error");
       return;
     }
 
-    // Only allow reviews for valid response statuses
-    const responseStatus = responseStatuses[responseId];
-    const validStatusesForReview = [
-      "Direct Ok",
-      "Rework Accepted",
-      "Accepted",
-      "Pending Review",
-      "Rework Completed",
-    ];
-    if (!validStatusesForReview.includes(responseStatus)) {
+    // Only prevent reviews for invalid draft/deleted states
+    const responseStatus = responseStatuses[responseId] || (chatResponse as any)?.status || "pending";
+    const invalidStatusesForReview = ["draft", "deleted"];
+    if (invalidStatusesForReview.includes(String(responseStatus).toLowerCase())) {
       showToast("This response status cannot be reviewed", "error");
       return;
     }
@@ -4054,22 +4048,60 @@ export default function FormAnalyticsDashboard() {
       if (result && result.success) {
         console.log("✅ Review submitted successfully!");
 
-        // Clear local state to force refresh from API
-        setSelectedReviewOptions((prev) => {
-          const newState = { ...prev };
-          delete newState[responseId];
-          return newState;
+        const reviewerDisplayName = user?.name || user?.username || user?.email || "Reviewer";
+        const updateReviewFn = (r: any) => {
+          if (r.id === responseId || (r as any)._id === responseId) {
+            const curRev = r.review || {};
+            return {
+              ...r,
+              review: {
+                ...curRev,
+                status: reviewOption,
+                reviewOption: reviewOption,
+                reviewer: reviewerDisplayName,
+                reviewerName: reviewerDisplayName,
+                reviewedByName: reviewerDisplayName,
+                reviewedAt: new Date().toISOString()
+              }
+            };
+          }
+          return r;
+        };
+        setTableResponses((prev) => prev.map(updateReviewFn));
+        setResponses((prev) => prev.map(updateReviewFn));
+        setTvsReviews((prev) => {
+          const filtered = prev.filter(rv => String(rv.responseId || rv.response_id || "") !== String(responseId));
+          return [
+            ...filtered,
+            {
+              responseId,
+              reviewOption,
+              option: reviewOption,
+              status: reviewOption,
+              reviewer: { id: reviewerId, name: reviewerDisplayName, email: user?.email || "" },
+              createdAt: new Date().toISOString()
+            }
+          ];
         });
-        setReviewedBy((prev) => {
-          const newState = { ...prev };
-          delete newState[responseId];
-          return newState;
-        });
-        setReviewSubmitted((prev) => {
-          const newState = { ...prev };
-          delete newState[`${reviewerId}-${responseId}`];
-          return newState;
-        });
+
+        setSelectedReviewOptions((prev) => ({
+          ...prev,
+          [responseId]: reviewOption,
+        }));
+        setReviewedBy((prev) => ({
+          ...prev,
+          [responseId]: {
+            id: String(reviewerId),
+            name: reviewerDisplayName,
+            email: user?.email || "",
+            option: reviewOption,
+            status: reviewOption,
+          } as any,
+        }));
+        setReviewSubmitted((prev) => ({
+          ...prev,
+          [`${reviewerId}-${responseId}`]: true,
+        }));
 
         // Refresh chat history to get the new review
         await fetchChatHistory(responseId);
@@ -5776,6 +5808,31 @@ export default function FormAnalyticsDashboard() {
         selectedCategories: {},
         suggestedAnswers: {},
       }));
+
+      // Update response in table with the sent message & chat status
+      const targetChatRespId = chatResponse.id;
+      const senderDisplayName = user?.name || user?.email || "Reviewer";
+      const updateMsgFn = (r: any) => {
+        if (r.id === targetChatRespId || (r as any)._id === targetChatRespId) {
+          const curRev = r.review || {};
+          return {
+            ...r,
+            review: {
+              ...curRev,
+              message: messageToSend,
+              chatStatus: "sent",
+              messageCreatedAt: new Date(),
+              messageFrom: senderDisplayName,
+              reviewer: curRev.reviewer || senderDisplayName,
+              flaggedQuestions: selectedQuestionTitles.length > 0 ? selectedQuestionTitles : (curRev.flaggedQuestions || [])
+            }
+          };
+        }
+        return r;
+      };
+      setTableResponses((prev) => prev.map(updateMsgFn));
+      setResponses((prev) => prev.map(updateMsgFn));
+
       fetchChatHistory(chatResponse.id);
     } catch (err) {
       console.error("Error sending message:", err);
@@ -8185,6 +8242,7 @@ export default function FormAnalyticsDashboard() {
           });
         } else {
           // Extract defect/rework answers directly from response.answers
+          let foundDefectAnswer = false;
           const answersObj = response.answers instanceof Map
             ? Object.fromEntries(response.answers)
             : response.answers;
@@ -8205,6 +8263,7 @@ export default function FormAnalyticsDashboard() {
               const isRework = sLower === "rework" || sLower === "reworked" || sLower.includes("re-rework") || sLower === "not ok" || sLower === "defect";
 
               if (isRejected || isRework) {
+                foundDefectAnswer = true;
                 const qText = questionTextMap.get(qId) || qId;
                 if (!qMap.has(qId)) {
                   qMap.set(qId, {
@@ -8221,6 +8280,26 @@ export default function FormAnalyticsDashboard() {
                   stat.rework++;
                 }
               }
+            }
+          }
+
+          // If BIW review marked Rejected/Reworked without individual defect answers, capture general defect
+          if (!foundDefectAnswer && (biwStatus === "Rejected" || biwStatus === "Reworked")) {
+            const generalLabel = response.biwReview?.remark || response.biwReview?.reason || "General BIW Review Flag";
+            const genId = "biw-general-" + generalLabel.toLowerCase().replace(/[^a-z0-9]/g, "-");
+            if (!qMap.has(genId)) {
+              qMap.set(genId, {
+                id: genId,
+                text: generalLabel,
+                rejected: 0,
+                rework: 0
+              });
+            }
+            const stat = qMap.get(genId)!;
+            if (biwStatus === "Rejected") {
+              stat.rejected++;
+            } else {
+              stat.rework++;
             }
           }
         }
@@ -8571,11 +8650,13 @@ export default function FormAnalyticsDashboard() {
         } else {
           // Match review to response
           const rId = String(review.responseId || "");
-          const resp = defectChartResponses.find(r => String(r.id || r._id) === rId);
+          const resp = defectChartResponses.find(r => String(r.id || r._id) === rId) || responses.find(r => String(r.id || r._id) === rId);
+          let foundAny = false;
           if (resp && resp.answers) {
             const answersObj = resp.answers instanceof Map ? Object.fromEntries(resp.answers) : resp.answers;
             for (const [qId, ans] of Object.entries(answersObj)) {
               if (ans === null || ans === undefined || qId.includes("chassis") || qId === "chassis_number") continue;
+              foundAny = true;
               const qText = questionTextMap.get(qId) || qId;
               let ansStatus = "";
               if (typeof ans === "object" && ans !== null) {
@@ -8599,10 +8680,72 @@ export default function FormAnalyticsDashboard() {
               }
             }
           }
+          if (!foundAny && (status === "Rejected" || status === "Rework" || status === "Reworked" || status === "Accepted")) {
+            const label = (review as any).notes || (review as any).remark || (review as any).feedback || "TVS Review Assessment";
+            const qId = "tvs-gen-" + label.toLowerCase().replace(/[^a-z0-9]/g, "-");
+            if (!qMap.has(qId)) {
+              qMap.set(qId, { id: qId, text: label, rejected: 0, rework: 0, accepted: 0 });
+            }
+            const stat = qMap.get(qId)!;
+            if (status === "Rejected") stat.rejected++;
+            else if (status === "Rework" || status === "Reworked") stat.rework++;
+            else if (status === "Accepted") stat.accepted++;
+          }
         }
       });
 
-      // 2. Also process responses where biwReview was performed by a TVS reviewer
+      // 2. Also process responses where response.review is set directly
+      defectChartResponses.forEach((response) => {
+        const rev = response.review;
+        const status = rev?.reviewOption || rev?.status;
+        if (!status || status === "pending") return;
+
+        const rId = String(response.id || response._id || "");
+        if (uniqueReviews.some(u => String(u.responseId || u.response_id || "") === rId)) return;
+
+        let foundAny = false;
+        const answersObj = response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers;
+        if (answersObj) {
+          for (const [qId, ans] of Object.entries(answersObj)) {
+            if (ans === null || ans === undefined || qId.includes("chassis") || qId === "chassis_number") continue;
+            foundAny = true;
+            const qText = questionTextMap.get(qId) || qId;
+            let ansStatus = "";
+            if (typeof ans === "object" && ans !== null) {
+              ansStatus = (ans as any).status || "";
+            } else if (typeof ans === "string") {
+              ansStatus = ans;
+            }
+            const sLower = ansStatus.toLowerCase().trim();
+            const isDefect = sLower === "rework" || sLower === "rejected" || sLower === "not ok" || sLower === "defect";
+
+            if (!qMap.has(qId)) {
+              qMap.set(qId, { id: qId, text: qText, rejected: 0, rework: 0, accepted: 0 });
+            }
+            const stat = qMap.get(qId)!;
+            if (status === "Rejected" && isDefect) {
+              stat.rejected++;
+            } else if ((status === "Rework" || status === "Reworked") && isDefect) {
+              stat.rework++;
+            } else if (status === "Accepted" && !isDefect) {
+              stat.accepted++;
+            }
+          }
+        }
+        if (!foundAny) {
+          const label = rev.feedback || rev.notes || "TVS Review Assessment";
+          const qId = "tvs-gen-" + label.toLowerCase().replace(/[^a-z0-9]/g, "-");
+          if (!qMap.has(qId)) {
+            qMap.set(qId, { id: qId, text: label, rejected: 0, rework: 0, accepted: 0 });
+          }
+          const stat = qMap.get(qId)!;
+          if (status === "Rejected") stat.rejected++;
+          else if (status === "Rework" || status === "Reworked") stat.rework++;
+          else if (status === "Accepted") stat.accepted++;
+        }
+      });
+
+      // 3. Also process responses where biwReview was performed by a TVS reviewer
       defectChartResponses.forEach((response) => {
         const reviewerName = (response.biwReview?.reviewedByName || "").toLowerCase();
         if (reviewerName.includes("tvs")) {
@@ -13537,88 +13680,148 @@ export default function FormAnalyticsDashboard() {
                                       })()}
                                     </td>
                                   )}
-                                  <td className="px-6 py-3 text-sm border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50/50 dark:bg-gray-800/30">
+                                  <td className="px-6 py-3 text-sm border border-gray-200 dark:border-gray-700 min-w-56 bg-gray-50/50 dark:bg-gray-800/30">
                                     {(() => {
                                       const localReview = reviewedBy[response.id];
-                                      const legacyServerReview = (response as any).review;
+                                      const serverReview = (response as any).review;
+                                      const biwRev = response.biwReview;
 
                                       let reviewObj: {
-                                        status: any;
-                                        reviewer: any;
-                                        flaggedQuestions: any[];
+                                        status?: string | null;
+                                        reviewer?: string | null;
+                                        flaggedQuestions?: any[];
+                                        message?: string | null;
+                                        chatStatus?: string | null;
+                                        messageCreatedAt?: any;
+                                        messageFrom?: string | null;
                                       } | null = null;
 
-                                      if (localReview) {
+                                      if (localReview && (localReview.option || localReview.status || (localReview as any).message)) {
                                         reviewObj = {
-                                          status: localReview.option || localReview.status,
-                                          reviewer: localReview.reviewer || localReview.name,
-                                          flaggedQuestions: localReview.flaggedQuestions || [],
+                                          status: localReview.option || localReview.status || null,
+                                          reviewer: (localReview.reviewer as any)?.name || localReview.reviewer || (localReview as any).name || "Reviewer",
+                                          flaggedQuestions: (localReview as any).flaggedQuestions || [],
+                                          message: (localReview as any).message || null,
+                                          chatStatus: (localReview as any).chatStatus || "sent",
                                         };
-                                      } else if (legacyServerReview) {
+                                      } else if (serverReview && (serverReview.status || serverReview.reviewOption || serverReview.message || (serverReview.flaggedQuestions && serverReview.flaggedQuestions.length > 0))) {
                                         reviewObj = {
-                                          status: legacyServerReview.status,
-                                          reviewer: legacyServerReview.reviewer || legacyServerReview.name,
-                                          flaggedQuestions: legacyServerReview.flaggedQuestions || [],
+                                          status: serverReview.status || serverReview.reviewOption || null,
+                                          reviewer: serverReview.reviewer || serverReview.reviewerName || serverReview.name || "Reviewer",
+                                          flaggedQuestions: serverReview.flaggedQuestions || [],
+                                          message: serverReview.message || serverReview.remark || serverReview.reason || null,
+                                          chatStatus: serverReview.chatStatus || (serverReview.message ? "sent" : null),
+                                          messageCreatedAt: serverReview.messageCreatedAt || serverReview.createdAt,
+                                          messageFrom: serverReview.messageFrom,
                                         };
-                                      } else if (response.biwReview) {
+                                      } else if (biwRev && biwRev.status) {
                                         reviewObj = {
-                                          status: response.biwReview.status,
-                                          reviewer: response.biwReview.reviewedByName || "Reviewer",
-                                          flaggedQuestions: [],
+                                          status: biwRev.status,
+                                          reviewer: biwRev.reviewedByName || "Reviewer",
+                                          flaggedQuestions: biwRev.flaggedQuestions?.map((q: any) => typeof q === "string" ? q : q.questionText) || [],
+                                          message: biwRev.remark || null,
+                                          chatStatus: biwRev.remark ? "sent" : null,
                                         };
                                       }
 
-                                      if (reviewObj && !reviewObj.reviewer) {
+                                      // If no status and no message and no flagged questions, show "No review yet"
+                                      if (!reviewObj || (!reviewObj.status && !reviewObj.message && (!reviewObj.flaggedQuestions || reviewObj.flaggedQuestions.length === 0))) {
+                                        return (
+                                          <span className="text-gray-400 dark:text-gray-500 font-medium text-xs italic">
+                                            No review yet
+                                          </span>
+                                        );
+                                      }
+
+                                      if (!reviewObj.reviewer) {
                                         reviewObj.reviewer = "Reviewer";
                                       }
 
-                                      return reviewObj ? (
+                                      const isAccepted = String(reviewObj.status).toLowerCase().trim() === "accepted";
+                                      const isRejected = String(reviewObj.status).toLowerCase().trim() === "rejected";
+                                      const isRework = ["rework", "reworked"].includes(String(reviewObj.status).toLowerCase().trim());
 
-                                        <div className="flex flex-col gap-1">
-                                          <div className="flex items-center gap-2">
-                                            <span
-                                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${String(reviewObj.status)
-                                                .toLowerCase()
-                                                .trim() === "accepted"
-                                                ? "bg-green-500/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800"
-                                                : String(reviewObj.status)
-                                                  .toLowerCase()
-                                                  .trim() === "rejected"
-                                                  ? "bg-red-500/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800"
-                                                  : "bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800"
-                                                }`}
-                                            >
-                                              {reviewObj.status}
-                                            </span>
-                                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                                      const statusBadgeClass = isAccepted
+                                        ? "bg-green-500/20 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800"
+                                        : isRejected
+                                          ? "bg-red-500/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800"
+                                          : isRework
+                                            ? "bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800"
+                                            : "bg-indigo-500/20 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800";
+
+                                      const statusEmoji = isAccepted ? "✅" : isRejected ? "❌" : isRework ? "🔄" : "💬";
+
+                                      return (
+                                        <div className="flex flex-col gap-1.5 min-w-[200px] max-w-[320px]">
+                                          {/* Status badge + Reviewer */}
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            {reviewObj.status ? (
+                                              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ${statusBadgeClass}`}>
+                                                <span>{statusEmoji}</span>
+                                                <span>{reviewObj.status}</span>
+                                              </span>
+                                            ) : reviewObj.chatStatus ? (
+                                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800">
+                                                <MessageCircle className="w-2.5 h-2.5" />
+                                                <span>Chat {reviewObj.chatStatus}</span>
+                                              </span>
+                                            ) : null}
+
+                                            <span className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[150px]">
                                               by{" "}
                                               <span className="font-semibold text-gray-700 dark:text-gray-300">
                                                 {reviewObj.reviewer}
                                               </span>
                                             </span>
                                           </div>
-                                          {reviewObj.flaggedQuestions &&
-                                            reviewObj.flaggedQuestions.length >
-                                            0 && (
-                                              <div className="mt-1 flex flex-wrap gap-1">
-                                                {reviewObj.flaggedQuestions.map(
-                                                  (q: any, i: number) => (
-                                                    <span
-                                                      key={i}
-                                                      className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-[10px] text-gray-600 dark:text-gray-400 rounded border border-gray-200 dark:border-gray-700 line-clamp-1"
-                                                      title={q}
-                                                    >
-                                                      {q}
+
+                                          {/* Flagged questions list */}
+                                          {reviewObj.flaggedQuestions && reviewObj.flaggedQuestions.length > 0 && (
+                                            <div className="flex flex-wrap gap-1">
+                                              {reviewObj.flaggedQuestions.map((q: any, i: number) => (
+                                                <span
+                                                  key={i}
+                                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-50 dark:bg-red-950/30 text-[10px] font-medium text-red-700 dark:text-red-400 rounded border border-red-200 dark:border-red-900/40 line-clamp-1"
+                                                  title={q}
+                                                >
+                                                  ⚠️ {q}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          )}
+
+                                          {/* Chat Feedback Message (msg) */}
+                                          {reviewObj.message && (
+                                            <div
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setChatResponse(response);
+                                                setShowChatModal(true);
+                                              }}
+                                              className="group flex items-start gap-1.5 p-2 bg-white dark:bg-gray-800/90 rounded-lg border border-indigo-100 dark:border-indigo-900/50 hover:border-indigo-300 dark:hover:border-indigo-600 shadow-2xs cursor-pointer transition-all"
+                                              title="Click to open discussion and view chat thread"
+                                            >
+                                              <MessageCircle className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+                                              <div className="flex-1 min-w-0">
+                                                <p className="text-xs text-gray-800 dark:text-gray-200 line-clamp-2 leading-relaxed break-words font-medium">
+                                                  "{reviewObj.message}"
+                                                </p>
+                                                <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-gray-400">
+                                                  {reviewObj.chatStatus && (
+                                                    <span className="capitalize font-semibold text-indigo-600 dark:text-indigo-400">
+                                                      Status: {reviewObj.chatStatus}
                                                     </span>
-                                                  ),
-                                                )}
+                                                  )}
+                                                  {reviewObj.messageCreatedAt && (
+                                                    <span>
+                                                      • {new Date(reviewObj.messageCreatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                  )}
+                                                </div>
                                               </div>
-                                            )}
+                                            </div>
+                                          )}
                                         </div>
-                                      ) : (
-                                        <span className="text-gray-600 dark:text-gray-300 font-medium text-xs">
-                                          No review yet
-                                        </span>
                                       );
                                     })()}
                                   </td>
@@ -15744,7 +15947,7 @@ export default function FormAnalyticsDashboard() {
                   </div>
                   <div>
                     <h2 className="text-lg font-bold text-white">
-                      Question Filter: {chatResponse.submittedBy || "Inspector"}
+                      Review & Discussion: {chatResponse.submittedBy || "Inspector"}
                     </h2>
                     <p className="text-xs text-white/70">
                       Chassis:{" "}

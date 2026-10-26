@@ -74,5 +74,14 @@ reviewSchema.pre('save', function (next) {
   next();
 });
 
-const Review = mongoose.model('Reviews', reviewSchema);
+let Review;
+try {
+  Review = mongoose.model('Reviews');
+} catch {
+  Review = mongoose.model('Reviews', reviewSchema);
+}
+try {
+  mongoose.model('Review', reviewSchema);
+} catch {}
+
 export default Review;

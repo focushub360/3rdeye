@@ -44,11 +44,24 @@ const canAccessResponseTenant = async (req, response) => {
   const isSharedTenant =
     form?.sharedWithTenants &&
     form.sharedWithTenants.some((t) => t.toString() === userTenantIdStr);
-  const hasChassisShare =
-    Array.isArray(form?.chassisTenantAssignments) &&
-    form.chassisTenantAssignments.some(
-      (a) => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr),
-    );
+  let matchesAssignedChassis = false;
+  if (Array.isArray(form?.chassisTenantAssignments) && userTenantIdStr) {
+    const myAssignedChassis = form.chassisTenantAssignments
+      .filter((a) => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr))
+      .map((a) => a.chassisNumber)
+      .filter(Boolean);
+
+    if (myAssignedChassis.length > 0) {
+      const respChassis =
+        response.chassisNumber ||
+        (response.answers instanceof Map
+          ? response.answers.get('chassis_number') || response.answers.get('chassisNumber')
+          : response.answers?.chassis_number || response.answers?.chassisNumber);
+      if (respChassis && myAssignedChassis.includes(respChassis)) {
+        matchesAssignedChassis = true;
+      }
+    }
+  }
 
   // Response.tenantId itself always equals the form owner's tenant, so as a
   // last resort also accept a direct match against it (covers responses
@@ -56,7 +69,7 @@ const canAccessResponseTenant = async (req, response) => {
   const responseTenantIdStr = response.tenantId ? response.tenantId.toString() : null;
   const matchesResponseTenant = responseTenantIdStr && responseTenantIdStr === userTenantIdStr;
 
-  return Boolean(isOwnerTenant || isSharedTenant || hasChassisShare || matchesResponseTenant);
+  return Boolean(isOwnerTenant || isSharedTenant || matchesAssignedChassis || matchesResponseTenant);
 };
 
 // ─── Robust Date Parser for Excel Imports ─────────────────────────────────────
@@ -4031,6 +4044,26 @@ export const updateResponse = async (req, res) => {
           status: biwReview.status,
           reviewedBy: req.user._id,
           reviewedByName: userUsername || userEmail || 'Reviewer',
+          reviewedAt: new Date(),
+          remark: biwReview.remark || '',
+          reason: biwReview.reason || '',
+          evidenceUrl: biwReview.evidenceUrl || '',
+          flaggedQuestions: Array.isArray(biwReview.flaggedQuestions) ? biwReview.flaggedQuestions : []
+        };
+      }
+    }
+
+    if (req.body.hasOwnProperty('review')) {
+      const reviewObj = req.body.review;
+      if (reviewObj === null || reviewObj === undefined) {
+        response.review = undefined;
+      } else {
+        response.review = {
+          ...reviewObj,
+          status: reviewObj.status || reviewObj.reviewOption || 'pending',
+          reviewOption: reviewObj.reviewOption || reviewObj.status,
+          reviewedBy: req.user._id,
+          reviewedByName: userUsername || userEmail || 'Reviewer',
           reviewedAt: new Date()
         };
       }
@@ -4471,9 +4504,16 @@ export const getResponsesByForm = async (req, res) => {
           || form.followUpQuestions?.find(q => q.type === 'chassisNumber');
         const chassisFieldId = chassisQuestion?.id || 'chassis_number';
         
-        // Push the filter to mongo natively 
-        // e.g., answers.12345: { $in: ["CHAS1", "CHAS2"] }
-        query[`answers.${chassisFieldId}`] = { $in: myAssignedChassis };
+        const chassisConditions = [
+          { chassisNumber: { $in: myAssignedChassis } },
+          { 'answers.chassis_number': { $in: myAssignedChassis } },
+          { 'answers.chassisNumber': { $in: myAssignedChassis } }
+        ];
+        if (chassisFieldId && chassisFieldId !== 'chassis_number') {
+          chassisConditions.push({ [`answers.${chassisFieldId}`]: { $in: myAssignedChassis } });
+        }
+        if (!query.$and) query.$and = [];
+        query.$and.push({ $or: chassisConditions });
       } else {
         // They have chassis share access, but zero chassis assigned? Return empty.
         query._id = null; // Impossible query to force empty results
@@ -4517,12 +4557,12 @@ export const getResponsesByForm = async (req, res) => {
     let responsesQuery = Response.find(query);
     if (isAnalytics) {
       responsesQuery = responsesQuery.select(
-        '_id id questionId formId status answers submissionMetadata responseRanks chassisNumber batchId notes score parentResponseId submitterContact inviteId createdAt timestamp submittedBy createdBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt'
+        '_id id questionId formId status answers submissionMetadata responseRanks chassisNumber batchId notes score parentResponseId submitterContact inviteId createdAt timestamp submittedBy createdBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt review'
       );
     } else {
       responsesQuery = responsesQuery
         .select(
-          '_id id questionId formId status answers submissionMetadata responseRanks chassisNumber batchId notes score parentResponseId submitterContact inviteId createdAt timestamp submittedBy createdBy assignedTo verifiedBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt'
+          '_id id questionId formId status answers submissionMetadata responseRanks chassisNumber batchId notes score parentResponseId submitterContact inviteId createdAt timestamp submittedBy createdBy assignedTo verifiedBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt review'
         )
         .populate('assignedTo', 'username firstName lastName email')
         .populate('verifiedBy', 'username firstName lastName email')
@@ -4564,10 +4604,10 @@ export const getResponsesByForm = async (req, res) => {
           .sort({ createdAt: -1 })
           .lean(),
         ChatMessage.find({
-          responseId: { $in: responseIds },
-          questionContexts: { $exists: true, $not: { $size: 0 } }
+          responseId: { $in: responseIds }
         })
-          .select('responseId questionContexts createdAt')
+          .select('responseId message status questionTitles questionContexts from toEmail createdAt')
+          .populate('from', 'firstName lastName email username')
           .sort({ createdAt: -1 })
           .lean(),
       ]);
@@ -4901,9 +4941,10 @@ export const getResponsesByForm = async (req, res) => {
     // this keeps working if lean() is ever removed on this path.
     const formattedResponses = responses.map(response => {
       const responseObj = typeof response.toObject === 'function' ? response.toObject() : response;
-      const review = reviewsByResponse[response.id];
-      const message = messagesByResponse[response.id];
-
+      const respIdStr = response.id || (response._id ? response._id.toString() : '');
+      const respMongoId = response._id ? response._id.toString() : '';
+      const review = reviewsByResponse[respIdStr] || (respMongoId ? reviewsByResponse[respMongoId] : null);
+      const message = messagesByResponse[respIdStr] || (respMongoId ? messagesByResponse[respMongoId] : null);
       // Determine the best display name for submittedBy
       let displaySubmittedBy = response.submittedBy;
 
@@ -4926,11 +4967,46 @@ export const getResponsesByForm = async (req, res) => {
         displaySubmittedBy = response.submitterContact?.email || 'Anonymous';
       }
 
+      const existingReview = (response.review && typeof response.review === 'object') ? response.review : {};
+
+      let reviewerName = null;
+      if (review) {
+        if (review.reviewerName) {
+          reviewerName = review.reviewerName;
+        } else if (review.reviewerId) {
+          reviewerName = review.reviewerId.firstName
+            ? `${review.reviewerId.firstName} ${review.reviewerId.lastName || ''}`.trim()
+            : (review.reviewerId.username || review.reviewerId.email);
+        }
+      }
+      if (!reviewerName && existingReview.reviewerName) {
+        reviewerName = existingReview.reviewerName;
+      }
+      if (!reviewerName && message?.from) {
+        reviewerName = message.from.firstName
+          ? `${message.from.firstName} ${message.from.lastName || ''}`.trim()
+          : (message.from.username || message.from.email);
+      }
+
+      const reviewStatus = review?.reviewOption || existingReview.reviewOption || existingReview.status || null;
+      const chatMsg = message?.message || existingReview.remark || existingReview.reason || null;
+      const chatStatus = message?.status || (chatMsg ? 'sent' : null);
+
+      const flaggedQuestions = message?.questionContexts?.length > 0
+        ? message.questionContexts.map(c => c.title)
+        : (message?.questionTitles?.length > 0
+            ? message.questionTitles
+            : (existingReview.flaggedQuestions || []));
+
       // Attach review info
-      const reviewInfo = review ? {
-        status: review.reviewOption,
-        reviewer: review.reviewerName || (review.reviewerId ? (review.reviewerId.firstName ? `${review.reviewerId.firstName} ${review.reviewerId.lastName}` : review.reviewerId.username) : 'Reviewer'),
-        flaggedQuestions: message ? message.questionContexts.map(c => c.title) : []
+      const reviewInfo = (reviewStatus || chatMsg || flaggedQuestions.length > 0) ? {
+        status: reviewStatus,
+        reviewer: reviewerName || 'Reviewer',
+        flaggedQuestions,
+        message: chatMsg,
+        chatStatus: chatStatus,
+        messageCreatedAt: message?.createdAt || existingReview.createdAt || null,
+        messageFrom: reviewerName
       } : null;
 
       const toPlainObject = (val) => {

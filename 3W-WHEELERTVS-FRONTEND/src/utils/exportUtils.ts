@@ -2104,21 +2104,6 @@ export async function parseFormWorkbook(file: File) {
       ? workbook.Sheets[sheetNames[parametersSheetIndex]]
       : null;
 
-  // Find Form Template sheet
-  const formSheetIndex = sheetNames.findIndex(
-    (name) =>
-      name.toLowerCase().includes("form") ||
-      name.toLowerCase().includes("template")
-  );
-  const formSheet =
-    formSheetIndex >= 0
-      ? workbook.Sheets[sheetNames[formSheetIndex]]
-      : workbook.Sheets[sheetNames[0]];
-
-  if (!formSheet) {
-    throw new Error("Workbook must have a Form Template sheet");
-  }
-
   // Parse parameters from Parameters sheet
   let parametersToCreate: Array<{ name: string; type: "main" | "followup" }> =
     [];
@@ -2155,7 +2140,101 @@ export async function parseFormWorkbook(file: File) {
             | "followup",
         };
       })
-      .filter((p) => p.name && p.name.toLowerCase() !== "parameter name"); // Final validation
+      .filter((p) => p.name && p.name.toLowerCase() !== "parameter name");
+  }
+
+  // Check if this is a structured multi-sheet workbook (with Questions / Question sheet)
+  const questionsSheetIndex = sheetNames.findIndex((name) => {
+    const lower = name.toLowerCase().trim();
+    return lower === "questions" || lower === "question" || lower === "items";
+  });
+
+  if (questionsSheetIndex >= 0) {
+    const questionsSheet = workbook.Sheets[sheetNames[questionsSheetIndex]];
+    const questionsRawData = utils.sheet_to_json<Record<string, any>>(questionsSheet, {
+      defval: "",
+    });
+
+    let formTitle = "Imported Form";
+    let formDesc = "";
+    const formMetaSheetIndex = sheetNames.findIndex(name => name.toLowerCase().trim() === "form");
+    if (formMetaSheetIndex >= 0) {
+      const formSheet = workbook.Sheets[sheetNames[formMetaSheetIndex]];
+      const formRows = utils.sheet_to_json<Record<string, any>>(formSheet, { defval: "" });
+      if (formRows.length > 0) {
+        formTitle = formRows[0].Title || formRows[0]["Form Title"] || formTitle;
+        formDesc = formRows[0].Description || formRows[0]["Form Description"] || formDesc;
+      }
+    }
+
+    const sectionMetaMap = new Map<string, { title: string; description: string; order: number }>();
+    const sectionsMetaIndex = sheetNames.findIndex(name => name.toLowerCase().trim() === "sections" || name.toLowerCase().trim() === "section");
+    if (sectionsMetaIndex >= 0) {
+      const sectionsSheet = workbook.Sheets[sheetNames[sectionsMetaIndex]];
+      const sectionRows = utils.sheet_to_json<Record<string, any>>(sectionsSheet, { defval: "" });
+      sectionRows.forEach((sRow, idx) => {
+        const sId = (sRow.SectionId || sRow.SectionOrder || (idx + 1)).toString().trim();
+        if (sId) {
+          sectionMetaMap.set(sId, {
+            title: sRow.SectionTitle?.toString().trim() || `Section ${idx + 1}`,
+            description: sRow.SectionDescription?.toString().trim() || "",
+            order: parseInt(sRow.SectionOrder) || (idx + 1),
+          });
+        }
+      });
+    }
+
+    const structuredData = parseQuestionsFromStructuredRows(
+      questionsRawData,
+      formTitle,
+      formDesc,
+      sectionMetaMap,
+      parametersToCreate
+    );
+
+    return {
+      ...structuredData,
+      parametersToCreate,
+    };
+  }
+
+  // Find Form Template sheet or best matching questions sheet
+  let formSheet = null;
+  const formTemplateIdx = sheetNames.findIndex(
+    (name) =>
+      name.toLowerCase().includes("form template") ||
+      name.toLowerCase().includes("template")
+  );
+
+  if (formTemplateIdx >= 0) {
+    formSheet = workbook.Sheets[sheetNames[formTemplateIdx]];
+  } else {
+    // Check candidate sheets to find one containing question rows
+    for (const sheetName of sheetNames) {
+      if (sheetName.toLowerCase().includes("parameter")) continue;
+      const candidateSheet = workbook.Sheets[sheetName];
+      if (!candidateSheet) continue;
+      const testRows = utils.sheet_to_json<Record<string, any>>(candidateSheet, { defval: "", header: 1 });
+      const hasQuestionHeader = testRows.slice(0, 10).some((row: any) =>
+        Array.isArray(row) &&
+        row.some((cell: any) => {
+          const str = String(cell).toLowerCase().trim();
+          return str === "question" || str === "question text" || str === "question type";
+        })
+      );
+      if (hasQuestionHeader) {
+        formSheet = candidateSheet;
+        break;
+      }
+    }
+    if (!formSheet) {
+      const fallbackIdx = sheetNames.findIndex((name) => name.toLowerCase().includes("form"));
+      formSheet = fallbackIdx >= 0 ? workbook.Sheets[sheetNames[fallbackIdx]] : workbook.Sheets[sheetNames[0]];
+    }
+  }
+
+  if (!formSheet) {
+    throw new Error("Workbook must contain question data");
   }
 
   // Parse form data from Form Template sheet
@@ -2164,14 +2243,14 @@ export async function parseFormWorkbook(file: File) {
   });
 
   if (rawData.length === 0) {
-    throw new Error("Form Template sheet is empty");
+    throw new Error("Selected sheet is empty");
   }
 
   // Find the header row (containing "Question" or "Question Type")
   let headerRowIndex = -1;
   for (let i = 0; i < Math.min(rawData.length, 10); i++) {
     const row = rawData[i];
-    const values = Object.values(row).map(v => String(v).toLowerCase());
+    const values = Object.values(row).map(v => String(v).toLowerCase().trim());
     if (values.some(v => v === "question" || v === "question type" || v === "question text")) {
       headerRowIndex = i;
       break;
@@ -2220,6 +2299,191 @@ export async function parseFormWorkbook(file: File) {
   return {
     ...formData,
     parametersToCreate,
+  };
+}
+
+function parseQuestionsFromStructuredRows(
+  rows: Record<string, any>[],
+  formTitle: string,
+  formDescription: string,
+  sectionMetaMap: Map<string, { title: string; description: string; order: number }>,
+  _parametersToCreate: Array<{ name: string; type: "main" | "followup" }>
+): Partial<Question> & { sections: Section[]; sectionBranching: any[] } {
+  const sectionsMap = new Map<string, Section>();
+  const allQuestionsMap = new Map<string, FollowUpQuestion>();
+  const pendingFollowUps: Array<{
+    question: FollowUpQuestion;
+    parentId: string;
+    parentText?: string;
+    triggerValue: string;
+  }> = [];
+
+  rows.forEach((row) => {
+    const rawSectionId = (
+      row["SectionId"] ||
+      row["Section ID"] ||
+      row["Section Number"] ||
+      row["SectionNo"] ||
+      row["Section"] ||
+      "1"
+    ).toString().trim();
+    const sectionId = rawSectionId || "1";
+
+    if (!sectionsMap.has(sectionId)) {
+      const meta = sectionMetaMap.get(sectionId);
+      sectionsMap.set(sectionId, {
+        id: sectionId,
+        title: meta?.title || `Section ${sectionsMap.size + 1}`,
+        description: meta?.description || "",
+        questions: [],
+      });
+    }
+
+    const section = sectionsMap.get(sectionId)!;
+    const questionText = (
+      row["QuestionText"] ||
+      row["Question Text"] ||
+      row["Question"] ||
+      ""
+    ).toString().trim();
+    if (!questionText) return;
+
+    const questionId = (
+      row["QuestionId"] ||
+      row["Question ID"] ||
+      row["Id"] ||
+      generateId()
+    ).toString().trim();
+    const questionType = (
+      row["QuestionType"] ||
+      row["Question Type"] ||
+      row["Type"] ||
+      "text"
+    ).toString().trim();
+    const required = (row["Required"] || "FALSE").toString().toLowerCase() === "true";
+    const optionsStr = (row["Options"] || "").toString().trim();
+    const options = optionsStr
+      ? optionsStr.split(/[|,]/).map((o) => o.trim()).filter(Boolean)
+      : undefined;
+    const description = (row["Description"] || "").toString().trim() || undefined;
+    const suggestion = (row["Suggestion"] || "").toString().trim() || undefined;
+    const subParam1 = (row["SubParam1"] || row["Main Parameter"] || "").toString().trim() || undefined;
+    const subParam2 = (row["SubParam2"] || row["Followup Parameter"] || "").toString().trim() || undefined;
+    const parentQuestionId = (
+      row["ParentQuestionId"] ||
+      row["Parent Question ID"] ||
+      row["ParentId"] ||
+      ""
+    ).toString().trim();
+    const parentQuestionText = (
+      row["Parent Question"] ||
+      row["Parent Question Text"] ||
+      row["Parent"] ||
+      ""
+    ).toString().trim();
+    const triggerValue = (
+      row["TriggerValue"] ||
+      row["Trigger Value"] ||
+      row["Trigger Option"] ||
+      row["Show When"] ||
+      ""
+    ).toString().trim();
+    const correctAnswer = (row["Correct Answer"] || "").toString().trim() || undefined;
+    const rankingLogic = (row["Ranking Logic"] || "FALSE").toString().toLowerCase() === "true";
+    const trackQuestion = (row["Track Question"] || "FALSE").toString().toLowerCase() === "true";
+    const imageUrl = (row["ImageUrl"] || row["Image URL"] || "").toString().trim() || undefined;
+
+    let followUpConfig: Record<string, any> = {};
+    if (row["FollowUpConfig"]) {
+      try {
+        followUpConfig = JSON.parse(row["FollowUpConfig"]);
+      } catch {
+        // ignore JSON parse error
+      }
+    }
+
+    const normalizedType = normalizeQuestionType(questionType);
+    const question: FollowUpQuestion = {
+      id: questionId,
+      text: questionText,
+      type: normalizedType as FollowUpQuestion["type"],
+      required,
+      options,
+      description,
+      suggestion,
+      subParam1,
+      subParam2,
+      imageUrl,
+      correctAnswer,
+      trackResponseRank: rankingLogic,
+      trackResponseQuestion: trackQuestion,
+      followUpQuestions: [],
+      sectionId: section.id,
+      followUpConfig,
+    };
+
+    allQuestionsMap.set(questionId, question);
+
+    if ((parentQuestionId || parentQuestionText) && triggerValue) {
+      question.showWhen = {
+        questionId: parentQuestionId || "",
+        value: triggerValue,
+      };
+      pendingFollowUps.push({
+        question,
+        parentId: parentQuestionId,
+        parentText: parentQuestionText,
+        triggerValue,
+      });
+    } else {
+      section.questions.push(question);
+    }
+  });
+
+  // Attach pending follow-ups recursively
+  pendingFollowUps.forEach(({ question, parentId, parentText, triggerValue }) => {
+    let parent = parentId ? allQuestionsMap.get(parentId) : undefined;
+    if (!parent && parentText) {
+      parent = Array.from(allQuestionsMap.values()).find(
+        (cand) => cand.text?.toLowerCase().trim() === parentText.toLowerCase().trim()
+      );
+    }
+
+    if (parent) {
+      question.showWhen = {
+        questionId: parent.id,
+        value: triggerValue,
+      };
+      parent.followUpQuestions = parent.followUpQuestions || [];
+      if (!parent.followUpQuestions.some((q) => q.id === question.id)) {
+        parent.followUpQuestions.push(question);
+      }
+
+      const cfg = (parent as any).followUpConfig || {};
+      if (!cfg[triggerValue]) {
+        cfg[triggerValue] = { hasFollowUp: true, required: question.required || false };
+      } else {
+        cfg[triggerValue].hasFollowUp = true;
+        cfg[triggerValue].required = question.required || cfg[triggerValue].required;
+      }
+      (parent as any).followUpConfig = cfg;
+    } else {
+      // If parent cannot be located, leave as section question in section 1
+      const defaultSec = sectionsMap.values().next().value;
+      if (defaultSec && !defaultSec.questions.some((q: any) => q.id === question.id)) {
+        defaultSec.questions.push(question);
+      }
+    }
+  });
+
+  return {
+    id: generateId(),
+    title: formTitle,
+    description: formDescription || "Imported form from Excel structure",
+    isVisible: true,
+    sections: Array.from(sectionsMap.values()),
+    followUpQuestions: [],
+    sectionBranching: [],
   };
 }
 
@@ -2404,8 +2668,9 @@ function parseNewTemplateFormat(
       `[NESTED] Parsing level ${levelPath} for parent: ${parentQuestion.text}`
     );
 
-    // Find all child columns for this level
-    const childPattern = new RegExp(`^FU${levelPath}\\.(\\d+):\\s*(.+)$`);
+    // Find all child columns for this level (case-insensitive and whitespace-tolerant)
+    const escapedLevelPath = levelPath.replace(/\./g, "\\.");
+    const childPattern = new RegExp(`^FU\\s*${escapedLevelPath}\\.\\s*(\\d+)\\s*:\\s*(.+)$`, "i");
     const childColumns = Object.keys(row).filter((key) =>
       childPattern.test(key)
     );
@@ -2425,7 +2690,7 @@ function parseNewTemplateFormat(
       if (!match) return;
 
       const childNum = parseInt(match[1]);
-      const columnType = match[2].trim(); // "Option", "Question Type", etc.
+      const columnType = match[2].trim();
 
       if (!childGroups.has(childNum)) {
         childGroups.set(childNum, {});
@@ -2437,11 +2702,40 @@ function parseNewTemplateFormat(
 
     console.log(`[NESTED] Child groups:`, Array.from(childGroups.entries()));
 
+    const getField = (data: Record<string, string>, aliases: string[]): string => {
+      for (const alias of aliases) {
+        const cleanAlias = alias.toLowerCase().replace(/[\s_-]+/g, "");
+        for (const [key, val] of Object.entries(data)) {
+          const cleanKey = key.toLowerCase().replace(/[\s_-]+/g, "");
+          if (cleanKey === cleanAlias || key.toLowerCase() === alias.toLowerCase()) {
+            if (val !== undefined && val !== "") return val;
+          }
+        }
+      }
+      return "";
+    };
+
     // Process each child group
     childGroups.forEach((childData, childNum) => {
-      const childOption = childData["Option"];
-      const childType = childData["Question Type"];
-      const childText = childData["Question Text"];
+      const childOption = getField(childData, [
+        "Option",
+        "Trigger Option",
+        "Trigger Value",
+        "Trigger",
+        "Value",
+      ]);
+      const childText = getField(childData, [
+        "Question Text",
+        "Question",
+        "Text",
+        "Title",
+      ]);
+      const childTypeRaw = getField(childData, [
+        "Question Type",
+        "Type",
+        "Input Type",
+      ]);
+      const childType = childTypeRaw ? normalizeQuestionType(childTypeRaw) : "text";
 
       console.log(`[NESTED] Processing child ${childNum}:`, {
         childOption,
@@ -2449,27 +2743,41 @@ function parseNewTemplateFormat(
         childText,
       });
 
-      if (!childOption || !childType || !childText) {
-        console.warn(`[NESTED] Missing required fields for child ${childNum}`);
+      if (!childOption || !childText) {
+        console.warn(`[NESTED] Missing required option or text for child ${childNum}`);
         return;
       }
 
       const childRequired =
-        (childData["Required"] || "FALSE").toLowerCase() === "true";
-      const childSubParam1 = childData["SubParam1"] || childData["Main Parameter"] || childData["Sub Parameter 1"] || undefined;
-      const childSubParam2 = childData["SubParam2"] || childData["Followup Parameter"] || childData["Sub Parameter 2"] || childData["Follow up Parameter"] || undefined;
-      const childOptionsStr = childData["Options"] || "";
-      const childCorrectAnswer = childData["Correct Answer"] || undefined;
-      const childRankingLogicRaw = childData["Ranking Logic"] || "FALSE";
-      const childRankingLogic = childRankingLogicRaw.toLowerCase() === "true" || childRankingLogicRaw === "1";
-      const childTrackQuestionRaw = childData["Track Question"] || "FALSE";
-      const childTrackQuestion = childTrackQuestionRaw.toLowerCase() === "true" || childTrackQuestionRaw === "1";
-      const childImageUrl = childData["Image/File URL"] || undefined;
-      const childDescription = childData["Description"] || undefined;
+        (getField(childData, ["Required", "Mandatory", "Is Required"]) || "FALSE").toLowerCase() === "true";
+      const childSubParam1 =
+        getField(childData, ["SubParam1", "Main Parameter", "Sub Parameter 1"]) || undefined;
+      const childSubParam2 =
+        getField(childData, [
+          "SubParam2",
+          "Followup Parameter",
+          "Sub Parameter 2",
+          "Follow up Parameter",
+        ]) || undefined;
+      const childOptionsStr = getField(childData, ["Options", "Choices", "Values"]);
+      const childCorrectAnswer =
+        getField(childData, ["Correct Answer", "Answer"]) || undefined;
+      const childRankingLogicRaw =
+        getField(childData, ["Ranking Logic", "Track Rank", "Ranking"]) || "FALSE";
+      const childRankingLogic =
+        childRankingLogicRaw.toLowerCase() === "true" || childRankingLogicRaw === "1";
+      const childTrackQuestionRaw =
+        getField(childData, ["Track Question", "Track"]) || "FALSE";
+      const childTrackQuestion =
+        childTrackQuestionRaw.toLowerCase() === "true" || childTrackQuestionRaw === "1";
+      const childImageUrl =
+        getField(childData, ["Image/File URL", "Image URL", "Image", "File URL"]) || undefined;
+      const childDescription =
+        getField(childData, ["Description", "Help Text", "Sub Text"]) || undefined;
 
       const childOptions = childOptionsStr
         ? childOptionsStr
-            .split(",")
+            .split(/[|,]/)
             .map((opt) => opt.trim())
             .filter(Boolean)
         : undefined;
@@ -2478,7 +2786,7 @@ function parseNewTemplateFormat(
       const childQuestion: FollowUpQuestion = {
         id: childQuestionId,
         text: childText,
-        type: normalizeQuestionType(childType) as FollowUpQuestion["type"],
+        type: childType as FollowUpQuestion["type"],
         required: childRequired,
         options: childOptions,
         description: childDescription,
@@ -2500,6 +2808,16 @@ function parseNewTemplateFormat(
       // Add to parent's follow-ups
       parentQuestion.followUpQuestions = parentQuestion.followUpQuestions || [];
       parentQuestion.followUpQuestions.push(childQuestion);
+
+      // Ensure parent's followUpConfig registers this trigger option
+      const pConfig = (parentQuestion as any).followUpConfig || {};
+      if (!pConfig[childOption]) {
+        pConfig[childOption] = { hasFollowUp: true, required: childRequired };
+      } else {
+        pConfig[childOption].hasFollowUp = true;
+        pConfig[childOption].required = childRequired || pConfig[childOption].required;
+      }
+      (parentQuestion as any).followUpConfig = pConfig;
 
       console.log(
         `[NESTED] Added child question: ${childText} to parent: ${parentQuestion.text}`
@@ -2832,50 +3150,110 @@ function parseNewTemplateFormat(
       ...(branchingRules.length > 0 && { branchingRules }),
     };
 
+    const getFU1Field = (fuIndex: number, aliases: string[]): string => {
+      const prefixRegex = new RegExp(`^(FU|Follow-?up)\\s*${fuIndex}\\s*:\\s*(.+)$`, "i");
+      for (const colKey of Object.keys(row)) {
+        const match = colKey.match(prefixRegex);
+        if (match) {
+          const colField = match[2].trim();
+          const cleanColField = colField.toLowerCase().replace(/[\s_-]+/g, "");
+          for (const alias of aliases) {
+            const cleanAlias = alias.toLowerCase().replace(/[\s_-]+/g, "");
+            if (cleanColField === cleanAlias || colField.toLowerCase() === alias.toLowerCase()) {
+              const val = row[colKey]?.toString().trim();
+              if (val !== undefined && val !== "") return val;
+            }
+          }
+        }
+      }
+      return "";
+    };
+
+    // Check for row-based follow-up definitions
+    const parentQIdRef = (
+      row["ParentQuestionId"] ||
+      row["Parent Question ID"] ||
+      row["ParentId"] ||
+      ""
+    ).toString().trim();
+    const parentQTextRef = (
+      row["Parent Question"] ||
+      row["Parent Question Text"] ||
+      row["Parent"] ||
+      ""
+    ).toString().trim();
+    const triggerValRef = (
+      row["TriggerValue"] ||
+      row["Trigger Value"] ||
+      row["Trigger Option"] ||
+      row["TriggerOption"] ||
+      row["Show When"] ||
+      row["ShowWhen"] ||
+      ""
+    ).toString().trim();
+
+    if ((parentQIdRef || parentQTextRef) && triggerValRef) {
+      (question as any)._rowFollowUp = {
+        parentId: parentQIdRef,
+        parentText: parentQTextRef,
+        triggerValue: triggerValRef,
+      };
+    }
+
     // Process level 1 follow-ups (Support up to 99 main-level follow-ups)
     for (let fuIndex = 1; fuIndex <= 99; fuIndex++) {
-      const fuOptionKey = `FU${fuIndex}: Option` as const;
-      const fuTypeKey = `FU${fuIndex}: Question Type` as const;
-      const fuRequiredKey = `FU${fuIndex}: Required` as const;
-      const fuSubParam1Key = `FU${fuIndex}: SubParam1` as const;
-      const fuSubParam2Key = `FU${fuIndex}: SubParam2` as const;
-      const fuTextKey = `FU${fuIndex}: Question Text` as const;
-      const fuDescriptionKey = `FU${fuIndex}: Description` as const;
-      const fuOptionsKey = `FU${fuIndex}: Options` as const;
-      const fuCorrectAnswerKey = `FU${fuIndex}: Correct Answer` as const;
-      const fuRankingLogicKey = `FU${fuIndex}: Ranking Logic` as const;
-      const fuTrackQuestionKey = `FU${fuIndex}: Track Question` as const;
-      const fuImageUrlKey = `FU${fuIndex}: Image/File URL` as const;
-
-      // Type-safe property access
-      const fuOption = (row[fuOptionKey] as string)?.toString().trim();
-      const fuTypeRaw = (row[fuTypeKey] as string)?.toString().trim();
+      const fuOption = getFU1Field(fuIndex, [
+        "Option",
+        "Trigger Option",
+        "Trigger Value",
+        "Trigger",
+        "Value",
+      ]);
+      const fuText = getFU1Field(fuIndex, [
+        "Question Text",
+        "Question",
+        "Text",
+        "Title",
+      ]);
+      const fuTypeRaw = getFU1Field(fuIndex, [
+        "Question Type",
+        "Type",
+        "Input Type",
+      ]);
       const fuType = fuTypeRaw ? normalizeQuestionType(fuTypeRaw) : "text";
-      const fuText = (row[fuTextKey] as string)?.toString().trim();
-      const fuDescription = (row[fuDescriptionKey] as string)?.toString().trim();
-      const fuImageUrl = (row[fuImageUrlKey] as string)?.toString().trim();
 
-      if (fuOption && fuType && fuText) {
+      if (fuOption && fuText) {
         const fuRequiredStr =
-          (row[fuRequiredKey] as string)?.toString().trim() || "FALSE";
+          getFU1Field(fuIndex, ["Required", "Mandatory", "Is Required"]) || "FALSE";
         const fuRequired = fuRequiredStr.toLowerCase() === "true";
-        const fuSubParam1Column = Object.keys(row).find(k => k.startsWith(`FU${fuIndex}:`) && (k.includes("SubParam1") || k.includes("Main Parameter") || k.includes("Sub Parameter 1")));
-        const fuSubParam2Column = Object.keys(row).find(k => k.startsWith(`FU${fuIndex}:`) && (k.includes("SubParam2") || k.includes("Followup Parameter") || k.includes("Sub Parameter 2") || k.includes("Follow up Parameter")));
-
-        const fuSubParam1 = (fuSubParam1Column ? row[fuSubParam1Column] : row[fuSubParam1Key])?.toString().trim();
-        const fuSubParam2 = (fuSubParam2Column ? row[fuSubParam2Column] : row[fuSubParam2Key])?.toString().trim();
-        const fuOptionsStr =
-          (row[fuOptionsKey] as string)?.toString().trim() || "";
+        const fuSubParam1 =
+          getFU1Field(fuIndex, ["SubParam1", "Main Parameter", "Sub Parameter 1"]) || undefined;
+        const fuSubParam2 =
+          getFU1Field(fuIndex, [
+            "SubParam2",
+            "Followup Parameter",
+            "Sub Parameter 2",
+            "Follow up Parameter",
+          ]) || undefined;
+        const fuOptionsStr = getFU1Field(fuIndex, ["Options", "Choices", "Values"]);
         const fuCorrectAnswer =
-          (row[fuCorrectAnswerKey] as string)?.toString().trim() || "";
-        const fuRankingLogicRaw = (row[fuRankingLogicKey] as string)?.toString().trim() || "FALSE";
-        const fuRankingLogic = fuRankingLogicRaw.toLowerCase() === "true" || fuRankingLogicRaw === "1";
-        const fuTrackQuestionRaw = (row[fuTrackQuestionKey] as string)?.toString().trim() || "FALSE";
-        const fuTrackQuestion = fuTrackQuestionRaw.toLowerCase() === "true" || fuTrackQuestionRaw === "1";
+          getFU1Field(fuIndex, ["Correct Answer", "Answer"]) || undefined;
+        const fuRankingLogicRaw =
+          getFU1Field(fuIndex, ["Ranking Logic", "Track Rank", "Ranking"]) || "FALSE";
+        const fuRankingLogic =
+          fuRankingLogicRaw.toLowerCase() === "true" || fuRankingLogicRaw === "1";
+        const fuTrackQuestionRaw =
+          getFU1Field(fuIndex, ["Track Question", "Track"]) || "FALSE";
+        const fuTrackQuestion =
+          fuTrackQuestionRaw.toLowerCase() === "true" || fuTrackQuestionRaw === "1";
+        const fuImageUrl =
+          getFU1Field(fuIndex, ["Image/File URL", "Image URL", "Image", "File URL"]) || undefined;
+        const fuDescription =
+          getFU1Field(fuIndex, ["Description", "Help Text", "Sub Text"]) || undefined;
 
         const fuOptions = fuOptionsStr
           ? fuOptionsStr
-              .split(",")
+              .split(/[|,]/)
               .map((opt) => opt.trim())
               .filter(Boolean)
           : undefined;
@@ -2888,16 +3266,16 @@ function parseNewTemplateFormat(
           required: fuRequired,
           options: fuOptions,
           description: fuDescription,
-          imageUrl: fuImageUrl || undefined,
+          imageUrl: fuImageUrl,
           followUpQuestions: [],
           sectionId: section.id,
-          correctAnswer: fuCorrectAnswer || undefined,
+          correctAnswer: fuCorrectAnswer,
           showWhen: {
             questionId: questionId,
             value: fuOption,
           },
-          subParam1: fuSubParam1 || undefined,
-          subParam2: fuSubParam2 || undefined,
+          subParam1: fuSubParam1,
+          subParam2: fuSubParam2,
           trackResponseRank: fuRankingLogic,
           trackResponseQuestion: fuTrackQuestion,
           allowedFileTypes: undefined,
@@ -2928,6 +3306,62 @@ function parseNewTemplateFormat(
 
     section.questions.push(question);
     questionMap.set(questionText, question);
+  });
+
+  // Post-process row-based follow-ups: attach them to their parent questions
+  const allParsedQuestions: FollowUpQuestion[] = [];
+  sectionsMap.forEach((sec) => {
+    allParsedQuestions.push(...sec.questions);
+  });
+
+  sectionsMap.forEach((sec) => {
+    const remainingQuestions: FollowUpQuestion[] = [];
+    sec.questions.forEach((q) => {
+      const rowFU = (q as any)._rowFollowUp;
+      if (rowFU && (rowFU.parentId || rowFU.parentText) && rowFU.triggerValue) {
+        // Find parent question by ID or Text
+        const parent = allParsedQuestions.find((candidate) => {
+          if (candidate.id === q.id) return false;
+          if (rowFU.parentId && candidate.id === rowFU.parentId) return true;
+          if (
+            rowFU.parentText &&
+            candidate.text?.toLowerCase().trim() === rowFU.parentText.toLowerCase().trim()
+          ) {
+            return true;
+          }
+          return false;
+        });
+
+        if (parent) {
+          q.showWhen = {
+            questionId: parent.id,
+            value: rowFU.triggerValue,
+          };
+          delete (q as any)._rowFollowUp;
+          parent.followUpQuestions = parent.followUpQuestions || [];
+          if (!parent.followUpQuestions.some((child) => child.id === q.id)) {
+            parent.followUpQuestions.push(q);
+          }
+
+          const pConfig = (parent as any).followUpConfig || {};
+          if (!pConfig[rowFU.triggerValue]) {
+            pConfig[rowFU.triggerValue] = { hasFollowUp: true, required: q.required || false };
+          } else {
+            pConfig[rowFU.triggerValue].hasFollowUp = true;
+            pConfig[rowFU.triggerValue].required =
+              q.required || pConfig[rowFU.triggerValue].required;
+          }
+          (parent as any).followUpConfig = pConfig;
+        } else {
+          delete (q as any)._rowFollowUp;
+          remainingQuestions.push(q);
+        }
+      } else {
+        delete (q as any)._rowFollowUp;
+        remainingQuestions.push(q);
+      }
+    });
+    sec.questions = remainingQuestions;
   });
 
   const sections = Array.from(sectionsMap.values());

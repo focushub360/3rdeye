@@ -322,42 +322,38 @@ export default function FormCreator() {
             setSharedWithTenants(backendForm.sharedWithTenants);
           }
 
-          if (backendForm.childForms && backendForm.childForms.length > 0) {
-            setEnableFollowUp(true);
-          }
-
           // Transform backend form to frontend format
-          // Reconstruct nested follow-up questions from flat array or use existing nested structure
+          // Reconstruct nested follow-up questions recursively from flat array or use existing nested structure
           const sectionsWithNestedFollowUps = (backendForm.sections || []).map(
             (section: any) => {
               const mainQuestions: Question[] = [];
               const followUpMap = new Map<string, FollowUpQuestion[]>();
 
-              // First pass: separate main questions and follow-ups (for backward compatibility with flat structure)
+              // First pass: separate main questions and follow-ups
               section.questions.forEach((q: any) => {
                 if (q.showWhen && q.showWhen.questionId) {
-                  // This is a follow-up question
                   const parentId = q.showWhen.questionId;
                   if (!followUpMap.has(parentId)) {
                     followUpMap.set(parentId, []);
                   }
                   followUpMap.get(parentId)!.push(q as FollowUpQuestion);
                 } else {
-                  // This is a main question
                   mainQuestions.push(q as Question);
                 }
               });
 
-              // Second pass: attach follow-ups to their parent questions and initialize followUpConfig
-              const questionsWithFollowUps = mainQuestions.map((q) => {
-                // Use existing nested follow-ups if present, otherwise reconstruct from flat array
-                const followUps =
+              // Recursive helper to attach follow-ups and populate followUpConfig across all nesting levels
+              const attachFollowUpsRecursively = (q: any): any => {
+                const directFollowUps =
                   q.followUpQuestions && q.followUpQuestions.length > 0
                     ? q.followUpQuestions
                     : followUpMap.get(q.id) || [];
 
-                // Initialize followUpConfig if not present
-                const followUpConfig = q.followUpConfig || {};
+                const processedFollowUps = directFollowUps.map((fu: any) =>
+                  attachFollowUpsRecursively(fu)
+                );
+
+                const followUpConfig: Record<string, any> = { ...(q.followUpConfig || {}) };
                 if (q.options && q.options.length > 0) {
                   q.options.forEach((option: string) => {
                     if (!followUpConfig[option]) {
@@ -367,24 +363,25 @@ export default function FormCreator() {
                       };
                     }
                   });
-                  // Mark options that have follow-ups
-                  followUps.forEach((followUp) => {
-                    if (
-                      followUp.showWhen?.value &&
-                      followUpConfig[followUp.showWhen.value]
-                    ) {
-                      followUpConfig[followUp.showWhen.value].hasFollowUp =
-                        true;
+                  processedFollowUps.forEach((followUp: any) => {
+                    const triggerVal = followUp.showWhen?.value;
+                    if (triggerVal && followUpConfig[triggerVal]) {
+                      followUpConfig[triggerVal].hasFollowUp = true;
+                      if (followUp.required) {
+                        followUpConfig[triggerVal].required = true;
+                      }
                     }
                   });
                 }
 
                 return {
                   ...q,
-                  followUpQuestions: followUps,
-                  followUpConfig: followUpConfig,
+                  followUpQuestions: processedFollowUps,
+                  followUpConfig,
                 };
-              });
+              };
+
+              const questionsWithFollowUps = mainQuestions.map(attachFollowUpsRecursively);
 
               return {
                 ...section,
@@ -395,8 +392,31 @@ export default function FormCreator() {
             }
           );
 
+          // Check if the form has any follow-up questions
+          const countFollowUpsInQuestions = (questions: any[]): number => {
+            let count = 0;
+            for (const q of questions || []) {
+              if (q.followUpQuestions && q.followUpQuestions.length > 0) {
+                count += q.followUpQuestions.length + countFollowUpsInQuestions(q.followUpQuestions);
+              }
+            }
+            return count;
+          };
+          const totalFollowUpCount = sectionsWithNestedFollowUps.reduce(
+            (total: number, s: any) => total + countFollowUpsInQuestions(s.questions),
+            0
+          );
+
+          if (
+            (backendForm.childForms && backendForm.childForms.length > 0) ||
+            backendForm.parentFormId ||
+            totalFollowUpCount > 0
+          ) {
+            setEnableFollowUp(true);
+          }
+
           setForm({
-            id: backendForm.id,
+            id: backendForm.id || backendForm._id || id,
             title: backendForm.title,
             description: backendForm.description,
             isVisible: backendForm.isVisible,
@@ -614,18 +634,54 @@ export default function FormCreator() {
     try {
       const importedData = await parseFormWorkbook(file);
 
+      const importedTitle = (importedData as any).title?.trim();
+      const isGenericTitle =
+        !importedTitle ||
+        importedTitle.toLowerCase() === "imported form" ||
+        importedTitle.toLowerCase().includes("sample") ||
+        importedTitle.toLowerCase().includes("template");
+
+      const formIdToUse = id || form.id || "";
       const newForm = {
-        id: "",
-        title: (importedData as any).title || "Imported Form",
-        description: (importedData as any).description || "",
+        ...form,
+        id: formIdToUse,
+        title:
+          formIdToUse && isGenericTitle && form.title
+            ? form.title
+            : importedTitle || form.title || "Imported Form",
+        description:
+          formIdToUse && !(importedData as any).description && form.description
+            ? form.description
+            : (importedData as any).description || form.description || "",
         isVisible: true,
-        locationEnabled: true,
+        locationEnabled: form.locationEnabled ?? true,
         sections: (importedData as any).sections || [],
-        followUpQuestions: [],
-        chassisNumbers: [],
+        followUpQuestions: (importedData as any).followUpQuestions || [],
+        chassisNumbers:
+          form.chassisNumbers && form.chassisNumbers.length > 0
+            ? form.chassisNumbers
+            : (importedData as any).chassisNumbers || [],
       };
 
       setForm(newForm);
+
+      // Check if imported questions contain follow-up questions
+      const countFollowUpsInQuestions = (questions: any[]): number => {
+        let count = 0;
+        for (const q of questions || []) {
+          if (q.followUpQuestions && q.followUpQuestions.length > 0) {
+            count += q.followUpQuestions.length + countFollowUpsInQuestions(q.followUpQuestions);
+          }
+        }
+        return count;
+      };
+      const totalFollowUps = (importedData.sections || []).reduce(
+        (acc: number, sec: any) => acc + countFollowUpsInQuestions(sec.questions),
+        0
+      );
+      if (totalFollowUps > 0 || (importedData as any).childForms?.length > 0) {
+        setEnableFollowUp(true);
+      }
 
       // Extract branching rules from imported questions to populate formSectionBranching state
       const branchingRulesToSet: any[] = [];
@@ -662,6 +718,8 @@ export default function FormCreator() {
         error instanceof Error ? error.message : "Failed to import template",
         "Import Error"
       );
+    } finally {
+      event.target.value = "";
     }
   };
 
@@ -896,12 +954,16 @@ export default function FormCreator() {
             });
           });
 
+          const formIdToKeep = id || form.id || "";
           setForm({
             ...sampleForm,
-            id: "",
+            id: formIdToKeep,
+            title: formIdToKeep && form.title ? form.title : sampleForm.title,
+            description: formIdToKeep && form.description ? form.description : sampleForm.description,
             followUpQuestions: [],
-            chassisNumbers: [],
+            chassisNumbers: form.chassisNumbers || [],
           });
+          setEnableFollowUp(true);
           showSuccess("Sample data loaded successfully!", "Sample Data");
         }
       );
@@ -1842,15 +1904,17 @@ export default function FormCreator() {
       "Comprehensive bike service assessment with nested diagnostics"
     );
 
+    const formIdToKeep = id || form.id || "";
     // Create the form with proper typing
     const formToSet = {
-      id: "",
-      title: formTitle,
-      description: formDescription,
+      ...form,
+      id: formIdToKeep,
+      title: formIdToKeep && form.title ? form.title : formTitle,
+      description: formIdToKeep && form.description ? form.description : formDescription,
       isVisible: true,
-      locationEnabled: true,
+      locationEnabled: form.locationEnabled ?? true,
       followUpQuestions: [],
-      chassisNumbers: [],
+      chassisNumbers: form.chassisNumbers || [],
       sections: (sections as any[]).map((section) => ({
         ...section,
         questions: section.questions.map((question) => {
@@ -1897,6 +1961,7 @@ export default function FormCreator() {
 
     // Set the form state
     setForm(formToSet);
+    setEnableFollowUp(true);
 
     showSuccess(
       "Bike Service Demo loaded! This includes nested follow-up questions for comprehensive diagnostics.",
@@ -5944,19 +6009,18 @@ export default function FormCreator() {
                   <span>Follow-ups</span>
                   <span className="font-semibold text-gray-900 dark:text-white">
                     {form.sections.reduce((total, section) => {
-                      const countQuestions = (
+                      const countFollowUps = (
                         questions: (Question | FollowUpQuestion)[]
                       ): number =>
                         questions.reduce((count, q) => {
+                          const direct = q.followUpQuestions?.length || 0;
                           const nested = q.followUpQuestions
-                            ? countQuestions(q.followUpQuestions)
+                            ? countFollowUps(q.followUpQuestions)
                             : 0;
-                          return (
-                            count + (q.followUpQuestions?.length || 0) + nested
-                          );
+                          return count + direct + nested;
                         }, 0);
 
-                      return total + countQuestions(section.questions);
+                      return total + countFollowUps(section.questions);
                     }, 0)}
                   </span>
                 </div>
