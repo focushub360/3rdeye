@@ -5069,21 +5069,7 @@ export default function FormAnalyticsDashboard() {
     const biwStatus = r.biwReview?.status;
     const rawStatus = (r.status || "").trim();
 
-    // 1. BIW Review decision takes primary precedence
-    if (biwStatus === "Rejected") return "Rejected";
-    if (biwStatus === "Accepted") {
-      if (isRework || (rank && rank > 1) || rawStatus.toLowerCase().includes("rework")) {
-        return "Rework Accepted";
-      }
-      return "Direct Ok";
-    }
-    if (biwStatus === "Reworked") {
-      if (trackingQId && rank && rank > 1) return `Rework ${rank - 1}`;
-      if (trackingQId) return "Rework 1";
-      return "Rework";
-    }
-
-    // 2. Explicit response status check
+    // 1. Explicit response status check
     if (rawStatus === "Rejected") return "Rejected";
     if (rawStatus === "Rework Accepted" || rawStatus === "Rework Completed") return "Rework Accepted";
     if (rawStatus === "Direct Ok") return "Direct Ok";
@@ -5201,24 +5187,7 @@ export default function FormAnalyticsDashboard() {
 
         let calculatedStatus = (rank && rank > 1) || hasBeenReworked ? "Rework Accepted" : "Direct Ok";
 
-        // 1. BIW Review takes primary precedence
-        if (biwStatus === "Rejected") {
-          calculatedStatus = "Rejected";
-        } else if (biwStatus === "Accepted") {
-          if (isRework || hasBeenReworked || (rank && rank > 1) || rawStatus.toLowerCase().includes("rework")) {
-            calculatedStatus = "Rework Accepted";
-          } else {
-            calculatedStatus = "Direct Ok";
-          }
-        } else if (biwStatus === "Reworked") {
-          if (!groupId.startsWith("untracked-")) {
-            reworkCount++;
-            hasBeenReworked = true;
-            calculatedStatus = `Rework ${reworkCount}`;
-          } else {
-            calculatedStatus = "Rework 1";
-          }
-        } else if (rawStatus === "Rejected") {
+        if (rawStatus === "Rejected") {
           calculatedStatus = "Rejected";
         } else if (rawStatus === "Rework Accepted" || rawStatus === "Rework Completed") {
           calculatedStatus = "Rework Accepted";
