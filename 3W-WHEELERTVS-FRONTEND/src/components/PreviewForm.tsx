@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo } from "react";
+import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import {
   useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { apiClient } from "../api/client";
@@ -208,19 +208,76 @@ export default function PreviewForm({
     return Boolean(fTenant && curTenant && fTenant !== curTenant);
   }, [tenant, user, propTenantId, form?.tenantId]);
 
-  // Normalize chassis numbers for display (omit completely for shared forms)
+  // Normalize chassis numbers for display
   const chassisNumbers = useMemo(() => {
-    if (isSharedForm) return [];
     const rawChassis = propChassisNumbers || form?.chassisNumbers || [];
     return rawChassis.map((cn: any) =>
       typeof cn === 'string' ? { chassisNumber: cn, partDescription: '' } : cn
     );
-  }, [propChassisNumbers, form?.chassisNumbers, isSharedForm]);
+  }, [propChassisNumbers, form?.chassisNumbers]);
 
   const chassisTenantAssignments = useMemo(() => {
-    if (isSharedForm) return {};
-    return propChassisTenantAssignments || form?.chassisTenantAssignments || {};
-  }, [propChassisTenantAssignments, form?.chassisTenantAssignments, isSharedForm]);
+    const rawAssignments = propChassisTenantAssignments || form?.chassisTenantAssignments || {};
+    const normalized: Record<string, string[]> = {};
+    if (Array.isArray(rawAssignments)) {
+      rawAssignments.forEach((a: any) => {
+        if (a && a.chassisNumber) {
+          normalized[a.chassisNumber] = Array.isArray(a.assignedTenants) ? a.assignedTenants.map(String) : [];
+        }
+      });
+      return normalized;
+    } else if (rawAssignments && typeof rawAssignments === 'object') {
+      Object.entries(rawAssignments).forEach(([k, v]) => {
+        normalized[k] = Array.isArray(v) ? (v as any[]).map(String) : [];
+      });
+      return normalized;
+    }
+    return {};
+  }, [propChassisTenantAssignments, form?.chassisTenantAssignments]);
+
+  // Check if a chassis number is visible to current user
+  const isChassisVisible = useCallback(
+    (chassisNumber: string): boolean => {
+      // 1. Superadmin always sees all chassis
+      if (user?.role === "superadmin") return true;
+
+      const fTenant = String(
+        propTenantId?._id ||
+        propTenantId ||
+        form?.tenantId?._id ||
+        form?.tenantId ||
+        ""
+      );
+      const curTenant = String(tenant?._id || user?.tenantId || "");
+
+      // 2. Owning tenant: user belongs to the organization that owns the form
+      if (fTenant && curTenant && fTenant === curTenant) return true;
+
+      // 3. Unauthenticated or no tenant assigned
+      if (!curTenant) return true;
+
+      // 4. Form is fully shared with user's tenant
+      const sharedWith = (form?.sharedWithTenants || []).map((t: any) =>
+        String(t?._id || t)
+      );
+      if (sharedWith.includes(curTenant)) return true;
+
+      // 5. Granular chassis sharing:
+      // If chassis has partner assignments, check if curTenant is assigned
+      const assignments = (chassisTenantAssignments as Record<string, string[]>)?.[chassisNumber];
+      if (!assignments || !Array.isArray(assignments) || assignments.length === 0) {
+        // If not assigned to specific partner tenants, available to any user with form access
+        return true;
+      }
+
+      return assignments.some((t: string) => String(t) === curTenant);
+    },
+    [user, tenant, propTenantId, form?.tenantId, form?.sharedWithTenants, chassisTenantAssignments]
+  );
+
+  const visibleChassis = useMemo(() => {
+    return chassisNumbers.filter((cn: any) => isChassisVisible(cn.chassisNumber));
+  }, [chassisNumbers, isChassisVisible]);
 
   const isValidFileInput = (value: any): boolean => {
     if (!value) return false;
@@ -341,12 +398,6 @@ export default function PreviewForm({
 
     // Check Chassis Selection if required
     if (isFinalSubmit || sectionsToValidate.some((s) => mainSections.indexOf(s) === 0)) {
-      const visibleChassis = chassisNumbers.filter((cn: any) => {
-        if (!user?.tenantId) return true;
-        const assignments = chassisTenantAssignments[cn.chassisNumber];
-        return !assignments || assignments.length === 0 || assignments.includes(user.tenantId);
-      });
-
       if (visibleChassis.length > 0) {
         const chassisAns =
           answers['chassis_number'] ||
@@ -743,12 +794,6 @@ export default function PreviewForm({
   };
 
   const performSubmission = async (skipChassisCheck = false) => {
-    const visibleChassis = chassisNumbers.filter((cn: any) => {
-      if (!user?.tenantId) return true;
-      const assignments = chassisTenantAssignments[cn.chassisNumber];
-      return !assignments || assignments.length === 0 || assignments.includes(user.tenantId);
-    });
-
     if (visibleChassis.length > 0) {
       const chassisAns =
         answers['chassis_number'] ||
@@ -1621,11 +1666,6 @@ export default function PreviewForm({
     }
 
     setSectionStartTime(new Date());
-    const visibleChassis = chassisNumbers.filter((cn: any) => {
-      if (!user?.tenantId) return true;
-      const assignments = chassisTenantAssignments[cn.chassisNumber];
-      return !assignments || assignments.length === 0 || assignments.includes(user.tenantId);
-    });
 
     if (currentSectionIndex === 0 && visibleChassis.length > 0) {
       const chassisAns =
@@ -2371,66 +2411,58 @@ export default function PreviewForm({
       <div className="relative py-8">
         <div className="mx-auto max-w-7xl px-4 sm:px-8">
           <div className="w-full min-w-0 space-y-6">
-            {/* Chassis Number Selection (If enabled and at first section and not a shared form) */}
-              {chassisNumbers.length > 0 && currentSectionIndex === 0 && (
-                <div className={`p-6 sm:p-8 rounded-2xl border-2 ${darkMode ? "bg-purple-500/5 border-purple-500/20" : "bg-purple-50 border-purple-100"} shadow-sm relative overflow-hidden group`}>
-                  <div className="absolute top-0 right-0 p-4 opacity-10 font-bold">
-                    <Clipboard className={`w-16 h-16 ${darkMode ? "text-purple-400" : "text-purple-600"}`} />
+            {/* Chassis Number Selection (If enabled and at first section) */}
+            {visibleChassis.length > 0 && currentSectionIndex === 0 && (
+              <div className={`p-6 sm:p-8 rounded-2xl border-2 ${darkMode ? "bg-purple-500/5 border-purple-500/20" : "bg-purple-50 border-purple-100"} shadow-sm relative overflow-hidden group`}>
+                <div className="absolute top-0 right-0 p-4 opacity-10 font-bold">
+                  <Clipboard className={`w-16 h-16 ${darkMode ? "text-purple-400" : "text-purple-600"}`} />
+                </div>
+                <h2 className={`text-xl font-bold ${darkMode ? "text-purple-300" : "text-purple-900"} mb-6 flex items-center gap-2`}>
+                  <div className={`p-2 rounded-lg ${darkMode ? "bg-purple-800/30" : "bg-purple-100"}`}>
+                    <Users className={`w-5 h-5 ${darkMode ? "text-purple-400" : "text-purple-600"}`} />
                   </div>
-                  <h2 className={`text-xl font-bold ${darkMode ? "text-purple-300" : "text-purple-900"} mb-6 flex items-center gap-2`}>
-                    <div className={`p-2 rounded-lg ${darkMode ? "bg-purple-800/30" : "bg-purple-100"}`}>
-                      <Users className={`w-5 h-5 ${darkMode ? "text-purple-400" : "text-purple-600"}`} />
-                    </div>
-                    Select Chassis Number *
-                  </h2>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {chassisNumbers.map((cn: { chassisNumber: string; partDescription: string }) => {
-                      const chassisAssignments = chassisTenantAssignments;
-                      const isVisibleToTenant = !user?.tenantId ||
-                        !chassisAssignments[cn.chassisNumber] ||
-                        chassisAssignments[cn.chassisNumber].length === 0 ||
-                        chassisAssignments[cn.chassisNumber].includes(user.tenantId);
+                  Select Chassis Number *
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {visibleChassis.map((cn: { chassisNumber: string; partDescription: string }) => {
+                    const isSelected = answers['chassis_number'] === cn.chassisNumber;
 
-                      if (!isVisibleToTenant) return null;
-
-                      const displayValue = cn.partDescription ? `${cn.chassisNumber}-${cn.partDescription}` : cn.chassisNumber;
-
-                      return (
-                        <button
-                          key={cn.chassisNumber}
-                          type="button"
-                          onClick={() => handleResponseChange('chassis_number', cn.chassisNumber)}
-                          className={`p-4 rounded-xl text-left border-2 transition-all duration-200 group relative overflow-hidden ${answers['chassis_number'] === cn.chassisNumber
-                              ? `border-purple-600 ${darkMode ? "bg-gray-800" : "bg-white"} shadow-lg ring-4 ring-purple-100 dark:ring-purple-900/30 scale-[1.02]`
-                              : `border-white dark:border-gray-700 ${darkMode ? "bg-gray-800/60" : "bg-white/60"} hover:border-purple-300 dark:hover:border-purple-500 hover:bg-white dark:hover:bg-gray-800 hover:shadow-md`
-                            }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex flex-col">
-                              <span className={`font-bold ${answers['chassis_number'] === cn.chassisNumber ? "text-purple-700 dark:text-purple-300" : "text-gray-600 dark:text-gray-400"}`}>
-                                {cn.chassisNumber}
+                    return (
+                      <button
+                        key={cn.chassisNumber}
+                        type="button"
+                        onClick={() => handleResponseChange('chassis_number', cn.chassisNumber)}
+                        className={`p-4 rounded-xl text-left border-2 transition-all duration-200 group relative overflow-hidden ${isSelected
+                            ? `border-purple-600 ${darkMode ? "bg-gray-800" : "bg-white"} shadow-lg ring-4 ring-purple-100 dark:ring-purple-900/30 scale-[1.02]`
+                            : `border-white dark:border-gray-700 ${darkMode ? "bg-gray-800/60" : "bg-white/60"} hover:border-purple-300 dark:hover:border-purple-500 hover:bg-white dark:hover:bg-gray-800 hover:shadow-md`
+                          }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex flex-col">
+                            <span className={`font-bold ${isSelected ? "text-purple-700 dark:text-purple-300" : "text-gray-600 dark:text-gray-400"}`}>
+                              {cn.chassisNumber}
+                            </span>
+                            {cn.partDescription && (
+                              <span className={`text-xs ${isSelected ? "text-purple-500 dark:text-purple-400" : "text-gray-500 dark:text-gray-400"}`}>
+                                {cn.partDescription}
                               </span>
-                              {cn.partDescription && (
-                                <span className={`text-xs ${answers['chassis_number'] === cn.chassisNumber ? "text-purple-500 dark:text-purple-400" : "text-gray-500 dark:text-gray-400"}`}>
-                                  {cn.partDescription}
-                                </span>
-                              )}
-                            </div>
-                            {answers['chassis_number'] === cn.chassisNumber && (
-                              <div className="w-5 h-5 bg-purple-600 rounded-full flex items-center justify-center">
-                                <Send className="w-3 h-3 text-white" />
-                              </div>
                             )}
                           </div>
-                          <div className={`mt-1 text-xs uppercase tracking-wider font-bold ${answers['chassis_number'] === cn.chassisNumber ? "text-purple-400 dark:text-purple-500" : "text-gray-400"}`}>
-                            {answers['chassis_number'] === cn.chassisNumber ? 'Selected Chassis' : 'Available'}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+                          {isSelected && (
+                            <div className="w-5 h-5 bg-purple-600 rounded-full flex items-center justify-center">
+                              <Send className="w-3 h-3 text-white" />
+                            </div>
+                          )}
+                        </div>
+                        <div className={`mt-1 text-xs uppercase tracking-wider font-bold ${isSelected ? "text-purple-400 dark:text-purple-500" : "text-gray-400"}`}>
+                          {isSelected ? 'Selected Chassis' : 'Available'}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
+              </div>
+            )}
 
               <form id="customer-form" onSubmit={handleSubmit} noValidate className="space-y-0">
                 <div className="space-y-4">
@@ -2506,6 +2538,7 @@ export default function PreviewForm({
                             onAnswerChange={handleResponseChange}
                             validationErrors={validationErrors}
                             formId={formId || form?.id || (form as any)?._id}
+                            formTenantId={propTenantId || form?.tenantId?._id || form?.tenantId}
                             tenantSlug={tenantSlug}
                             suggestedAnswers={suggestedAnswers}
                             lastSuggestionSource={lastSuggestionSource}

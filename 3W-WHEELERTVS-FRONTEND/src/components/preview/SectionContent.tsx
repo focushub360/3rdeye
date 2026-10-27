@@ -20,6 +20,7 @@ interface SectionContentProps {
   currentRank?: number | null;
   onPreviousAnswersChange?: (answers: string[]) => void;
   hideSectionHeader?: boolean;
+  formTenantId?: string;
 }
 
 export default function SectionContent({
@@ -39,6 +40,7 @@ export default function SectionContent({
   currentRank,
   onPreviousAnswersChange,
   hideSectionHeader = false,
+  formTenantId,
 }: SectionContentProps) {
   const { getOrderedVisibleQuestions } = useQuestionLogic();
   const visibleQuestions = getOrderedVisibleQuestions(
@@ -85,6 +87,7 @@ export default function SectionContent({
               readOnly={readOnly}
               isFollowUp={!!q.showWhen}
               formId={formId}
+              formTenantId={formTenantId}
               tenantSlug={tenantSlug}
               suggestedAnswers={suggestedAnswers}
               lastSuggestionSource={lastSuggestionSource}
@@ -134,6 +137,7 @@ export default function SectionContent({
                       readOnly={readOnly}
                       isFollowUp={!!q.showWhen}
                       formId={formId}
+                      formTenantId={formTenantId}
                       tenantSlug={tenantSlug}
                       suggestedAnswers={suggestedAnswers}
                       lastSuggestionSource={lastSuggestionSource}

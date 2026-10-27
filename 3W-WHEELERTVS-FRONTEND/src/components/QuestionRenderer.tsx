@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import type { FollowUpQuestion } from "../types";
 import { useTheme } from "../context/ThemeContext";
+import { useAuth } from "../context/AuthContext";
 import { questionTypes } from "../utils/questionTypes";
 import DateTimeInput from "./QuestionTypes/DateTimeInput";
 import FileInput from "./QuestionTypes/FileInput";
@@ -67,6 +68,7 @@ interface QuestionRendererProps {
   rankMatchedAnswers?: Record<string, any> | null;
   currentRank?: number | null;
   onPreviousAnswersChange?: (answers: string[]) => void;
+  formTenantId?: string;
 }
 
 const isImageFile = (filename: string): boolean => {
@@ -228,10 +230,12 @@ export default function QuestionRenderer({
   rankMatchedAnswers = null,
   currentRank = null,
   onPreviousAnswersChange,
+  formTenantId: propFormTenantId,
   error,
   trackingError,
 }: QuestionRendererProps) {
   const { darkMode } = useTheme();
+  const { user: authUser, tenant: authTenant } = useAuth();
   const [validationError, setValidationError] = useState<string | null>(null);
   const [rank, setRank] = useState<number | null>(null);
   const [previousStatus, setPreviousStatus] = useState<string | null>(null);
@@ -239,6 +243,28 @@ export default function QuestionRenderer({
   const [rankHistory, setRankHistory] = useState<any[]>([]);
   const [dispatchInfo, setDispatchInfo] = useState<{ isDispatched: boolean; dispatchedAt?: string | null; dispatchedByName?: string | null } | null>(null);
   const [lastSubmittedBy, setLastSubmittedBy] = useState<string | null>(null);
+  const [showDispatchModal, setShowDispatchModal] = useState(false);
+  const [isUpdatingDispatch, setIsUpdatingDispatch] = useState(false);
+  const [rankFormTenantId, setRankFormTenantId] = useState<string | null>(null);
+
+  const userStr = typeof window !== 'undefined' ? window.localStorage.getItem('user') : null;
+  const currentUser = userStr ? JSON.parse(userStr) : null;
+
+  const currentTenantId = String(authTenant?._id || authUser?.tenantId || currentUser?.tenantId || "");
+  const effectiveFormTenantId = String(
+    propFormTenantId ||
+    rankFormTenantId ||
+    (formId ? (apiClient.getFormFromAnyCache(formId) as any)?.tenantId?._id || (apiClient.getFormFromAnyCache(formId) as any)?.tenantId : "") ||
+    ""
+  );
+
+  // Check if current user belongs to the form's creator/owning organization (e.g. Manoj Mohan / LMPL) or superadmin
+  const isCreatorTenant = Boolean(
+    (effectiveFormTenantId && currentTenantId && String(effectiveFormTenantId) === String(currentTenantId)) ||
+    authUser?.role === "superadmin" ||
+    currentUser?.role === "superadmin"
+  );
+
   const [parentMatchInfo, setParentMatchInfo] = useState<{
     exists: boolean;
     isParentLinked: boolean;
@@ -270,8 +296,6 @@ export default function QuestionRenderer({
     biwReview?: any;
   } | null>(null);
 
-  const userStr = typeof window !== 'undefined' ? window.localStorage.getItem('user') : null;
-  const currentUser = userStr ? JSON.parse(userStr) : null;
   const isCreator = lastSubmittedBy && currentUser && (
     lastSubmittedBy === currentUser.username ||
     lastSubmittedBy === currentUser.name ||
@@ -368,33 +392,6 @@ export default function QuestionRenderer({
         reviewedAt: new Date().toISOString(),
         reviewedByName: "You"
       }));
-
-      // Automatically post a status message to the discussion thread
-      try {
-        let msg = `[BIW Review] Status marked as ${status}.`;
-        if (flaggedQuestions && flaggedQuestions.length > 0) {
-          msg += `\nQuestions Flagged: ${flaggedQuestions.map(q => q.questionText).join(", ")}`;
-        }
-        if (remark) {
-          msg += `\nRemark: ${remark}`;
-        }
-        if (evidenceUrl) {
-          msg += `\n\n![Evidence](${evidenceUrl})`;
-        }
-        await apiClient.request("/messages/send", {
-          method: "POST",
-          body: JSON.stringify({
-            message: msg,
-            responseId: targetId,
-            formId: formId || null,
-            toEmail: "inspector"
-          })
-        });
-        await fetchChatHistory();
-        setChatCount((prev) => prev + 1);
-      } catch (err) {
-        console.warn("Could not post review chat message", err);
-      }
     } catch (error: any) {
       console.error("Failed to update BIW Review status:", error);
       alert(error?.message || "Failed to update review status. Note: You cannot review your own submission.");
@@ -409,11 +406,9 @@ export default function QuestionRenderer({
     setLoadingChatMessages(true);
     try {
       const res: any = await apiClient.request(`/messages/response/${targetId}`);
-      if (res && res.data) {
-        setChatMessages(res.data);
-      } else if (Array.isArray(res)) {
-        setChatMessages(res);
-      }
+      const rawList = res?.data || (Array.isArray(res) ? res : []);
+      const cleanList = rawList.filter((m: any) => !m?.message?.startsWith("[BIW Review]"));
+      setChatMessages(cleanList);
     } catch (e) {
       console.warn("Failed to load chat messages for response:", e);
     } finally {
@@ -562,6 +557,10 @@ export default function QuestionRenderer({
         setParentMatchInfo(pMatch);
         const prevTenant = (response && response.previousTenantRank) || (response && response.data && response.data.previousTenantRank) || null;
         setPreviousTenantRank(prevTenant);
+        const fTenant = (response && response.formTenantId) || (response && response.data && response.data.formTenantId) || null;
+        if (fTenant) {
+          setRankFormTenantId(fTenant);
+        }
       } catch (err) {
         if (!isCancelled) {
           console.error("Failed to fetch rank:", err);
@@ -594,6 +593,56 @@ export default function QuestionRenderer({
     formId,
     tenantSlug,
   ]);
+
+  const handleToggleDispatch = async () => {
+    setIsUpdatingDispatch(true);
+    const newDispatchedState = !dispatchInfo?.isDispatched;
+    const nowIso = new Date().toISOString();
+    const currentUserName =
+      authUser?.name ||
+      authUser?.username ||
+      currentUser?.name ||
+      currentUser?.username ||
+      "Admin";
+    const currentUserId =
+      authUser?._id || authUser?.id || currentUser?._id || currentUser?.id;
+
+    try {
+      if (lastResponseId) {
+        await apiClient.updateResponse(lastResponseId, {
+          isDispatched: newDispatchedState,
+          dispatchedAt: newDispatchedState ? nowIso : null,
+          dispatchedBy: newDispatchedState ? currentUserId : null,
+          dispatchedByName: newDispatchedState ? currentUserName : null,
+        });
+      }
+
+      setDispatchInfo(
+        newDispatchedState
+          ? {
+              isDispatched: true,
+              dispatchedAt: nowIso,
+              dispatchedByName: currentUserName,
+            }
+          : null
+      );
+
+      if (typeof window !== "undefined") {
+        (window as any).__currentChassisDispatchState = newDispatchedState
+          ? {
+              isDispatched: true,
+              dispatchedAt: nowIso,
+              dispatchedByName: currentUserName,
+              dispatchedBy: currentUserId,
+            }
+          : null;
+      }
+    } catch (err) {
+      console.error("Failed to update dispatch status:", err);
+    } finally {
+      setIsUpdatingDispatch(false);
+    }
+  };
 
   useEffect(() => {
     const fetchPreviousAnswers = async () => {
@@ -1715,33 +1764,105 @@ export default function QuestionRenderer({
               ? rankHistory
               : [];
 
-            const hasActionableContext = dispatchInfo?.isDispatched || historyItems.length > 0 || lastResponseId || biwInfo?.status;
-            const showBiw = hasActionableContext && (!isCreator || Boolean(biwInfo?.status));
-            const showChat = chatCount > 0 || ((dispatchInfo?.isDispatched || (historyItems.length > 0 && lastResponseId)) && !isCreator);
-
-            // Render BIW & Chat buttons cleanly
+            // Render action icons:
+            // - Creator Tenant (e.g. Manoj Mohan / LMPL):
+            //   1. If Direct OK & not dispatched: render prominent direct Dispatch button right here!
+            //   2. If already dispatched: render Dispatched badge, AND show BIW review & Chat icons ONLY IF entered from assigned tenant!
+            //   3. If not dispatched: DO NOT show BIW review or Chat icons!
+            // - Assigned Tenant (e.g. Saify): Sees BIW Review and Chat icons ONLY AFTER review has occurred.
             const renderActionIcons = () => {
-              if (!showBiw && !showChat) return null;
+              const isDirectOk =
+                statusLower.includes("direct ok") ||
+                statusLower === "ok" ||
+                statusLower.includes("accept") ||
+                statusLower === "verified" ||
+                (rank === 1 && (!statusLower || statusLower === "pending" || statusLower === "direct ok"));
 
-              return (
-                <div className="flex items-center gap-1.5 ml-1 self-center">
-                  {/* BIW Review Icon */}
-                  {(() => {
-                    if (!showBiw) return null;
+              // 1. Creator Tenant:
+              if (isCreatorTenant) {
+                const isDisp = Boolean(dispatchInfo?.isDispatched);
 
-                    const bStr = String(biwInfo?.status || "").toLowerCase();
-                    const isBiwRej = bStr.includes("reject");
-                    const isBiwAccepted = bStr.includes("accept") || bStr.includes("ok");
-                    const isBiwRework = bStr.includes("rework");
-                    const biwIconColor = isBiwRej
-                      ? "text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800"
-                      : isBiwAccepted
-                        ? "text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"
-                        : isBiwRework
-                          ? "text-purple-600 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800"
-                          : "text-amber-600 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800";
+                // Check if BIW review is entered from assigned tenant (e.g. Saify / vendor tenant)
+                const isReviewFromAssignedTenant =
+                  Boolean(biwInfo && biwInfo.status) &&
+                  (Boolean((biwInfo as any).isFromAssignedTenant) ||
+                   Boolean(biwInfo.reviewedByName && biwInfo.reviewedByName.toLowerCase().includes("saify")) ||
+                   Boolean(biwInfo.reviewedBy && String(biwInfo.reviewedBy) !== String(currentUser?._id || currentUser?.id)) ||
+                   Boolean(rankFormTenantId && (biwInfo as any).tenantId && String((biwInfo as any).tenantId) !== String(rankFormTenantId)));
 
-                    return (
+                const isChatFromAssignedTenant =
+                  chatCount > 0 &&
+                  (isReviewFromAssignedTenant || Boolean((biwInfo as any)?.isFromAssignedTenant));
+
+                const bStr = String(biwInfo?.status || "").toLowerCase();
+                const isBiwRej = bStr.includes("reject");
+                const isBiwAccepted = bStr.includes("accept") || bStr.includes("ok");
+                const isBiwRework = bStr.includes("rework");
+                const biwIconColor = isBiwRej
+                  ? "text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800"
+                  : isBiwAccepted
+                    ? "text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"
+                    : isBiwRework
+                      ? "text-purple-600 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800"
+                      : "text-amber-600 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800";
+
+                return (
+                  <div className="flex items-center gap-1.5 ml-1 self-center">
+                    {/* If Direct OK and not yet dispatched: render direct Dispatch button right here */}
+                    {!isDisp && isDirectOk && (
+                      <button
+                        type="button"
+                        disabled={isUpdatingDispatch}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleDispatch();
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                        title="Direct OK - Dispatch unit directly"
+                      >
+                        {isUpdatingDispatch ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Truck className="w-3.5 h-3.5" />
+                        )}
+                        <span>Dispatch</span>
+                      </button>
+                    )}
+
+                    {/* If Not Dispatched and Not Direct OK: show pending dispatch icon to open modal */}
+                    {!isDisp && !isDirectOk && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowDispatchModal(true);
+                        }}
+                        className="relative p-1.5 rounded-lg border flex items-center justify-center transition-all cursor-pointer shadow-xs hover:scale-105 text-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700"
+                        title="Dispatch Status: Pending Dispatch (Defects/Rework pending) - Click for details"
+                      >
+                        <Truck className="w-4 h-4" />
+                        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900 bg-amber-500" />
+                      </button>
+                    )}
+
+                    {/* If Dispatched: show green Dispatched badge */}
+                    {isDisp && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowDispatchModal(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 hover:scale-105 transition-all cursor-pointer shadow-xs"
+                        title={`Dispatched by ${dispatchInfo?.dispatchedByName || "Admin"}${dispatchInfo?.dispatchedAt ? ` on ${new Date(dispatchInfo.dispatchedAt).toLocaleDateString()}` : ""}`}
+                      >
+                        <Truck className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>✓ Dispatched</span>
+                      </button>
+                    )}
+
+                    {/* ONLY when Dispatched: show BIW review & Chat icons IF entered from assigned tenant */}
+                    {isDisp && isReviewFromAssignedTenant && (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -1749,7 +1870,7 @@ export default function QuestionRenderer({
                           setShowBiwModal(true);
                         }}
                         className={`relative p-1.5 rounded-lg border flex items-center justify-center transition-all cursor-pointer shadow-xs hover:scale-105 ${biwIconColor}`}
-                        title={`BIW Review: ${biwInfo?.status || "Pending Review"}${biwInfo?.reviewedByName ? ` (by ${biwInfo.reviewedByName})` : ""}`}
+                        title={`BIW Review from Assigned Tenant: ${biwInfo?.status || "Reviewed"}${biwInfo?.reviewedByName ? ` (by ${biwInfo.reviewedByName})` : ""}`}
                       >
                         <ShieldCheck className="w-4 h-4" />
                         <span
@@ -1764,14 +1885,9 @@ export default function QuestionRenderer({
                           }`}
                         />
                       </button>
-                    );
-                  })()}
+                    )}
 
-                  {/* Overall Chat Icon */}
-                  {(() => {
-                    if (!showChat) return null;
-
-                    return (
+                    {isDisp && isChatFromAssignedTenant && (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -1779,7 +1895,7 @@ export default function QuestionRenderer({
                           setShowChatModal(true);
                           fetchChatHistory();
                         }}
-                        title={`Chassis Discussion / Chat (${chatCount} messages) - Click to open discussion`}
+                        title={`Assigned Tenant Discussion / Chat (${chatCount} messages)`}
                         className="relative p-1.5 rounded-lg border text-indigo-600 dark:text-indigo-400 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 hover:scale-105 active:scale-95 border-indigo-200 dark:border-indigo-800 flex items-center justify-center transition-all cursor-pointer shadow-xs"
                       >
                         <MessageCircle className="w-4 h-4" />
@@ -1789,8 +1905,74 @@ export default function QuestionRenderer({
                           </span>
                         )}
                       </button>
-                    );
-                  })()}
+                    )}
+                  </div>
+                );
+              }
+
+              // 2. Assigned Tenant (e.g. Saify):
+              // BIW review and chat should appear ONLY after review has occurred (biwInfo?.status exists)
+              const hasBiwReviewOccurred = Boolean(biwInfo && biwInfo.status);
+              if (!hasBiwReviewOccurred) {
+                return null;
+              }
+
+              const bStr = String(biwInfo?.status || "").toLowerCase();
+              const isBiwRej = bStr.includes("reject");
+              const isBiwAccepted = bStr.includes("accept") || bStr.includes("ok");
+              const isBiwRework = bStr.includes("rework");
+              const biwIconColor = isBiwRej
+                ? "text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800"
+                : isBiwAccepted
+                  ? "text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"
+                  : isBiwRework
+                    ? "text-purple-600 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800"
+                    : "text-amber-600 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800";
+
+              return (
+                <div className="flex items-center gap-1.5 ml-1 self-center">
+                  {/* BIW Review Icon */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowBiwModal(true);
+                    }}
+                    className={`relative p-1.5 rounded-lg border flex items-center justify-center transition-all cursor-pointer shadow-xs hover:scale-105 ${biwIconColor}`}
+                    title={`BIW Review: ${biwInfo?.status || "Pending Review"}${biwInfo?.reviewedByName ? ` (by ${biwInfo.reviewedByName})` : ""}`}
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    <span
+                      className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900 ${
+                        isBiwRej
+                          ? "bg-rose-500"
+                          : isBiwAccepted
+                            ? "bg-emerald-500"
+                            : isBiwRework
+                              ? "bg-purple-500"
+                              : "bg-amber-400"
+                      }`}
+                    />
+                  </button>
+
+                  {/* Chat Icon */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowChatModal(true);
+                      fetchChatHistory();
+                    }}
+                    title={`Chassis Discussion / Chat (${chatCount} messages) - Click to open discussion`}
+                    className="relative p-1.5 rounded-lg border text-indigo-600 dark:text-indigo-400 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 hover:scale-105 active:scale-95 border-indigo-200 dark:border-indigo-800 flex items-center justify-center transition-all cursor-pointer shadow-xs"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    {chatCount > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full text-[9px] font-black bg-indigo-600 text-white flex items-center justify-center ring-1.5 ring-white dark:ring-gray-900 leading-none">
+                        {chatCount}
+                      </span>
+                    )}
+                  </button>
                 </div>
               );
             };
@@ -2478,6 +2660,127 @@ export default function QuestionRenderer({
               <button
                 type="button"
                 onClick={() => setShowBiwModal(false)}
+                className="px-4 py-1.5 rounded-xl bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ======================================================== */}
+      {/* DISPATCH CLEARANCE MODAL FOR CREATOR TENANT (PORTALED)   */}
+      {/* ======================================================== */}
+      {showDispatchModal && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setShowDispatchModal(false)}
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-emerald-600 to-teal-700 text-white">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-white/10">
+                  <Truck className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base leading-tight">
+                    Chassis Dispatch Management
+                  </h3>
+                  <p className="text-xs text-emerald-100 opacity-90">
+                    Chassis: {effectiveTrackingValue || "N/A"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDispatchModal(false)}
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-4">
+              <div className={`p-4 rounded-xl border flex items-center justify-between ${
+                dispatchInfo?.isDispatched
+                  ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100"
+                  : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-100"
+              }`}>
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-full ${dispatchInfo?.isDispatched ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                    <Truck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-sm">
+                      {dispatchInfo?.isDispatched ? "Unit Dispatched" : "Pending Dispatch"}
+                    </h4>
+                    <p className="text-xs opacity-75">
+                      {dispatchInfo?.isDispatched
+                        ? `Cleared by ${dispatchInfo.dispatchedByName || "Admin"}${dispatchInfo.dispatchedAt ? ` on ${new Date(dispatchInfo.dispatchedAt).toLocaleString()}` : ""}`
+                        : "Ready for manufacturing clearance"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  disabled={isUpdatingDispatch}
+                  onClick={handleToggleDispatch}
+                  className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    dispatchInfo?.isDispatched
+                      ? "bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300"
+                      : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25"
+                  }`}
+                >
+                  {isUpdatingDispatch ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Updating Dispatch...</span>
+                    </>
+                  ) : dispatchInfo?.isDispatched ? (
+                    <>
+                      <RotateCcw className="w-4 h-4" />
+                      <span>Revoke Dispatch Status</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Mark as Dispatched</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {formId && (
+                <div className="border-t border-gray-100 dark:border-gray-800 pt-3 flex justify-center">
+                  <a
+                    href={`/forms/${formId}/analytics?tab=responses`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1.5"
+                  >
+                    <span>View in Service Analytics</span>
+                    <Eye className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3 bg-gray-50 dark:bg-gray-800/60 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowDispatchModal(false)}
                 className="px-4 py-1.5 rounded-xl bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 text-xs font-bold transition-colors cursor-pointer"
               >
                 Close

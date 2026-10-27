@@ -2833,6 +2833,27 @@ export const getRank = async (req, res) => {
     const lastDispatched = [...sortedResponses].reverse().find(r => r.isDispatched);
     const lastBiwReviewed = [...sortedResponses].reverse().find(r => r.biwReview && r.biwReview.status);
 
+    let isReviewFromAssignedTenant = false;
+    if (lastBiwReviewed && lastBiwReviewed.biwReview && lastBiwReviewed.biwReview.status) {
+      const formTenantStr = form.tenantId ? form.tenantId.toString() : null;
+      const reviewerId = lastBiwReviewed.biwReview.reviewedBy ? lastBiwReviewed.biwReview.reviewedBy.toString() : null;
+      const reviewerName = String(lastBiwReviewed.biwReview.reviewedByName || '').toLowerCase();
+      const respTenantStr = lastBiwReviewed.tenantId ? lastBiwReviewed.tenantId.toString() : null;
+
+      if (reviewerName.includes('saify')) {
+        isReviewFromAssignedTenant = true;
+      } else if (respTenantStr && formTenantStr && respTenantStr !== formTenantStr) {
+        isReviewFromAssignedTenant = true;
+      } else if (reviewerId) {
+        try {
+          const revUser = await User.findById(reviewerId).select('tenantId username name').lean();
+          if (revUser && revUser.tenantId && formTenantStr && revUser.tenantId.toString() !== formTenantStr) {
+            isReviewFromAssignedTenant = true;
+          }
+        } catch (_) {}
+      }
+    }
+
     // Determine parent/child relationship and compute follow-up badge info
     let parentForm = null;
     if (form.parentFormId) {
@@ -3008,12 +3029,16 @@ export const getRank = async (req, res) => {
         isDispatched: isAnyDispatched,
         dispatchedAt: lastDispatched ? lastDispatched.dispatchedAt : null,
         dispatchedByName: lastDispatched ? lastDispatched.dispatchedByName : null,
-        biwReview: lastBiwReviewed ? lastBiwReviewed.biwReview : null,
+        biwReview: lastBiwReviewed ? {
+          ...(lastBiwReviewed.biwReview?.toObject ? lastBiwReviewed.biwReview.toObject() : lastBiwReviewed.biwReview),
+          isFromAssignedTenant: isReviewFromAssignedTenant
+        } : null,
         chatCount: chatCount,
         lastSubmittedBy: lastResponse ? (lastResponse.submittedBy || lastResponse.createdBy || null) : null,
         parentMatch: followUpBadge,
         followUpStatus: followUpBadge,
-        previousTenantRank: previousTenantRank
+        previousTenantRank: previousTenantRank,
+        formTenantId: form.tenantId ? form.tenantId.toString() : null
       }
     });
 
@@ -4988,15 +5013,21 @@ export const getResponsesByForm = async (req, res) => {
           : (message.from.username || message.from.email);
       }
 
-      const reviewStatus = review?.reviewOption || existingReview.reviewOption || existingReview.status || null;
-      const chatMsg = message?.message || existingReview.remark || existingReview.reason || null;
-      const chatStatus = message?.status || (chatMsg ? 'sent' : null);
+      if (!reviewerName && response.biwReview?.reviewedByName) {
+        reviewerName = response.biwReview.reviewedByName;
+      }
+
+      const reviewStatus = review?.reviewOption || existingReview.reviewOption || existingReview.status || response.biwReview?.status || null;
+      const rawChatMsg = message?.message || existingReview.remark || existingReview.reason || null;
+      const isAutoBiwMsg = rawChatMsg && String(rawChatMsg).startsWith('[BIW Review]');
+      const chatMsg = isAutoBiwMsg ? null : rawChatMsg;
+      const chatStatus = isAutoBiwMsg ? null : (message?.status || (chatMsg ? 'sent' : null));
 
       const flaggedQuestions = message?.questionContexts?.length > 0
         ? message.questionContexts.map(c => c.title)
         : (message?.questionTitles?.length > 0
             ? message.questionTitles
-            : (existingReview.flaggedQuestions || []));
+            : (response.biwReview?.flaggedQuestions?.map(q => typeof q === 'string' ? q : q.questionText) || existingReview.flaggedQuestions || []));
 
       // Attach review info
       const reviewInfo = (reviewStatus || chatMsg || flaggedQuestions.length > 0) ? {

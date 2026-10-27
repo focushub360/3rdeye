@@ -7375,6 +7375,7 @@ export default function FormAnalyticsDashboard() {
     let reworkCompleted = 0;
     let dispatched = 0;
     let pending = 0;
+    let biwReviewed = 0;
 
     // Track active rework per chassis so no pending rework unit is missed
     const activeReworkChassis = new Set<string>();
@@ -7436,6 +7437,27 @@ export default function FormAnalyticsDashboard() {
         pending++;
       }
 
+      // Check if response has completed BIW review
+      const biwStatus = String(
+        response.biwReview?.status ||
+        reviewedBy[response.id]?.status ||
+        reviewedBy[response.id]?.option ||
+        (response as any).review?.status ||
+        ""
+      ).trim().toLowerCase();
+
+      const hasBiwReview =
+        Boolean(biwStatus) &&
+        biwStatus !== "pending review" &&
+        biwStatus !== "no review yet" &&
+        biwStatus !== "pending" &&
+        biwStatus !== "none" &&
+        biwStatus !== "-";
+
+      if (hasBiwReview) {
+        biwReviewed++;
+      }
+
       // Dispatch is tracked independently of status - a response can be
       // Direct Ok (or any other status) AND already dispatched, so this
       // is counted separately rather than as a mutually-exclusive bucket.
@@ -7459,8 +7481,9 @@ export default function FormAnalyticsDashboard() {
       reworkCompleted,
       dispatched,
       pending,
+      biwReviewed,
     };
-  }, [filteredResponses, responseStatuses, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet, getChassisOrItemId]);
+  }, [filteredResponses, responseStatuses, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet, getChassisOrItemId, reviewedBy]);
 
   const totalPieChartData = useMemo(() => {
     const directOk = inspectionStats.accepted;
@@ -7468,8 +7491,9 @@ export default function FormAnalyticsDashboard() {
     const totalNo = inspectionStats.rejected;
     const totalNA = inspectionStats.reworked;
     const totalDispatched = inspectionStats.dispatched;
+    const totalBiwReviewed = inspectionStats.biwReviewed || 0;
 
-    const total = directOk + reworkCompleted + totalNo + totalNA;
+    const total = directOk + reworkCompleted + totalNo + totalNA + (inspectionStats.pending || 0);
 
     if (total === 0) {
       return {
@@ -7478,7 +7502,18 @@ export default function FormAnalyticsDashboard() {
         no: 0,
         na: 0,
         dispatched: 0,
-        counts: { directOk: 0, reworkCompleted: 0, no: 0, na: 0, dispatched: 0, total: 0 },
+        biwReviewed: 0,
+        pendingData: 0,
+        counts: {
+          directOk: 0,
+          reworkCompleted: 0,
+          no: 0,
+          na: 0,
+          dispatched: 0,
+          biwReviewed: 0,
+          pendingData: 0,
+          total: 0,
+        },
       };
     }
 
@@ -7493,18 +7528,27 @@ export default function FormAnalyticsDashboard() {
     // "how far along the pipeline" signal, not a disjoint category.
     const dispatchedPercent = (totalDispatched / total) * 100;
 
+    const biwReviewedCount = Math.min(total, totalBiwReviewed);
+    const pendingDataCount = Math.max(0, total - biwReviewedCount);
+    const biwReviewedPercent = (biwReviewedCount / total) * 100;
+    const pendingDataPercent = (pendingDataCount / total) * 100;
+
     return {
       directOk: Number(directOkPercent.toFixed(1)),
       reworkCompleted: Number(reworkCompletedPercent.toFixed(1)),
       no: Number(noPercent.toFixed(1)),
       na: Number(naPercent.toFixed(1)),
       dispatched: Number(dispatchedPercent.toFixed(1)),
+      biwReviewed: Number(biwReviewedPercent.toFixed(1)),
+      pendingData: Number(pendingDataPercent.toFixed(1)),
       counts: {
         directOk: directOk,
         reworkCompleted: reworkCompleted,
         no: totalNo,
         na: totalNA,
         dispatched: totalDispatched,
+        biwReviewed: biwReviewedCount,
+        pendingData: pendingDataCount,
         total: total,
       },
     };
@@ -7743,8 +7787,8 @@ export default function FormAnalyticsDashboard() {
                 </div>
               </div>
 
-              {/* Stats summary - Total Submissions, Direct Ok, Rework Accepted, Rework, Rejected, and Dispatched */}
-              <div className="mt-4 grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-6 gap-1.5 sm:gap-2">
+              {/* Stats summary - Total Submissions, Direct Ok, Rework Accepted, Rework, Rejected, Dispatched, Total BIW Review, Pending Data */}
+              <div className="mt-4 grid grid-cols-2 xs:grid-cols-4 sm:grid-cols-4 lg:grid-cols-8 gap-1.5 sm:gap-2">
                 {/* Total Submissions */}
                 <div className="text-center p-1.5 bg-purple-50/60 dark:bg-purple-900/15 rounded-lg border border-purple-100/60 dark:border-purple-800/30 shadow-xs">
                   <div className="text-[10px] sm:text-xs font-bold text-purple-600 dark:text-purple-400">
@@ -7820,6 +7864,32 @@ export default function FormAnalyticsDashboard() {
                   </div>
                   <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
                     ({totalPieChartData.counts.dispatched})
+                  </div>
+                </div>
+
+                {/* Total BIW Review */}
+                <div className="text-center p-1.5 bg-teal-50/60 dark:bg-teal-900/15 rounded-lg border border-teal-100/60 dark:border-teal-800/30 shadow-xs">
+                  <div className="text-[10px] sm:text-xs font-bold text-teal-600 dark:text-teal-400">
+                    {totalPieChartData.biwReviewed}%
+                  </div>
+                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Total BIW Review">
+                    Total BIW Review
+                  </div>
+                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
+                    ({totalPieChartData.counts.biwReviewed})
+                  </div>
+                </div>
+
+                {/* Pending Data */}
+                <div className="text-center p-1.5 bg-rose-50/60 dark:bg-rose-900/15 rounded-lg border border-rose-100/60 dark:border-rose-800/30 shadow-xs">
+                  <div className="text-[10px] sm:text-xs font-bold text-rose-600 dark:text-rose-400">
+                    {totalPieChartData.pendingData}%
+                  </div>
+                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Pending Data">
+                    Pending Data
+                  </div>
+                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
+                    ({totalPieChartData.counts.pendingData})
                   </div>
                 </div>
               </div>
@@ -8751,8 +8821,8 @@ export default function FormAnalyticsDashboard() {
 
       let filtered = Array.from(qMap.values()).map(q => ({
         ...q,
-        total: q.rejected + q.rework + q.accepted
-      })).filter(q => q.rejected > 0 || q.rework > 0 || q.accepted > 0);
+        total: q.rejected + q.rework
+      })).filter(q => q.rejected > 0 || q.rework > 0);
 
       if (chartSortOrder === "percentage") {
         filtered = [...filtered].sort((a, b) => {
@@ -8761,7 +8831,7 @@ export default function FormAnalyticsDashboard() {
           return percentB - percentA;
         });
       } else {
-        filtered = [...filtered].sort((a, b) => (b.rejected + b.rework + b.accepted) - (a.rejected + a.rework + a.accepted));
+        filtered = [...filtered].sort((a, b) => (b.rejected + b.rework) - (a.rejected + a.rework));
       }
 
       return filtered.slice(0, 20);
@@ -8800,21 +8870,6 @@ export default function FormAnalyticsDashboard() {
           data: tvsProcessedQuestions.map((q) => q.rework),
           backgroundColor: "rgba(55, 65, 81, 0.85)", // Dark Gray
           borderColor: "rgb(31, 41, 55)",
-          borderWidth: 1,
-          barPercentage: tvsProcessedQuestions.length <= 2 ? 0.3 : 0.7,
-          categoryPercentage: 0.8,
-          datalabels: {
-            color: "#ffffff",
-            font: { weight: "bold" as const, size: 10 },
-            formatter: (value: number) => (value > 0 ? value : ""),
-            textAlign: "center" as const,
-          },
-        },
-        {
-          label: "Accepted (TVS Review)",
-          data: tvsProcessedQuestions.map((q) => q.accepted),
-          backgroundColor: "rgba(34, 197, 94, 0.85)", // Green
-          borderColor: "rgb(21, 128, 61)",
           borderWidth: 1,
           barPercentage: tvsProcessedQuestions.length <= 2 ? 0.3 : 0.7,
           categoryPercentage: 0.8,
@@ -9010,10 +9065,10 @@ export default function FormAnalyticsDashboard() {
               <CheckCircle className="w-12 h-12 text-indigo-500 opacity-50" />
             </div>
             <h4 className="text-slate-900 dark:text-white font-bold mb-1">
-              No TVS Reviews Found
+              No TVS Defects Recorded
             </h4>
             <p className="text-sm text-slate-500 dark:text-slate-400 max-w-xs">
-              No TVS performance reviews were found for your current selection.
+              No TVS defect or rework flags were recorded for your current selection.
             </p>
           </div>
         ) : (
@@ -13683,18 +13738,59 @@ export default function FormAnalyticsDashboard() {
                                           messageCreatedAt: serverReview.messageCreatedAt || serverReview.createdAt,
                                           messageFrom: serverReview.messageFrom,
                                         };
-                                      } else if (biwRev && biwRev.status) {
+                                      }
+                                      // Always prioritize biwReview status and details if present
+                                      if (biwRev && biwRev.status) {
                                         reviewObj = {
                                           status: biwRev.status,
-                                          reviewer: biwRev.reviewedByName || "Reviewer",
-                                          flaggedQuestions: biwRev.flaggedQuestions?.map((q: any) => typeof q === "string" ? q : q.questionText) || [],
-                                          message: biwRev.remark || null,
-                                          chatStatus: biwRev.remark ? "sent" : null,
+                                          reviewer: biwRev.reviewedByName || reviewObj?.reviewer || "Reviewer",
+                                          flaggedQuestions: (biwRev.flaggedQuestions && biwRev.flaggedQuestions.length > 0)
+                                            ? biwRev.flaggedQuestions.map((q: any) => typeof q === "string" ? q : q.questionText)
+                                            : (reviewObj?.flaggedQuestions || []),
+                                          message: (reviewObj?.message && !reviewObj.message.startsWith("[BIW Review]"))
+                                            ? reviewObj.message
+                                            : (biwRev.remark || null),
+                                          chatStatus: (reviewObj?.message && !reviewObj.message.startsWith("[BIW Review]"))
+                                            ? reviewObj.chatStatus
+                                            : (biwRev.remark ? "sent" : null),
+                                          messageCreatedAt: reviewObj?.messageCreatedAt,
+                                          messageFrom: reviewObj?.messageFrom,
                                         };
+                                      } else if (reviewObj?.message && reviewObj.message.startsWith("[BIW Review]")) {
+                                        reviewObj.message = null;
+                                        reviewObj.chatStatus = null;
+                                      }
+
+                                      // 2. Only dispatched responses should show chat and biw review, not all
+                                      if (!response.isDispatched) {
+                                        return (
+                                          <span className="text-gray-400 dark:text-gray-500 font-medium text-xs italic">
+                                            No review yet
+                                          </span>
+                                        );
                                       }
 
                                       // If no status and no message and no flagged questions, show "No review yet"
                                       if (!reviewObj || (!reviewObj.status && !reviewObj.message && (!reviewObj.flaggedQuestions || reviewObj.flaggedQuestions.length === 0))) {
+                                        return (
+                                          <span className="text-gray-400 dark:text-gray-500 font-medium text-xs italic">
+                                            No review yet
+                                          </span>
+                                        );
+                                      }
+
+                                      // BIW review and chat too must be entered from the assigned tenant (e.g. Saify / vendor tenant)
+                                      const formTenantIdStr = (form as any)?.tenantId ? String((form as any).tenantId) : null;
+                                      const reviewerNameLower = String(reviewObj.reviewer || "").toLowerCase();
+                                      const biwTenantStr = (response.biwReview as any)?.tenantId ? String((response.biwReview as any).tenantId) : null;
+                                      const isReviewFromAssignedTenant =
+                                        Boolean((response.biwReview as any)?.isFromAssignedTenant) ||
+                                        reviewerNameLower.includes("saify") ||
+                                        (formTenantIdStr && biwTenantStr && biwTenantStr !== formTenantIdStr) ||
+                                        (formTenantIdStr && response.tenantId && String(response.tenantId) !== formTenantIdStr) ||
+                                        (!reviewerNameLower.includes("manoj") && !reviewerNameLower.includes("lmpl") && reviewerNameLower !== "reviewer");
+
+                                      if (!isReviewFromAssignedTenant) {
                                         return (
                                           <span className="text-gray-400 dark:text-gray-500 font-medium text-xs italic">
                                             No review yet
@@ -16347,22 +16443,28 @@ export default function FormAnalyticsDashboard() {
                 </div>
 
                 <div className="flex-1 bg-gray-50 dark:bg-gray-800/20 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 mb-4 overflow-y-auto space-y-4 flex flex-col scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
-                  {chatMessages.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-3 opacity-50">
-                      <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-full ring-8 ring-gray-50 dark:ring-gray-900/50">
-                        <MessageCircle className="w-10 h-10" />
-                      </div>
-                      <div className="text-center">
-                        <p className="text-sm font-bold text-gray-600 dark:text-gray-300">
-                          No active conversation
-                        </p>
-                        <p className="text-xs">
-                          Send a message to start the thread.
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    chatMessages.map((msg, i) => (
+                  {(() => {
+                    const visibleChatMessages = chatMessages.filter(
+                      (msg) => !msg.message?.startsWith("[BIW Review]")
+                    );
+                    if (visibleChatMessages.length === 0) {
+                      return (
+                        <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-3 opacity-50">
+                          <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-full ring-8 ring-gray-50 dark:ring-gray-900/50">
+                            <MessageCircle className="w-10 h-10" />
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm font-bold text-gray-600 dark:text-gray-300">
+                              No active conversation
+                            </p>
+                            <p className="text-xs">
+                              Send a message to start the thread.
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return visibleChatMessages.map((msg, i) => (
                       <div
                         key={i}
                         className={`flex flex-col ${String(msg.from?._id || msg.from) === String(user?._id || (user as any)?.id) ? "items-end" : "items-start"} animate-in fade-in slide-in-from-bottom-2 duration-300`}
@@ -16477,8 +16579,8 @@ export default function FormAnalyticsDashboard() {
                             )}
                         </div>
                       </div>
-                    ))
-                  )}
+                    ));
+                  })()}
                 </div>
 
                 {(() => {
