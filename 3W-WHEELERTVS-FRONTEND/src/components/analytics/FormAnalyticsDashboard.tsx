@@ -4655,7 +4655,7 @@ export default function FormAnalyticsDashboard() {
       setLoadedTabs(new Set());
       setPerformanceTableData([]);
       setInspectorSummary([]);
-      fetchedBulkReviewsKeyRef.current = "";
+      fetchedReviewIdsSetRef.current.clear();
       fetchData();
     }
   }, [id]);
