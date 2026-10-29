@@ -1058,12 +1058,14 @@ export const submitReview = async (req, res) => {
         'review.reviewedAt': new Date(),
         'review.remark': finalReason || '',
         'review.reason': finalReason || '',
-        ...(reviewOption === 'Rejected' ? {
-          'biwReview.status': 'Rejected',
-          'biwReview.remark': finalReason || '',
-          'biwReview.reviewedBy': reviewer._id,
-          'biwReview.reviewedByName': reviewerName,
-          'biwReview.reviewedAt': new Date()
+        'biwReview.status': reviewOption === 'Rework' ? 'Reworked' : reviewOption,
+        'biwReview.remark': finalReason || '',
+        'biwReview.reviewedBy': reviewer._id,
+        'biwReview.reviewedByName': reviewerName,
+        'biwReview.reviewedAt': new Date(),
+        ...(Array.isArray(req.body.flaggedQuestions) ? {
+          'review.flaggedQuestions': req.body.flaggedQuestions,
+          'biwReview.flaggedQuestions': req.body.flaggedQuestions
         } : {})
       };
 

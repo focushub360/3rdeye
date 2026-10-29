@@ -4132,7 +4132,7 @@ export const updateResponse = async (req, res) => {
         response.biwReview = {
           status: biwReview.status,
           reviewedBy: req.user._id,
-          reviewedByName: userUsername || userEmail || 'Reviewer',
+          reviewedByName: `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || req.user.name || userUsername || userEmail || 'Reviewer',
           reviewedAt: new Date(),
           remark: biwReview.remark || '',
           reason: biwReview.reason || '',

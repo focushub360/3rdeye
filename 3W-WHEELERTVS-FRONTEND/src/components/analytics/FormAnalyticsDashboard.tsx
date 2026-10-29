@@ -4125,6 +4125,21 @@ export default function FormAnalyticsDashboard() {
     try {
       setPendingReviewOption(null);
 
+      const allFormQuestions = form?.sections?.flatMap((s) => s.questions || []) || [];
+      const flaggedFromFilters = (chatFilters.questions || []).map((qId) => {
+        const qObj = allFormQuestions.find((q: any) => String(q.id) === String(qId));
+        return {
+          questionId: qId,
+          questionText: qObj?.title || qObj?.text || qId,
+        };
+      });
+
+      const flaggedQuestions = flaggedFromFilters.length > 0
+        ? flaggedFromFilters
+        : Array.isArray((chatResponse?.biwReview as any)?.flaggedQuestions)
+          ? (chatResponse?.biwReview as any).flaggedQuestions
+          : [];
+
       const reviewData = {
         responseId,
         reviewerId: reviewerId,
@@ -4133,6 +4148,7 @@ export default function FormAnalyticsDashboard() {
         tenantId: tenantId,
         remark: reviewRemark?.trim() || "",
         reason: reviewRemark?.trim() || "",
+        flaggedQuestions,
       };
 
       console.log("📤 Submitting review with data:", reviewData);
@@ -4161,24 +4177,23 @@ export default function FormAnalyticsDashboard() {
                 reviewedAt: new Date().toISOString(),
                 remark: reviewRemark?.trim() || curRev.remark || "",
                 reason: reviewRemark?.trim() || curRev.reason || "",
+                flaggedQuestions,
               },
-              ...(reviewOption === "Rejected"
-                ? {
-                    biwReview: {
-                      status: "Rejected" as const,
-                      remark: reviewRemark?.trim() || "",
-                      reviewedBy: reviewerId,
-                      reviewedByName: reviewerDisplayName,
-                      reviewedAt: new Date().toISOString(),
-                    },
-                  }
-                : {}),
+              biwReview: {
+                status: (reviewOption === "Rework" ? "Reworked" : reviewOption) as any,
+                remark: reviewRemark?.trim() || curRev.remark || "",
+                reviewedBy: reviewerId,
+                reviewedByName: reviewerDisplayName,
+                reviewedAt: new Date().toISOString(),
+                flaggedQuestions: flaggedQuestions,
+              },
             };
           }
           return r;
         };
         setTableResponses((prev) => prev.map(updateReviewFn));
         setResponses((prev) => prev.map(updateReviewFn));
+        setChatFilters((prev) => ({ ...prev, questions: [] }));
         fetchSummary();
         fetchPerformanceTable();
         setTvsReviews((prev) => {
@@ -13953,8 +13968,171 @@ export default function FormAnalyticsDashboard() {
                                       )}
                                     </div>
                                   </td>
-                                  <td className="px-3 py-3 text-center border border-gray-200 dark:border-gray-700 border-l border-l-gray-300 dark:border-l-gray-600 whitespace-nowrap text-gray-400 dark:text-gray-500 text-xs font-medium">
-                                    -
+                                  <td className="px-3 py-2.5 text-center border border-gray-200 dark:border-gray-700 border-l border-l-gray-300 dark:border-l-gray-600 min-w-[170px] max-w-[280px]">
+                                    {(() => {
+                                      const biwRev = response.biwReview;
+                                      const serverRev = (response as any).review;
+                                      const localRev = reviewedBy[response.id];
+                                      const tvsRev = tvsReviews.find((r) => String(r.responseId || r.response_id || "") === String(response.id));
+
+                                      const status =
+                                        biwRev?.status ||
+                                        localRev?.option ||
+                                        localRev?.status ||
+                                        serverRev?.status ||
+                                        serverRev?.reviewOption ||
+                                        tvsRev?.status ||
+                                        tvsRev?.reviewOption ||
+                                        selectedReviewOptions[response.id] ||
+                                        null;
+
+                                      const reviewer =
+                                        biwRev?.reviewedByName ||
+                                        (typeof serverRev?.reviewer === "object"
+                                          ? serverRev?.reviewer?.name || serverRev?.reviewer?.email
+                                          : serverRev?.reviewerName || serverRev?.reviewer) ||
+                                        localRev?.name ||
+                                        localRev?.reviewer ||
+                                        tvsRev?.reviewer?.name ||
+                                        tvsRev?.reviewer ||
+                                        null;
+
+                                      const reviewDate =
+                                        biwRev?.reviewedAt ||
+                                        serverRev?.reviewedAt ||
+                                        serverRev?.createdAt ||
+                                        tvsRev?.createdAt ||
+                                        null;
+
+                                      const remark =
+                                        biwRev?.remark ||
+                                        biwRev?.reason ||
+                                        serverRev?.remark ||
+                                        serverRev?.reason ||
+                                        serverRev?.message ||
+                                        tvsRev?.remark ||
+                                        null;
+
+                                      const rawFlagged =
+                                        (biwRev?.flaggedQuestions && biwRev.flaggedQuestions.length > 0)
+                                          ? biwRev.flaggedQuestions
+                                          : (serverRev?.flaggedQuestions && serverRev.flaggedQuestions.length > 0)
+                                            ? serverRev.flaggedQuestions
+                                            : (tvsRev?.flaggedQuestions || []);
+
+                                      const flaggedCategories: string[] = rawFlagged
+                                        .map((q: any) =>
+                                          typeof q === "string"
+                                            ? q
+                                            : q?.questionText || q?.text || q?.title || q?.questionId || ""
+                                        )
+                                        .filter(Boolean);
+
+                                      // If no review has been performed yet
+                                      if (!status && !remark && flaggedCategories.length === 0) {
+                                        return (
+                                          <div
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setChatResponse(response);
+                                              setShowChatModal(true);
+                                            }}
+                                            className="inline-flex items-center justify-center gap-1.5 px-2 py-1 text-gray-400 dark:text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/30 rounded-lg cursor-pointer transition-colors text-xs italic select-none"
+                                            title="Click to open chassis discussion & review"
+                                          >
+                                            <MessageCircle className="w-3.5 h-3.5 text-gray-400" />
+                                            <span>No review yet</span>
+                                          </div>
+                                        );
+                                      }
+
+                                      const normStatus = String(status || "").toLowerCase().trim();
+                                      const isAccepted = normStatus === "accepted";
+                                      const isRejected = normStatus === "rejected";
+                                      const isRework = normStatus.includes("rework");
+
+                                      const badgeClass = isAccepted
+                                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-green-300 dark:border-green-800"
+                                        : isRejected
+                                          ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border-red-300 dark:border-red-800"
+                                          : isRework
+                                            ? "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 border-purple-300 dark:border-purple-800"
+                                            : "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-300 dark:border-blue-800";
+
+                                      const emoji = isAccepted ? "✅" : isRejected ? "❌" : isRework ? "🔄" : "💬";
+                                      const label = isAccepted ? "Accepted" : isRejected ? "Rejected" : isRework ? "Rework" : status;
+
+                                      return (
+                                        <div className="flex flex-col gap-1 items-center justify-center text-center">
+                                          {/* Status badge + Reviewer */}
+                                          <div className="flex items-center gap-1.5 flex-wrap justify-center">
+                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase border shadow-2xs ${badgeClass}`}>
+                                              <span>{emoji}</span>
+                                              <span>{label}</span>
+                                            </span>
+                                            {reviewer && (
+                                              <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium truncate max-w-[120px]" title={`Reviewed by ${reviewer}`}>
+                                                by <span className="font-semibold text-gray-700 dark:text-gray-300">{reviewer}</span>
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          {/* Defect Categories (Flagged Questions) */}
+                                          {flaggedCategories.length > 0 && (
+                                            <div className="flex flex-wrap gap-1 justify-center mt-0.5 max-w-full">
+                                              {flaggedCategories.map((cat, i) => (
+                                                <span
+                                                  key={i}
+                                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 max-w-[200px] truncate"
+                                                  title={`Defect Category: ${cat}`}
+                                                >
+                                                  <span>⚠️</span>
+                                                  <span className="truncate">{cat}</span>
+                                                </span>
+                                              ))}
+                                            </div>
+                                          )}
+
+                                          {/* Chat Message / Feedback Snippet */}
+                                          {remark ? (
+                                            <div
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setChatResponse(response);
+                                                setShowChatModal(true);
+                                              }}
+                                              className="w-full mt-1 flex items-start gap-1.5 p-1.5 bg-white dark:bg-gray-800 rounded border border-indigo-100 dark:border-indigo-900/50 hover:border-indigo-300 dark:hover:border-indigo-600 shadow-2xs cursor-pointer text-left transition-all group"
+                                              title="Click to view full discussion thread"
+                                            >
+                                              <MessageCircle className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+                                              <div className="flex-1 min-w-0">
+                                                <p className="text-[11px] text-gray-800 dark:text-gray-200 italic line-clamp-2 leading-tight break-words">
+                                                  "{remark}"
+                                                </p>
+                                                {reviewDate && (
+                                                  <span className="text-[9px] text-gray-400 block mt-0.5">
+                                                    {new Date(reviewDate).toLocaleDateString()} {new Date(reviewDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setChatResponse(response);
+                                                setShowChatModal(true);
+                                              }}
+                                              className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                              title="Open chassis chat"
+                                            >
+                                              <MessageCircle className="w-3 h-3" />
+                                              <span>View Discussion</span>
+                                            </button>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                   </td>
                                   <td className="px-3 py-3 text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                     {(() => {
