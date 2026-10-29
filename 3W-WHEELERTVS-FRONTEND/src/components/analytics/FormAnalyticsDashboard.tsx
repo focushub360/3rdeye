@@ -13247,10 +13247,10 @@ export default function FormAnalyticsDashboard() {
                                 className="w-4 h-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-indigo-600"
                               />
                             </th>
-                            <th className="sticky left-0 sm:left-12 z-30 text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-100 dark:bg-gray-800 min-w-[120px]">
+                            <th className="sticky left-0 sm:left-12 z-30 text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 border-r border-r-gray-300 dark:border-r-gray-600 shadow-[inset_-1px_0_0_#d1d5db] dark:shadow-[inset_-1px_0_0_#4b5563] whitespace-nowrap bg-gray-100 dark:bg-gray-800 min-w-[120px]">
                               <span>Actions</span>
                             </th>
-                            <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800 min-w-[120px]">
+                            <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 border-l border-l-gray-300 dark:border-l-gray-600 whitespace-nowrap bg-gray-50 dark:bg-gray-800 min-w-[120px]">
                               <span>TVS Review</span>
                             </th>
                             <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
@@ -13822,7 +13822,7 @@ export default function FormAnalyticsDashboard() {
                                     />
                                   </td>
                                   <td
-                                    className={`px-4 py-3 text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap sticky left-0 sm:left-12 z-20 transition-all duration-300 ${editingResponseId === response.id ? "bg-blue-50 dark:bg-blue-900/20" : idx % 2 === 0 ? "bg-white dark:bg-gray-900" : "bg-gray-50 dark:bg-gray-800"}`}
+                                    className={`px-4 py-3 text-center border border-gray-200 dark:border-gray-700 border-r border-r-gray-300 dark:border-r-gray-600 shadow-[inset_-1px_0_0_#d1d5db] dark:shadow-[inset_-1px_0_0_#4b5563] whitespace-nowrap sticky left-0 sm:left-12 z-20 transition-all duration-300 ${editingResponseId === response.id ? "bg-blue-50 dark:bg-blue-900/20" : idx % 2 === 0 ? "bg-white dark:bg-gray-900" : "bg-gray-50 dark:bg-gray-800"}`}
                                   >
                                     <div className="flex items-center gap-1.5 justify-center">
                                       {editingResponseId === response.id ? (
@@ -13953,7 +13953,7 @@ export default function FormAnalyticsDashboard() {
                                       )}
                                     </div>
                                   </td>
-                                  <td className="px-3 py-3 text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap text-gray-400 dark:text-gray-500 text-xs font-medium">
+                                  <td className="px-3 py-3 text-center border border-gray-200 dark:border-gray-700 border-l border-l-gray-300 dark:border-l-gray-600 whitespace-nowrap text-gray-400 dark:text-gray-500 text-xs font-medium">
                                     -
                                   </td>
                                   <td className="px-3 py-3 text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap">
