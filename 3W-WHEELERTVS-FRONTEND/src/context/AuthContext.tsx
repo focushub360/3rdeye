@@ -97,6 +97,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // === INSTANT HYDRATION: Load from localStorage immediately (no network wait) ===
   const [user, setUser] = useState<User | null>(() => {
     try {
+      const token = typeof localStorage !== "undefined" ? localStorage.getItem("auth_token") : null;
+      if (!token) return null;
       const cached = localStorage.getItem("cached_user");
       return cached ? JSON.parse(cached) : null;
     } catch { return null; }
@@ -188,6 +190,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(null);
           updateTenantState(null);
         }
+      } else {
+        // No token present — clear ghost cached user
+        apiClient.clearToken();
+        localStorage.removeItem("cached_user");
+        setUser(null);
+        updateTenantState(null);
       }
       setLoading(false);
     };

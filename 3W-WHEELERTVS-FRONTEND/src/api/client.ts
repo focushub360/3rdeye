@@ -96,7 +96,6 @@ class ApiClient {
   private _suggestionsCache = new Map<string, { data: any; exp: number }>();
 
   get token(): string | null {
-    if (this._token) return this._token;
     if (typeof localStorage !== "undefined") {
       const stored = localStorage.getItem("auth_token");
       if (stored) {
@@ -104,7 +103,7 @@ class ApiClient {
         return stored;
       }
     }
-    return null;
+    return this._token;
   }
 
   set token(val: string | null) {

@@ -54,6 +54,7 @@ import {
   ArrowDown,
   ArrowUpDown,
   ClipboardCheck,
+  LogIn,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Pie, Doughnut, Radar } from "react-chartjs-2";
@@ -11841,45 +11842,75 @@ export default function FormAnalyticsDashboard() {
 
   if (error) {
     const isTimeoutError = error.includes('timeout') || error.includes('too long');
+    const isAuthError = Boolean(
+      error &&
+      (String(error).toLowerCase().includes("invalid token") ||
+        String(error).toLowerCase().includes("jwt expired") ||
+        String(error).toLowerCase().includes("unauthorized") ||
+        String(error).toLowerCase().includes("401") ||
+        String(error).toLowerCase().includes("not authorized") ||
+        String(error).toLowerCase().includes("no token provided") ||
+        String(error).toLowerCase().includes("access denied"))
+    );
 
     return (
       <div className="p-6">
         <div className="text-center py-12 max-w-md mx-auto">
-          <div className={`rounded-lg p-6 mb-4 ${isTimeoutError ? 'bg-amber-50 dark:bg-amber-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
-            {isTimeoutError ? (
+          <div className={`rounded-2xl p-6 mb-4 border shadow-sm ${
+            isAuthError
+              ? "bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800/40"
+              : isTimeoutError
+                ? "bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/40"
+                : "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800/40"
+          }`}>
+            {isAuthError ? (
+              <LogIn className="w-12 h-12 text-blue-600 dark:text-blue-400 mx-auto mb-4" />
+            ) : isTimeoutError ? (
               <Clock className="w-12 h-12 text-amber-500 mx-auto mb-4" />
             ) : (
               <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
             )}
-            <p className={`font-medium ${isTimeoutError ? 'text-amber-700 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
-              {error}
+            <h3 className="text-base font-bold text-gray-900 dark:text-white mb-2">
+              {isAuthError ? "Session Expired" : isTimeoutError ? "Request Timed Out" : "Error Loading Analytics"}
+            </h3>
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
+              {isAuthError
+                ? "Your login session has expired or no authentication token was found. Please log in again to continue viewing analytics."
+                : error}
             </p>
-            {isTimeoutError && (
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                This usually happens when there's a large amount of data to process.
-                You can try again or view the data with limited functionality.
-              </p>
-            )}
           </div>
 
           <div className="flex gap-3 justify-center flex-wrap">
-            <button
-              onClick={handleRetry}
-              disabled={isRetrying || loading}
-              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
-            >
-              {isRetrying || loading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                  Loading...
-                </>
-              ) : (
-                <>
-                  <RotateCcw className="w-4 h-4" />
-                  Retry
-                </>
-              )}
-            </button>
+            {isAuthError ? (
+              <button
+                onClick={() => {
+                  const returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
+                  window.location.href = `/login?redirect=${returnUrl}`;
+                }}
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-semibold shadow-md transition-all active:scale-95"
+              >
+                <LogIn className="w-4 h-4" />
+                Log In Again
+              </button>
+            ) : (
+              <button
+                onClick={handleRetry}
+                disabled={isRetrying || loading}
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+              >
+                {isRetrying || loading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    Loading...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-4 h-4" />
+                    Retry
+                  </>
+                )}
+              </button>
+            )}
 
             {!isGuest && (
               <button
@@ -11900,7 +11931,7 @@ export default function FormAnalyticsDashboard() {
             )}
           </div>
 
-          {retryCount > 2 && (
+          {retryCount > 2 && !isAuthError && (
             <p className="text-xs text-gray-400 mt-4">
               Multiple retry attempts failed. Please refresh the page or contact support.
             </p>
