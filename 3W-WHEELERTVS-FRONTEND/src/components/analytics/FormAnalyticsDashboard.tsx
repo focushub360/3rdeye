@@ -2510,32 +2510,54 @@ export default function FormAnalyticsDashboard() {
     }
   }, [searchParams]);
 
-  const fetchedBulkReviewsKeyRef = useRef<string>("");
+  const fetchedReviewIdsSetRef = useRef<Set<string>>(new Set());
+
+  // Reset fetched review cache on form change
+  useEffect(() => {
+    fetchedReviewIdsSetRef.current.clear();
+    setTvsReviews([]);
+  }, [id]);
 
   useEffect(() => {
-    // Only fetch TVS reviews when in dashboard view or overall view and responses exist
-    if (responses.length === 0 || (analyticsView !== "dashboard")) return;
+    // Gather all candidate response IDs from memory and active table page
+    const allAvailable = [...responses, ...tableResponses, ...displayedTableResponses];
+    if (allAvailable.length === 0) return;
 
-    const currentKey = `${id}-${responses.length}`;
-    if (fetchedBulkReviewsKeyRef.current === currentKey) return;
-    fetchedBulkReviewsKeyRef.current = currentKey;
+    const candidateIds = Array.from(
+      new Set(
+        allAvailable
+          .map((r: any) => String(r?.id || r?._id || ""))
+          .filter(Boolean)
+      )
+    );
+
+    const missingIds = candidateIds.filter((respId) => !fetchedReviewIdsSetRef.current.has(respId));
+    if (missingIds.length === 0) return;
+
+    // Mark missing IDs as fetched immediately to prevent redundant calls
+    missingIds.forEach((respId) => fetchedReviewIdsSetRef.current.add(respId));
 
     const fetchBulkReviews = async () => {
       try {
         setIsLoadingReviews(true);
-        const responseIds = responses.map((r) => r.id || r._id).filter(Boolean);
-        if (responseIds.length === 0) {
-          setIsLoadingReviews(false);
-          return;
+        // Process in chunks of 200
+        for (let i = 0; i < missingIds.length; i += 200) {
+          const chunk = missingIds.slice(i, i + 200);
+          const data = await apiClient.request<any>("/responses/reviews/bulk", {
+            method: "POST",
+            body: JSON.stringify({ responseIds: chunk }),
+          });
+
+          const reviewsList = Array.isArray(data) ? data : (data?.data || []);
+          if (reviewsList.length > 0) {
+            setTvsReviews((prev) => {
+              const map = new Map();
+              prev.forEach((r: any) => map.set(String(r.id || r._id || r.responseId || r.response_id), r));
+              reviewsList.forEach((r: any) => map.set(String(r.id || r._id || r.responseId || r.response_id), r));
+              return Array.from(map.values());
+            });
+          }
         }
-
-        const data = await apiClient.request<any>("/responses/reviews/bulk", {
-          method: "POST",
-          body: JSON.stringify({ responseIds }),
-        });
-
-        const reviewsList = Array.isArray(data) ? data : (data?.data || []);
-        setTvsReviews(reviewsList);
       } catch (err) {
         console.error("Error fetching bulk TVS reviews:", err);
       } finally {
@@ -2544,7 +2566,7 @@ export default function FormAnalyticsDashboard() {
     };
 
     fetchBulkReviews();
-  }, [responses.length, analyticsView, id]);
+  }, [responses.length, tableResponses.length, displayedTableResponses.length, id]);
 
   const getChassisDisplayValue = (value: any): string => {
     if (!value) return "-";
@@ -16391,92 +16413,6 @@ export default function FormAnalyticsDashboard() {
                       </div>
                     );
                   })()}
-
-                  {/* === BEFORE REVIEW: Show 3 buttons or "pending" state or blocked reason === */}
-                  {!reviewSubmitted[
-                    `${String(user?._id)}-${String(chatResponse?.id)}`
-                  ] &&
-                    !reviewedBy[chatResponse?.id || ""] &&
-                    (responseStatuses[chatResponse?.id] === "Direct Ok" ||
-                      responseStatuses[chatResponse?.id] ===
-                      "Rework Accepted" ||
-                      responseStatuses[chatResponse?.id] === "Accepted" ||
-                      responseStatuses[chatResponse?.id] === "Pending Review" ||
-                      responseStatuses[chatResponse?.id] ===
-                      "Rework Completed") &&
-                    (() => {
-                      const reviewCheck = canUserBiwReview(chatResponse);
-                      if (!reviewCheck.canReview) {
-                        return (
-                          <div
-                            className="text-xs px-2.5 py-1 rounded bg-white/10 text-white/80 border border-white/20"
-                            title={reviewCheck.reason}
-                          >
-                            {reviewCheck.reason || "BIW Review pending"}
-                          </div>
-                        );
-                      }
-
-                      if (pendingReviewOption) {
-                        return (
-                          /* Pending state: show label + cancel */
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`px-3 py-1 text-xs font-bold rounded ${pendingReviewOption === "Rejected"
-                                ? "bg-red-500/30 text-red-100 border border-red-400"
-                                : "bg-yellow-500/30 text-yellow-100 border border-yellow-400"
-                                }`}
-                            >
-                              {pendingReviewOption === "Rejected" ? "❌" : "🔄"}{" "}
-                              {pendingReviewOption} — Select questions below
-                            </span>
-                            <button
-                              onClick={() => setPendingReviewOption(null)}
-                              className="px-2 py-1 text-xs font-bold rounded bg-white/10 text-white hover:bg-white/20 transition-all"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        /* Normal state: 3 review buttons - Only for authorized tenant reviewers */
-                        <div className="flex gap-2">
-                          {["Accepted", "Rejected", "Rework"].map(
-                            (option) => (
-                              <button
-                                key={option}
-                                onClick={() => {
-                                  if (option === "Accepted") {
-                                    handleReviewSubmit(
-                                      chatResponse!.id,
-                                      option,
-                                    );
-                                  } else {
-                                    setPendingReviewOption(option);
-                                  }
-                                }}
-                                className={`px-3 py-1 text-xs font-bold rounded transition-all border ${option === "Accepted"
-                                  ? "bg-green-500/30 border-green-400 text-green-100 hover:bg-green-500/50"
-                                  : option === "Rejected"
-                                    ? "bg-red-500/30 border-red-400 text-red-100 hover:bg-red-500/50"
-                                    : "bg-yellow-500/30 border-yellow-400 text-yellow-100 hover:bg-yellow-500/50"
-                                  }`}
-                              >
-                                {option === "Accepted"
-                                  ? "✅"
-                                  : option === "Rejected"
-                                    ? "❌"
-                                    : "🔄"}{" "}
-                                {option}
-                              </button>
-                            ),
-                          )}
-                        </div>
-                      );
-                    })()}
-
                   <button
                     onClick={() => {
                       const responseId = searchParams.get("responseId");
@@ -16543,193 +16479,53 @@ export default function FormAnalyticsDashboard() {
                       })()}
                     </p>
 
-                    {/* Show question selection panel when Rejected/Rework is pending */}
-                    {pendingReviewOption ? (
-                      <>
-                        <div className="space-y-2">
-                          <div
-                            className={`flex items-center gap-2 mb-3 px-3 py-2 rounded-lg ${pendingReviewOption === "Rejected" ? "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800" : "bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800"}`}
-                          >
-                            <span className="text-lg">
-                              {pendingReviewOption === "Rejected" ? "❌" : "🔄"}
-                            </span>
-                            <div>
-                              <p
-                                className={`text-xs font-bold ${pendingReviewOption === "Rejected" ? "text-red-700 dark:text-red-300" : "text-yellow-700 dark:text-yellow-300"}`}
-                              >
-                                {pendingReviewOption} Review
-                              </p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">
-                                {pendingReviewOption === "Rejected"
-                                  ? "Flag questions with issues (optional), then enter the mandatory rejection reason in the Message Center on the right."
-                                  : 'Select the questions with issues, fill in corrections, then click "Send & Submit Review"'}
-                              </p>
-                            </div>
-                          </div>
-                          <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 ml-1">
-                            Select Questions to Flag
-                          </label>
-                          <div className="max-h-[400px] overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-xl shadow-inner scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 bg-white dark:bg-gray-800">
-                            {form?.sections
-                              ?.flatMap((s) =>
-                                (s.questions || []).filter(
-                                  (q: any) =>
-                                    !q.parentId && !q.showWhen?.questionId,
-                                ),
-                              )
-                              .map((q) => (
-                                <div
-                                  key={q.id}
-                                  className="border-b border-gray-100 dark:border-gray-700 last:border-0"
-                                >
-                                  <div className="flex items-start gap-3 p-3 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 cursor-default transition-colors group">
-                                    <label className="mt-1 cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={chatFilters.questions.includes(
-                                          q.id,
-                                        )}
-                                        onChange={(e) => {
-                                          const checked = e.target.checked;
-                                          setChatFilters((prev) => ({
-                                            ...prev,
-                                            questions: checked
-                                              ? [...prev.questions, q.id]
-                                              : prev.questions.filter(
-                                                (id) => id !== q.id,
-                                              ),
-                                          }));
-                                        }}
-                                        className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer"
-                                      />
-                                    </label>
-                                    <div className="flex-1">
-                                      <span className="text-sm text-gray-700 dark:text-gray-300 font-medium group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors block mb-1">
-                                        {q.text}
-                                      </span>
-                                      {chatFilters.questions.includes(q.id) && (
-                                        <div className="mt-2 space-y-2">
-                                          <QuestionSuggestionRenderer
-                                            question={q}
-                                            currentAnswer={
-                                              (
-                                                responses.find(
-                                                  (r) => r.id === chatResponse.id,
-                                                ) ||
-                                                tableResponses.find(
-                                                  (r) => r.id === chatResponse.id,
-                                                ) ||
-                                                chatResponse
-                                              )?.answers?.[q.id]
-                                            }
-                                            value={
-                                              chatFilters.suggestedAnswers?.[
-                                              q.id
-                                              ] || {}
-                                            }
-                                            onChange={(val) =>
-                                              setChatFilters((prev) => ({
-                                                ...prev,
-                                                suggestedAnswers: {
-                                                  ...prev.suggestedAnswers,
-                                                  [q.id]: val,
-                                                },
-                                              }))
-                                            }
-                                          />
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                          </div>
-                        </div>
-
-                        <div className="pt-6 flex items-center justify-between">
-                          <button
-                            onClick={() =>
-                              setChatFilters({
-                                chassisNumber: "",
-                                location: "",
-                                questions: [],
-                                selectedCategories: {},
-                                zoneType: "both",
-                                suggestedAnswers: {},
-                              })
-                            }
-                            className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
-                          >
-                            Clear All Filters
-                          </button>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => setShowChatModal(false)}
-                              className="px-4 py-2 text-xs font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              onClick={() => setShowChatModal(false)}
-                              className="px-4 py-2 text-xs font-extrabold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-lg shadow-indigo-200 dark:shadow-none transition-all active:scale-95"
-                            >
-                              Apply Filters
-                            </button>
-                          </div>
-                        </div>
-                        <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-2">
-                          {pendingReviewOption === "Rejected" ? (
-                            <span className="text-red-600 dark:text-red-400 font-bold flex items-center gap-1">
-                              <span>⚠️</span> Rejection reason is mandatory in the Message Center before submitting.
-                            </span>
-                          ) : (
-                            <>
-                              ✏️ Type your message below and click{" "}
-                              <b>Send Feedback</b> to submit the review.
-                            </>
-                          )}
-                        </p>
-                      </>
-                    ) : (
-                      /* Display review overview, status, feedback & flagged questions */
+                      {/* Display TVS review overview, status, feedback & discussion context */}
                       <div className="space-y-4">
                         {/* 1. Review Summary Card if reviewed */}
                         {(() => {
-                          const biwStatus = chatResponse?.biwReview?.status;
+                          const tvsRev = tvsReviews.find(
+                            (tr) =>
+                              String(tr.responseId || tr.response_id || "") ===
+                              String(chatResponse?.id),
+                          );
                           const revOption =
                             chatResponse?.review?.option ||
                             chatResponse?.review?.reviewOption ||
-                            selectedReviewOptions[chatResponse?.id || ""] ||
-                            biwStatus;
+                            tvsRev?.status ||
+                            tvsRev?.reviewOption ||
+                            selectedReviewOptions[chatResponse?.id || ""];
                           const reviewerName =
-                            chatResponse?.biwReview?.reviewedByName ||
                             (typeof chatResponse?.review?.reviewer === "object"
                               ? chatResponse?.review?.reviewer?.name || chatResponse?.review?.reviewer?.email
                               : chatResponse?.review?.reviewer) ||
+                            tvsRev?.reviewer?.name ||
+                            tvsRev?.reviewer ||
                             reviewedBy[chatResponse?.id || ""]?.name ||
                             reviewedBy[chatResponse?.id || ""]?.email ||
                             "";
                           const reviewDate =
-                            chatResponse?.biwReview?.reviewedAt ||
                             chatResponse?.review?.reviewAt ||
                             chatResponse?.review?.reviewedAt ||
+                            tvsRev?.createdAt ||
                             "";
                           const remark =
-                            chatResponse?.biwReview?.remark ||
                             chatResponse?.review?.message ||
+                            chatResponse?.review?.remark ||
+                            chatResponse?.review?.reason ||
+                            tvsRev?.remark ||
                             "";
-                          const evidenceUrl = chatResponse?.biwReview?.evidenceUrl;
+                          const evidenceUrl = chatResponse?.review?.evidenceUrl;
 
                           if (!revOption && !reviewerName) {
                             return (
                               <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-xs text-gray-500">
-                                ℹ️ BIW review pending by assigned tenant reviewer. You can use the Message Center to discuss this submission.
+                                💬 Use the Message Center to discuss this chassis and share inspection feedback.
                               </div>
                             );
                           }
 
-                          const isAccepted = revOption === "Accepted" || biwStatus === "Accepted";
-                          const isRejected = revOption === "Rejected" || biwStatus === "Rejected";
+                          const isAccepted = String(revOption).toLowerCase().trim() === "accepted";
+                          const isRejected = String(revOption).toLowerCase().trim() === "rejected";
                           const badgeColor = isAccepted
                             ? "bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800"
                             : isRejected
@@ -16740,10 +16536,10 @@ export default function FormAnalyticsDashboard() {
                             <div className="p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm space-y-3">
                               <div className="flex items-center justify-between">
                                 <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                  Review Status
+                                  TVS Review Status
                                 </span>
                                 <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 ${badgeColor}`}>
-                                  {isAccepted ? "✅" : isRejected ? "❌" : "🔄"} {revOption || biwStatus}
+                                  {isAccepted ? "✅" : isRejected ? "❌" : "🔄"} {revOption}
                                 </span>
                               </div>
 
@@ -16785,21 +16581,29 @@ export default function FormAnalyticsDashboard() {
                           );
                         })()}
 
-                        {/* 2. Flagged Questions for Rework / Rejection */}
+                        {/* 2. Flagged Items for Discussion */}
                         {(() => {
-                          const flaggedBiw = chatResponse?.biwReview?.flaggedQuestions || [];
-                          const flaggedRev = (chatResponse?.review?.flaggedQuestions || []).map((qText: string) => ({
-                            questionId: qText,
-                            questionText: qText,
-                          }));
-                          const allFlagged = [...flaggedBiw, ...flaggedRev];
+                          const tvsRev = tvsReviews.find(
+                            (tr) =>
+                              String(tr.responseId || tr.response_id || "") ===
+                              String(chatResponse?.id),
+                          );
+                          const rawFlagged =
+                            chatResponse?.review?.flaggedQuestions ||
+                            tvsRev?.flaggedQuestions ||
+                            [];
+                          const allFlagged = rawFlagged.map((qText: any) => ({
+                            questionId: typeof qText === "string" ? qText : qText.questionId || qText.text || "",
+                            questionText: typeof qText === "string" ? qText : qText.questionText || qText.text || qText.title || "",
+                          })).filter((item: any) => Boolean(item.questionText));
+
                           if (allFlagged.length === 0) return null;
 
                           return (
                             <div className="space-y-2">
                               <div className="flex items-center justify-between">
                                 <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                  Flagged Items for Rework / Discussion ({allFlagged.length})
+                                  Flagged Items for Discussion ({allFlagged.length})
                                 </label>
                               </div>
                               <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
@@ -16846,7 +16650,6 @@ export default function FormAnalyticsDashboard() {
                           );
                         })()}
                       </div>
-                    )}
                   </div>
                 </div>
               </div>
