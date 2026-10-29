@@ -13250,6 +13250,9 @@ export default function FormAnalyticsDashboard() {
                             <th className="sticky left-0 sm:left-12 z-30 text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-100 dark:bg-gray-800 min-w-[120px]">
                               <span>Actions</span>
                             </th>
+                            <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800 min-w-[120px]">
+                              <span>TVS Review</span>
+                            </th>
                             <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
                               <div className="flex flex-col items-center gap-1.5 justify-center">
                                 <div className="flex items-center gap-1">
@@ -13949,6 +13952,9 @@ export default function FormAnalyticsDashboard() {
                                         </>
                                       )}
                                     </div>
+                                  </td>
+                                  <td className="px-3 py-3 text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap text-gray-400 dark:text-gray-500 text-xs font-medium">
+                                    -
                                   </td>
                                   <td className="px-3 py-3 text-center border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                     {(() => {
