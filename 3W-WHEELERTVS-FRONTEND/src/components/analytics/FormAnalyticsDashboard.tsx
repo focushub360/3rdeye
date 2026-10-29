@@ -2519,13 +2519,11 @@ export default function FormAnalyticsDashboard() {
   }, [id]);
 
   useEffect(() => {
-    // Gather all candidate response IDs from memory and active table page
-    const allAvailable = [...responses, ...tableResponses, ...displayedTableResponses];
-    if (allAvailable.length === 0) return;
+    if (responses.length === 0) return;
 
     const candidateIds = Array.from(
       new Set(
-        allAvailable
+        responses
           .map((r: any) => String(r?.id || r?._id || ""))
           .filter(Boolean)
       )
@@ -2566,7 +2564,7 @@ export default function FormAnalyticsDashboard() {
     };
 
     fetchBulkReviews();
-  }, [responses.length, tableResponses.length, displayedTableResponses.length, id]);
+  }, [responses.length, id]);
 
   const getChassisDisplayValue = (value: any): string => {
     if (!value) return "-";
@@ -6685,6 +6683,42 @@ export default function FormAnalyticsDashboard() {
 
     return result;
   }, [hasActiveFiltersOrSort, responses, sortedFilteredResponses, tableResponses, columnFilters, currentResponsesPage, responsesPageSize, chassisAttemptRanks, tableDisplayStatuses, responseStatuses, chassisQuestionId, tableSort]);
+
+  // Fetch TVS reviews for visible table responses when server-paginated
+  useEffect(() => {
+    if (!displayedTableResponses || displayedTableResponses.length === 0) return;
+
+    const visibleIds = displayedTableResponses
+      .map((r: any) => String(r?.id || r?._id || ""))
+      .filter(Boolean);
+
+    const missingIds = visibleIds.filter((respId) => !fetchedReviewIdsSetRef.current.has(respId));
+    if (missingIds.length === 0) return;
+
+    missingIds.forEach((respId) => fetchedReviewIdsSetRef.current.add(respId));
+
+    const fetchTableReviews = async () => {
+      try {
+        const data = await apiClient.request<any>("/responses/reviews/bulk", {
+          method: "POST",
+          body: JSON.stringify({ responseIds: missingIds }),
+        });
+        const reviewsList = Array.isArray(data) ? data : (data?.data || []);
+        if (reviewsList.length > 0) {
+          setTvsReviews((prev) => {
+            const map = new Map();
+            prev.forEach((r: any) => map.set(String(r.id || r._id || r.responseId || r.response_id), r));
+            reviewsList.forEach((r: any) => map.set(String(r.id || r._id || r.responseId || r.response_id), r));
+            return Array.from(map.values());
+          });
+        }
+      } catch (err) {
+        console.error("Error fetching reviews for table rows:", err);
+      }
+    };
+
+    fetchTableReviews();
+  }, [displayedTableResponses]);
 
   const pageSizesList = useMemo(() => {
     const base = [20, 50, 100];
