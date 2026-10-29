@@ -4179,14 +4179,6 @@ export default function FormAnalyticsDashboard() {
                 reason: reviewRemark?.trim() || curRev.reason || "",
                 flaggedQuestions,
               },
-              biwReview: {
-                status: (reviewOption === "Rework" ? "Reworked" : reviewOption) as any,
-                remark: reviewRemark?.trim() || curRev.remark || "",
-                reviewedBy: reviewerId,
-                reviewedByName: reviewerDisplayName,
-                reviewedAt: new Date().toISOString(),
-                flaggedQuestions: flaggedQuestions,
-              },
             };
           }
           return r;
@@ -5700,24 +5692,25 @@ export default function FormAnalyticsDashboard() {
     ];
   }, []);
 
-  // Filter options for Review column
-  const reviewFilterOptions = useMemo(() => {
+  // Filter options for TVS Review (Chat) column
+  const tvsReviewFilterOptions = useMemo(() => {
     const opts = new Set<string>();
     opts.add("Accepted");
-    opts.add("Reworked");
+    opts.add("Rework");
     opts.add("Rejected");
     opts.add("No review yet");
 
-    responses.forEach((r) => {
+    const pool = responses.length > 0 ? responses : tableResponses;
+    pool.forEach((r) => {
+      const serverRev = (r as any).review;
+      const tvsRev = tvsReviews.find((tr) => String(tr.responseId || tr.response_id || "") === String(r.id));
       const localRev = reviewedBy[r.id];
-      const legacyRev = (r as any).review;
-      const biwRev = r.biwReview;
       const reviewer =
-        localRev?.reviewer ||
+        (typeof serverRev?.reviewer === "object" ? serverRev?.reviewer?.name || serverRev?.reviewer?.email : serverRev?.reviewerName || serverRev?.reviewer) ||
         localRev?.name ||
-        legacyRev?.reviewer ||
-        legacyRev?.name ||
-        biwRev?.reviewedByName;
+        localRev?.reviewer ||
+        tvsRev?.reviewer?.name ||
+        tvsRev?.reviewer;
 
       if (reviewer && reviewer !== "Reviewer") {
         opts.add(reviewer);
@@ -5725,7 +5718,8 @@ export default function FormAnalyticsDashboard() {
     });
 
     return Array.from(opts);
-  }, [responses, reviewedBy]);
+  }, [responses, tableResponses, tvsReviews, reviewedBy]);
+  const reviewFilterOptions = tvsReviewFilterOptions;
 
   // Filter options for Dispatch
   const dispatchFilterOptions = useMemo(() => {
@@ -6374,12 +6368,7 @@ export default function FormAnalyticsDashboard() {
 
     // 6. __biwReview
     if (columnId === "__biwReview") {
-      const biwStatus = (
-        response.biwReview?.status ||
-        reviewedBy[response.id]?.status ||
-        reviewedBy[response.id]?.option ||
-        ""
-      ).toLowerCase().trim();
+      const biwStatus = (response.biwReview?.status || "").toLowerCase().trim();
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
         if (avLower === "no review yet" || avLower === "pending review") {
@@ -6392,23 +6381,30 @@ export default function FormAnalyticsDashboard() {
       });
     }
 
-    // 6b. __review (Review section / column filter)
-    if (columnId === "__review") {
+    // 6b. __tvsReview / __review (Chat & Discussion Review filter)
+    if (columnId === "__tvsReview" || columnId === "__review") {
+      const serverRev = (response as any).review;
+      const tvsRev = tvsReviews.find((tr) => String(tr.responseId || tr.response_id || "") === String(response.id));
       const localReview = reviewedBy[response.id];
-      const legacyServerReview = (response as any).review;
-      let revStatus = "";
-      let revReviewer = "";
 
-      if (localReview) {
-        revStatus = String(localReview.option || localReview.status || "").toLowerCase().trim();
-        revReviewer = String(localReview.reviewer || localReview.name || "").toLowerCase().trim();
-      } else if (legacyServerReview) {
-        revStatus = String(legacyServerReview.status || "").toLowerCase().trim();
-        revReviewer = String(legacyServerReview.reviewer || legacyServerReview.name || "").toLowerCase().trim();
-      } else if (response.biwReview) {
-        revStatus = String(response.biwReview.status || "").toLowerCase().trim();
-        revReviewer = String(response.biwReview.reviewedByName || "").toLowerCase().trim();
-      }
+      const revStatus = String(
+        serverRev?.status ||
+        serverRev?.reviewOption ||
+        localReview?.option ||
+        localReview?.status ||
+        tvsRev?.status ||
+        tvsRev?.reviewOption ||
+        ""
+      ).toLowerCase().trim();
+
+      const revReviewer = String(
+        (typeof serverRev?.reviewer === "object" ? serverRev?.reviewer?.name || serverRev?.reviewer?.email : serverRev?.reviewerName || serverRev?.reviewer) ||
+        localReview?.name ||
+        localReview?.reviewer ||
+        tvsRev?.reviewer?.name ||
+        tvsRev?.reviewer ||
+        ""
+      ).toLowerCase().trim();
 
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
@@ -6647,23 +6643,29 @@ export default function FormAnalyticsDashboard() {
         return isAsc ? parentCmp : -parentCmp;
       }
 
-      // Review column sorting
-      if (columnId === "__review") {
+      // TVS Review (Chat) sorting
+      if (columnId === "__review" || columnId === "__tvsReview") {
         const localRevA = reviewedBy[a.id];
-        const legacyRevA = (a as any).review;
-        const biwRevA = a.biwReview;
-        const statusA = localRevA?.option || localRevA?.status || legacyRevA?.status || biwRevA?.status || "";
-        const reviewerA = localRevA?.reviewer || localRevA?.name || legacyRevA?.reviewer || legacyRevA?.name || biwRevA?.reviewedByName || "";
+        const serverRevA = (a as any).review;
+        const statusA = localRevA?.option || localRevA?.status || serverRevA?.status || serverRevA?.reviewOption || "";
+        const reviewerA = localRevA?.reviewer || localRevA?.name || (typeof serverRevA?.reviewer === "object" ? serverRevA?.reviewer?.name : serverRevA?.reviewer) || "";
 
         const localRevB = reviewedBy[b.id];
-        const legacyRevB = (b as any).review;
-        const biwRevB = b.biwReview;
-        const statusB = localRevB?.option || localRevB?.status || legacyRevB?.status || biwRevB?.status || "";
-        const reviewerB = localRevB?.reviewer || localRevB?.name || legacyRevB?.reviewer || legacyRevB?.name || biwRevB?.reviewedByName || "";
+        const serverRevB = (b as any).review;
+        const statusB = localRevB?.option || localRevB?.status || serverRevB?.status || serverRevB?.reviewOption || "";
+        const reviewerB = localRevB?.reviewer || localRevB?.name || (typeof serverRevB?.reviewer === "object" ? serverRevB?.reviewer?.name : serverRevB?.reviewer) || "";
 
         const strA = `${statusA} ${reviewerA}`.trim();
         const strB = `${statusB} ${reviewerB}`.trim();
         const cmp = strA.localeCompare(strB, undefined, { numeric: true, sensitivity: "base" });
+        return isAsc ? cmp : -cmp;
+      }
+
+      // BIW Review sorting
+      if (columnId === "__biwReview") {
+        const statusA = String(a.biwReview?.status || "");
+        const statusB = String(b.biwReview?.status || "");
+        const cmp = statusA.localeCompare(statusB, undefined, { numeric: true, sensitivity: "base" });
         return isAsc ? cmp : -cmp;
       }
 
@@ -13265,8 +13267,49 @@ export default function FormAnalyticsDashboard() {
                             <th className="sticky left-0 sm:left-12 z-30 text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 border-r border-r-gray-300 dark:border-r-gray-600 shadow-[inset_-1px_0_0_#d1d5db] dark:shadow-[inset_-1px_0_0_#4b5563] whitespace-nowrap bg-gray-100 dark:bg-gray-800 min-w-[120px]">
                               <span>Actions</span>
                             </th>
-                            <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 border-l border-l-gray-300 dark:border-l-gray-600 whitespace-nowrap bg-gray-50 dark:bg-gray-800 min-w-[120px]">
-                              <span>TVS Review</span>
+                            <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 border-l border-l-gray-300 dark:border-l-gray-600 whitespace-nowrap bg-gray-50 dark:bg-gray-800 min-w-[150px]">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <div
+                                  onClick={() => {
+                                    startFilterTransition(() => {
+                                      setTableSort((prev) =>
+                                        prev?.columnId === "__tvsReview"
+                                          ? prev.direction === "asc"
+                                            ? { columnId: "__tvsReview", direction: "desc" }
+                                            : null
+                                          : { columnId: "__tvsReview", direction: "asc" }
+                                      );
+                                    });
+                                  }}
+                                  className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                  title="Click to sort TVS Review Ascending / Descending"
+                                >
+                                  <span>TVS Review</span>
+                                  {tableSort?.columnId === "__tvsReview" ? (
+                                    tableSort.direction === "asc" ? (
+                                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    ) : (
+                                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    )
+                                  ) : (
+                                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
+                                  )}
+                                </div>
+                                <TableColumnFilter
+                                  columnId="__tvsReview"
+                                  title="TVS Review"
+                                  options={tvsReviewFilterOptions}
+                                  selectedValues={columnFilters["__tvsReview"] || null}
+                                  onFilterChange={(columnId, values) => {
+                                    startFilterTransition(() => {
+                                      setColumnFilters((prev) => ({
+                                        ...prev,
+                                        [columnId]: values,
+                                      }));
+                                    });
+                                  }}
+                                />
+                              </div>
                             </th>
                             <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
                               <div className="flex flex-col items-center gap-1.5 justify-center">
@@ -13508,50 +13551,6 @@ export default function FormAnalyticsDashboard() {
                                 </div>
                               </th>
                             )}
-                            <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-48 whitespace-nowrap bg-gray-50 dark:bg-gray-800">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <div
-                                  onClick={() => {
-                                    startFilterTransition(() => {
-                                      setTableSort((prev) =>
-                                        prev?.columnId === "__review"
-                                          ? prev.direction === "asc"
-                                            ? { columnId: "__review", direction: "desc" }
-                                            : null
-                                          : { columnId: "__review", direction: "asc" }
-                                      );
-                                    });
-                                  }}
-                                  className="flex items-center gap-1.5 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                                  title="Click to sort Review Ascending / Descending"
-                                >
-                                  <span>Review</span>
-                                  {tableSort?.columnId === "__review" ? (
-                                    tableSort.direction === "asc" ? (
-                                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                                    ) : (
-                                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                                    )
-                                  ) : (
-                                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0 opacity-40 hover:opacity-100" />
-                                  )}
-                                </div>
-                                <TableColumnFilter
-                                  columnId="__review"
-                                  title="Review"
-                                  options={reviewFilterOptions}
-                                  selectedValues={columnFilters["__review"] || null}
-                                  onFilterChange={(columnId, values) => {
-                                    startFilterTransition(() => {
-                                      setColumnFilters((prev) => ({
-                                        ...prev,
-                                        [columnId]: values,
-                                      }));
-                                    });
-                                  }}
-                                />
-                              </div>
-                            </th>
                             <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-44 whitespace-nowrap bg-purple-50 dark:bg-purple-900/20">
                               <div className="flex flex-col items-center gap-1.5 justify-center">
                                 <div className="flex items-center gap-1">
@@ -13970,24 +13969,21 @@ export default function FormAnalyticsDashboard() {
                                   </td>
                                   <td className="px-3 py-2.5 text-center border border-gray-200 dark:border-gray-700 border-l border-l-gray-300 dark:border-l-gray-600 min-w-[170px] max-w-[280px]">
                                     {(() => {
-                                      const biwRev = response.biwReview;
                                       const serverRev = (response as any).review;
                                       const localRev = reviewedBy[response.id];
                                       const tvsRev = tvsReviews.find((r) => String(r.responseId || r.response_id || "") === String(response.id));
 
                                       const status =
-                                        biwRev?.status ||
-                                        localRev?.option ||
-                                        localRev?.status ||
                                         serverRev?.status ||
                                         serverRev?.reviewOption ||
+                                        localRev?.option ||
+                                        localRev?.status ||
                                         tvsRev?.status ||
                                         tvsRev?.reviewOption ||
                                         selectedReviewOptions[response.id] ||
                                         null;
 
                                       const reviewer =
-                                        biwRev?.reviewedByName ||
                                         (typeof serverRev?.reviewer === "object"
                                           ? serverRev?.reviewer?.name || serverRev?.reviewer?.email
                                           : serverRev?.reviewerName || serverRev?.reviewer) ||
@@ -13998,15 +13994,12 @@ export default function FormAnalyticsDashboard() {
                                         null;
 
                                       const reviewDate =
-                                        biwRev?.reviewedAt ||
                                         serverRev?.reviewedAt ||
                                         serverRev?.createdAt ||
                                         tvsRev?.createdAt ||
                                         null;
 
                                       const remark =
-                                        biwRev?.remark ||
-                                        biwRev?.reason ||
                                         serverRev?.remark ||
                                         serverRev?.reason ||
                                         serverRev?.message ||
@@ -14014,11 +14007,9 @@ export default function FormAnalyticsDashboard() {
                                         null;
 
                                       const rawFlagged =
-                                        (biwRev?.flaggedQuestions && biwRev.flaggedQuestions.length > 0)
-                                          ? biwRev.flaggedQuestions
-                                          : (serverRev?.flaggedQuestions && serverRev.flaggedQuestions.length > 0)
-                                            ? serverRev.flaggedQuestions
-                                            : (tvsRev?.flaggedQuestions || []);
+                                        (serverRev?.flaggedQuestions && serverRev.flaggedQuestions.length > 0)
+                                          ? serverRev.flaggedQuestions
+                                          : (tvsRev?.flaggedQuestions || []);
 
                                       const flaggedCategories: string[] = rawFlagged
                                         .map((q: any) =>
@@ -14345,192 +14336,6 @@ export default function FormAnalyticsDashboard() {
                                       })()}
                                     </td>
                                   )}
-                                  <td className="px-6 py-3 text-sm border border-gray-200 dark:border-gray-700 min-w-56 bg-gray-50/50 dark:bg-gray-800/30">
-                                    {(() => {
-                                      const localReview = reviewedBy[response.id];
-                                      const serverReview = (response as any).review;
-                                      const biwRev = response.biwReview;
-
-                                      let reviewObj: {
-                                        status?: string | null;
-                                        reviewer?: string | null;
-                                        flaggedQuestions?: any[];
-                                        message?: string | null;
-                                        chatStatus?: string | null;
-                                        messageCreatedAt?: any;
-                                        messageFrom?: string | null;
-                                      } | null = null;
-
-                                      if (localReview && (localReview.option || localReview.status || (localReview as any).message)) {
-                                        reviewObj = {
-                                          status: localReview.option || localReview.status || null,
-                                          reviewer: (localReview.reviewer as any)?.name || localReview.reviewer || (localReview as any).name || "Reviewer",
-                                          flaggedQuestions: (localReview as any).flaggedQuestions || [],
-                                          message: (localReview as any).message || null,
-                                          chatStatus: (localReview as any).chatStatus || "sent",
-                                        };
-                                      } else if (serverReview && (serverReview.status || serverReview.reviewOption || serverReview.message || (serverReview.flaggedQuestions && serverReview.flaggedQuestions.length > 0))) {
-                                        reviewObj = {
-                                          status: serverReview.status || serverReview.reviewOption || null,
-                                          reviewer: serverReview.reviewer || serverReview.reviewerName || serverReview.name || "Reviewer",
-                                          flaggedQuestions: serverReview.flaggedQuestions || [],
-                                          message: serverReview.message || serverReview.remark || serverReview.reason || null,
-                                          chatStatus: serverReview.chatStatus || (serverReview.message ? "sent" : null),
-                                          messageCreatedAt: serverReview.messageCreatedAt || serverReview.createdAt,
-                                          messageFrom: serverReview.messageFrom,
-                                        };
-                                      }
-                                      // Always prioritize biwReview status and details if present
-                                      if (biwRev && biwRev.status) {
-                                        reviewObj = {
-                                          status: biwRev.status,
-                                          reviewer: biwRev.reviewedByName || reviewObj?.reviewer || "Reviewer",
-                                          flaggedQuestions: (biwRev.flaggedQuestions && biwRev.flaggedQuestions.length > 0)
-                                            ? biwRev.flaggedQuestions.map((q: any) => typeof q === "string" ? q : q.questionText)
-                                            : (reviewObj?.flaggedQuestions || []),
-                                          message: (reviewObj?.message && !reviewObj.message.startsWith("[BIW Review]"))
-                                            ? reviewObj.message
-                                            : (biwRev.remark || null),
-                                          chatStatus: (reviewObj?.message && !reviewObj.message.startsWith("[BIW Review]"))
-                                            ? reviewObj.chatStatus
-                                            : (biwRev.remark ? "sent" : null),
-                                          messageCreatedAt: reviewObj?.messageCreatedAt,
-                                          messageFrom: reviewObj?.messageFrom,
-                                        };
-                                      } else if (reviewObj?.message && reviewObj.message.startsWith("[BIW Review]")) {
-                                        reviewObj.message = null;
-                                        reviewObj.chatStatus = null;
-                                      }
-
-                                      // 2. Only dispatched responses should show chat and biw review, not all
-                                      if (!response.isDispatched) {
-                                        return (
-                                          <span className="text-gray-400 dark:text-gray-500 font-medium text-xs italic">
-                                            No review yet
-                                          </span>
-                                        );
-                                      }
-
-                                      // If no status and no message and no flagged questions, show "No review yet"
-                                      if (!reviewObj || (!reviewObj.status && !reviewObj.message && (!reviewObj.flaggedQuestions || reviewObj.flaggedQuestions.length === 0))) {
-                                        return (
-                                          <span className="text-gray-400 dark:text-gray-500 font-medium text-xs italic">
-                                            No review yet
-                                          </span>
-                                        );
-                                      }
-
-                                      // BIW review and chat too must be entered from the assigned tenant (e.g. Saify / vendor tenant)
-                                      const formTenantIdStr = (form as any)?.tenantId ? String((form as any).tenantId) : null;
-                                      const reviewerNameLower = String(reviewObj.reviewer || "").toLowerCase();
-                                      const biwTenantStr = (response.biwReview as any)?.tenantId ? String((response.biwReview as any).tenantId) : null;
-                                      const isReviewFromAssignedTenant =
-                                        Boolean((response.biwReview as any)?.isFromAssignedTenant) ||
-                                        reviewerNameLower.includes("saify") ||
-                                        (formTenantIdStr && biwTenantStr && biwTenantStr !== formTenantIdStr) ||
-                                        (formTenantIdStr && response.tenantId && String(response.tenantId) !== formTenantIdStr) ||
-                                        (!reviewerNameLower.includes("manoj") && !reviewerNameLower.includes("lmpl") && reviewerNameLower !== "reviewer");
-
-                                      if (!isReviewFromAssignedTenant) {
-                                        return (
-                                          <span className="text-gray-400 dark:text-gray-500 font-medium text-xs italic">
-                                            No review yet
-                                          </span>
-                                        );
-                                      }
-
-                                      if (!reviewObj.reviewer) {
-                                        reviewObj.reviewer = "Reviewer";
-                                      }
-
-                                      const isAccepted = String(reviewObj.status).toLowerCase().trim() === "accepted";
-                                      const isRejected = String(reviewObj.status).toLowerCase().trim() === "rejected";
-                                      const isRework = ["rework", "reworked"].includes(String(reviewObj.status).toLowerCase().trim());
-
-                                      const statusBadgeClass = isAccepted
-                                        ? "bg-green-500/20 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800"
-                                        : isRejected
-                                          ? "bg-red-500/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800"
-                                          : isRework
-                                            ? "bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800"
-                                            : "bg-indigo-500/20 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800";
-
-                                      const statusEmoji = isAccepted ? "✅" : isRejected ? "❌" : isRework ? "🔄" : "💬";
-
-                                      return (
-                                        <div className="flex flex-col gap-1.5 min-w-[200px] max-w-[320px]">
-                                          {/* Status badge + Reviewer */}
-                                          <div className="flex items-center gap-1.5 flex-wrap">
-                                            {reviewObj.status ? (
-                                              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ${statusBadgeClass}`}>
-                                                <span>{statusEmoji}</span>
-                                                <span>{reviewObj.status}</span>
-                                              </span>
-                                            ) : reviewObj.chatStatus ? (
-                                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800">
-                                                <MessageCircle className="w-2.5 h-2.5" />
-                                                <span>Chat {reviewObj.chatStatus}</span>
-                                              </span>
-                                            ) : null}
-
-                                            <span className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[150px]">
-                                              by{" "}
-                                              <span className="font-semibold text-gray-700 dark:text-gray-300">
-                                                {reviewObj.reviewer}
-                                              </span>
-                                            </span>
-                                          </div>
-
-                                          {/* Flagged questions list */}
-                                          {reviewObj.flaggedQuestions && reviewObj.flaggedQuestions.length > 0 && (
-                                            <div className="flex flex-wrap gap-1">
-                                              {reviewObj.flaggedQuestions.map((q: any, i: number) => (
-                                                <span
-                                                  key={i}
-                                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-50 dark:bg-red-950/30 text-[10px] font-medium text-red-700 dark:text-red-400 rounded border border-red-200 dark:border-red-900/40 line-clamp-1"
-                                                  title={q}
-                                                >
-                                                  ⚠️ {q}
-                                                </span>
-                                              ))}
-                                            </div>
-                                          )}
-
-                                          {/* Chat Feedback Message (msg) */}
-                                          {reviewObj.message && (
-                                            <div
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                setChatResponse(response);
-                                                setShowChatModal(true);
-                                              }}
-                                              className="group flex items-start gap-1.5 p-2 bg-white dark:bg-gray-800/90 rounded-lg border border-indigo-100 dark:border-indigo-900/50 hover:border-indigo-300 dark:hover:border-indigo-600 shadow-2xs cursor-pointer transition-all"
-                                              title="Click to open discussion and view chat thread"
-                                            >
-                                              <MessageCircle className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
-                                              <div className="flex-1 min-w-0">
-                                                <p className="text-xs text-gray-800 dark:text-gray-200 line-clamp-2 leading-relaxed break-words font-medium">
-                                                  "{reviewObj.message}"
-                                                </p>
-                                                <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-gray-400">
-                                                  {reviewObj.chatStatus && (
-                                                    <span className="capitalize font-semibold text-indigo-600 dark:text-indigo-400">
-                                                      Status: {reviewObj.chatStatus}
-                                                    </span>
-                                                  )}
-                                                  {reviewObj.messageCreatedAt && (
-                                                    <span>
-                                                      • {new Date(reviewObj.messageCreatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                    </span>
-                                                  )}
-                                                </div>
-                                              </div>
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })()}
-                                  </td>
                                   {/* BIW Review Column - Complete Fixed Version */}
                                   <td className="px-4 py-3 border border-gray-200 dark:border-gray-700 min-w-40 bg-purple-50/50 dark:bg-purple-900/10">
                                     {(() => {
@@ -14639,9 +14444,8 @@ export default function FormAnalyticsDashboard() {
                                             </span>
                                           )}
 
-                                          {/* Eye icon: once a review is saved (any status) or chat exists, open
-                                              view modal showing remark/questions/evidence and chassis chat. */}
-                                          {(currentStatus || reviewedBy[response.id] || (response as any).review) && (
+                                          {/* Eye icon: view modal showing BIW remark/questions/evidence and discussion */}
+                                          {Boolean(currentStatus || response.biwReview?.remark || response.biwReview?.reviewedBy || (response.biwReview?.flaggedQuestions && response.biwReview.flaggedQuestions.length > 0)) && (
                                             <button
                                               type="button"
                                               onClick={(e) => {
@@ -14650,7 +14454,7 @@ export default function FormAnalyticsDashboard() {
                                                 setShowBiwViewModal(true);
                                               }}
                                               className="flex items-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300 border-t border-gray-200 dark:border-gray-700 pt-1.5 mt-0.5"
-                                              title="View BIW review & chassis chat"
+                                              title="View BIW review details"
                                             >
                                               <Eye className="w-3.5 h-3.5" />
                                               <span>View</span>
@@ -16144,11 +15948,9 @@ export default function FormAnalyticsDashboard() {
       {/* NEW - BIW Review Eye/View Modal (read-only) */}
       {showBiwViewModal && biwViewResponse && (() => {
         const biwRev = biwViewResponse.biwReview;
-        const localRev = reviewedBy[biwViewResponse.id];
-        const legacyRev = (biwViewResponse as any).review;
-        const currentReviewStatus = biwRev?.status || localRev?.option || localRev?.status || legacyRev?.status || "";
-        const currentReviewerName = biwRev?.reviewedByName || localRev?.reviewer || localRev?.name || legacyRev?.reviewer || legacyRev?.name || "Reviewer";
-        const currentReviewedAt = biwRev?.reviewedAt || legacyRev?.createdAt;
+        const currentReviewStatus = biwRev?.status || "";
+        const currentReviewerName = biwRev?.reviewedByName || "Reviewer";
+        const currentReviewedAt = biwRev?.reviewedAt;
         const chassisVal = getResponseChassisValue(biwViewResponse);
 
         return (
