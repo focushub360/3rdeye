@@ -7375,10 +7375,15 @@ export default function FormAnalyticsDashboard() {
     let reworkCompleted = 0;
     let dispatched = 0;
     let pending = 0;
-    let biwReviewed = 0;
+    let rawBiwReviewed = 0;
 
     // Track active rework per chassis so no pending rework unit is missed
     const activeReworkChassis = new Set<string>();
+
+    // Track BIW review at distinct chassis unit level
+    const biwReviewedChassis = new Set<string>();
+    const allUnitChassis = new Set<string>();
+    let nonChassisBiwReviewed = 0;
 
     filteredResponses.forEach((response) => {
       const respId = response.id || (response as any)._id;
@@ -7418,17 +7423,22 @@ export default function FormAnalyticsDashboard() {
         rawStatus === "fail" ||
         rawStatus === "not ok";
 
+      const itemId = getChassisOrItemId(response, chassisQuestionId);
+      const hasValidChassis = Boolean(
+        itemId && itemId !== "none" && itemId !== "-" && itemId !== "unknown"
+      );
+      const normalizedItemId = hasValidChassis ? itemId.toLowerCase().trim() : "";
+
       if (isAccepted) {
         accepted++;
       } else if (isReworkAccepted) {
         reworkCompleted++;
       } else if (isRework) {
         rawReworked++;
-        const itemId = getChassisOrItemId(response, chassisQuestionId);
-        if (itemId && itemId !== "none" && itemId !== "-") {
+        if (hasValidChassis) {
           // If this chassis has not reached Rework Accepted, it is an active rework
-          if (!resolvedReworkChassisSet.has(itemId.toLowerCase().trim())) {
-            activeReworkChassis.add(itemId.toLowerCase().trim());
+          if (!resolvedReworkChassisSet.has(normalizedItemId)) {
+            activeReworkChassis.add(normalizedItemId);
           }
         }
       } else if (isRejected) {
@@ -7455,7 +7465,18 @@ export default function FormAnalyticsDashboard() {
         biwStatus !== "-";
 
       if (hasBiwReview) {
-        biwReviewed++;
+        rawBiwReviewed++;
+      }
+
+      if (hasValidChassis) {
+        allUnitChassis.add(normalizedItemId);
+        if (hasBiwReview) {
+          biwReviewedChassis.add(normalizedItemId);
+        }
+      } else {
+        if (hasBiwReview) {
+          nonChassisBiwReviewed++;
+        }
       }
 
       // Dispatch is tracked independently of status - a response can be
@@ -7473,6 +7494,14 @@ export default function FormAnalyticsDashboard() {
         ? activeReworkChassis.size
         : Math.max(0, rawReworked - reworkCompleted);
 
+    // If chassis tracking is present (we identified units with valid chassis),
+    // distinct BIW reviewed equals reviewed distinct chassis + non-chassis reviewed responses.
+    // Otherwise, it equals rawBiwReviewed.
+    const isChassisTrackingActive = allUnitChassis.size > 0;
+    const biwReviewed = isChassisTrackingActive
+      ? biwReviewedChassis.size + nonChassisBiwReviewed
+      : rawBiwReviewed;
+
     return {
       accepted,
       rejected,
@@ -7482,6 +7511,7 @@ export default function FormAnalyticsDashboard() {
       dispatched,
       pending,
       biwReviewed,
+      rawBiwReviewed,
     };
   }, [filteredResponses, responseStatuses, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet, getChassisOrItemId, reviewedBy]);
 
@@ -8580,36 +8610,6 @@ export default function FormAnalyticsDashboard() {
                 </svg>
               </button>
             </div>
-
-            {/* Direct BIW Template Download */}
-            <button
-              onClick={async () => {
-                try {
-                  const targetChassis = (responses || [])
-                    .map((r) => {
-                      const a = r.answers || {};
-                      const val = a["Identification no"] || a["identification no"] || a["Identification No"] || a["chassisNumber"] || a["cha"] || a["che"] || (r.chassisNumber && r.chassisNumber !== "TVS" && r.chassisNumber !== "Excel Import" ? r.chassisNumber : "");
-                      return String(val || "").trim();
-                    })
-                    .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import");
-                  await downloadBiwReviewTemplate({
-                    form,
-                    formTitle: form?.title || "Muffler",
-                    chassisNumbers: targetChassis,
-                    responses,
-                    filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
-                  });
-                  showToast("BIW template downloaded successfully!", "success");
-                } catch (err: any) {
-                  showToast(`Failed to generate template: ${err.message || err}`, "error");
-                }
-              }}
-              className="px-2.5 py-1 text-[10px] sm:text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg transition-all flex items-center gap-1 shadow-xs"
-              title="Download BIW Template Excel with form defect checkpoints dropdown"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>BIW Template</span>
-            </button>
           </div>
         </div>
 
@@ -8819,17 +8819,18 @@ export default function FormAnalyticsDashboard() {
         }
       });
 
-      let filtered = Array.from(qMap.values()).map(q => ({
-        ...q,
-        total: q.rejected + q.rework
-      })).filter(q => q.rejected > 0 || q.rework > 0);
+      let filtered = Array.from(qMap.values()).map(q => {
+        const totalEvaluated = (q.accepted || 0) + q.rejected + q.rework;
+        const denominator = totalEvaluated > 0 ? totalEvaluated : (defectChartResponses.length || 1);
+        return {
+          ...q,
+          total: denominator,
+          issuePercent: ((q.rejected + q.rework) / denominator) * 100,
+        };
+      }).filter(q => q.rejected > 0 || q.rework > 0);
 
       if (chartSortOrder === "percentage") {
-        filtered = [...filtered].sort((a, b) => {
-          const percentA = ((a.rejected + a.rework) / (a.total || 1)) * 100;
-          const percentB = ((b.rejected + b.rework) / (b.total || 1)) * 100;
-          return percentB - percentA;
-        });
+        filtered = [...filtered].sort((a, b) => (b.issuePercent || 0) - (a.issuePercent || 0));
       } else {
         filtered = [...filtered].sort((a, b) => (b.rejected + b.rework) - (a.rejected + a.rework));
       }
@@ -8837,13 +8838,17 @@ export default function FormAnalyticsDashboard() {
       return filtered.slice(0, 20);
     }, [tvsReviews, defectChartResponses, chartSortOrder, form]);
 
-
     if (
       !tvsProcessedQuestions.length &&
       !dateFilter.startDate &&
       !dateFilter.endDate
     )
       return null;
+
+    const maxDefectVal = Math.max(
+      ...tvsProcessedQuestions.map((q) => q.rejected + q.rework),
+      1
+    );
 
     const data = {
       labels: tvsProcessedQuestions.map((q) =>
@@ -8856,6 +8861,8 @@ export default function FormAnalyticsDashboard() {
           backgroundColor: "rgba(153, 27, 27, 0.85)", // Dark Red
           borderColor: "rgb(127, 29, 29)",
           borderWidth: 1,
+          borderRadius: 4,
+          maxBarThickness: 56,
           barPercentage: tvsProcessedQuestions.length <= 2 ? 0.3 : 0.7,
           categoryPercentage: 0.8,
           datalabels: {
@@ -8871,6 +8878,8 @@ export default function FormAnalyticsDashboard() {
           backgroundColor: "rgba(55, 65, 81, 0.85)", // Dark Gray
           borderColor: "rgb(31, 41, 55)",
           borderWidth: 1,
+          borderRadius: 4,
+          maxBarThickness: 56,
           barPercentage: tvsProcessedQuestions.length <= 2 ? 0.3 : 0.7,
           categoryPercentage: 0.8,
           datalabels: {
@@ -8905,13 +8914,23 @@ export default function FormAnalyticsDashboard() {
           },
         },
         tooltip: {
-          backgroundColor: "rgba(0, 0, 0, 0.8)",
+          backgroundColor: "rgba(15, 23, 42, 0.95)",
           padding: 12,
           cornerRadius: 8,
+          titleFont: { size: 11, weight: "bold" as const },
+          bodyFont: { size: 11 },
           callbacks: {
+            title: function (tooltipItems: any) {
+              const idx = tooltipItems[0]?.dataIndex;
+              return tvsProcessedQuestions[idx]?.text || "";
+            },
             label: function (context: any) {
-              const value = context.raw;
-              return `${context.dataset.label}: ${value}`;
+              const value = context.raw || 0;
+              const idx = context.dataIndex;
+              const q = tvsProcessedQuestions[idx];
+              const totalDefects = (q?.rejected || 0) + (q?.rework || 0);
+              const pctOfDefects = totalDefects > 0 ? ((value / totalDefects) * 100).toFixed(1) : "0.0";
+              return `${context.dataset.label}: ${value} (${pctOfDefects}%)`;
             },
           },
         },
@@ -8920,33 +8939,62 @@ export default function FormAnalyticsDashboard() {
       scales: {
         x: {
           stacked: true,
-          ticks: {
-            color: document.documentElement.classList.contains("dark")
-              ? "#e5e7eb"
-              : "#374151",
-            font: { size: 10, weight: "600" as const },
-            maxRotation: chartOrientation === "v" ? 45 : 0,
-            minRotation: 0,
-          },
-          grid: {
-            display: false,
-          },
+          ...(chartOrientation === "h"
+            ? {
+                beginAtZero: true,
+                suggestedMax: maxDefectVal <= 2 ? maxDefectVal + 1 : undefined,
+                ticks: {
+                  stepSize: 1,
+                  precision: 0,
+                  color: document.documentElement.classList.contains("dark") ? "#9ca3af" : "#6b7280",
+                  font: { size: 10 },
+                },
+              }
+            : {
+                ticks: {
+                  color: document.documentElement.classList.contains("dark")
+                    ? "#e5e7eb"
+                    : "#374151",
+                  font: { size: 10, weight: "600" as const },
+                  maxRotation: 45,
+                  minRotation: 0,
+                },
+                grid: {
+                  display: false,
+                },
+              }),
         },
         y: {
           stacked: true,
-          beginAtZero: true,
-          ticks: {
-            stepSize: 1,
-            color: document.documentElement.classList.contains("dark")
-              ? "#9ca3af"
-              : "#6b7280",
-            font: { size: 10 },
-          },
-          grid: {
-            color: document.documentElement.classList.contains("dark")
-              ? "rgba(255, 255, 255, 0.05)"
-              : "rgba(0, 0, 0, 0.03)",
-          },
+          ...(chartOrientation === "v"
+            ? {
+                beginAtZero: true,
+                suggestedMax: maxDefectVal <= 2 ? maxDefectVal + 1 : undefined,
+                ticks: {
+                  stepSize: 1,
+                  precision: 0,
+                  color: document.documentElement.classList.contains("dark")
+                    ? "#9ca3af"
+                    : "#6b7280",
+                  font: { size: 10 },
+                },
+                grid: {
+                  color: document.documentElement.classList.contains("dark")
+                    ? "rgba(255, 255, 255, 0.05)"
+                    : "rgba(0, 0, 0, 0.03)",
+                },
+              }
+            : {
+                ticks: {
+                  color: document.documentElement.classList.contains("dark")
+                    ? "#e5e7eb"
+                    : "#374151",
+                  font: { size: 10, weight: "600" as const },
+                },
+                grid: {
+                  display: false,
+                },
+              }),
         },
       },
       interaction: {

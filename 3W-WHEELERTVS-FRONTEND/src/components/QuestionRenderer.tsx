@@ -22,6 +22,7 @@ import {
   History,
   Check,
   Building2,
+  Lock,
 } from "lucide-react";
 import type { FollowUpQuestion } from "../types";
 import { useTheme } from "../context/ThemeContext";
@@ -594,7 +595,25 @@ export default function QuestionRenderer({
     tenantSlug,
   ]);
 
+  const hasInspectionHistory = Boolean(lastResponseId && previousStatus);
+  const statusLower = String(previousStatus || "").trim().toLowerCase();
+  const isAccepted =
+    hasInspectionHistory &&
+    (statusLower === "direct ok" ||
+      statusLower === "accepted" ||
+      statusLower === "rework accepted" ||
+      statusLower === "verified" ||
+      statusLower === "ok" ||
+      (statusLower.includes("accept") && !statusLower.includes("not")));
+
   const handleToggleDispatch = async () => {
+    // Only allow dispatching if the unit has actually been inspected and Accepted!
+    // If not accepted, show the "Inspection Not Accepted" screen instead!
+    if (!dispatchInfo?.isDispatched && (!isAccepted || !lastResponseId)) {
+      setShowDispatchModal(true);
+      return;
+    }
+
     setIsUpdatingDispatch(true);
     const newDispatchedState = !dispatchInfo?.isDispatched;
     const nowIso = new Date().toISOString();
@@ -1771,13 +1790,6 @@ export default function QuestionRenderer({
             //   3. If not dispatched: DO NOT show BIW review or Chat icons!
             // - Assigned Tenant (e.g. Saify): Sees BIW Review and Chat icons ONLY AFTER review has occurred.
             const renderActionIcons = () => {
-              const isDirectOk =
-                statusLower.includes("direct ok") ||
-                statusLower === "ok" ||
-                statusLower.includes("accept") ||
-                statusLower === "verified" ||
-                (rank === 1 && (!statusLower || statusLower === "pending" || statusLower === "direct ok"));
-
               // 1. Creator Tenant:
               if (isCreatorTenant) {
                 const isDisp = Boolean(dispatchInfo?.isDispatched);
@@ -1808,8 +1820,8 @@ export default function QuestionRenderer({
 
                 return (
                   <div className="flex items-center gap-1.5 ml-1 self-center">
-                    {/* If Direct OK and not yet dispatched: render direct Dispatch button right here */}
-                    {!isDisp && isDirectOk && (
+                    {/* If Direct OK / Accepted and not yet dispatched: render direct Dispatch button right here */}
+                    {!isDisp && isAccepted && (
                       <button
                         type="button"
                         disabled={isUpdatingDispatch}
@@ -1829,19 +1841,20 @@ export default function QuestionRenderer({
                       </button>
                     )}
 
-                    {/* If Not Dispatched and Not Direct OK: show pending dispatch icon to open modal */}
-                    {!isDisp && !isDirectOk && (
+                    {/* If Not Dispatched and Not Accepted: show pending dispatch button that opens the Not Accepted screen */}
+                    {!isDisp && !isAccepted && (
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowDispatchModal(true);
                         }}
-                        className="relative p-1.5 rounded-lg border flex items-center justify-center transition-all cursor-pointer shadow-xs hover:scale-105 text-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700"
-                        title="Dispatch Status: Pending Dispatch (Defects/Rework pending) - Click for details"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer shadow-xs hover:scale-105 text-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700"
+                        title={`Dispatch Status: Not Accepted (${previousStatus || "Pending Inspection"}) - Click to view status`}
                       >
-                        <Truck className="w-4 h-4" />
-                        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900 bg-amber-500" />
+                        <Truck className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Dispatch</span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                       </button>
                     )}
 
@@ -2709,43 +2722,86 @@ export default function QuestionRenderer({
 
             {/* Content */}
             <div className="p-5 space-y-4">
-              <div className={`p-4 rounded-xl border flex items-center justify-between ${
-                dispatchInfo?.isDispatched
-                  ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100"
-                  : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-100"
-              }`}>
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-full ${dispatchInfo?.isDispatched ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                    <Truck className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-sm">
-                      {dispatchInfo?.isDispatched ? "Unit Dispatched" : "Pending Dispatch"}
-                    </h4>
-                    <p className="text-xs opacity-75">
-                      {dispatchInfo?.isDispatched
-                        ? `Cleared by ${dispatchInfo.dispatchedByName || "Admin"}${dispatchInfo.dispatchedAt ? ` on ${new Date(dispatchInfo.dispatchedAt).toLocaleString()}` : ""}`
-                        : "Ready for manufacturing clearance"}
-                    </p>
+              {dispatchInfo?.isDispatched ? (
+                /* Unit Dispatched Screen */
+                <div className="p-4 rounded-xl border bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+                      <Truck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm">Unit Dispatched</h4>
+                      <p className="text-xs opacity-75">
+                        Cleared by {dispatchInfo.dispatchedByName || "Admin"}
+                        {dispatchInfo.dispatchedAt
+                          ? ` on ${new Date(dispatchInfo.dispatchedAt).toLocaleString()}`
+                          : ""}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : isAccepted ? (
+                /* Quality Cleared & Ready Screen */
+                <div className="p-4 rounded-xl border bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm">Quality Cleared & Accepted</h4>
+                      <p className="text-xs opacity-75">
+                        Status: <span className="font-semibold">{previousStatus || "Direct Ok"}</span> — Quality inspection passed. Ready for dispatch clearance.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* INSPECTION NOT ACCEPTED SCREEN */
+                <div className="p-4 rounded-xl border bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-100">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300 mt-0.5">
+                      <AlertTriangle className="w-5 h-5 text-rose-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-bold text-sm text-rose-800 dark:text-rose-200">
+                        Inspection Not Accepted
+                      </h4>
+                      <p className="text-xs text-rose-700 dark:text-rose-300 mt-1 leading-relaxed">
+                        {!hasInspectionHistory
+                          ? "This chassis has not been inspected or submitted yet. It cannot be dispatched. Inspection must be completed and Accepted (Direct OK) first."
+                          : statusLower.includes("rework")
+                          ? `This chassis has open rework/defects (Status: ${previousStatus}). All rework must be cleared and Accepted before it can be dispatched.`
+                          : statusLower.includes("reject")
+                          ? `This chassis was Marked as Rejected (${previousStatus}). Rejected units cannot be dispatched.`
+                          : `Inspection status is "${previousStatus || "Pending"}". Only units with "Direct OK" or "Rework Accepted" can be dispatched.`}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="pt-2">
                 <button
                   type="button"
-                  disabled={isUpdatingDispatch}
+                  disabled={isUpdatingDispatch || (!dispatchInfo?.isDispatched && !isAccepted)}
                   onClick={handleToggleDispatch}
-                  className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                    dispatchInfo?.isDispatched
-                      ? "bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300"
-                      : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25"
+                  className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
+                    !dispatchInfo?.isDispatched && !isAccepted
+                      ? "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed border border-gray-300 dark:border-gray-700"
+                      : dispatchInfo?.isDispatched
+                      ? "bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300 cursor-pointer"
+                      : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25 cursor-pointer"
                   }`}
                 >
                   {isUpdatingDispatch ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span>Updating Dispatch...</span>
+                    </>
+                  ) : !dispatchInfo?.isDispatched && !isAccepted ? (
+                    <>
+                      <Lock className="w-4 h-4 text-amber-500" />
+                      <span>Dispatch Locked: Unit Not Accepted</span>
                     </>
                   ) : dispatchInfo?.isDispatched ? (
                     <>
