@@ -251,13 +251,17 @@ export default function QuestionRenderer({
   const userStr = typeof window !== 'undefined' ? window.localStorage.getItem('user') : null;
   const currentUser = userStr ? JSON.parse(userStr) : null;
 
-  const currentTenantId = String(authTenant?._id || authUser?.tenantId || currentUser?.tenantId || "");
-  const effectiveFormTenantId = String(
-    propFormTenantId ||
-    rankFormTenantId ||
-    (formId ? (apiClient.getFormFromAnyCache(formId) as any)?.tenantId?._id || (apiClient.getFormFromAnyCache(formId) as any)?.tenantId : "") ||
-    ""
-  );
+  const getRawTenantId = (val: any) => {
+    if (!val) return "";
+    if (typeof val === "object") return String(val._id || val.id || "");
+    return String(val);
+  };
+
+  const currentTenantId = getRawTenantId(authTenant?._id) || getRawTenantId(authUser?.tenantId) || getRawTenantId(currentUser?.tenantId);
+  const effectiveFormTenantId =
+    getRawTenantId(propFormTenantId) ||
+    getRawTenantId(rankFormTenantId) ||
+    getRawTenantId(formId ? (apiClient.getFormFromAnyCache(formId) as any)?.tenantId : "");
 
   // Check if current user belongs to the form's creator/owning organization (e.g. Manoj Mohan / LMPL) or superadmin
   const isCreatorTenant = Boolean(
@@ -607,6 +611,12 @@ export default function QuestionRenderer({
       (statusLower.includes("accept") && !statusLower.includes("not")));
 
   const handleToggleDispatch = async () => {
+    // Only creator of form (or superadmin) can dispatch
+    if (!isCreatorTenant) {
+      alert("Only the creator tenant of this form can dispatch this chassis.");
+      return;
+    }
+
     // Only allow dispatching if the unit has actually been inspected and Accepted!
     // If not accepted, show the "Inspection Not Accepted" screen instead!
     if (!dispatchInfo?.isDispatched && (!isAccepted || !lastResponseId)) {
@@ -2783,10 +2793,12 @@ export default function QuestionRenderer({
               <div className="pt-2">
                 <button
                   type="button"
-                  disabled={isUpdatingDispatch || (!dispatchInfo?.isDispatched && !isAccepted)}
+                  disabled={!isCreatorTenant || isUpdatingDispatch || (!dispatchInfo?.isDispatched && !isAccepted)}
                   onClick={handleToggleDispatch}
                   className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
-                    !dispatchInfo?.isDispatched && !isAccepted
+                    !isCreatorTenant
+                      ? "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed border border-gray-300 dark:border-gray-700"
+                      : !dispatchInfo?.isDispatched && !isAccepted
                       ? "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed border border-gray-300 dark:border-gray-700"
                       : dispatchInfo?.isDispatched
                       ? "bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300 cursor-pointer"
@@ -2797,6 +2809,11 @@ export default function QuestionRenderer({
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span>Updating Dispatch...</span>
+                    </>
+                  ) : !isCreatorTenant ? (
+                    <>
+                      <Lock className="w-4 h-4 text-gray-400" />
+                      <span>Dispatch Restricted: Creator Tenant Only</span>
                     </>
                   ) : !dispatchInfo?.isDispatched && !isAccepted ? (
                     <>

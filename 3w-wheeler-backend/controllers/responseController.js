@@ -4005,6 +4005,30 @@ export const updateResponse = async (req, res) => {
       }
     }
     if (req.body.isDispatched !== undefined) {
+      // ✅ Security: Only the form's creator tenant, creator user, or superadmin can dispatch or revoke dispatch
+      const targetFormId = response.formId || response.questionId;
+      const formDoc = await Form.findOne(
+        mongoose.Types.ObjectId.isValid(targetFormId)
+          ? { $or: [{ _id: targetFormId }, { id: targetFormId }] }
+          : { id: targetFormId }
+      ).select('tenantId createdBy');
+
+      const userTenantStr = req.user?.tenantId ? String(req.user.tenantId) : '';
+      const formTenantStr = formDoc?.tenantId ? String(formDoc.tenantId) : '';
+      const formCreatorUserStr = formDoc?.createdBy ? String(formDoc.createdBy) : '';
+      const currentUserIdStr = req.user?._id ? String(req.user._id) : '';
+
+      const isSuperadmin = req.user?.role === 'superadmin';
+      const isCreatorTenant = formTenantStr && userTenantStr && formTenantStr === userTenantStr;
+      const isCreatorUser = formCreatorUserStr && currentUserIdStr && formCreatorUserStr === currentUserIdStr;
+
+      if (!isSuperadmin && !isCreatorTenant && !isCreatorUser) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only the creator tenant of this form can dispatch this chassis'
+        });
+      }
+
       if (req.body.isDispatched === true && !response.isDispatched) {
         response.isDispatched = true;
         response.dispatchedAt = new Date();

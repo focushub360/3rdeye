@@ -3021,8 +3021,19 @@ export default function FormAnalyticsDashboard() {
     return { canReview: true };
   };
   const isOwnTenantResponse = (response: Response) => {
-    // Superadmins and Admins have full inspection and dispatch permissions across forms in their dashboard
-    if (user?.role === "superadmin" || user?.role === "admin") {
+    // Only superadmins, direct form creators, or users belonging to the form's creator tenant can dispatch responses
+    if (user?.role === "superadmin") {
+      return true;
+    }
+
+    if (!user) return false;
+
+    // Direct creator of the form
+    const formCreatedById = form?.createdBy
+      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
+      : null;
+    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
+    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
       return true;
     }
 
@@ -3031,25 +3042,28 @@ export default function FormAnalyticsDashboard() {
       return false;
     }
 
-    const responseTenantId = response.tenantId;
-    if (!responseTenantId) {
-      return true; // legacy data with no tenant — allow
-    }
-
     const userTenantStr = typeof userTenantId === 'object'
       ? String((userTenantId as any)?._id || (userTenantId as any)?.id || userTenantId)
       : String(userTenantId);
 
+    const formTenantId = form?.tenantId;
+    const formTenantStr = formTenantId
+      ? (typeof formTenantId === 'object' ? String((formTenantId as any)?._id || (formTenantId as any)?.id || formTenantId) : String(formTenantId))
+      : null;
+
+    // If the form has an owning creator tenant, user's tenant MUST match the creator tenant
+    if (formTenantStr) {
+      return userTenantStr === formTenantStr;
+    }
+
+    // Legacy form with no tenant: only match if response tenant matches user's tenant
+    const responseTenantId = response.tenantId;
+    if (!responseTenantId) return true;
     const responseTenantStr = typeof responseTenantId === 'object'
       ? String((responseTenantId as any)?._id || (responseTenantId as any)?.id || responseTenantId)
       : String(responseTenantId);
 
-    // If user's tenant matches the response tenant OR form owner/shared tenant
-    if (userTenantStr === responseTenantStr) return true;
-    if (form?.tenantId && userTenantStr === String((form.tenantId as any)?._id || form.tenantId)) return true;
-    if (form?.sharedWithTenants && Array.isArray(form.sharedWithTenants) && form.sharedWithTenants.some(t => String((t as any)?._id || t) === userTenantStr)) return true;
-
-    return false;
+    return userTenantStr === responseTenantStr;
   };
 
   // BIW Review: any reviewer other than the submitter can mark a response as
@@ -4007,27 +4021,36 @@ export default function FormAnalyticsDashboard() {
   }, [form, user]);
 
   // Check if the current user belongs to the same tenant as the form.
-  // Dispatch enable (bulk select) should only be available for own-tenant users,
-  // not for cross-tenant users viewing shared/cross-tenant forms.
+  // Dispatch enable (bulk select) should only be available for form creator tenant users,
+  // not for cross-tenant users or assigned/shared partner tenants.
   const isOwnTenantForm = useMemo(() => {
     if (user?.role === "superadmin") return true;
+    if (!user) return false;
+
+    const formCreatedById = form?.createdBy
+      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
+      : null;
+    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
+    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
+      return true;
+    }
+
     const formTenantId = form?.tenantId
-      ? typeof form.tenantId === "object"
-        ? (form.tenantId as { _id?: string })._id
-        : form.tenantId
+      ? (typeof form.tenantId === "object" ? String((form.tenantId as any)._id || (form.tenantId as any).id) : String(form.tenantId))
       : null;
-    const userTenantIdRaw = user?.tenantId as any;
-    const userTenantId = userTenantIdRaw
-      ? typeof userTenantIdRaw === "object"
-        ? userTenantIdRaw._id
-        : userTenantIdRaw
+    const userTenantId = user?.tenantId
+      ? (typeof user.tenantId === "object" ? String((user.tenantId as any)._id || (user.tenantId as any).id) : String(user.tenantId))
       : null;
-    // If the form has no tenant, treat as own tenant (legacy behavior).
-    return !formTenantId || (userTenantId && formTenantId.toString() === userTenantId.toString());
+
+    // If the form has no tenant, only allow direct creator user or superadmin
+    if (!formTenantId) {
+      return Boolean(formCreatedById && currentUserId && formCreatedById === currentUserId);
+    }
+    return Boolean(userTenantId && formTenantId === userTenantId);
   }, [form, user]);
 
-  // Dispatch bulk-select is allowed for superadmins and same-tenant admins.
-  const canBulkDispatchResponses = canBulkSelectResponses && (user?.role === "superadmin" || isOwnTenantForm);
+  // Dispatch bulk-select is allowed strictly for superadmins and form creator tenant admins.
+  const canBulkDispatchResponses = canBulkSelectResponses && isOwnTenantForm;
   const handleReviewSubmit = async (
     responseId: string,
     reviewOption: string,
@@ -11941,15 +11964,17 @@ export default function FormAnalyticsDashboard() {
     );
   }
 
-  const dispatchableResponses = filteredResponses.filter(response => {
-    if (!isOwnTenantResponse(response)) return false; // exclude cross-tenant
+  const dispatchableResponses = isOwnTenantForm
+    ? filteredResponses.filter(response => {
+        if (!isOwnTenantResponse(response)) return false; // exclude cross-tenant
 
-    const status = responseStatuses[response.id] || "";
-    return status === "Direct Ok" ||
-      status === "Rework Accepted" ||
-      status === "Rework Completed" ||
-      status === "Accepted";
-  });
+        const status = responseStatuses[response.id] || "";
+        return status === "Direct Ok" ||
+          status === "Rework Accepted" ||
+          status === "Rework Completed" ||
+          status === "Accepted";
+      })
+    : [];
   const pendingDispatchResponses = dispatchableResponses.filter(response => !response.isDispatched);
 
   const isAllDispatchableSelected = dispatchableResponses.length > 0 && selectedDispatchIds.length === pendingDispatchResponses.length && pendingDispatchResponses.length > 0;
@@ -11966,6 +11991,10 @@ export default function FormAnalyticsDashboard() {
   };
 
   const handleExecuteBulkDispatch = async () => {
+    if (!isOwnTenantForm) {
+      showToast("Only the creator tenant of this form can dispatch", "error");
+      return;
+    }
     setIsBulkDispatching(true);
 
     const dispatchedAt = new Date().toISOString();
@@ -13240,7 +13269,7 @@ export default function FormAnalyticsDashboard() {
                                     }}
                                   />
                                 </div>
-                                {canBulkSelectResponses && (
+                                {canBulkDispatchResponses && (
                                   <label className="flex items-center gap-1.5 cursor-pointer font-normal text-[10px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 normal-case">
                                     <input
                                       type="checkbox"
@@ -13973,8 +14002,8 @@ export default function FormAnalyticsDashboard() {
                                         );
                                       }
 
-                                      // 🔒 CROSS-TENANT: Show dash (NO CHECKBOX)
-                                      if (!isSameTenant) {
+                                      // 🔒 NOT CREATOR TENANT: Show dash (NO CHECKBOX)
+                                      if (!isOwnTenantForm || !isSameTenant) {
                                         return <span className="text-gray-400 text-xs">-</span>;
                                       }
 
