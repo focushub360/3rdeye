@@ -4075,12 +4075,16 @@ export const updateResponse = async (req, res) => {
         // Check if form has chassisTenantAssignments
         if (!isSuperAdmin) {
           const Form = mongoose.model('Form');
-          const formObj = await Form.findOne({
-            $or: [
-              ...(response.formId ? [{ _id: response.formId }, { id: response.formId }] : []),
-              ...(response.questionId ? [{ _id: response.questionId }, { id: response.questionId }] : [])
-            ]
-          }).lean();
+          const formQueryOr = [];
+          if (response.formId) {
+            if (mongoose.Types.ObjectId.isValid(response.formId)) formQueryOr.push({ _id: response.formId });
+            formQueryOr.push({ id: response.formId });
+          }
+          if (response.questionId) {
+            if (mongoose.Types.ObjectId.isValid(response.questionId)) formQueryOr.push({ _id: response.questionId });
+            formQueryOr.push({ id: response.questionId });
+          }
+          const formObj = formQueryOr.length > 0 ? await Form.findOne({ $or: formQueryOr }).lean() : null;
 
           if (formObj && Array.isArray(formObj.chassisTenantAssignments) && formObj.chassisTenantAssignments.length > 0) {
             const respChassis = String(
@@ -5709,12 +5713,16 @@ export const bulkUpdateBiwReview = async (req, res) => {
 
     for (const response of responses) {
       if (!isSuperAdmin) {
-        const formObj = await Form.findOne({
-          $or: [
-            ...(response.formId ? [{ _id: response.formId }, { id: response.formId }] : []),
-            ...(response.questionId ? [{ _id: response.questionId }, { id: response.questionId }] : [])
-          ]
-        }).lean();
+        const formQueryOr = [];
+        if (response.formId) {
+          if (mongoose.Types.ObjectId.isValid(response.formId)) formQueryOr.push({ _id: response.formId });
+          formQueryOr.push({ id: response.formId });
+        }
+        if (response.questionId) {
+          if (mongoose.Types.ObjectId.isValid(response.questionId)) formQueryOr.push({ _id: response.questionId });
+          formQueryOr.push({ id: response.questionId });
+        }
+        const formObj = formQueryOr.length > 0 ? await Form.findOne({ $or: formQueryOr }).lean() : null;
 
         if (formObj && Array.isArray(formObj.chassisTenantAssignments) && formObj.chassisTenantAssignments.length > 0) {
           const respChassis = String(
