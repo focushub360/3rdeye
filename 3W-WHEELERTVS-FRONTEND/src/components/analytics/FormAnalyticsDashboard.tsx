@@ -3819,10 +3819,6 @@ export default function FormAnalyticsDashboard() {
   // (status, flagged questions, remark, evidence).
   const [showBiwViewModal, setShowBiwViewModal] = useState(false);
   const [biwViewResponse, setBiwViewResponse] = useState<Response | null>(null);
-  const [biwChatMessages, setBiwChatMessages] = useState<any[]>([]);
-  const [isLoadingBiwChat, setIsLoadingBiwChat] = useState(false);
-  const [biwNewMessage, setBiwNewMessage] = useState("");
-  const [isSendingBiwMessage, setIsSendingBiwMessage] = useState(false);
 
 
   // Server-side pagination for the "Responses" table tab: fetches only the
@@ -5801,63 +5797,6 @@ export default function FormAnalyticsDashboard() {
     }
   }, [showChatModal, chatResponse]);
 
-  // Fetch chat messages when BIW View modal opens
-  useEffect(() => {
-    if (showBiwViewModal && biwViewResponse) {
-      const respId = biwViewResponse.id;
-      setIsLoadingBiwChat(true);
-      apiClient
-        .get<any[]>(`/messages/response/${respId}`)
-        .then((res) => {
-          const msgs = Array.isArray(res.data) ? res.data : [];
-          setBiwChatMessages(msgs);
-        })
-        .catch((err) => {
-          console.error("[BIW View] Error fetching chat messages:", err);
-          setBiwChatMessages([]);
-        })
-        .finally(() => setIsLoadingBiwChat(false));
-    } else {
-      setBiwChatMessages([]);
-      setBiwNewMessage("");
-    }
-  }, [showBiwViewModal, biwViewResponse]);
-
-  const handleSendBiwChatMessage = async () => {
-    if (!biwNewMessage.trim() || !biwViewResponse || isSendingBiwMessage) return;
-    setIsSendingBiwMessage(true);
-    try {
-      const createdByObj = biwViewResponse.createdBy;
-      const createdByEmail =
-        createdByObj && typeof createdByObj === "object"
-          ? (createdByObj as any).email || (createdByObj as any)._id?.toString()
-          : typeof createdByObj === "string"
-            ? createdByObj
-            : "inspector@focus.com";
-
-      const res = await apiClient.post<any>("/messages/send", {
-        toEmail: createdByEmail,
-        message: biwNewMessage.trim(),
-        responseId: biwViewResponse.id,
-        formId: id,
-        tenantId: form?.tenantId || (user?.tenantId as any)?._id || user?.tenantId,
-      });
-
-      setBiwNewMessage("");
-      if (res.data?.data) {
-        setBiwChatMessages((prev) => [...prev, res.data.data]);
-      } else {
-        const fresh = await apiClient.get<any[]>(`/messages/response/${biwViewResponse.id}`);
-        setBiwChatMessages(Array.isArray(fresh.data) ? fresh.data : []);
-      }
-      showToast("Message sent", "success");
-    } catch (err: any) {
-      console.error("[BIW View] Send message failed:", err);
-      showToast("Failed to send message", "error");
-    } finally {
-      setIsSendingBiwMessage(false);
-    }
-  };
 
   // Auto-open chat modal if responseId is in URL
   useEffect(() => {
@@ -15961,7 +15900,7 @@ export default function FormAnalyticsDashboard() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-base font-bold text-gray-900 dark:text-white">
-                      BIW Review & Discussion
+                      BIW Review Details
                     </h3>
                     {chassisVal && chassisVal !== "-" && (
                       <span className="px-2 py-0.5 text-xs font-mono font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded border border-purple-200 dark:border-purple-800">
@@ -16065,118 +16004,6 @@ export default function FormAnalyticsDashboard() {
                       />
                     </div>
                   )}
-                </div>
-
-                {/* Chassis Chat & Discussion History */}
-                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-1.5">
-                      <MessageCircle className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                      <span className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider">
-                        Chassis Discussion & Chat ({biwChatMessages.length})
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChatResponse(biwViewResponse);
-                        setShowBiwViewModal(false);
-                        setShowChatModal(true);
-                      }}
-                      className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors"
-                      title="Open full interactive review & discussion modal"
-                    >
-                      Open Full Discussion →
-                    </button>
-                  </div>
-
-                  {/* Chat messages stream */}
-                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-3 border border-gray-200 dark:border-gray-700 max-h-56 overflow-y-auto space-y-2.5">
-                    {isLoadingBiwChat ? (
-                      <div className="flex items-center justify-center py-6 text-xs text-gray-500 gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
-                        Loading chassis chat history...
-                      </div>
-                    ) : biwChatMessages.length === 0 ? (
-                      <div className="py-6 text-center text-xs text-gray-400 dark:text-gray-500">
-                        No discussion messages yet for this chassis. Send a note or message below.
-                      </div>
-                    ) : (
-                      biwChatMessages.map((msg: any, i: number) => {
-                        const isMe =
-                          msg.from?._id === user?._id ||
-                          msg.from === user?._id ||
-                          msg.fromEmail === user?.email;
-                        const senderName =
-                          msg.from?.name ||
-                          msg.from?.username ||
-                          msg.fromEmail ||
-                          "User";
-                        const timeStr = msg.createdAt
-                          ? new Date(msg.createdAt).toLocaleString([], {
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : "";
-
-                        return (
-                          <div
-                            key={msg._id || i}
-                            className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
-                          >
-                            <div className="flex items-center gap-1.5 mb-0.5 text-[10px] text-gray-500 dark:text-gray-400">
-                              <span className="font-semibold text-gray-700 dark:text-gray-300">
-                                {isMe ? "You" : senderName}
-                              </span>
-                              {timeStr && <span>• {timeStr}</span>}
-                            </div>
-                            <div
-                              className={`px-3 py-2 rounded-xl text-xs max-w-[85%] break-words shadow-2xs ${
-                                isMe
-                                  ? "bg-indigo-600 text-white rounded-br-xs"
-                                  : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-bl-xs"
-                              }`}
-                            >
-                              <p className="whitespace-pre-wrap">{msg.message}</p>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-
-                  {/* Reply Input */}
-                  <div className="mt-2.5 flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={biwNewMessage}
-                      onChange={(e) => setBiwNewMessage(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSendBiwChatMessage();
-                        }
-                      }}
-                      placeholder="Type a message or note for this chassis..."
-                      className="flex-1 px-3 py-2 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      disabled={isSendingBiwMessage}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSendBiwChatMessage}
-                      disabled={isSendingBiwMessage || !biwNewMessage.trim()}
-                      className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      title="Send Message"
-                    >
-                      {isSendingBiwMessage ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Send className="w-4 h-4" />
-                      )}
-                    </button>
-                  </div>
                 </div>
               </div>
 
