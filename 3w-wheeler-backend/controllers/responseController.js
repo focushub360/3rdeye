@@ -4041,20 +4041,60 @@ export const updateResponse = async (req, res) => {
           });
         }
 
-        const userEmail = req.user.email || '';
-        const userUsername = req.user.username || '';
+        const userEmail = (req.user.email || '').toLowerCase();
+        const userUsername = (req.user.username || '').toLowerCase();
         const userIdStr = req.user._id ? req.user._id.toString() : '';
         const creatorIdStr = originalCreatedBy ? originalCreatedBy.toString() : '';
-        const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+        const isSuperAdmin = req.user.role === 'superadmin';
         const isExcelImport = originalSubmittedBy === 'Excel Import';
 
+        // Check if form has chassisTenantAssignments
+        if (!isSuperAdmin) {
+          const Form = mongoose.model('Form');
+          const formObj = await Form.findOne({
+            $or: [
+              ...(response.formId ? [{ _id: response.formId }, { id: response.formId }] : []),
+              ...(response.questionId ? [{ _id: response.questionId }, { id: response.questionId }] : [])
+            ]
+          }).lean();
+
+          if (formObj && Array.isArray(formObj.chassisTenantAssignments) && formObj.chassisTenantAssignments.length > 0) {
+            const respChassis = String(
+              response.chassisNumber ||
+              (response.answers instanceof Map ? response.answers.get('chassis_number') || response.answers.get('chassisNumber') : response.answers?.chassis_number || response.answers?.chassisNumber) ||
+              ''
+            ).trim().toLowerCase();
+
+            const assignment = formObj.chassisTenantAssignments.find(a =>
+              a.chassisNumber && respChassis && a.chassisNumber.toString().trim().toLowerCase() === respChassis
+            );
+
+            if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
+              const userTenantIdStr = req.user.tenantId ? req.user.tenantId.toString() : '';
+              const isAssigned = assignment.assignedTenants.some(t => t.toString() === userTenantIdStr);
+              if (!isAssigned) {
+                return res.status(403).json({
+                  success: false,
+                  message: 'Only assigned tenant reviewers can perform BIW review for this chassis.'
+                });
+              }
+            }
+          }
+        }
+
+        const subBy = String(originalSubmittedBy || '').toLowerCase();
+        const crBy = String(originalCreatedBy || '').toLowerCase();
+        const contactEmail = String(originalSubmitterContact?.email || '').toLowerCase();
+
         const isSubmitter =
-          !isAdmin &&
+          !isSuperAdmin &&
           !isExcelImport &&
           (
-            originalSubmittedBy === userEmail ||
-            originalSubmittedBy === userUsername ||
-            (originalSubmitterContact && originalSubmitterContact.email === userEmail) ||
+            (userEmail && subBy === userEmail) ||
+            (userUsername && subBy === userUsername) ||
+            (userEmail && crBy === userEmail) ||
+            (userUsername && crBy === userUsername) ||
+            (userEmail && contactEmail === userEmail) ||
             (creatorIdStr && creatorIdStr === userIdStr)
           );
 
@@ -4111,16 +4151,10 @@ export const updateResponse = async (req, res) => {
     };
 
     // Emit real-time event for updated response
-    emitResponseUpdated(response.questionId, {
-      id: response.id,
-      questionId: response.questionId,
-      status: response.status,
-      submittedBy: response.submittedBy,
-      createdAt: response.createdAt,
-      updatedAt: response.updatedAt,
-      answers: Object.fromEntries(response.answers),
-      responseRanks: response.responseRanks ? Object.fromEntries(response.responseRanks) : {}
-    });
+    emitResponseUpdated(response.questionId, formattedResponse);
+    if (response.formId && String(response.formId) !== String(response.questionId)) {
+      emitResponseUpdated(String(response.formId), formattedResponse);
+    }
 
     res.json({
       success: true,
@@ -4364,6 +4398,15 @@ export const deleteMultipleResponses = async (req, res) => {
     }
 
     const result = await Response.deleteMany({ _id: { $in: allowedDbIds } });
+
+    for (const doc of allowedDocs) {
+      const qId = String(doc.questionId || doc.formId || '');
+      if (qId) {
+        try {
+          emitResponseDeleted(qId, doc.id || String(doc._id));
+        } catch (e) {}
+      }
+    }
 
     res.json({
       success: true,
@@ -5629,29 +5672,66 @@ export const bulkUpdateBiwReview = async (req, res) => {
       });
     }
 
-    const userEmail = req.user.email || '';
-    const userUsername = req.user.username || '';
+    const userEmail = (req.user.email || '').toLowerCase();
+    const userUsername = (req.user.username || '').toLowerCase();
     const userIdStr = req.user._id ? req.user._id.toString() : '';
-    const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+    const isSuperAdmin = req.user.role === 'superadmin';
+    const userTenantIdStr = req.user.tenantId ? req.user.tenantId.toString() : '';
 
     let updatedCount = 0;
     let skippedCount = 0;
 
+    const Form = mongoose.model('Form');
+
     for (const response of responses) {
+      if (!isSuperAdmin) {
+        const formObj = await Form.findOne({
+          $or: [
+            ...(response.formId ? [{ _id: response.formId }, { id: response.formId }] : []),
+            ...(response.questionId ? [{ _id: response.questionId }, { id: response.questionId }] : [])
+          ]
+        }).lean();
+
+        if (formObj && Array.isArray(formObj.chassisTenantAssignments) && formObj.chassisTenantAssignments.length > 0) {
+          const respChassis = String(
+            response.chassisNumber ||
+            (response.answers instanceof Map ? response.answers.get('chassis_number') || response.answers.get('chassisNumber') : response.answers?.chassis_number || response.answers?.chassisNumber) ||
+            ''
+          ).trim().toLowerCase();
+
+          const assignment = formObj.chassisTenantAssignments.find(a =>
+            a.chassisNumber && respChassis && a.chassisNumber.toString().trim().toLowerCase() === respChassis
+          );
+
+          if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
+            const isAssigned = assignment.assignedTenants.some(t => t.toString() === userTenantIdStr);
+            if (!isAssigned) {
+              skippedCount++;
+              continue;
+            }
+          }
+        }
+      }
+
       // Check if user is trying to review their own submission (mirror single review logic)
       const originalCreatedBy = response.createdBy;
       const originalSubmittedBy = response.submittedBy;
       const originalSubmitterContact = response.submitterContact;
       const creatorIdStr = originalCreatedBy ? originalCreatedBy.toString() : '';
       const isExcelImport = originalSubmittedBy === 'Excel Import';
+      const subBy = String(originalSubmittedBy || '').toLowerCase();
+      const crBy = String(originalCreatedBy || '').toLowerCase();
+      const contactEmail = String(originalSubmitterContact?.email || '').toLowerCase();
 
       const isSubmitter =
-        !isAdmin &&
+        !isSuperAdmin &&
         !isExcelImport &&
         (
-          originalSubmittedBy === userEmail ||
-          originalSubmittedBy === userUsername ||
-          (originalSubmitterContact && originalSubmitterContact.email === userEmail) ||
+          (userEmail && subBy === userEmail) ||
+          (userUsername && subBy === userUsername) ||
+          (userEmail && crBy === userEmail) ||
+          (userUsername && crBy === userUsername) ||
+          (userEmail && contactEmail === userEmail) ||
           (creatorIdStr && creatorIdStr === userIdStr)
         );
 
@@ -5672,7 +5752,19 @@ export const bulkUpdateBiwReview = async (req, res) => {
       }
 
       await response.save();
+      try {
+        const targetFormKey = String(response.formId || response.questionId || req.body?.formId || '');
+        if (targetFormKey) {
+          emitResponseUpdated(targetFormKey, response.toObject());
+        }
+      } catch (e) {}
       updatedCount++;
+    }
+
+    if (req.body?.formId) {
+      try {
+        emitBatchImported(String(req.body.formId), { formId: String(req.body.formId), type: 'bulk-biw-review' });
+      } catch (e) {}
     }
 
     // Record in history timeline

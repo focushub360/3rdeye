@@ -78,6 +78,7 @@ import ResponseQuestion from "./ResponseQuestion";
 import SectionAnalytics from "./SectionAnalytics";
 import CascadingFilterModal from "./CascadingFilterModal";
 import * as XLSX from "xlsx-js-style";
+import { io } from "socket.io-client";
 import { isImageUrl, formatToDDMMYYYY } from "../../utils/answerTemplateUtils";
 import ImageLink from "../ImageLink";
 import FilePreview from "../FilePreview";
@@ -2943,11 +2944,11 @@ export default function FormAnalyticsDashboard() {
   // submissions), and "Excel Import" responses have no real submitter, so
   // anyone can review those too.
   const isSubmitterOfResponse = (response: Response) => {
-    if (user?.role === "admin" || user?.role === "superadmin") return false;
+    if (user?.role === "superadmin") return false;
     if (response.submittedBy === "Excel Import") return false;
 
-    const userEmail = user?.email || "";
-    const userUsername = user?.username || "";
+    const userEmail = (user?.email || "").toLowerCase();
+    const userUsername = (user?.username || "").toLowerCase();
     const userIdStr = user?._id
       ? String(user._id)
       : user?.id
@@ -2959,14 +2960,64 @@ export default function FormAnalyticsDashboard() {
         : response.createdBy;
     const creatorIdStr = creatorId ? String(creatorId) : "";
 
+    const subBy = String(response.submittedBy || "").toLowerCase();
+    const crBy = String(response.createdBy || "").toLowerCase();
+    const contactEmail = String(response.submitterContact?.email || "").toLowerCase();
+
     return (
-      response.submittedBy === userEmail ||
-      response.submittedBy === userUsername ||
-      response.createdBy === userEmail ||
-      response.createdBy === userUsername ||
-      response.submitterContact?.email === userEmail ||
+      (userEmail && subBy === userEmail) ||
+      (userUsername && subBy === userUsername) ||
+      (userEmail && crBy === userEmail) ||
+      (userUsername && crBy === userUsername) ||
+      (userEmail && contactEmail === userEmail) ||
       (creatorIdStr && creatorIdStr === userIdStr)
     );
+  };
+
+  // Only assigned tenant reviewers (or superadmin) can perform BIW review / review feedback
+  const canUserBiwReview = (response: Response | null | undefined): { canReview: boolean; reason?: string } => {
+    if (!response) return { canReview: false, reason: "No response selected" };
+    if (user?.role === "superadmin") return { canReview: true };
+
+    const userTenantStr = String((user?.tenantId as any)?._id || (user?.tenantId as any)?.id || user?.tenantId || "");
+
+    // 1. Check if the chassis has assigned tenants
+    const assignments = (form as any)?.chassisTenantAssignments;
+    if (Array.isArray(assignments) && assignments.length > 0) {
+      const respChassis = String(
+        response.chassisNumber ||
+        response.answers?.chassis_number ||
+        response.answers?.chassisNumber ||
+        (typeof response.answers === "object" && response.answers ? Object.values(response.answers).find((v: any) => v && typeof v === "object" && v.chassisNumber)?.chassisNumber : "") ||
+        ""
+      ).trim().toLowerCase();
+
+      const matchedAssignment = assignments.find((a: any) =>
+        a.chassisNumber && respChassis && String(a.chassisNumber).trim().toLowerCase() === respChassis
+      );
+
+      if (matchedAssignment && Array.isArray(matchedAssignment.assignedTenants) && matchedAssignment.assignedTenants.length > 0) {
+        const isAssigned = matchedAssignment.assignedTenants.some(
+          (t: any) => String(t?._id || t?.id || t) === userTenantStr
+        );
+        if (!isAssigned) {
+          return {
+            canReview: false,
+            reason: "Only assigned tenant reviewers can perform BIW review for this chassis."
+          };
+        }
+      }
+    }
+
+    // 2. Anti-tamper check: submitter cannot review their own submission
+    if (isSubmitterOfResponse(response)) {
+      return {
+        canReview: false,
+        reason: "You cannot BIW review your own submission"
+      };
+    }
+
+    return { canReview: true };
   };
   const isOwnTenantResponse = (response: Response) => {
     // Superadmins and Admins have full inspection and dispatch permissions across forms in their dashboard
@@ -3035,8 +3086,9 @@ export default function FormAnalyticsDashboard() {
     response: Response,
     status: "Accepted" | "Rejected" | "Reworked",
   ) => {
-    if (isSubmitterOfResponse(response)) {
-      showToast("You cannot BIW review your own submission", "error");
+    const reviewAuth = canUserBiwReview(response);
+    if (!reviewAuth.canReview) {
+      showToast(reviewAuth.reason || "You are not authorized to BIW review this chassis", "error");
       return;
     }
 
@@ -3090,6 +3142,10 @@ export default function FormAnalyticsDashboard() {
           r.id === response.id ? { ...r, biwReview: savedBiwReview } : r,
         ),
       );
+
+      // Instantly sync dashboard charts and summary
+      fetchSummary();
+      fetchPerformanceTable();
 
 
       showToast(
@@ -3198,6 +3254,10 @@ export default function FormAnalyticsDashboard() {
         ),
       );
 
+      // Instantly sync dashboard charts and summary
+      fetchSummary();
+      fetchPerformanceTable();
+
       showToast(`Marked as ${biwActionStatus} (BIW Review)`, "success");
       closeBiwActionModal();
     } catch (err: any) {
@@ -3240,6 +3300,10 @@ export default function FormAnalyticsDashboard() {
       // Also update tableResponses so the table UI reflects the change immediately
       setTableResponses((prev) => prev.map(biwReviewUpdate));
 
+      // Instantly sync dashboard charts and summary
+      fetchSummary();
+      fetchPerformanceTable();
+
       setSelectedResponseIds([]);
       setSelectedBiwIds([]);
       showToast(
@@ -3262,7 +3326,7 @@ export default function FormAnalyticsDashboard() {
     if (selectedResponseIds.length === 0) return;
 
     const validResponseIds: string[] = [];
-    let selfSubmissionsCount = 0;
+    let unauthorizedCount = 0;
 
     selectedResponseIds.forEach((id) => {
       // `responses` (the full analytics set) may not be loaded if the user
@@ -3274,8 +3338,8 @@ export default function FormAnalyticsDashboard() {
         tableResponses.find((r) => r.id === id || (r as any)._id === id) ||
         displayedTableResponses.find((r) => r.id === id || (r as any)._id === id);
       if (resp) {
-        if (status !== null && isSubmitterOfResponse(resp)) {
-          selfSubmissionsCount++;
+        if (status !== null && !canUserBiwReview(resp).canReview) {
+          unauthorizedCount++;
         } else {
           validResponseIds.push(id);
         }
@@ -3284,7 +3348,7 @@ export default function FormAnalyticsDashboard() {
 
     if (validResponseIds.length === 0) {
       showToast(
-        "You cannot BIW review your own submissions. All selected items were skipped.",
+        "You are not authorized to BIW review the selected submissions (assigned tenant reviewers only).",
         "error"
       );
       return;
@@ -3292,7 +3356,7 @@ export default function FormAnalyticsDashboard() {
 
     setBiwBulkUpdateStatus(status);
     setBiwBulkUpdateTargetIds(validResponseIds);
-    setBiwBulkUpdateSkippedCount(selfSubmissionsCount);
+    setBiwBulkUpdateSkippedCount(unauthorizedCount);
     setShowBiwBulkUpdateModal(true);
   };
 
@@ -3303,7 +3367,7 @@ export default function FormAnalyticsDashboard() {
     const allIds = sourceList.map((r) => r.id || (r as any)._id).filter(Boolean);
 
     const validResponseIds: string[] = [];
-    let selfSubmissionsCount = 0;
+    let unauthorizedCount = 0;
 
     allIds.forEach((id) => {
       // Same fallback as above: tableResponses always has these rows since
@@ -3313,8 +3377,8 @@ export default function FormAnalyticsDashboard() {
         tableResponses.find((r) => r.id === id || (r as any)._id === id) ||
         displayedTableResponses.find((r) => r.id === id || (r as any)._id === id);
       if (resp) {
-        if (status !== null && isSubmitterOfResponse(resp)) {
-          selfSubmissionsCount++;
+        if (status !== null && !canUserBiwReview(resp).canReview) {
+          unauthorizedCount++;
         } else {
           validResponseIds.push(id);
         }
@@ -3323,7 +3387,7 @@ export default function FormAnalyticsDashboard() {
 
     if (validResponseIds.length === 0) {
       showToast(
-        "You cannot BIW review your own submissions. All items were skipped.",
+        "You are not authorized to BIW review the selected submissions (assigned tenant reviewers only).",
         "error"
       );
       return;
@@ -3331,7 +3395,7 @@ export default function FormAnalyticsDashboard() {
 
     setBiwBulkUpdateStatus(status);
     setBiwBulkUpdateTargetIds(validResponseIds);
-    setBiwBulkUpdateSkippedCount(selfSubmissionsCount);
+    setBiwBulkUpdateSkippedCount(unauthorizedCount);
     setShowBiwBulkUpdateModal(true);
   };
 
@@ -3966,6 +4030,7 @@ export default function FormAnalyticsDashboard() {
   const handleReviewSubmit = async (
     responseId: string,
     reviewOption: string,
+    reviewRemark?: string,
   ) => {
     console.log("=== HANDLE REVIEW SUBMIT START ===");
     console.log("responseId:", responseId);
@@ -4012,10 +4077,10 @@ export default function FormAnalyticsDashboard() {
       return;
     }
 
-    // Don't allow self-review (except admins/superadmins)
-    const isAdmin = user?.role === "admin" || user?.role === "superadmin";
-    if (!isAdmin && submitterId && reviewerId === submitterId) {
-      showToast("You cannot review your own submissions", "error");
+    // Enforce assigned tenant and anti-tamper permissions
+    const reviewAuth = canUserBiwReview(chatResponse);
+    if (!reviewAuth.canReview) {
+      showToast(reviewAuth.reason || "You are not authorized to review this chassis", "error");
       return;
     }
 
@@ -4024,6 +4089,12 @@ export default function FormAnalyticsDashboard() {
     const invalidStatusesForReview = ["draft", "deleted"];
     if (invalidStatusesForReview.includes(String(responseStatus).toLowerCase())) {
       showToast("This response status cannot be reviewed", "error");
+      return;
+    }
+
+    // Rejection reason is strictly mandatory
+    if (reviewOption === "Rejected" && !reviewRemark?.trim()) {
+      showToast("Rejection reason is mandatory. Please enter your reason in the Message Center.", "error");
       return;
     }
 
@@ -4036,6 +4107,8 @@ export default function FormAnalyticsDashboard() {
         submitterId: submitterId,
         reviewOption,
         tenantId: tenantId,
+        remark: reviewRemark?.trim() || "",
+        reason: reviewRemark?.trim() || "",
       };
 
       console.log("📤 Submitting review with data:", reviewData);
@@ -4061,14 +4134,29 @@ export default function FormAnalyticsDashboard() {
                 reviewer: reviewerDisplayName,
                 reviewerName: reviewerDisplayName,
                 reviewedByName: reviewerDisplayName,
-                reviewedAt: new Date().toISOString()
-              }
+                reviewedAt: new Date().toISOString(),
+                remark: reviewRemark?.trim() || curRev.remark || "",
+                reason: reviewRemark?.trim() || curRev.reason || "",
+              },
+              ...(reviewOption === "Rejected"
+                ? {
+                    biwReview: {
+                      status: "Rejected" as const,
+                      remark: reviewRemark?.trim() || "",
+                      reviewedBy: reviewerId,
+                      reviewedByName: reviewerDisplayName,
+                      reviewedAt: new Date().toISOString(),
+                    },
+                  }
+                : {}),
             };
           }
           return r;
         };
         setTableResponses((prev) => prev.map(updateReviewFn));
         setResponses((prev) => prev.map(updateReviewFn));
+        fetchSummary();
+        fetchPerformanceTable();
         setTvsReviews((prev) => {
           const filtered = prev.filter(rv => String(rv.responseId || rv.response_id || "") !== String(responseId));
           return [
@@ -4079,6 +4167,8 @@ export default function FormAnalyticsDashboard() {
               option: reviewOption,
               status: reviewOption,
               reviewer: { id: reviewerId, name: reviewerDisplayName, email: user?.email || "" },
+              remark: reviewRemark?.trim() || "",
+              reason: reviewRemark?.trim() || "",
               createdAt: new Date().toISOString()
             }
           ];
@@ -4636,15 +4726,147 @@ export default function FormAnalyticsDashboard() {
   }, [analyticsView]);
 
   // Dashboard tab: inspector summary + performance table + the full
-  // analytics response set, loaded once, the first time this tab is shown.
+  // analytics response set. Always refresh summary & performance when viewing dashboard.
   useEffect(() => {
-    if (activeTab === "dashboard" && !loadedTabs.has("dashboard") && id) {
+    if (activeTab === "dashboard" && id) {
       fetchSummary();
       fetchPerformanceTable();
-      fetchFullAnalyticsResponses();
-      setLoadedTabs((prev) => new Set(prev).add("dashboard"));
+      if (!loadedTabs.has("dashboard")) {
+        fetchFullAnalyticsResponses();
+        setLoadedTabs((prev) => new Set(prev).add("dashboard"));
+      }
     }
-  }, [activeTab, id, loadedTabs]);
+  }, [activeTab, id]);
+
+  // ── Real-time Socket.IO Connection ───────────────────────────────────────────
+  // Subscribes to the form's analytics room ('form-analytics-${id}') to receive
+  // instant updates when any response is created, updated (status/BIW/dispatch),
+  // deleted, or batch-imported from anywhere in the system.
+  useEffect(() => {
+    if (!id) return;
+
+    const getSocketUrl = () => {
+      const apiBase = apiClient.getBaseUrl();
+      if (apiBase) {
+        return apiBase.replace(/\/api\/?$/, "");
+      }
+      return window.location.origin;
+    };
+
+    const socketUrl = getSocketUrl();
+    const socket = io(socketUrl, {
+      reconnection: true,
+      transports: ["websocket", "polling"],
+      withCredentials: true,
+    });
+
+    socket.on("connect", () => {
+      console.log(`✅ [FormAnalytics] Connected to socket, joining room: form-analytics-${id}`);
+      socket.emit("join-form-analytics", id);
+    });
+
+    socket.on("response-created", (data: any) => {
+      if (!data || !data.response) return;
+      const newResp = data.response;
+      const targetFormId = String(data.formId || newResp.formId || newResp.questionId || "");
+      if (targetFormId && targetFormId !== String(id)) return;
+
+      console.log("🔔 [FormAnalytics] Real-time response-created received:", newResp.id || newResp._id);
+
+      const newRespId = newResp.id || newResp._id;
+      setResponses((prev) => {
+        const exists = prev.some((r) => (r.id && r.id === newRespId) || ((r as any)._id && (r as any)._id === newRespId));
+        if (exists) {
+          return prev.map((r) => ((r.id && r.id === newRespId) || ((r as any)._id && (r as any)._id === newRespId)) ? { ...r, ...newResp } : r);
+        }
+        return [newResp, ...prev];
+      });
+
+      setTableResponses((prev) => {
+        const exists = prev.some((r) => (r.id && r.id === newRespId) || ((r as any)._id && (r as any)._id === newRespId));
+        if (exists) {
+          return prev.map((r) => ((r.id && r.id === newRespId) || ((r as any)._id && (r as any)._id === newRespId)) ? { ...r, ...newResp } : r);
+        }
+        return [newResp, ...prev];
+      });
+
+      setTotalResponsesCount((prev) => prev + 1);
+      fetchSummary();
+      fetchPerformanceTable();
+    });
+
+    socket.on("response-updated", (data: any) => {
+      if (!data) return;
+      const updatedResp = data.response || data;
+      const targetFormId = String(data.formId || updatedResp?.formId || updatedResp?.questionId || "");
+      if (targetFormId && targetFormId !== String(id)) return;
+
+      const respId = updatedResp?.id || updatedResp?._id;
+      if (!respId) {
+        // Bulk update event without a single response payload
+        fetchFullAnalyticsResponses();
+        fetchSummary();
+        fetchPerformanceTable();
+        return;
+      }
+
+      console.log("🔔 [FormAnalytics] Real-time response-updated received:", respId);
+
+      setResponses((prev) =>
+        prev.map((r) =>
+          (r.id && r.id === respId) || ((r as any)._id && (r as any)._id === respId)
+            ? { ...r, ...updatedResp }
+            : r
+        )
+      );
+
+      setTableResponses((prev) =>
+        prev.map((r) =>
+          (r.id && r.id === respId) || ((r as any)._id && (r as any)._id === respId)
+            ? { ...r, ...updatedResp }
+            : r
+        )
+      );
+
+      fetchSummary();
+      fetchPerformanceTable();
+    });
+
+    socket.on("response-deleted", (data: any) => {
+      if (!data) return;
+      const deletedId = data.responseId || data.id;
+      const targetFormId = String(data.formId || "");
+      if (targetFormId && targetFormId !== String(id)) return;
+
+      console.log("🔔 [FormAnalytics] Real-time response-deleted received:", deletedId);
+
+      setResponses((prev) => prev.filter((r) => r.id !== deletedId && (r as any)._id !== deletedId));
+      setTableResponses((prev) => prev.filter((r) => r.id !== deletedId && (r as any)._id !== deletedId));
+      setTotalResponsesCount((prev) => Math.max(0, prev - 1));
+
+      fetchSummary();
+      fetchPerformanceTable();
+    });
+
+    socket.on("batch-imported", (data: any) => {
+      const targetFormId = String(data?.formId || "");
+      if (targetFormId && targetFormId !== String(id)) return;
+
+      console.log("🔔 [FormAnalytics] Real-time batch-imported received");
+      fetchFullAnalyticsResponses();
+      fetchSummary();
+      fetchPerformanceTable();
+      if (activeTab === "responses") {
+        fetchResponsesPage(responsesPage);
+      }
+    });
+
+    return () => {
+      console.log(`⚠️ [FormAnalytics] Leaving socket room form-analytics-${id}`);
+      socket.emit("leave-form-analytics", id);
+      socket.disconnect();
+    };
+  }, [id, activeTab, responsesPage]);
 
   // Question / Section / Overall tabs also derive their charts and stats
   // from the full `responses` array. If the user lands directly on one of
@@ -5733,20 +5955,52 @@ export default function FormAnalyticsDashboard() {
         });
       });
 
-      // Extract email from createdBy object or string
-      const createdByObj = chatResponse.createdBy;
-      const createdByEmail =
-        createdByObj && typeof createdByObj === "object"
-          ? (createdByObj as any).email || (createdByObj as any)._id?.toString()
-          : typeof createdByObj === "string"
-            ? createdByObj
-            : "inspector@focus.com";
+      // Determine recipient email / ID:
+      // If the current user is the submitter (e.g. LMPL user replying),
+      // the recipient must be the reviewer!
+      const isSubmitter = isSubmitterOfResponse(chatResponse);
+      let targetRecipient = "";
 
-      console.log("[handleSendMessage] createdBy:", createdByObj);
-      console.log("[handleSendMessage] toEmail:", createdByEmail);
+      if (isSubmitter) {
+        // Find reviewer from review, biwReview, or past messages
+        const revUser = (chatResponse.review?.reviewer as any);
+        const revUserEmail =
+          typeof revUser === "object"
+            ? revUser?.email || revUser?._id || revUser?.id
+            : typeof revUser === "string"
+              ? revUser
+              : "";
+        const biwRevId = (chatResponse.biwReview as any)?.reviewedBy;
+        const lastOtherMsg = [...chatMessages].reverse().find(
+          (m) => String(m.from?._id || m.from) !== String(user?._id || (user as any)?.id)
+        );
+        const lastOtherEmail =
+          lastOtherMsg?.from?.email ||
+          lastOtherMsg?.from?._id ||
+          (typeof lastOtherMsg?.from === "string" ? lastOtherMsg?.from : "");
+
+        targetRecipient =
+          revUserEmail ||
+          (biwRevId ? String(biwRevId) : "") ||
+          lastOtherEmail ||
+          "";
+      }
+
+      if (!targetRecipient) {
+        const createdByObj = chatResponse.createdBy;
+        targetRecipient =
+          createdByObj && typeof createdByObj === "object"
+            ? (createdByObj as any).email || (createdByObj as any)._id?.toString()
+            : typeof createdByObj === "string"
+              ? createdByObj
+              : chatResponse.submittedBy || "inspector@focus.com";
+      }
+
+      console.log("[handleSendMessage] isSubmitter:", isSubmitter);
+      console.log("[handleSendMessage] toEmail (targetRecipient):", targetRecipient);
 
       console.log("Sending message with data:", {
-        toEmail: createdByEmail,
+        toEmail: targetRecipient,
         message: messageToSend,
         responseId: chatResponse.id,
         formId: id,
@@ -5758,7 +6012,7 @@ export default function FormAnalyticsDashboard() {
       });
 
       await apiClient.post("/messages/send", {
-        toEmail: createdByEmail,
+        toEmail: targetRecipient,
         message: messageToSend,
         responseId: chatResponse.id,
         formId: id,
@@ -9861,6 +10115,11 @@ export default function FormAnalyticsDashboard() {
         "Submitted By",
         "Status",
         "Chassis Number",
+        "Review",
+        "BIW Review",
+        "BIW Reviewed By",
+        "BIW Reviewed At",
+        "BIW Remark",
         "Dispatched",
         "Dispatched At",
       ];
@@ -9916,6 +10175,59 @@ export default function FormAnalyticsDashboard() {
         }
         if (!statusVal) statusVal = response.status || "-";
 
+        // Extract BIW Review and Quality Review details
+        const biwRev = response.biwReview;
+        const serverReview = (response as any).review;
+        const localReview = reviewedBy[response.id];
+
+        let reviewObj: {
+          status?: string | null;
+          reviewer?: string | null;
+          message?: string | null;
+        } | null = null;
+
+        if (localReview && (localReview.option || localReview.status || (localReview as any).message)) {
+          reviewObj = {
+            status: localReview.option || localReview.status || null,
+            reviewer: (localReview.reviewer as any)?.name || localReview.reviewer || (localReview as any).name || "Reviewer",
+            message: (localReview as any).message || null,
+          };
+        } else if (serverReview && (serverReview.status || serverReview.reviewOption || serverReview.message)) {
+          reviewObj = {
+            status: serverReview.status || serverReview.reviewOption || null,
+            reviewer: serverReview.reviewer || serverReview.reviewerName || serverReview.name || "Reviewer",
+            message: serverReview.message || serverReview.remark || serverReview.reason || null,
+          };
+        }
+
+        if (biwRev && biwRev.status) {
+          reviewObj = {
+            status: biwRev.status,
+            reviewer: biwRev.reviewedByName || reviewObj?.reviewer || "Reviewer",
+            message: (reviewObj?.message && !reviewObj.message.startsWith("[BIW Review]"))
+              ? reviewObj.message
+              : (biwRev.remark || null),
+          };
+        }
+
+        let reviewVal = "No review yet";
+        if (reviewObj && reviewObj.status) {
+          reviewVal = reviewObj.status;
+          if (reviewObj.reviewer && reviewObj.reviewer !== "Reviewer") {
+            reviewVal += ` by ${reviewObj.reviewer}`;
+          }
+          if (reviewObj.message && !reviewObj.message.startsWith("[BIW Review]")) {
+            reviewVal += ` (${reviewObj.message})`;
+          }
+        }
+
+        const biwStatusVal = biwRev?.status || "-";
+        const biwReviewedByVal = biwRev?.reviewedByName || "-";
+        const biwReviewedAtVal = biwRev?.reviewedAt
+          ? formatToDDMMYYYY(biwRev.reviewedAt, true)
+          : "-";
+        const biwRemarkVal = biwRev?.remark || "-";
+
         const rowData: any[] = [
           getResponseTimestamp(response)
             ? formatToDDMMYYYY(getResponseTimestamp(response)!)
@@ -9923,6 +10235,11 @@ export default function FormAnalyticsDashboard() {
           response.submittedBy || response.createdBy || "Anonymous",
           statusVal,
           getResponseChassisValue(response),
+          reviewVal,
+          biwStatusVal,
+          biwReviewedByVal,
+          biwReviewedAtVal,
+          biwRemarkVal,
           response.isDispatched ? "Yes" : "No",
           response.dispatchedAt
             ? formatToDDMMYYYY(response.dispatchedAt, true)
@@ -9996,34 +10313,12 @@ export default function FormAnalyticsDashboard() {
         }
       }
 
-      // Style Common Answer Row if present
-      for (let i = 0; i < headerRow.length; i++) {
-        const cellRef = XLSX.utils.encode_cell({ r: 1, c: i });
-        if (ws[cellRef]) {
-          ws[cellRef].s = {
-            fill: { fgColor: { rgb: "FFF3F4F6" } },
-            font: { italic: true, bold: i === 0 },
-            alignment: {
-              horizontal: i === 0 ? "left" : "center",
-              vertical: "center",
-              wrapText: true,
-            },
-            border: {
-              top: { style: "thin" },
-              left: { style: "thin" },
-              bottom: { style: "thin" },
-              right: { style: "thin" },
-            },
-          };
-        }
-      }
-
       // Style response rows
       const lastResponseRowIdx = rowsToExport.length + 1;
       for (let rowIdx = 1; rowIdx < lastResponseRowIdx; rowIdx++) {
         const response = rowsToExport[rowIdx - 1];
 
-        // Style Timestamp column
+        // Style Timestamp column (0)
         const timeCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 0 });
         if (ws[timeCellRef]) {
           ws[timeCellRef].s = {
@@ -10039,7 +10334,7 @@ export default function FormAnalyticsDashboard() {
           };
         }
 
-        // Style Submitted By column
+        // Style Submitted By column (1)
         const submittedByCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 1 });
         if (ws[submittedByCellRef]) {
           ws[submittedByCellRef].s = {
@@ -10055,7 +10350,7 @@ export default function FormAnalyticsDashboard() {
           };
         }
 
-        // Style Status column
+        // Style Status column (2)
         const statusCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 2 });
         const currentStatus =
           tableDisplayStatuses[response.id] ||
@@ -10090,7 +10385,7 @@ export default function FormAnalyticsDashboard() {
           };
         }
 
-        // Style Chassis Number column
+        // Style Chassis Number column (3)
         const chassisCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 3 });
         if (ws[chassisCellRef]) {
           ws[chassisCellRef].s = {
@@ -10106,9 +10401,48 @@ export default function FormAnalyticsDashboard() {
           };
         }
 
-        // Style Question columns
+        // Style Review column (4)
+        const reviewCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 4 });
+        if (ws[reviewCellRef]) {
+          ws[reviewCellRef].s = {
+            fill: { fgColor: { rgb: "FFF9FAFB" } },
+            font: { bold: false },
+            alignment: { horizontal: "left", vertical: "center", wrapText: true },
+            border: {
+              top: { style: "thin" },
+              left: { style: "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
+            },
+          };
+        }
+
+        // Style BIW Review column (5)
+        const biwStatus = response.biwReview?.status || "-";
+        const biwCellRef = XLSX.utils.encode_cell({ r: rowIdx, c: 5 });
+        let biwBgColor = "FFF9FAFB";
+        if (biwStatus === "Accepted") biwBgColor = "FFDCFCE7";
+        else if (biwStatus === "Reworked" || biwStatus.includes("Rework")) biwBgColor = "FFFEF3C7";
+        else if (biwStatus === "Rejected") biwBgColor = "FFFEE2E2";
+
+        if (ws[biwCellRef]) {
+          ws[biwCellRef].s = {
+            fill: { fgColor: { rgb: biwBgColor } },
+            font: { bold: biwStatus !== "-" },
+            alignment: { horizontal: "center", vertical: "center" },
+            border: {
+              top: { style: "thin" },
+              left: { style: "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
+            },
+          };
+        }
+
+        // Style Question columns: starting after 11 fixed columns (indices 0..10)
+        const fixedColsCount = 11;
         for (let colIdx = 0; colIdx < columnInfo.length; colIdx++) {
-          const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx + 4 });
+          const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx + fixedColsCount });
           const info = columnInfo[colIdx];
           const bgColor = info.isFollowUp ? "FFE9D5FF" : "FFFFFFFF";
 
@@ -10168,6 +10502,13 @@ export default function FormAnalyticsDashboard() {
         { wch: 25 }, // Submitted By
         { wch: 15 }, // Status
         { wch: 18 }, // Chassis Number
+        { wch: 30 }, // Review
+        { wch: 16 }, // BIW Review
+        { wch: 22 }, // BIW Reviewed By
+        { wch: 22 }, // BIW Reviewed At
+        { wch: 25 }, // BIW Remark
+        { wch: 14 }, // Dispatched
+        { wch: 22 }, // Dispatched At
         ...columnInfo.map(() => ({ wch: 35 })),
       ];
 
@@ -11615,6 +11956,11 @@ export default function FormAnalyticsDashboard() {
         idsToDispatch.includes(r.id) ? { ...r, ...dispatchUpdatePayload } : r
       )
     );
+    setTableResponses((currentResponses: any[]) =>
+      currentResponses.map((r: any) =>
+        idsToDispatch.includes(r.id) ? { ...r, ...dispatchUpdatePayload } : r
+      )
+    );
     setSelectedDispatchIds([]);
     setShowBulkDispatchConfirm(false);
 
@@ -11624,6 +11970,9 @@ export default function FormAnalyticsDashboard() {
           apiClient.updateResponse(id, dispatchUpdatePayload)
         )
       );
+
+      fetchSummary();
+      fetchPerformanceTable();
 
       showToast(
         `Dispatch enabled for ${idsToDispatch.length} response${idsToDispatch.length === 1 ? "" : "s"}.`,
@@ -13476,8 +13825,8 @@ export default function FormAnalyticsDashboard() {
                                                   </button>
                                                 )}
 
-                                                {/* Review & Discussion */}
-                                                {(response.isDispatched || response.biwReview?.status || reviewedBy[response.id] || (response as any).review) && (
+                                                {/* Review & Discussion - Only after dispatch */}
+                                                {Boolean(response.isDispatched) && (
                                                   <button
                                                     onClick={() => {
                                                       setChatResponse(response);
@@ -13942,6 +14291,9 @@ export default function FormAnalyticsDashboard() {
                                   <td className="px-4 py-3 border border-gray-200 dark:border-gray-700 min-w-40 bg-purple-50/50 dark:bg-purple-900/10">
                                     {(() => {
                                       const isSubmitter = isSubmitterOfResponse(response);
+                                      const reviewAuth = canUserBiwReview(response);
+                                      const canReview = reviewAuth.canReview;
+                                      const reviewBlockReason = reviewAuth.reason || (isSubmitter ? "You cannot BIW review your own submission" : "Only assigned tenant reviewers can perform BIW review");
                                       const currentStatus = response.biwReview?.status;
                                       const isSaving = biwSavingResponseId === response.id;
 
@@ -13983,7 +14335,9 @@ export default function FormAnalyticsDashboard() {
                                             <input
                                               type="checkbox"
                                               checked={isChecked}
+                                              disabled={!canReview}
                                               onChange={(e) => {
+                                                if (!canReview) return;
                                                 e.stopPropagation();
                                                 e.preventDefault();
 
@@ -13993,10 +14347,10 @@ export default function FormAnalyticsDashboard() {
                                                   setSelectedBiwIds(prev => prev.filter(id => id !== response.id));
                                                 }
                                               }}
-                                              className="w-3.5 h-3.5 text-purple-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-purple-600"
-                                              title="Select for bulk review"
+                                              className={`w-3.5 h-3.5 text-purple-600 border-gray-300 dark:border-gray-600 rounded accent-purple-600 ${!canReview ? "cursor-not-allowed opacity-40" : "cursor-pointer"}`}
+                                              title={!canReview ? reviewBlockReason : "Select for bulk review"}
                                             />
-                                            <span className="text-xs text-gray-700 dark:text-gray-300 font-bold uppercase">Select</span>
+                                            <span className={`text-xs font-bold uppercase ${!canReview ? "text-gray-400 dark:text-gray-600" : "text-gray-700 dark:text-gray-300"}`}>Select</span>
                                             {isChecked && (
                                               <span className="ml-auto text-[9px] font-bold text-purple-600 bg-purple-100 dark:bg-purple-900/30 px-1.5 py-0.5 rounded">
                                                 ✓
@@ -14011,8 +14365,8 @@ export default function FormAnalyticsDashboard() {
                                             return (
                                               <label
                                                 key={opt.status}
-                                                title={isSubmitter ? "You cannot BIW review your own submission" : opt.label}
-                                                className={`flex items-center gap-1.5 text-xs font-medium ${isSubmitter
+                                                title={!canReview ? reviewBlockReason : opt.label}
+                                                className={`flex items-center gap-1.5 text-xs font-medium ${!canReview
                                                   ? "opacity-40 cursor-not-allowed"
                                                   : "cursor-pointer"
                                                   } ${checked ? opt.activeClass : "text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white"}`}
@@ -14020,8 +14374,9 @@ export default function FormAnalyticsDashboard() {
                                                 <input
                                                   type="checkbox"
                                                   checked={checked}
-                                                  disabled={isSubmitter || isSaving}
+                                                  disabled={!canReview || isSaving}
                                                   onChange={() => {
+                                                    if (!canReview) return;
                                                     console.log(`[BIW] Status change for ${response.id}: ${opt.status}`);
                                                     handleBiwReviewChange(response, opt.status);
                                                   }}
@@ -16065,6 +16420,9 @@ export default function FormAnalyticsDashboard() {
                     <p className="text-xs text-white/70">
                       Chassis:{" "}
                       {(() => {
+                        if (chatResponse.chassisNumber) return chatResponse.chassisNumber;
+                        if (chatResponse.answers?.chassis_number) return chatResponse.answers.chassis_number;
+                        if (chatResponse.answers?.chassisNumber) return chatResponse.answers.chassisNumber;
                         const chassisQ = form?.sections
                           ?.flatMap((s) => s.questions || [])
                           .find(
@@ -16161,7 +16519,7 @@ export default function FormAnalyticsDashboard() {
                     );
                   })()}
 
-                  {/* === BEFORE REVIEW: Show 3 buttons or "pending" state === */}
+                  {/* === BEFORE REVIEW: Show 3 buttons or "pending" state or blocked reason === */}
                   {!reviewSubmitted[
                     `${String(user?._id)}-${String(chatResponse?.id)}`
                   ] &&
@@ -16174,102 +16532,77 @@ export default function FormAnalyticsDashboard() {
                       responseStatuses[chatResponse?.id] ===
                       "Rework Completed") &&
                     (() => {
-                      const userEmail = user?.email || "";
-                      const userUsername = user?.username || "";
-                      const userId = user?._id || user?.id;
-                      const userIdStr = userId ? String(userId) : "";
-                      const creatorId =
-                        typeof chatResponse?.createdBy === "object"
-                          ? (chatResponse.createdBy as any)?._id ||
-                          (chatResponse.createdBy as any)?.id
-                          : chatResponse?.createdBy;
-                      const creatorIdStr = creatorId ? String(creatorId) : "";
-
-                      const isSubmitter =
-                        chatResponse?.submittedBy === userEmail ||
-                        chatResponse?.submittedBy === userUsername ||
-                        chatResponse?.submitterContact?.email === userEmail ||
-                        (creatorIdStr && creatorIdStr === userIdStr);
-                      return !isSubmitter;
-                    })() &&
-                    (pendingReviewOption ? (
-                      /* Pending state: show label + cancel */
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`px-3 py-1 text-xs font-bold rounded ${pendingReviewOption === "Rejected"
-                            ? "bg-red-500/30 text-red-100 border border-red-400"
-                            : "bg-yellow-500/30 text-yellow-100 border border-yellow-400"
-                            }`}
-                        >
-                          {pendingReviewOption === "Rejected" ? "❌" : "🔄"}{" "}
-                          {pendingReviewOption} — Select questions below
-                        </span>
-                        <button
-                          onClick={() => setPendingReviewOption(null)}
-                          className="px-2 py-1 text-xs font-bold rounded bg-white/10 text-white hover:bg-white/20 transition-all"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      /* Normal state: 3 review buttons - Only show if user is not the submitter */
-                      (() => {
-                        const userEmail = user?.email || "";
-                        const userUsername = user?.username || "";
-                        const userIdStr = user?._id
-                          ? String(user._id)
-                          : user?.id
-                            ? String(user.id)
-                            : "";
-                        const creatorId =
-                          typeof chatResponse?.createdBy === "object"
-                            ? (chatResponse.createdBy as any)?._id ||
-                            (chatResponse.createdBy as any)?.id
-                            : chatResponse?.createdBy;
-                        const creatorIdStr = creatorId ? String(creatorId) : "";
-
-                        const isSubmitter =
-                          chatResponse?.submittedBy === userEmail ||
-                          chatResponse?.submittedBy === userUsername ||
-                          chatResponse?.submitterContact?.email === userEmail ||
-                          (creatorIdStr && creatorIdStr === userIdStr);
-
-                        return !isSubmitter ? (
-                          <div className="flex gap-2">
-                            {["Accepted", "Rejected", "Rework"].map(
-                              (option) => (
-                                <button
-                                  key={option}
-                                  onClick={() => {
-                                    if (option === "Accepted") {
-                                      handleReviewSubmit(
-                                        chatResponse!.id,
-                                        option,
-                                      );
-                                    } else {
-                                      setPendingReviewOption(option);
-                                    }
-                                  }}
-                                  className={`px-3 py-1 text-xs font-bold rounded transition-all border ${option === "Accepted"
-                                    ? "bg-green-500/30 border-green-400 text-green-100 hover:bg-green-500/50"
-                                    : option === "Rejected"
-                                      ? "bg-red-500/30 border-red-400 text-red-100 hover:bg-red-500/50"
-                                      : "bg-yellow-500/30 border-yellow-400 text-yellow-100 hover:bg-yellow-500/50"
-                                    }`}
-                                >
-                                  {option === "Accepted"
-                                    ? "✅"
-                                    : option === "Rejected"
-                                      ? "❌"
-                                      : "🔄"}{" "}
-                                  {option}
-                                </button>
-                              ),
-                            )}
+                      const reviewCheck = canUserBiwReview(chatResponse);
+                      if (!reviewCheck.canReview) {
+                        return (
+                          <div
+                            className="text-xs px-2.5 py-1 rounded bg-white/10 text-white/80 border border-white/20"
+                            title={reviewCheck.reason}
+                          >
+                            {reviewCheck.reason || "BIW Review pending"}
                           </div>
-                        ) : null;
-                      })()
-                    ))}
+                        );
+                      }
+
+                      if (pendingReviewOption) {
+                        return (
+                          /* Pending state: show label + cancel */
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`px-3 py-1 text-xs font-bold rounded ${pendingReviewOption === "Rejected"
+                                ? "bg-red-500/30 text-red-100 border border-red-400"
+                                : "bg-yellow-500/30 text-yellow-100 border border-yellow-400"
+                                }`}
+                            >
+                              {pendingReviewOption === "Rejected" ? "❌" : "🔄"}{" "}
+                              {pendingReviewOption} — Select questions below
+                            </span>
+                            <button
+                              onClick={() => setPendingReviewOption(null)}
+                              className="px-2 py-1 text-xs font-bold rounded bg-white/10 text-white hover:bg-white/20 transition-all"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        /* Normal state: 3 review buttons - Only for authorized tenant reviewers */
+                        <div className="flex gap-2">
+                          {["Accepted", "Rejected", "Rework"].map(
+                            (option) => (
+                              <button
+                                key={option}
+                                onClick={() => {
+                                  if (option === "Accepted") {
+                                    handleReviewSubmit(
+                                      chatResponse!.id,
+                                      option,
+                                    );
+                                  } else {
+                                    setPendingReviewOption(option);
+                                  }
+                                }}
+                                className={`px-3 py-1 text-xs font-bold rounded transition-all border ${option === "Accepted"
+                                  ? "bg-green-500/30 border-green-400 text-green-100 hover:bg-green-500/50"
+                                  : option === "Rejected"
+                                    ? "bg-red-500/30 border-red-400 text-red-100 hover:bg-red-500/50"
+                                    : "bg-yellow-500/30 border-yellow-400 text-yellow-100 hover:bg-yellow-500/50"
+                                  }`}
+                              >
+                                {option === "Accepted"
+                                  ? "✅"
+                                  : option === "Rejected"
+                                    ? "❌"
+                                    : "🔄"}{" "}
+                                {option}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                      );
+                    })()}
 
                   <button
                     onClick={() => {
@@ -16307,6 +16640,9 @@ export default function FormAnalyticsDashboard() {
                     <p className="text-xl text-gray-700 dark:text-gray-300">
                       Chassis Number :{" "}
                       {(() => {
+                        if (chatResponse.chassisNumber) return chatResponse.chassisNumber;
+                        if (chatResponse.answers?.chassis_number) return chatResponse.answers.chassis_number;
+                        if (chatResponse.answers?.chassisNumber) return chatResponse.answers.chassisNumber;
                         const chassisQ = form?.sections
                           ?.flatMap((s) => s.questions || [])
                           .find(
@@ -16335,7 +16671,7 @@ export default function FormAnalyticsDashboard() {
                     </p>
 
                     {/* Show question selection panel when Rejected/Rework is pending */}
-                    {pendingReviewOption && (
+                    {pendingReviewOption ? (
                       <>
                         <div className="space-y-2">
                           <div
@@ -16351,8 +16687,9 @@ export default function FormAnalyticsDashboard() {
                                 {pendingReviewOption} Review
                               </p>
                               <p className="text-xs text-gray-500 dark:text-gray-400">
-                                Select the questions with issues, fill in
-                                corrections, then click "Send & Submit Review"
+                                {pendingReviewOption === "Rejected"
+                                  ? "Flag questions with issues (optional), then enter the mandatory rejection reason in the Message Center on the right."
+                                  : 'Select the questions with issues, fill in corrections, then click "Send & Submit Review"'}
                               </p>
                             </div>
                           </div>
@@ -16468,10 +16805,174 @@ export default function FormAnalyticsDashboard() {
                           </div>
                         </div>
                         <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-2">
-                          ✏️ Type your message below and click{" "}
-                          <b>Send Feedback</b> to submit the review.
+                          {pendingReviewOption === "Rejected" ? (
+                            <span className="text-red-600 dark:text-red-400 font-bold flex items-center gap-1">
+                              <span>⚠️</span> Rejection reason is mandatory in the Message Center before submitting.
+                            </span>
+                          ) : (
+                            <>
+                              ✏️ Type your message below and click{" "}
+                              <b>Send Feedback</b> to submit the review.
+                            </>
+                          )}
                         </p>
                       </>
+                    ) : (
+                      /* Display review overview, status, feedback & flagged questions */
+                      <div className="space-y-4">
+                        {/* 1. Review Summary Card if reviewed */}
+                        {(() => {
+                          const biwStatus = chatResponse?.biwReview?.status;
+                          const revOption =
+                            chatResponse?.review?.option ||
+                            chatResponse?.review?.reviewOption ||
+                            selectedReviewOptions[chatResponse?.id || ""] ||
+                            biwStatus;
+                          const reviewerName =
+                            chatResponse?.biwReview?.reviewedByName ||
+                            (typeof chatResponse?.review?.reviewer === "object"
+                              ? chatResponse?.review?.reviewer?.name || chatResponse?.review?.reviewer?.email
+                              : chatResponse?.review?.reviewer) ||
+                            reviewedBy[chatResponse?.id || ""]?.name ||
+                            reviewedBy[chatResponse?.id || ""]?.email ||
+                            "";
+                          const reviewDate =
+                            chatResponse?.biwReview?.reviewedAt ||
+                            chatResponse?.review?.reviewAt ||
+                            chatResponse?.review?.reviewedAt ||
+                            "";
+                          const remark =
+                            chatResponse?.biwReview?.remark ||
+                            chatResponse?.review?.message ||
+                            "";
+                          const evidenceUrl = chatResponse?.biwReview?.evidenceUrl;
+
+                          if (!revOption && !reviewerName) {
+                            return (
+                              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-xs text-gray-500">
+                                ℹ️ BIW review pending by assigned tenant reviewer. You can use the Message Center to discuss this submission.
+                              </div>
+                            );
+                          }
+
+                          const isAccepted = revOption === "Accepted" || biwStatus === "Accepted";
+                          const isRejected = revOption === "Rejected" || biwStatus === "Rejected";
+                          const badgeColor = isAccepted
+                            ? "bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800"
+                            : isRejected
+                              ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
+                              : "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-800";
+
+                          return (
+                            <div className="p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                  Review Status
+                                </span>
+                                <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 ${badgeColor}`}>
+                                  {isAccepted ? "✅" : isRejected ? "❌" : "🔄"} {revOption || biwStatus}
+                                </span>
+                              </div>
+
+                              {reviewerName && (
+                                <p className="text-xs text-gray-600 dark:text-gray-400">
+                                  <span className="font-semibold text-gray-700 dark:text-gray-300">Reviewed By:</span> {reviewerName}
+                                  {reviewDate && (
+                                    <span className="ml-2 text-gray-400">
+                                      ({new Date(reviewDate).toLocaleDateString()} {new Date(reviewDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                                    </span>
+                                  )}
+                                </p>
+                              )}
+
+                              {remark && (
+                                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 text-xs">
+                                  <span className="font-bold text-amber-700 dark:text-amber-400 block mb-1">
+                                    Reviewer Feedback / Remarks:
+                                  </span>
+                                  <p className="text-gray-700 dark:text-gray-300 italic">"{remark}"</p>
+                                </div>
+                              )}
+
+                              {evidenceUrl && (
+                                <div>
+                                  <span className="text-[11px] font-bold text-gray-600 dark:text-gray-400 block mb-1">
+                                    Reviewer Attachment / Evidence:
+                                  </span>
+                                  <a href={evidenceUrl} target="_blank" rel="noreferrer" className="inline-block">
+                                    <img
+                                      src={evidenceUrl}
+                                      alt="Review evidence"
+                                      className="w-32 h-20 object-cover rounded-lg border border-gray-200 hover:opacity-90 transition-opacity"
+                                    />
+                                  </a>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* 2. Flagged Questions for Rework / Rejection */}
+                        {(() => {
+                          const flaggedBiw = chatResponse?.biwReview?.flaggedQuestions || [];
+                          const flaggedRev = (chatResponse?.review?.flaggedQuestions || []).map((qText: string) => ({
+                            questionId: qText,
+                            questionText: qText,
+                          }));
+                          const allFlagged = [...flaggedBiw, ...flaggedRev];
+                          if (allFlagged.length === 0) return null;
+
+                          return (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                                  Flagged Items for Rework / Discussion ({allFlagged.length})
+                                </label>
+                              </div>
+                              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                                {allFlagged.map((item: any, idx: number) => {
+                                  const qId = item.questionId || item.id;
+                                  const qTitle = item.questionText || item.title || qId;
+                                  const matchingQ = form?.sections
+                                    ?.flatMap((s) => s.questions || [])
+                                    .find((q: any) => q.id === qId || q.text === qTitle);
+                                  const ans = chatResponse?.answers?.[matchingQ?.id || qId];
+
+                                  return (
+                                    <div
+                                      key={idx}
+                                      className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-2xs space-y-2"
+                                    >
+                                      <div className="flex items-start justify-between gap-2">
+                                        <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                                          {idx + 1}. {qTitle}
+                                        </p>
+                                        <button
+                                          onClick={() => {
+                                            const replyPrefix = `Replying regarding "${qTitle.substring(0, 30)}...": `;
+                                            setNewMessage((prev) => prev ? `${prev}\n${replyPrefix}` : replyPrefix);
+                                            const textarea = document.querySelector("textarea");
+                                            if (textarea) textarea.focus();
+                                          }}
+                                          className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
+                                        >
+                                          Reply to this
+                                        </button>
+                                      </div>
+                                      {ans !== undefined && (
+                                        <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-2 rounded">
+                                          <span className="font-semibold text-gray-600 dark:text-gray-400">Current Answer: </span>
+                                          {typeof ans === "object" ? JSON.stringify(ans) : String(ans)}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -16632,6 +17133,35 @@ export default function FormAnalyticsDashboard() {
                 </div>
 
                 {(() => {
+                  const isAssignedReviewer = canUserBiwReview(chatResponse).canReview;
+                  const hasMessages = chatMessages.some(
+                    (m) => !m.message?.startsWith("[BIW Review]")
+                  );
+                  const hasReviewFeedback = Boolean(
+                    chatResponse?.biwReview?.status ||
+                    (chatResponse as any)?.review?.status ||
+                    (chatResponse as any)?.review?.message ||
+                    chatResponse?.biwReview?.remark
+                  );
+                  const hasChatArisen = hasMessages || hasReviewFeedback;
+
+                  // If user is from creator/other tenant (not assigned reviewer) and nothing has arisen in chat:
+                  if (!isAssignedReviewer && !hasChatArisen) {
+                    return (
+                      <div className="p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800/50 text-center space-y-1.5 shadow-sm">
+                        <div className="inline-flex items-center justify-center p-2.5 bg-indigo-100 dark:bg-indigo-900/50 rounded-full text-indigo-600 dark:text-indigo-400 mb-1">
+                          <MessageCircle className="w-5 h-5" />
+                        </div>
+                        <p className="text-xs font-bold text-gray-800 dark:text-gray-200">
+                          Awaiting Discussion from Assigned Tenant
+                        </p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 max-w-sm mx-auto leading-relaxed">
+                          Chat must be initiated by the assigned tenant reviewer. You will be able to reply here once a review or message has been posted.
+                        </p>
+                      </div>
+                    );
+                  }
+
                   const userEmail = user?.email || "";
                   const userUsername = user?.username || "";
                   const userIdStr = user?._id
@@ -16659,37 +17189,71 @@ export default function FormAnalyticsDashboard() {
 
                   return (
                     <div className="space-y-3">
+                      {pendingReviewOption === "Rejected" && (
+                        <div className="flex items-center justify-between mb-0.5 px-1">
+                          <label className="text-xs font-bold text-red-600 dark:text-red-400 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
+                            Rejection Reason <span className="text-red-500 font-black">* (Mandatory)</span>
+                          </label>
+                          <span className="text-[10px] uppercase font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-2 py-0.5 rounded">
+                            Required
+                          </span>
+                        </div>
+                      )}
                       <div className="relative">
                         <textarea
                           value={newMessage}
                           onChange={(e) => setNewMessage(e.target.value)}
                           placeholder={
-                            isSubmitter
-                              ? "Send a message..."
-                              : "Type your feedback to the inspector..."
+                            pendingReviewOption === "Rejected"
+                              ? "Enter mandatory rejection reason explaining why this chassis is rejected..."
+                              : !isAssignedReviewer
+                                ? "Type your reply to the reviewer..."
+                                : isSubmitter
+                                  ? "Send a message..."
+                                  : "Type your feedback to the inspector..."
                           }
-                          className="w-full px-5 py-4 bg-gray-50 dark:bg-gray-800 border-2 border-transparent focus:border-indigo-500 dark:focus:border-indigo-400 rounded-2xl text-sm focus:ring-0 transition-all resize-none shadow-inner text-gray-800 dark:text-gray-200"
+                          className={`w-full px-5 py-4 bg-gray-50 dark:bg-gray-800 border-2 rounded-2xl text-sm focus:ring-0 transition-all resize-none shadow-inner text-gray-800 dark:text-gray-200 ${
+                            pendingReviewOption === "Rejected"
+                              ? !newMessage.trim()
+                                ? "border-red-400/80 focus:border-red-600 dark:border-red-500/80 dark:focus:border-red-400 bg-red-50/20"
+                                : "border-red-300 focus:border-red-500 dark:border-red-600"
+                              : "border-transparent focus:border-indigo-500 dark:focus:border-indigo-400"
+                          }`}
                           rows={3}
                         />
                       </div>
+                      {pendingReviewOption === "Rejected" && !newMessage.trim() && (
+                        <p className="text-[11px] text-red-600 dark:text-red-400 font-semibold flex items-center gap-1 px-1">
+                          <span>⚠️</span> Rejection reason cannot be blank. Please enter the reason before submitting.
+                        </p>
+                      )}
                       <button
                         onClick={async () => {
+                          if (pendingReviewOption === "Rejected" && !newMessage.trim()) {
+                            showToast("Rejection reason is mandatory. Please enter a reason in the chat box.", "error");
+                            return;
+                          }
                           // If a Rejected/Rework review is pending and user is not submitter, send message + submit review together
                           if (pendingReviewOption && !isSubmitter) {
+                            const option = pendingReviewOption;
+                            const reviewNote = newMessage.trim();
+                            if (option === "Rejected" && !reviewNote) {
+                              showToast("Rejection reason is mandatory.", "error");
+                              return;
+                            }
                             setPendingReviewOption(null); // Clear pending state immediately
-                            const reviewNote =
-                              newMessage.trim() ||
-                              `Please review and correct the flagged questions (${pendingReviewOption}).`;
                             await handleSendMessage(reviewNote);
                             await handleReviewSubmit(
                               chatResponse!.id,
-                              pendingReviewOption,
+                              option,
+                              reviewNote,
                             );
                           } else {
                             await handleSendMessage();
                           }
                         }}
-                        disabled={isSendingMessage || !newMessage.trim()}
+                        disabled={isSendingMessage || (pendingReviewOption === "Rejected" ? !newMessage.trim() : !newMessage.trim())}
                         className={`w-full flex items-center justify-center gap-2 px-6 py-3.5 text-white text-sm font-black rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98] shadow-xl ${pendingReviewOption && !isSubmitter
                           ? pendingReviewOption === "Rejected"
                             ? "bg-red-600 hover:bg-red-700 shadow-red-200 dark:shadow-none"
@@ -16704,7 +17268,9 @@ export default function FormAnalyticsDashboard() {
                             <span>
                               {pendingReviewOption && !isSubmitter
                                 ? `Send Feedback & Submit ${pendingReviewOption}`
-                                : "Send Message"}
+                                : !isAssignedReviewer
+                                  ? "Send Reply"
+                                  : "Send Message"}
                             </span>
                             <ChevronRight className="w-4 h-4" />
                           </>
@@ -16712,10 +17278,14 @@ export default function FormAnalyticsDashboard() {
                       </button>
                       <div className="flex justify-center gap-2">
                         <p className="text-[10px] text-center text-gray-400 font-medium">
-                          Message will be sent to{" "}
+                          {!isAssignedReviewer ? "Reply" : "Message"} will be sent to{" "}
                           <b>
-                            {isSubmitter
-                              ? "the reviewer"
+                            {!isAssignedReviewer || isSubmitter
+                              ? chatResponse.biwReview?.reviewedByName ||
+                                (typeof chatResponse.review?.reviewer === "object"
+                                  ? chatResponse.review?.reviewer?.name || chatResponse.review?.reviewer?.email
+                                  : chatResponse.review?.reviewer) ||
+                                "the reviewer"
                               : chatResponse.submittedBy || "the submitter"}
                           </b>
                         </p>

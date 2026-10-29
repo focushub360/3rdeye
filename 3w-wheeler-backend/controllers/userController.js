@@ -1,6 +1,9 @@
 import User from '../models/User.js';
 import Review from '../models/Review.js';
 import LoginLog from '../models/LoginLog.js';
+import Form from '../models/Form.js';
+import Response from '../models/Response.js';
+import { emitResponseUpdated } from '../socket/socketHandler.js';
 
 // ─── Date Parser Helper ──────────────────────────────────────────────────────
 const parseDateUTC = (dateStr) => {
@@ -895,14 +898,16 @@ export const getPerformanceScores = async (req, res) => {
 // userController.js - submitReview
 export const submitReview = async (req, res) => {
   try {
-    let { responseId, reviewerId, submitterId, reviewOption, tenantId } = req.body;
+    let { responseId, reviewerId, submitterId, reviewOption, tenantId, reason, remark, message } = req.body;
+    const finalReason = String(reason || remark || message || '').trim();
 
     console.log('[submitReview] Received request:', {
       responseId,
       reviewerId,
       submitterId,
       reviewOption,
-      tenantId
+      tenantId,
+      reason: finalReason
     });
 
     // Validate required fields
@@ -923,6 +928,14 @@ export const submitReview = async (req, res) => {
       });
     }
 
+    // Reason is mandatory when rejecting
+    if (reviewOption === 'Rejected' && !finalReason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reason is mandatory when rejecting a review'
+      });
+    }
+
     // Get reviewer info
     const reviewer = await User.findById(reviewerId).select('firstName lastName username email');
     console.log('[submitReview] Reviewer found:', reviewer ? 'Yes' : 'No');
@@ -932,6 +945,44 @@ export const submitReview = async (req, res) => {
         success: false,
         message: 'Reviewer not found'
       });
+    }
+
+    // Check if target response exists and if chassis has assigned tenants
+    const respQuery = mongoose.Types.ObjectId.isValid(responseId)
+      ? { $or: [{ _id: responseId }, { id: responseId }] }
+      : { id: responseId };
+    const targetResponse = await Response.findOne(respQuery);
+
+    if (targetResponse && req.user?.role !== 'superadmin') {
+      const formObj = await Form.findOne({
+        $or: [
+          ...(targetResponse.formId ? [{ _id: targetResponse.formId }, { id: targetResponse.formId }] : []),
+          ...(targetResponse.questionId ? [{ _id: targetResponse.questionId }, { id: targetResponse.questionId }] : [])
+        ]
+      }).lean();
+
+      if (formObj && Array.isArray(formObj.chassisTenantAssignments) && formObj.chassisTenantAssignments.length > 0) {
+        const respChassis = String(
+          targetResponse.chassisNumber ||
+          (targetResponse.answers instanceof Map ? targetResponse.answers.get('chassis_number') || targetResponse.answers.get('chassisNumber') : targetResponse.answers?.chassis_number || targetResponse.answers?.chassisNumber) ||
+          ''
+        ).trim().toLowerCase();
+
+        const assignment = formObj.chassisTenantAssignments.find(a =>
+          a.chassisNumber && respChassis && a.chassisNumber.toString().trim().toLowerCase() === respChassis
+        );
+
+        if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
+          const userTenantIdStr = (req.user?.tenantId || tenantId || '').toString();
+          const isAssigned = assignment.assignedTenants.some(t => t.toString() === userTenantIdStr);
+          if (!isAssigned) {
+            return res.status(403).json({
+              success: false,
+              message: 'Only assigned tenant reviewers can submit reviews for this chassis.'
+            });
+          }
+        }
+      }
     }
 
     let reviewerName = '';
@@ -969,6 +1020,10 @@ export const submitReview = async (req, res) => {
       existingReview.submitterId = resolvedSubmitterId;
       existingReview.reviewerName = reviewerName;
       existingReview.reviewerEmail = reviewer.email || '';
+      if (finalReason) {
+        existingReview.remark = finalReason;
+        existingReview.reason = finalReason;
+      }
       savedReview = await existingReview.save();
     } else {
       // Create review record
@@ -980,7 +1035,9 @@ export const submitReview = async (req, res) => {
         submitterId: resolvedSubmitterId,
         reviewOption,
         scoreChange: 0, // No longer used for ratio formula
-        tenantId
+        tenantId,
+        remark: finalReason || '',
+        reason: finalReason || ''
       });
       savedReview = await review.save();
     }
@@ -993,16 +1050,37 @@ export const submitReview = async (req, res) => {
         ? { $or: [{ _id: responseId }, { id: responseId }] }
         : { id: responseId };
 
-      await Response.findOneAndUpdate(respQuery, {
-        $set: {
-          'review.status': reviewOption,
-          'review.reviewOption': reviewOption,
-          'review.reviewedBy': reviewer._id,
-          'review.reviewedByName': reviewerName,
-          'review.reviewedAt': new Date()
-        }
-      });
+      const reviewFieldsToSet = {
+        'review.status': reviewOption,
+        'review.reviewOption': reviewOption,
+        'review.reviewedBy': reviewer._id,
+        'review.reviewedByName': reviewerName,
+        'review.reviewedAt': new Date(),
+        'review.remark': finalReason || '',
+        'review.reason': finalReason || '',
+        ...(reviewOption === 'Rejected' ? {
+          'biwReview.status': 'Rejected',
+          'biwReview.remark': finalReason || '',
+          'biwReview.reviewedBy': reviewer._id,
+          'biwReview.reviewedByName': reviewerName,
+          'biwReview.reviewedAt': new Date()
+        } : {})
+      };
+
+      const updatedRespDoc = await Response.findOneAndUpdate(respQuery, {
+        $set: reviewFieldsToSet
+      }, { new: true });
       console.log('[submitReview] Synced review state to Response document for responseId:', responseId);
+      if (updatedRespDoc) {
+        const formTargetId = String(updatedRespDoc.formId || updatedRespDoc.questionId || '');
+        if (formTargetId) {
+          try {
+            emitResponseUpdated(formTargetId, updatedRespDoc.toObject());
+          } catch (sockErr) {
+            console.warn('[submitReview] Socket emit failed:', sockErr.message);
+          }
+        }
+      }
     } catch (respErr) {
       console.warn('[submitReview] Could not sync review to Response document:', respErr.message);
     }

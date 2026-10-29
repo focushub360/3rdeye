@@ -599,8 +599,9 @@ export const getAllForms = async (req, res) => {
               }
             ]
           });
-          if (id1) responseCountsMap.set(id1, filteredCount);
-          if (id2) responseCountsMap.set(id2, filteredCount);
+          const primaryId = id2 || id1;
+          responseCountsMap.set(primaryId, filteredCount);
+          if (id1 && id1 !== primaryId) responseCountsMap.set(id1, 0);
         } else {
           if (id1) responseCountsMap.set(id1, 0);
           if (id2) responseCountsMap.set(id2, 0);

@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import ChatMessage from '../models/ChatMessage.js';
 import User from '../models/User.js';
 import Response from '../models/Response.js';
+import Form from '../models/Form.js';
 
 /**
  * Send a message to a submitter (inspector)
@@ -10,6 +11,36 @@ export const sendMessage = async (req, res) => {
   try {
     const { toEmail, message, responseId, formId, questionIds, questionTitles, questionContexts, tenantId } = req.body;
     
+    // Validation: If chassis has assigned tenants, chat must arise from assigned tenant alone.
+    // Creator/other tenants can only reply once a message or review feedback has arisen.
+    if (responseId && req.user.role !== 'superadmin') {
+      const resp = await Response.findById(responseId);
+      if (resp) {
+        const form = await Form.findById(resp.formId || formId);
+        if (form && Array.isArray(form.chassisTenantAssignments) && form.chassisTenantAssignments.length > 0) {
+          const respChassis = String(resp.chassisNumber || resp.answers?.chassis_number || '').trim().toLowerCase();
+          const assignment = form.chassisTenantAssignments.find(
+            a => a.chassisNumber && respChassis && String(a.chassisNumber).trim().toLowerCase() === respChassis
+          );
+          if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
+            const userTenantStr = req.user.tenantId ? req.user.tenantId.toString() : '';
+            const isAssignedTenant = assignment.assignedTenants.some(t => t.toString() === userTenantStr);
+
+            if (!isAssignedTenant) {
+              const existingMsgCount = await ChatMessage.countDocuments({ responseId });
+              const hasReviewArisen = Boolean(resp.biwReview?.status || resp.review?.status || resp.review?.message);
+              if (existingMsgCount === 0 && !hasReviewArisen) {
+                return res.status(403).json({
+                  success: false,
+                  message: 'Chat must be initiated by the assigned tenant reviewer. You can reply once a discussion or review feedback has been posted.'
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Check if toEmail is actually a valid ObjectId (meaning frontend sent user ID)
     let receiver = null;
     let finalToEmail = toEmail;

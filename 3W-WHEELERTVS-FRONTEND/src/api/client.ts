@@ -3437,6 +3437,9 @@ class ApiClient {
     submitterId: string;
     reviewOption: string;
     tenantId: string;
+    remark?: string;
+    reason?: string;
+    message?: string;
   }) {
     console.log("Calling submitReview API with:", reviewData);
 
