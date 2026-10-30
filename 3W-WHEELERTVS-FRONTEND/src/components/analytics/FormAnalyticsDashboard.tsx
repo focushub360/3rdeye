@@ -11212,9 +11212,27 @@ export default function FormAnalyticsDashboard() {
         },
         datalabels: {
           display: (context: any) => context.dataset.data[context.dataIndex] > 0,
-          color: "#fff",
-          font: { weight: "bold" as const, size: 9 },
-          formatter: (value: number) => value,
+          color: "#ffffff",
+          anchor: "center" as const,
+          align: "center" as const,
+          textAlign: "center" as const,
+          font: (context: any) => {
+            const isMain = context.datasetIndex === 0;
+            return { weight: "bold" as const, size: isMain ? 8 : 9 };
+          },
+          formatter: (value: number, context: any) => {
+            if (value <= 0) return "";
+            const firstActiveIdx = context.chart.data.datasets.findIndex(
+              (ds: any) => (ds.data[context.dataIndex] || 0) > 0
+            );
+            if (context.datasetIndex === firstActiveIdx) {
+              const row = sortedData[context.dataIndex];
+              const perf = getBiwPerformanceLabel(row?.performanceScore || 0);
+              const words = perf.label.toUpperCase().split(" ");
+              return [String(value), ...words];
+            }
+            return value;
+          },
         },
       },
       scales: {
@@ -11268,43 +11286,7 @@ export default function FormAnalyticsDashboard() {
           </div>
         </div>
 
-        {/* Inspector Performance Status Badges */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 scrollbar-thin">
-          {sortedData.map((row, idx) => {
-            const perf = getBiwPerformanceLabel(row.performanceScore || 0);
-            const score = row.performanceScore || 0;
-            return (
-              <div
-                key={idx}
-                className="flex flex-col items-center justify-center px-3 py-2 bg-slate-50 dark:bg-gray-800/80 rounded-xl border border-gray-100 dark:border-gray-700/80 shrink-0 text-center shadow-xs min-w-[120px]"
-              >
-                <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300 truncate max-w-[110px]" title={row.name}>
-                  {row.name}
-                </span>
-                <span
-                  className={`mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                    score >= 90
-                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
-                      : score >= 80
-                        ? "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300"
-                        : score >= 70
-                          ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/60 dark:text-yellow-300"
-                          : score >= 60
-                            ? "bg-orange-100 text-orange-800 dark:bg-orange-950/60 dark:text-orange-300"
-                            : "bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300"
-                  }`}
-                >
-                  {score}%
-                </span>
-                <span
-                  className={`mt-1 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider whitespace-nowrap ${perf.className}`}
-                >
-                  {perf.label}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+
         <div style={{ height: "400px", position: "relative" }}>
           <Bar data={data} options={options} />
         </div>
@@ -11403,10 +11385,28 @@ export default function FormAnalyticsDashboard() {
           },
         },
         datalabels: {
-          display: (context: any) => true,
-          color: "#fff",
-          font: { weight: "bold" as const, size: 9 },
-          formatter: (value: number) => value,
+          display: (context: any) => context.dataset.data[context.dataIndex] > 0,
+          color: "#ffffff",
+          anchor: "center" as const,
+          align: "center" as const,
+          textAlign: "center" as const,
+          font: (context: any) => {
+            const isMain = context.datasetIndex === 0;
+            return { weight: "bold" as const, size: isMain ? 8 : 9 };
+          },
+          formatter: (value: number, context: any) => {
+            if (value <= 0) return "";
+            const firstActiveIdx = context.chart.data.datasets.findIndex(
+              (ds: any) => (ds.data[context.dataIndex] || 0) > 0
+            );
+            if (context.datasetIndex === firstActiveIdx) {
+              const row = sortedData[context.dataIndex];
+              const perf = getBiwPerformanceLabel(row?.performanceScore || 0);
+              const words = perf.label.toUpperCase().split(" ");
+              return [String(value), ...words];
+            }
+            return value;
+          },
         },
       },
       scales: {
@@ -11460,43 +11460,7 @@ export default function FormAnalyticsDashboard() {
           </div>
         </div>
 
-        {/* Inspector Performance Status Badges */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 scrollbar-thin">
-          {sortedData.map((row, idx) => {
-            const perf = getBiwPerformanceLabel(row.performanceScore || 0);
-            const score = row.performanceScore || 0;
-            return (
-              <div
-                key={idx}
-                className="flex flex-col items-center justify-center px-3 py-2 bg-slate-50 dark:bg-gray-800/80 rounded-xl border border-gray-100 dark:border-gray-700/80 shrink-0 text-center shadow-xs min-w-[120px]"
-              >
-                <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300 truncate max-w-[110px]" title={row.name}>
-                  {row.name}
-                </span>
-                <span
-                  className={`mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                    score >= 90
-                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
-                      : score >= 80
-                        ? "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300"
-                        : score >= 70
-                          ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/60 dark:text-yellow-300"
-                          : score >= 60
-                            ? "bg-orange-100 text-orange-800 dark:bg-orange-950/60 dark:text-orange-300"
-                            : "bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300"
-                  }`}
-                >
-                  {score}%
-                </span>
-                <span
-                  className={`mt-1 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider whitespace-nowrap ${perf.className}`}
-                >
-                  {perf.label}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+
         <div style={{ height: "400px", position: "relative" }}>
           <Bar data={data} options={options} />
         </div>
