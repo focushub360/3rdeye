@@ -4209,6 +4209,8 @@ export default function FormAnalyticsDashboard() {
           return [
             ...filtered,
             {
+              id: responseId,
+              _id: responseId,
               responseId,
               reviewOption,
               option: reviewOption,
@@ -4216,6 +4218,13 @@ export default function FormAnalyticsDashboard() {
               reviewer: { id: reviewerId, name: reviewerDisplayName, email: user?.email || "" },
               remark: reviewRemark?.trim() || "",
               reason: reviewRemark?.trim() || "",
+              flaggedQuestions,
+              questionContexts: flaggedQuestions.map((fq: any) => ({
+                questionId: fq.questionId || fq.id,
+                id: fq.questionId || fq.id,
+                title: fq.questionText || fq.title || fq.text,
+                text: fq.questionText || fq.title || fq.text,
+              })),
               createdAt: new Date().toISOString()
             }
           ];
@@ -5747,14 +5756,17 @@ export default function FormAnalyticsDashboard() {
 
   const fetchChatHistory = async (responseId: string) => {
     try {
+      const targetId = responseId || chatResponse?.id || (chatResponse as any)?._id;
+      if (!targetId) return;
+
       console.log(
         "[ChatModal] Fetching chat history for response:",
-        responseId,
+        targetId,
       );
 
       // Fetch messages
       const response = await apiClient.get<any[]>(
-        `/messages/response/${responseId}`,
+        `/messages/response/${targetId}`,
       );
       const messages = Array.isArray(response.data) ? response.data : [];
       setChatMessages(messages);
@@ -5762,7 +5774,7 @@ export default function FormAnalyticsDashboard() {
       // Fetch reviews from API
       try {
         const reviewsResponse =
-          await apiClient.getReviewsForResponse(responseId);
+          await apiClient.getReviewsForResponse(targetId);
         console.log("[ChatModal] Reviews API response:", reviewsResponse);
 
         if (
@@ -5776,12 +5788,12 @@ export default function FormAnalyticsDashboard() {
           // Update state from API
           setSelectedReviewOptions((prev) => ({
             ...prev,
-            [responseId]: latestReview.option,
+            [targetId]: latestReview.option,
           }));
 
           setReviewedBy((prev) => ({
             ...prev,
-            [responseId]: latestReview.reviewer
+            [targetId]: latestReview.reviewer
               ? {
                 id: latestReview.reviewer.id,
                 name: latestReview.reviewer.name || "Reviewer",
@@ -5813,9 +5825,10 @@ export default function FormAnalyticsDashboard() {
   };
   useEffect(() => {
     if (showChatModal && chatResponse) {
-      fetchChatHistory(chatResponse.id);
+      const respId = chatResponse.id || (chatResponse as any)._id;
+      fetchChatHistory(respId);
     }
-  }, [showChatModal, chatResponse]);
+  }, [showChatModal, chatResponse?.id, (chatResponse as any)?._id]);
 
 
   // Auto-open chat modal if responseId is in URL
@@ -7548,6 +7561,79 @@ export default function FormAnalyticsDashboard() {
     );
   };
 
+  const formatChatAnswerValue = (val: any): React.ReactNode => {
+    if (val === undefined || val === null || val === "") {
+      return <span className="text-gray-400 italic">No response</span>;
+    }
+    let parsed = val;
+    if (typeof parsed === "string" && parsed.trim().startsWith("{") && parsed.trim().endsWith("}")) {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch {}
+    }
+    if (typeof parsed === "object" && parsed !== null) {
+      if (parsed.status !== undefined || parsed.remark !== undefined || parsed.evidenceUrl !== undefined) {
+        const s = String(parsed.status || "").trim();
+        const norm = s.toLowerCase();
+        const isOk = norm === "accepted" || norm === "direct ok" || norm === "ok";
+        const isDefect = norm === "rejected" || norm.includes("rework") || norm === "not ok";
+        return (
+          <span className="inline-flex items-center gap-1.5 flex-wrap">
+            {s && (
+              <span
+                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                  isOk
+                    ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 border border-green-200 dark:border-green-800"
+                    : isDefect
+                      ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-200 dark:border-red-800"
+                      : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-200"
+                }`}
+              >
+                {s}
+              </span>
+            )}
+            {parsed.remark && String(parsed.remark).trim() && (
+              <span className="text-[11px] text-gray-600 dark:text-gray-300 font-medium">
+                Remark: <span className="italic font-normal">"{String(parsed.remark).trim()}"</span>
+              </span>
+            )}
+            {parsed.evidenceUrl && String(parsed.evidenceUrl).trim() && (
+              <a
+                href={parsed.evidenceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 underline hover:text-indigo-800"
+              >
+                [View Photo]
+              </a>
+            )}
+          </span>
+        );
+      }
+      if (parsed.chassisNumber) {
+        return <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{parsed.chassisNumber}</span>;
+      }
+      if (Array.isArray(parsed)) {
+        if (parsed.length === 0) return <span className="text-gray-400 italic">No response</span>;
+        return <span className="text-gray-700 dark:text-gray-300">{parsed.map((p) => (typeof p === "object" ? (p?.name || p?.label || JSON.stringify(p)) : String(p))).join(", ")}</span>;
+      }
+      const cleanEntries = Object.entries(parsed).filter(([k, v]) => Boolean(v) && typeof v !== "object");
+      if (cleanEntries.length > 0) {
+        return (
+          <span className="inline-flex items-center gap-1.5 flex-wrap">
+            {cleanEntries.map(([k, v], i) => (
+              <span key={i} className="text-[11px] text-gray-700 dark:text-gray-300">
+                <span className="font-semibold text-gray-500 text-[10px] uppercase mr-0.5">{k}:</span>
+                {String(v)}
+              </span>
+            ))}
+          </span>
+        );
+      }
+    }
+    return <span className="text-gray-800 dark:text-gray-200 font-medium">{String(parsed)}</span>;
+  };
+
 
 
 
@@ -8556,10 +8642,15 @@ export default function FormAnalyticsDashboard() {
 
   const BiwDefectDistributionChart = () => {
     const biwProcessedQuestions = useMemo(() => {
-      // ✅ STEP 1: Deduplicate responses by ID
+      // ✅ STEP 1: Deduplicate responses by ID from defectChartResponses, responses, and tableResponses
       const uniqueResponsesMap = new Map();
-      defectChartResponses.forEach((response) => {
-        const id = response.id || response._id;
+      const allResponses = [
+        ...defectChartResponses,
+        ...responses,
+        ...tableResponses
+      ];
+      allResponses.forEach((response) => {
+        const id = String(response.id || (response as any)._id || "");
         if (id && !uniqueResponsesMap.has(id)) {
           uniqueResponsesMap.set(id, response);
         }
@@ -8578,12 +8669,19 @@ export default function FormAnalyticsDashboard() {
 
       uniqueResponses.forEach((response) => {
         const biwStatus = response.biwReview?.status;
-        const hasBiwFlagged = response.biwReview?.flaggedQuestions && response.biwReview.flaggedQuestions.length > 0;
+        if (!biwStatus) return;
+
+        const sNorm = String(biwStatus).trim().toLowerCase();
+        const isRejected = sNorm === "rejected";
+        const isRework = sNorm.includes("rework");
+        if (!isRejected && !isRework) return; // Do not count Accepted as defects
+
+        const hasBiwFlagged = Array.isArray(response.biwReview?.flaggedQuestions) && response.biwReview.flaggedQuestions.length > 0;
 
         if (hasBiwFlagged) {
           response.biwReview.flaggedQuestions.forEach((fq: any) => {
-            const qId = fq.questionId;
-            const qText = fq.questionText || questionTextMap.get(qId) || qId;
+            const qId = typeof fq === "object" ? (fq.questionId || fq.id) : String(fq);
+            const qText = typeof fq === "object" ? (fq.questionText || fq.title || fq.text || questionTextMap.get(qId) || qId) : (questionTextMap.get(qId) || qId);
             if (!qMap.has(qId)) {
               qMap.set(qId, {
                 id: qId,
@@ -8593,7 +8691,7 @@ export default function FormAnalyticsDashboard() {
               });
             }
             const stat = qMap.get(qId)!;
-            if (biwStatus === "Rejected") {
+            if (isRejected) {
               stat.rejected++;
             } else {
               stat.rework++;
@@ -8618,10 +8716,10 @@ export default function FormAnalyticsDashboard() {
               }
 
               const sLower = ansStatus.toLowerCase().trim();
-              const isRejected = sLower === "rejected" || sLower === "no";
-              const isRework = sLower === "rework" || sLower === "reworked" || sLower.includes("re-rework") || sLower === "not ok" || sLower === "defect";
+              const isAnsRejected = sLower === "rejected" || sLower === "no";
+              const isAnsRework = sLower === "rework" || sLower === "reworked" || sLower.includes("re-rework") || sLower === "not ok" || sLower === "defect";
 
-              if (isRejected || isRework) {
+              if (isAnsRejected || isAnsRework) {
                 foundDefectAnswer = true;
                 const qText = questionTextMap.get(qId) || qId;
                 if (!qMap.has(qId)) {
@@ -8633,7 +8731,7 @@ export default function FormAnalyticsDashboard() {
                   });
                 }
                 const stat = qMap.get(qId)!;
-                if (isRejected || biwStatus === "Rejected") {
+                if (isRejected || isAnsRejected) {
                   stat.rejected++;
                 } else {
                   stat.rework++;
@@ -8643,8 +8741,8 @@ export default function FormAnalyticsDashboard() {
           }
 
           // If BIW review marked Rejected/Reworked without individual defect answers, capture general defect
-          if (!foundDefectAnswer && (biwStatus === "Rejected" || biwStatus === "Reworked")) {
-            const generalLabel = response.biwReview?.remark || response.biwReview?.reason || "General BIW Review Flag";
+          if (!foundDefectAnswer) {
+            const generalLabel = response.biwReview?.reason || response.biwReview?.remark || "General BIW Review Defect";
             const genId = "biw-general-" + generalLabel.toLowerCase().replace(/[^a-z0-9]/g, "-");
             if (!qMap.has(genId)) {
               qMap.set(genId, {
@@ -8655,7 +8753,7 @@ export default function FormAnalyticsDashboard() {
               });
             }
             const stat = qMap.get(genId)!;
-            if (biwStatus === "Rejected") {
+            if (isRejected) {
               stat.rejected++;
             } else {
               stat.rework++;
@@ -8680,7 +8778,7 @@ export default function FormAnalyticsDashboard() {
       }
 
       return filtered.slice(0, 20);
-    }, [defectChartResponses, chartSortOrder, form]);
+    }, [defectChartResponses, responses, tableResponses, chartSortOrder, form]);
 
     if (
       !biwProcessedQuestions.length &&
@@ -8931,16 +9029,6 @@ export default function FormAnalyticsDashboard() {
 
   const TvsDefectDistributionChart = () => {
     const tvsProcessedQuestions = useMemo(() => {
-      // ✅ STEP 1: Deduplicate tvsReviews by ID
-      const uniqueReviewsMap = new Map();
-      tvsReviews.forEach((review) => {
-        const id = review._id || review.id;
-        if (id && !uniqueReviewsMap.has(id)) {
-          uniqueReviewsMap.set(id, review);
-        }
-      });
-      const uniqueReviews = Array.from(uniqueReviewsMap.values());
-
       // Pre-map question text from form sections
       const questionTextMap = new Map<string, string>();
       form?.sections?.forEach((section: any) => {
@@ -8950,14 +9038,45 @@ export default function FormAnalyticsDashboard() {
       });
 
       const qMap = new Map<string, { id: string; text: string; rejected: number; rework: number; accepted: number }>();
+      const processedResponseIds = new Set<string>();
 
-      // 1. Process reviews from uniqueReviews
+      // ✅ STEP 1: Deduplicate tvsReviews by responseId
+      const uniqueReviewsMap = new Map();
+      tvsReviews.forEach((review) => {
+        const id = String(review._id || review.id || review.responseId || review.response_id || "");
+        if (id && !uniqueReviewsMap.has(id)) {
+          uniqueReviewsMap.set(id, review);
+        }
+      });
+      const uniqueReviews = Array.from(uniqueReviewsMap.values());
+
+      // 1. Process reviews from uniqueReviews (Chat / TVS reviews)
       uniqueReviews.forEach((review) => {
-        const status = review.reviewOption || review.option;
-        if (review.questionContexts?.length) {
-          review.questionContexts.forEach((qc: any) => {
-            const qId = qc.questionId || qc.id;
-            const qText = qc.title || qc.text || questionTextMap.get(qId) || "Unknown";
+        const status = review.reviewOption || review.option || review.status;
+        const normStatus = String(status || "").trim().toLowerCase();
+        const isRejected = normStatus === "rejected";
+        const isRework = normStatus.includes("rework");
+        const isAccepted = normStatus === "accepted";
+
+        if (!isRejected && !isRework && !isAccepted) return;
+
+        const rId = String(review.responseId || review.response_id || review.id || review._id || "");
+        if (rId) processedResponseIds.add(rId);
+
+        // Check flagged questions on review (from Chat question selection)
+        const flaggedList = (review.questionContexts && review.questionContexts.length > 0)
+          ? review.questionContexts
+          : (Array.isArray(review.flaggedQuestions) && review.flaggedQuestions.length > 0
+              ? review.flaggedQuestions
+              : []);
+
+        if (flaggedList.length > 0) {
+          flaggedList.forEach((qc: any) => {
+            const qId = typeof qc === "object" ? (qc.questionId || qc.id) : String(qc);
+            const qText = typeof qc === "object"
+              ? (qc.title || qc.text || qc.questionText || questionTextMap.get(qId) || qId)
+              : (questionTextMap.get(qId) || qId);
+
             if (!qMap.has(qId)) {
               qMap.set(qId, {
                 id: qId,
@@ -8968,24 +9087,44 @@ export default function FormAnalyticsDashboard() {
               });
             }
             const stat = qMap.get(qId)!;
-            if (status === "Rejected") {
+            if (isRejected) {
               stat.rejected++;
-            } else if (status === "Rework" || status === "Reworked") {
+            } else if (isRework) {
               stat.rework++;
-            } else if (status === "Accepted") {
+            } else if (isAccepted) {
               stat.accepted++;
             }
           });
         } else {
-          // Match review to response
-          const rId = String(review.responseId || "");
-          const resp = defectChartResponses.find(r => String(r.id || r._id) === rId) || responses.find(r => String(r.id || r._id) === rId);
-          let foundAny = false;
-          if (resp && resp.answers) {
+          // If review object didn't have flagged questions, inspect the corresponding Response document
+          const resp = defectChartResponses.find(r => String(r.id || (r as any)._id) === rId) ||
+            responses.find(r => String(r.id || (r as any)._id) === rId) ||
+            tableResponses.find(r => String(r.id || (r as any)._id) === rId);
+
+          let foundFlaggedOnResp = false;
+          if (Array.isArray(resp?.review?.flaggedQuestions) && resp.review.flaggedQuestions.length > 0) {
+            foundFlaggedOnResp = true;
+            resp.review.flaggedQuestions.forEach((fq: any) => {
+              const qId = typeof fq === "object" ? (fq.questionId || fq.id) : String(fq);
+              const qText = typeof fq === "object"
+                ? (fq.questionText || fq.title || fq.text || questionTextMap.get(qId) || qId)
+                : (questionTextMap.get(qId) || qId);
+
+              if (!qMap.has(qId)) {
+                qMap.set(qId, { id: qId, text: qText, rejected: 0, rework: 0, accepted: 0 });
+              }
+              const stat = qMap.get(qId)!;
+              if (isRejected) stat.rejected++;
+              else if (isRework) stat.rework++;
+              else if (isAccepted) stat.accepted++;
+            });
+          }
+
+          if (!foundFlaggedOnResp && resp && resp.answers) {
             const answersObj = resp.answers instanceof Map ? Object.fromEntries(resp.answers) : resp.answers;
+            let foundDefectAns = false;
             for (const [qId, ans] of Object.entries(answersObj)) {
               if (ans === null || ans === undefined || qId.includes("chassis") || qId === "chassis_number") continue;
-              foundAny = true;
               const qText = questionTextMap.get(qId) || qId;
               let ansStatus = "";
               if (typeof ans === "object" && ans !== null) {
@@ -8996,48 +9135,81 @@ export default function FormAnalyticsDashboard() {
               const sLower = ansStatus.toLowerCase().trim();
               const isDefect = sLower === "rework" || sLower === "rejected" || sLower === "not ok" || sLower === "defect";
 
+              if (isDefect || isAccepted) {
+                foundDefectAns = true;
+                if (!qMap.has(qId)) {
+                  qMap.set(qId, { id: qId, text: qText, rejected: 0, rework: 0, accepted: 0 });
+                }
+                const stat = qMap.get(qId)!;
+                if (isRejected && isDefect) {
+                  stat.rejected++;
+                } else if (isRework && isDefect) {
+                  stat.rework++;
+                } else if (isAccepted && !isDefect) {
+                  stat.accepted++;
+                }
+              }
+            }
+            if (!foundDefectAns && (isRejected || isRework)) {
+              const label = (review as any).notes || (review as any).remark || (review as any).reason || "TVS Review Assessment";
+              const qId = "tvs-gen-" + label.toLowerCase().replace(/[^a-z0-9]/g, "-");
               if (!qMap.has(qId)) {
-                qMap.set(qId, { id: qId, text: qText, rejected: 0, rework: 0, accepted: 0 });
+                qMap.set(qId, { id: qId, text: label, rejected: 0, rework: 0, accepted: 0 });
               }
               const stat = qMap.get(qId)!;
-              if (status === "Rejected" && isDefect) {
-                stat.rejected++;
-              } else if ((status === "Rework" || status === "Reworked") && isDefect) {
-                stat.rework++;
-              } else if (status === "Accepted" && !isDefect) {
-                stat.accepted++;
-              }
+              if (isRejected) stat.rejected++;
+              else if (isRework) stat.rework++;
             }
-          }
-          if (!foundAny && (status === "Rejected" || status === "Rework" || status === "Reworked" || status === "Accepted")) {
-            const label = (review as any).notes || (review as any).remark || (review as any).feedback || "TVS Review Assessment";
-            const qId = "tvs-gen-" + label.toLowerCase().replace(/[^a-z0-9]/g, "-");
-            if (!qMap.has(qId)) {
-              qMap.set(qId, { id: qId, text: label, rejected: 0, rework: 0, accepted: 0 });
-            }
-            const stat = qMap.get(qId)!;
-            if (status === "Rejected") stat.rejected++;
-            else if (status === "Rework" || status === "Reworked") stat.rework++;
-            else if (status === "Accepted") stat.accepted++;
           }
         }
       });
 
-      // 2. Also process responses where response.review is set directly
-      defectChartResponses.forEach((response) => {
+      // 2. Also process responses where response.review is set directly (e.g. from DB)
+      const allResponsesToCheck = [
+        ...defectChartResponses,
+        ...responses,
+        ...tableResponses
+      ];
+      const seenDocIds = new Set<string>();
+
+      allResponsesToCheck.forEach((response) => {
+        const rId = String(response.id || (response as any)._id || "");
+        if (!rId || seenDocIds.has(rId) || processedResponseIds.has(rId)) return;
+        seenDocIds.add(rId);
+
         const rev = response.review;
         const status = rev?.reviewOption || rev?.status;
-        if (!status || status === "pending") return;
+        const normStatus = String(status || "").trim().toLowerCase();
+        const isRejected = normStatus === "rejected";
+        const isRework = normStatus.includes("rework");
+        const isAccepted = normStatus === "accepted";
 
-        const rId = String(response.id || response._id || "");
-        if (uniqueReviews.some(u => String(u.responseId || u.response_id || "") === rId)) return;
+        if (!isRejected && !isRework && !isAccepted) return;
+
+        // Check if rev has flaggedQuestions from Chat selection!
+        if (Array.isArray(rev?.flaggedQuestions) && rev.flaggedQuestions.length > 0) {
+          rev.flaggedQuestions.forEach((fq: any) => {
+            const qId = typeof fq === "object" ? (fq.questionId || fq.id) : String(fq);
+            const qText = typeof fq === "object"
+              ? (fq.questionText || fq.title || fq.text || questionTextMap.get(qId) || qId)
+              : (questionTextMap.get(qId) || qId);
+
+            if (!qMap.has(qId)) {
+              qMap.set(qId, { id: qId, text: qText, rejected: 0, rework: 0, accepted: 0 });
+            }
+            const stat = qMap.get(qId)!;
+            if (isRejected) stat.rejected++;
+            else if (isRework) stat.rework++;
+            else if (isAccepted) stat.accepted++;
+          });
+          return;
+        }
 
         let foundAny = false;
         const answersObj = response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers;
         if (answersObj) {
           for (const [qId, ans] of Object.entries(answersObj)) {
             if (ans === null || ans === undefined || qId.includes("chassis") || qId === "chassis_number") continue;
-            foundAny = true;
             const qText = questionTextMap.get(qId) || qId;
             let ansStatus = "";
             if (typeof ans === "object" && ans !== null) {
@@ -9048,70 +9220,37 @@ export default function FormAnalyticsDashboard() {
             const sLower = ansStatus.toLowerCase().trim();
             const isDefect = sLower === "rework" || sLower === "rejected" || sLower === "not ok" || sLower === "defect";
 
-            if (!qMap.has(qId)) {
-              qMap.set(qId, { id: qId, text: qText, rejected: 0, rework: 0, accepted: 0 });
-            }
-            const stat = qMap.get(qId)!;
-            if (status === "Rejected" && isDefect) {
-              stat.rejected++;
-            } else if ((status === "Rework" || status === "Reworked") && isDefect) {
-              stat.rework++;
-            } else if (status === "Accepted" && !isDefect) {
-              stat.accepted++;
-            }
-          }
-        }
-        if (!foundAny) {
-          const label = rev.feedback || rev.notes || "TVS Review Assessment";
-          const qId = "tvs-gen-" + label.toLowerCase().replace(/[^a-z0-9]/g, "-");
-          if (!qMap.has(qId)) {
-            qMap.set(qId, { id: qId, text: label, rejected: 0, rework: 0, accepted: 0 });
-          }
-          const stat = qMap.get(qId)!;
-          if (status === "Rejected") stat.rejected++;
-          else if (status === "Rework" || status === "Reworked") stat.rework++;
-          else if (status === "Accepted") stat.accepted++;
-        }
-      });
-
-      // 3. Also process responses where biwReview was performed by a TVS reviewer
-      defectChartResponses.forEach((response) => {
-        const reviewerName = (response.biwReview?.reviewedByName || "").toLowerCase();
-        if (reviewerName.includes("tvs")) {
-          const status = response.biwReview?.status;
-          const answersObj = response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers;
-          if (answersObj) {
-            for (const [qId, ans] of Object.entries(answersObj)) {
-              if (ans === null || ans === undefined || qId.includes("chassis") || qId === "chassis_number") continue;
-              const qText = questionTextMap.get(qId) || qId;
-              let ansStatus = "";
-              if (typeof ans === "object" && ans !== null) {
-                ansStatus = (ans as any).status || "";
-              } else if (typeof ans === "string") {
-                ansStatus = ans;
-              }
-              const sLower = ansStatus.toLowerCase().trim();
-              const isDefect = sLower === "rework" || sLower === "rejected" || sLower === "not ok" || sLower === "defect";
-
+            if (isDefect || isAccepted) {
+              foundAny = true;
               if (!qMap.has(qId)) {
                 qMap.set(qId, { id: qId, text: qText, rejected: 0, rework: 0, accepted: 0 });
               }
               const stat = qMap.get(qId)!;
-              if (status === "Rejected" && isDefect) {
+              if (isRejected && isDefect) {
                 stat.rejected++;
-              } else if (status === "Reworked" && isDefect) {
+              } else if (isRework && isDefect) {
                 stat.rework++;
-              } else if (status === "Accepted" && !isDefect) {
+              } else if (isAccepted && !isDefect) {
                 stat.accepted++;
               }
             }
           }
         }
+        if (!foundAny && (isRejected || isRework)) {
+          const label = rev.feedback || rev.notes || rev.remark || rev.reason || "TVS Review Assessment";
+          const qId = "tvs-gen-" + label.toLowerCase().replace(/[^a-z0-9]/g, "-");
+          if (!qMap.has(qId)) {
+            qMap.set(qId, { id: qId, text: label, rejected: 0, rework: 0, accepted: 0 });
+          }
+          const stat = qMap.get(qId)!;
+          if (isRejected) stat.rejected++;
+          else if (isRework) stat.rework++;
+        }
       });
 
       let filtered = Array.from(qMap.values()).map(q => {
         const totalEvaluated = (q.accepted || 0) + q.rejected + q.rework;
-        const denominator = totalEvaluated > 0 ? totalEvaluated : (defectChartResponses.length || 1);
+        const denominator = totalEvaluated > 0 ? totalEvaluated : 1;
         return {
           ...q,
           total: denominator,
@@ -9126,7 +9265,7 @@ export default function FormAnalyticsDashboard() {
       }
 
       return filtered.slice(0, 20);
-    }, [tvsReviews, defectChartResponses, chartSortOrder, form]);
+    }, [tvsReviews, defectChartResponses, responses, tableResponses, chartSortOrder, form]);
 
     if (
       !tvsProcessedQuestions.length &&
@@ -16680,9 +16819,9 @@ export default function FormAnalyticsDashboard() {
                                           {q.text}
                                         </span>
                                         {qAnswer !== undefined && (
-                                          <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-1.5 rounded mb-1">
-                                            <span className="font-semibold text-gray-600 dark:text-gray-400">Current: </span>
-                                            {typeof qAnswer === "object" ? JSON.stringify(qAnswer) : String(qAnswer)}
+                                          <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-1.5 rounded mb-1 flex items-center gap-1.5 flex-wrap">
+                                            <span className="font-semibold text-gray-600 dark:text-gray-400">Current:</span>
+                                            {formatChatAnswerValue(qAnswer)}
                                           </div>
                                         )}
                                         {isChecked && (
@@ -16869,9 +17008,9 @@ export default function FormAnalyticsDashboard() {
                                           </button>
                                         </div>
                                         {ans !== undefined && (
-                                          <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-2 rounded">
-                                            <span className="font-semibold text-gray-600 dark:text-gray-400">Current Answer: </span>
-                                            {typeof ans === "object" ? JSON.stringify(ans) : String(ans)}
+                                          <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-2 rounded flex items-center gap-1.5 flex-wrap">
+                                            <span className="font-semibold text-gray-600 dark:text-gray-400">Current Answer:</span>
+                                            {formatChatAnswerValue(ans)}
                                           </div>
                                         )}
                                       </div>
@@ -16902,9 +17041,44 @@ export default function FormAnalyticsDashboard() {
 
                 <div className="flex-1 bg-gray-50 dark:bg-gray-800/20 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 mb-4 overflow-y-auto space-y-4 flex flex-col scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
                   {(() => {
-                    const visibleChatMessages = chatMessages.filter(
+                    const list = chatMessages.filter(
                       (msg) => !msg.message?.startsWith("[BIW Review]")
                     );
+
+                    // If a TVS Review has arisen (e.g. Rejected or Rework) with reviewer remark/feedback,
+                    // and this feedback is not yet in chatMessages list, synthesize the reviewer's opening message!
+                    const curRev = chatResponse?.review;
+                    const revStatus = curRev?.reviewOption || curRev?.status;
+                    const revRemark = curRev?.remark || curRev?.reason || curRev?.message;
+
+                    let visibleChatMessages = [...list];
+                    if (revStatus && revRemark && list.every((m) => m.message !== revRemark)) {
+                      const reviewerName = typeof curRev.reviewer === "object"
+                        ? curRev.reviewer?.name || curRev.reviewer?.email
+                        : (curRev.reviewedByName || curRev.reviewer || "Reviewer");
+                      const reviewerId = typeof curRev.reviewer === "object"
+                        ? curRev.reviewer?._id || curRev.reviewer?.id
+                        : curRev.reviewedBy;
+                      const flaggedTitles = Array.isArray(curRev.flaggedQuestions)
+                        ? curRev.flaggedQuestions.map((q: any) => typeof q === "object" ? q.questionText || q.title || q.text || q.questionId : String(q))
+                        : [];
+
+                      const synthMsg = {
+                        _id: "synthetic-review-msg",
+                        isReviewFeedback: true,
+                        reviewOption: revStatus,
+                        from: {
+                          _id: reviewerId,
+                          name: reviewerName,
+                          email: typeof curRev.reviewer === "object" ? curRev.reviewer?.email : ""
+                        },
+                        message: revRemark,
+                        questionTitles: flaggedTitles,
+                        createdAt: curRev.reviewedAt || curRev.createdAt || new Date().toISOString()
+                      };
+                      visibleChatMessages = [synthMsg, ...visibleChatMessages];
+                    }
+
                     if (visibleChatMessages.length === 0) {
                       return (
                         <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-3 opacity-50">
@@ -16922,104 +17096,115 @@ export default function FormAnalyticsDashboard() {
                         </div>
                       );
                     }
-                    return visibleChatMessages.map((msg, i) => (
-                      <div
-                        key={i}
-                        className={`flex flex-col ${String(msg.from?._id || msg.from) === String(user?._id || (user as any)?.id) ? "items-end" : "items-start"} animate-in fade-in slide-in-from-bottom-2 duration-300`}
-                      >
-                        <div
-                          className={`max-w-[90%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${String(msg.from?._id || msg.from) ===
-                            String(user?._id || (user as any)?.id)
-                            ? "bg-[#dcf8c6] text-gray-900 rounded-br-lg rounded-tr-lg rounded-tl-sm"
-                            : "bg-white dark:bg-gray-100 text-gray-900 border border-gray-100 dark:border-gray-700 rounded-bl-lg rounded-tl-lg rounded-tr-sm"
-                            }`}
-                        >
-                          {msg.questionContexts &&
-                            msg.questionContexts.length > 0 ? (
-                            <div className="space-y-3">
-                              {msg.questionContexts.map(
-                                (ctx: any, idx: number) => (
-                                  <div key={idx} className="space-y-2">
-                                    <p className="text-[12px] font-bold text-gray-500 dark:text-gray-400 border-b border-indigo-100 dark:border-indigo-800/50 pb-0.5">
-                                      {ctx.title}
-                                    </p>
+                    return visibleChatMessages.map((msg, i) => {
+                      const isMe = String(msg.from?._id || msg.from) === String(user?._id || (user as any)?.id);
+                      const senderName = isMe
+                        ? "You"
+                        : (msg.from?.name || (msg.isReviewFeedback ? "Reviewer" : "Inspector"));
 
-                                    {ctx.suggestion && (
-                                      <div className="mt-1 p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-100 dark:border-amber-800">
-                                        <p className="text-[10px] font-bold text-amber-600 uppercase mb-1">
-                                          Review Feedback:
-                                        </p>
-                                        {ctx.question ? (
-                                          <QuestionSuggestionRenderer
-                                            question={ctx.question}
-                                            value={ctx.suggestion}
-                                            currentAnswer={ctx.answer}
-                                            onChange={(newSuggestion) => {
-                                              // Update the suggestion in chatFilters
-                                              setChatFilters((prev) => ({
-                                                ...prev,
-                                                suggestedAnswers: {
-                                                  ...prev.suggestedAnswers,
-                                                  [ctx.question.id]:
-                                                    newSuggestion,
-                                                },
-                                              }));
-                                            }}
-                                          />
-                                        ) : (
-                                          // Fallback to read-only display if question data is missing
-                                          <div className="text-xs text-gray-600 dark:text-gray-400">
-                                            {renderAnswerDisplay(
-                                              ctx.suggestion,
-                                              { type: "text" } as any,
-                                            )}
-                                          </div>
-                                        )}
-                                      </div>
+                      return (
+                        <div
+                          key={i}
+                          className={`flex flex-col ${isMe ? "items-end" : "items-start"} animate-in fade-in slide-in-from-bottom-2 duration-300`}
+                        >
+                          <div
+                            className={`max-w-[90%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${isMe
+                              ? "bg-[#dcf8c6] text-gray-900 rounded-br-lg rounded-tr-lg rounded-tl-sm"
+                              : "bg-white dark:bg-gray-100 text-gray-900 border border-gray-100 dark:border-gray-700 rounded-bl-lg rounded-tl-lg rounded-tr-sm"
+                              }`}
+                          >
+                            {msg.isReviewFeedback && (
+                              <div className="mb-1.5 flex items-center gap-1.5">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  msg.reviewOption === "Rejected"
+                                    ? "bg-red-100 text-red-700 border border-red-200"
+                                    : "bg-yellow-100 text-yellow-800 border border-yellow-200"
+                                }`}>
+                                  TVS Review: {msg.reviewOption}
+                                </span>
+                              </div>
+                            )}
+                            {msg.questionContexts &&
+                              msg.questionContexts.length > 0 ? (
+                              <div className="space-y-3">
+                                {msg.questionContexts.map(
+                                  (ctx: any, idx: number) => (
+                                    <div key={idx} className="space-y-2">
+                                      <p className="text-[12px] font-bold text-gray-500 dark:text-gray-400 border-b border-indigo-100 dark:border-indigo-800/50 pb-0.5">
+                                        {ctx.title}
+                                      </p>
+
+                                      {ctx.suggestion && (
+                                        <div className="mt-1 p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-100 dark:border-amber-800">
+                                          <p className="text-[10px] font-bold text-amber-600 uppercase mb-1">
+                                            Review Feedback:
+                                          </p>
+                                          {ctx.question ? (
+                                            <QuestionSuggestionRenderer
+                                              question={ctx.question}
+                                              value={ctx.suggestion}
+                                              currentAnswer={ctx.answer}
+                                              onChange={(newSuggestion) => {
+                                                // Update the suggestion in chatFilters
+                                                setChatFilters((prev) => ({
+                                                  ...prev,
+                                                  suggestedAnswers: {
+                                                    ...prev.suggestedAnswers,
+                                                    [ctx.question.id]:
+                                                      newSuggestion,
+                                                  },
+                                                }));
+                                              }}
+                                            />
+                                          ) : (
+                                            // Fallback to read-only display if question data is missing
+                                            <div className="text-xs text-gray-600 dark:text-gray-400">
+                                              {renderAnswerDisplay(
+                                                ctx.suggestion,
+                                                { type: "text" } as any,
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ),
+                                )}
+                              </div>
+                            ) : (
+                              msg.questionTitles &&
+                              msg.questionTitles.length > 0 && (
+                                <div className="mb-2 p-2 bg-indigo-50/50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100/50 dark:border-indigo-800/30">
+                                  <p className="text-[10px] uppercase font-black text-indigo-500 dark:text-indigo-400 mb-1.5 flex items-center gap-1">
+                                    <Filter className="w-2.5 h-2.5" />
+                                    Linked Questions
+                                  </p>
+                                  <div className="flex flex-wrap gap-1">
+                                    {msg.questionTitles.map(
+                                      (title: string, idx: number) => (
+                                        <span
+                                          key={idx}
+                                          className="px-1.5 py-0.5 bg-white dark:bg-gray-700 text-[9px] font-bold text-indigo-600 dark:text-indigo-300 rounded-md border border-indigo-100 dark:border-indigo-800"
+                                        >
+                                          {title}
+                                        </span>
+                                      ),
                                     )}
                                   </div>
-                                ),
-                              )}
-                            </div>
-                          ) : (
-                            msg.questionTitles &&
-                            msg.questionTitles.length > 0 && (
-                              <div className="mb-2 p-2 bg-indigo-50/50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100/50 dark:border-indigo-800/30">
-                                <p className="text-[10px] uppercase font-black text-indigo-500 dark:text-indigo-400 mb-1.5 flex items-center gap-1">
-                                  <Filter className="w-2.5 h-2.5" />
-                                  Linked Questions
-                                </p>
-                                <div className="flex flex-wrap gap-1">
-                                  {msg.questionTitles.map(
-                                    (title: string, idx: number) => (
-                                      <span
-                                        key={idx}
-                                        className="px-1.5 py-0.5 bg-white dark:bg-gray-700 text-[9px] font-bold text-indigo-600 dark:text-indigo-300 rounded-md border border-indigo-100 dark:border-indigo-800"
-                                      >
-                                        {title}
-                                      </span>
-                                    ),
-                                  )}
                                 </div>
-                              </div>
-                            )
-                          )}
-                          {renderMessageWithImages(msg.message)}
-                        </div>
-                        <div className="flex items-center gap-1 mt-1.5 px-1 opacity-60">
-                          <span className="text-[9px] font-medium text-gray-500 dark:text-gray-400">
-                            {String(msg.from?._id || msg.from) ===
-                              String(user?._id || (user as any)?.id)
-                              ? "You"
-                              : msg.from?.name || "Inspector"}{" "}
-                            •{" "}
-                            {new Date(msg.createdAt).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </span>
-                          {String(msg.from?._id || msg.from) !==
-                            String(user?._id || (user as any)?.id) && (
+                              )
+                            )}
+                            {renderMessageWithImages(msg.message)}
+                          </div>
+                          <div className="flex items-center gap-1 mt-1.5 px-1 opacity-60">
+                            <span className="text-[9px] font-medium text-gray-500 dark:text-gray-400">
+                              {senderName} •{" "}
+                              {new Date(msg.createdAt).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                            {!isMe && (
                               <button
                                 onClick={() => {
                                   setNewMessage(
@@ -17035,9 +17220,10 @@ export default function FormAnalyticsDashboard() {
                                 Reply
                               </button>
                             )}
+                          </div>
                         </div>
-                      </div>
-                    ));
+                      );
+                    });
                   })()}
                 </div>
 

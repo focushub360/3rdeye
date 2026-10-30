@@ -83,17 +83,76 @@ export const sendMessage = async (req, res) => {
 export const getMessagesByResponse = async (req, res) => {
   try {
     const { responseId } = req.params;
-    const tenantId = req.user.tenantId;
     
     console.log("[getMessagesByResponse] responseId:", responseId);
-    console.log("[getMessagesByResponse] tenantId:", tenantId);
     
-    const messages = await ChatMessage.find({ 
-      responseId
+    // Support matching by string UUID id, ObjectId _id, or mapped response
+    const allResponseIds = [responseId];
+    try {
+      const resp = mongoose.Types.ObjectId.isValid(responseId)
+        ? await Response.findById(responseId).select('id _id review submittedBy').lean()
+        : await Response.findOne({ id: responseId }).select('id _id review submittedBy').lean();
+      if (resp) {
+        if (resp.id) allResponseIds.push(String(resp.id));
+        if (resp._id) allResponseIds.push(String(resp._id));
+      }
+    } catch {}
+
+    const uniqueIds = [...new Set(allResponseIds)];
+
+    let messages = await ChatMessage.find({ 
+      responseId: { $in: uniqueIds }
     })
-      .populate('from', 'name email username')
-      .populate('toUser', 'name email username')
-      .sort({ createdAt: 1 });
+      .populate('from', 'name email username firstName lastName')
+      .populate('toUser', 'name email username firstName lastName')
+      .sort({ createdAt: 1 })
+      .lean();
+
+    // If no chat messages found, but Response has review remark/feedback, ensure initial message is returned
+    if (messages.length === 0) {
+      try {
+        const resp = mongoose.Types.ObjectId.isValid(responseId)
+          ? await Response.findById(responseId).lean()
+          : await Response.findOne({ id: responseId }).lean();
+        const curRev = resp?.review;
+        const revMsg = curRev?.remark || curRev?.reason || curRev?.message;
+        if (curRev && revMsg) {
+          const reviewerId = curRev.reviewedBy;
+          let reviewerDoc = null;
+          if (reviewerId && mongoose.Types.ObjectId.isValid(reviewerId)) {
+            reviewerDoc = await User.findById(reviewerId).select('firstName lastName username email').lean();
+          }
+          const reviewerName = reviewerDoc
+            ? `${reviewerDoc.firstName || ''} ${reviewerDoc.lastName || ''}`.trim() || reviewerDoc.username || reviewerDoc.email
+            : (curRev.reviewedByName || curRev.reviewer || 'Reviewer');
+
+          messages = [{
+            _id: 'rev-auto-init-' + String(resp._id || resp.id),
+            responseId: String(resp.id || responseId),
+            from: {
+              _id: reviewerId,
+              name: reviewerName,
+              email: reviewerDoc?.email || ''
+            },
+            message: revMsg,
+            questionTitles: Array.isArray(curRev.flaggedQuestions)
+              ? curRev.flaggedQuestions.map(q => typeof q === 'object' ? q.questionText || q.title || q.text || q.questionId : String(q))
+              : [],
+            questionContexts: Array.isArray(curRev.flaggedQuestions)
+              ? curRev.flaggedQuestions.map(q => ({
+                  questionId: typeof q === 'object' ? q.questionId || q.id : String(q),
+                  title: typeof q === 'object' ? q.questionText || q.title || q.text : String(q)
+                }))
+              : [],
+            createdAt: curRev.reviewedAt || resp.updatedAt || new Date(),
+            isReviewFeedback: true,
+            reviewOption: curRev.reviewOption || curRev.status
+          }];
+        }
+      } catch (synthErr) {
+        console.warn('[getMessagesByResponse] Synthesizing review message failed:', synthErr.message);
+      }
+    }
 
     console.log("[getMessagesByResponse] Found messages:", messages.length);
     res.json({ success: true, data: messages });
