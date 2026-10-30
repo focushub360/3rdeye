@@ -26,13 +26,25 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           timeout: 120s
+          command_timeout: 10m
           script: |
-            echo "📦 Pulling latest backend code..."
-            cd /home/ubuntu/3rdeye/3w-wheeler-backend || cd /home/ubuntu/3w-wheeler-backend
-            git pull origin main
+            echo "📦 Pulling latest code..."
+            if [ -d "/home/ubuntu/3rdeye" ]; then
+              cd /home/ubuntu/3rdeye
+              git stash || true
+              git pull origin main
+            elif [ -d "/home/ubuntu/3w-wheeler-backend" ]; then
+              cd /home/ubuntu/3w-wheeler-backend
+              git stash || true
+              git pull origin main
+            fi
 
-            echo "📥 Installing dependencies..."
-            npm install --omit=dev
+            cd /home/ubuntu/3rdeye/3w-wheeler-backend || cd /home/ubuntu/3w-wheeler-backend
+
+            echo "📥 Installing backend dependencies..."
+            export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+            export PUPPETEER_SKIP_DOWNLOAD=true
+            npm install --omit=dev --prefer-offline --no-audit
 
             echo "⚙️ Configuring production to use local Lightsail MongoDB..."
             sed -i 's|^MONGODB_URI=.*|MONGODB_URI=mongodb://app_user:YourSecurePassword123@127.0.0.1:27017/3wheelertvs_dev?authSource=3wheelertvs_dev|' .env
@@ -41,32 +53,7 @@ jobs:
             pm2 reload ecosystem.config.cjs || pm2 start ecosystem.config.cjs
             pm2 save
 
-            echo "🔍 Finding active frontend asset..."
-            FRONTEND_FILE=$(find /var/www /home/ubuntu -name "index-1SVDXeCg.js" 2>/dev/null | head -n 1)
-            echo "Old frontend asset located at: $FRONTEND_FILE"
-
-            echo "🌐 Inspecting active Nginx root locations..."
-            sudo nginx -T 2>/dev/null | grep -E "server_name|root " | head -n 20
-
-            echo "📦 Building & syncing frontend on EC2..."
-            if [ -d "/home/ubuntu/3rdeye/3W-WHEELERTVS-FRONTEND" ]; then
-              cd /home/ubuntu/3rdeye/3W-WHEELERTVS-FRONTEND
-              git pull origin main
-              npm install
-              npm run build
-              if [ -n "$FRONTEND_FILE" ]; then
-                TARGET_DIR=$(dirname $(dirname "$FRONTEND_FILE"))
-                echo "Syncing dist to active directory: $TARGET_DIR"
-                sudo cp -r dist/* "$TARGET_DIR/"
-              fi
-            elif [ -d "/var/www/3W-WHEELERTVS-FRONTEND" ]; then
-              cd /var/www/3W-WHEELERTVS-FRONTEND
-              git pull origin main
-              npm install
-              npm run build
-            fi
-
-            echo "🌐 Restarting Nginx..."
-            sudo nginx -t && sudo systemctl enable nginx && sudo systemctl restart nginx
-            echo "✅ Deployment complete!"
+            echo "🌐 Reloading Nginx..."
+            sudo nginx -t && sudo systemctl reload nginx || sudo systemctl restart nginx
+            echo "✅ Backend deployment complete!"
             pm2 status
