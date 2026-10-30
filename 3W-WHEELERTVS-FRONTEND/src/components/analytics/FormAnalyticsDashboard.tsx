@@ -1920,23 +1920,27 @@ const QuestionSuggestionRenderer = ({
   value,
   onChange,
   currentAnswer,
+  readOnly = false,
 }: {
   question: any;
   value: any;
-  onChange: (val: any) => void;
+  onChange?: (val: any) => void;
   currentAnswer?: any;
+  readOnly?: boolean;
 }) => {
   const [uploading, setUploading] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
+  const [showPhotoSection, setShowPhotoSection] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // All values stored flat in the value object
   const safeValue = typeof value === "object" && value !== null ? value : {};
   const status = safeValue.inspectionStatus || "";
-  const remark = safeValue.inspectionRemark || "";
-  const fileUrl = safeValue.inspectionFileUrl || "";
+  const remark = (safeValue.inspectionRemark || safeValue.remark || "").trim();
+  const fileUrl = (safeValue.inspectionFileUrl || safeValue.fileUrl || "").trim();
 
   const update = (patch: Record<string, any>) => {
+    if (readOnly || !onChange) return;
     onChange({ ...safeValue, ...patch });
   };
 
@@ -1957,10 +1961,53 @@ const QuestionSuggestionRenderer = ({
     }
   };
 
-  // Render the current answer as read-only context
+  // In read-only mode, only show sections that were actually filled
+  if (readOnly) {
+    const hasRemark = Boolean(remark);
+    const hasPhoto = Boolean(fileUrl);
+
+    if (!hasRemark && !hasPhoto) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-2 mt-1.5" onClick={(e) => e.stopPropagation()}>
+        {hasRemark && (
+          <div className="p-2.5 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+            <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest block mb-1">
+              Remark
+            </span>
+            <p className="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap leading-relaxed font-medium">
+              {remark}
+            </p>
+          </div>
+        )}
+
+        {hasPhoto && (
+          <div className="p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
+            <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest block mb-1.5">
+              Evidence Photo
+            </span>
+            <img
+              src={fileUrl}
+              alt="Evidence"
+              className="max-h-56 max-w-full rounded-lg border border-blue-200 dark:border-blue-700 cursor-pointer object-cover hover:opacity-90 transition-opacity"
+              onClick={(e) => {
+                e.stopPropagation();
+                window.open(fileUrl, "_blank");
+              }}
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Editable mode (when composing feedback)
+  const hasPhoto = Boolean(fileUrl);
 
   return (
-    <div className="space-y-3 mt-2" onClick={(e) => e.stopPropagation()}>
+    <div className="space-y-2 mt-2" onClick={(e) => e.stopPropagation()}>
       {/* Remark */}
       <div
         className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800"
@@ -1983,104 +2030,134 @@ const QuestionSuggestionRenderer = ({
         />
       </div>
 
-      {/* File Upload + Camera */}
-      <div
-        className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest block mb-1.5">
-          Evidence Photo
-        </label>
-
-        {fileUrl ? (
-          /* Uploaded — show thumbnail + change/camera */
-          <div className="flex gap-2">
-            <label className="flex-1 cursor-pointer group relative">
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                accept="image/*"
-                onClick={(e) => e.stopPropagation()}
-                onChange={async (e) => {
-                  e.stopPropagation();
-                  const file = e.target.files?.[0];
-                  if (file) await handleFileUpload(file);
-                }}
-              />
-              <img
-                src={fileUrl}
-                alt="Evidence"
-                className="w-full h-28 object-cover rounded-lg border-2 border-emerald-400"
+      {/* Evidence Photo: only display upload/camera box if photo exists or user clicked to add photo */}
+      {hasPhoto || showPhotoSection ? (
+        <div
+          className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 animate-in fade-in"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest block">
+              Evidence Photo
+            </label>
+            {!uploading && (
+              <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  window.open(fileUrl, "_blank");
+                  update({ inspectionFileUrl: "" });
+                  setShowPhotoSection(false);
                 }}
-              />
-              <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg pointer-events-none">
-                <span className="text-[10px] text-white font-bold">Change</span>
-              </div>
-            </label>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowCamera(true);
-              }}
-              className="flex-1 flex flex-col items-center justify-center gap-1 p-3 border-2 border-dashed border-purple-300 dark:border-purple-700 rounded-lg hover:border-purple-500 transition-colors"
-            >
-              <Camera className="w-4 h-4 text-purple-500" />
-              <span className="text-[9px] text-purple-500 font-bold">
-                Camera
-              </span>
-            </button>
+                className="text-[10px] text-gray-400 hover:text-red-500 font-bold"
+              >
+                ✕ Cancel / Remove
+              </button>
+            )}
           </div>
-        ) : uploading ? (
-          <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
-            <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-            <span className="text-xs text-blue-600 dark:text-blue-400">
-              Uploading...
-            </span>
-          </div>
-        ) : (
-          /* Empty — show upload + camera side by side */
-          <div className="flex gap-2">
-            <label className="flex-1 cursor-pointer">
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                accept="image/*"
-                onClick={(e) => e.stopPropagation()}
-                onChange={async (e) => {
+
+          {hasPhoto ? (
+            /* Uploaded — show thumbnail + change/camera */
+            <div className="flex gap-2">
+              <label className="flex-1 cursor-pointer group relative">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept="image/*"
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={async (e) => {
+                    e.stopPropagation();
+                    const file = e.target.files?.[0];
+                    if (file) await handleFileUpload(file);
+                  }}
+                />
+                <img
+                  src={fileUrl}
+                  alt="Evidence"
+                  className="w-full h-28 object-cover rounded-lg border-2 border-emerald-400"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.open(fileUrl, "_blank");
+                  }}
+                />
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg pointer-events-none">
+                  <span className="text-[10px] text-white font-bold">Change</span>
+                </div>
+              </label>
+              <button
+                type="button"
+                onClick={(e) => {
                   e.stopPropagation();
-                  const file = e.target.files?.[0];
-                  if (file) await handleFileUpload(file);
+                  setShowCamera(true);
                 }}
-              />
-              <div className="flex flex-col items-center justify-center gap-1 p-3 border-2 border-dashed border-blue-200 dark:border-blue-700 rounded-lg hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-all">
-                <Upload className="w-4 h-4 text-blue-400" />
-                <span className="text-[9px] text-blue-500 dark:text-blue-400 font-bold">
-                  Upload Photo
+                className="flex-1 flex flex-col items-center justify-center gap-1 p-3 border-2 border-dashed border-purple-300 dark:border-purple-700 rounded-lg hover:border-purple-500 transition-colors"
+              >
+                <Camera className="w-4 h-4 text-purple-500" />
+                <span className="text-[9px] text-purple-500 font-bold">
+                  Camera
                 </span>
-              </div>
-            </label>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowCamera(true);
-              }}
-              className="flex-1 flex flex-col items-center justify-center gap-1 p-3 border-2 border-dashed border-purple-200 dark:border-purple-700 rounded-lg hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors"
-            >
-              <Camera className="w-4 h-4 text-purple-400" />
-              <span className="text-[9px] text-purple-500 dark:text-purple-400 font-bold">
-                Camera
+              </button>
+            </div>
+          ) : uploading ? (
+            <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+              <span className="text-xs text-blue-600 dark:text-blue-400">
+                Uploading...
               </span>
-            </button>
-          </div>
-        )}
-      </div>
+            </div>
+          ) : (
+            /* Empty — show upload + camera side by side */
+            <div className="flex gap-2">
+              <label className="flex-1 cursor-pointer">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept="image/*"
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={async (e) => {
+                    e.stopPropagation();
+                    const file = e.target.files?.[0];
+                    if (file) await handleFileUpload(file);
+                  }}
+                />
+                <div className="flex flex-col items-center justify-center gap-1 p-3 border-2 border-dashed border-blue-200 dark:border-blue-700 rounded-lg hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-all">
+                  <Upload className="w-4 h-4 text-blue-400" />
+                  <span className="text-[9px] text-blue-500 dark:text-blue-400 font-bold">
+                    Upload Photo
+                  </span>
+                </div>
+              </label>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowCamera(true);
+                }}
+                className="flex-1 flex flex-col items-center justify-center gap-1 p-3 border-2 border-dashed border-purple-200 dark:border-purple-700 rounded-lg hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors"
+              >
+                <Camera className="w-4 h-4 text-purple-400" />
+                <span className="text-[9px] text-purple-500 dark:text-purple-400 font-bold">
+                  Camera
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Subtle button if no photo is attached yet */
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowPhotoSection(true);
+          }}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg border border-dashed border-blue-200 dark:border-blue-800 transition-colors"
+        >
+          <Camera className="w-3.5 h-3.5" />
+          <span>+ Add Evidence Photo</span>
+        </button>
+      )}
 
       {/* Camera modal */}
       {showCamera &&
@@ -5949,11 +6026,22 @@ export default function FormAnalyticsDashboard() {
               }
             }
 
+            const rawSuggestion = chatFilters.suggestedAnswers?.[qid];
+            const hasFilledSuggestion =
+              rawSuggestion &&
+              typeof rawSuggestion === "object" &&
+              Boolean(
+                (rawSuggestion.inspectionRemark && String(rawSuggestion.inspectionRemark).trim()) ||
+                (rawSuggestion.remark && String(rawSuggestion.remark).trim()) ||
+                (rawSuggestion.inspectionFileUrl && String(rawSuggestion.inspectionFileUrl).trim()) ||
+                (rawSuggestion.fileUrl && String(rawSuggestion.fileUrl).trim())
+              );
+
             questionContexts.push({
               questionId: qid,
               title: q.text || "Question",
               answer: structuredAnswer,
-              suggestion: chatFilters.suggestedAnswers[qid],
+              suggestion: hasFilledSuggestion ? rawSuggestion : undefined,
             });
             selectedQuestionTitles.push(q.text || "Question");
           }
@@ -17134,39 +17222,43 @@ export default function FormAnalyticsDashboard() {
                                         {ctx.title}
                                       </p>
 
-                                      {ctx.suggestion && (
-                                        <div className="mt-1 p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-100 dark:border-amber-800">
-                                          <p className="text-[10px] font-bold text-amber-600 uppercase mb-1">
-                                            Review Feedback:
-                                          </p>
-                                          {ctx.question ? (
-                                            <QuestionSuggestionRenderer
-                                              question={ctx.question}
-                                              value={ctx.suggestion}
-                                              currentAnswer={ctx.answer}
-                                              onChange={(newSuggestion) => {
-                                                // Update the suggestion in chatFilters
-                                                setChatFilters((prev) => ({
-                                                  ...prev,
-                                                  suggestedAnswers: {
-                                                    ...prev.suggestedAnswers,
-                                                    [ctx.question.id]:
-                                                      newSuggestion,
-                                                  },
-                                                }));
-                                              }}
-                                            />
-                                          ) : (
-                                            // Fallback to read-only display if question data is missing
-                                            <div className="text-xs text-gray-600 dark:text-gray-400">
-                                              {renderAnswerDisplay(
-                                                ctx.suggestion,
-                                                { type: "text" } as any,
-                                              )}
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
+                                      {(() => {
+                                        const s = ctx.suggestion;
+                                        if (!s) return null;
+                                        const hasContent =
+                                          typeof s === "object"
+                                            ? Boolean(
+                                                (s.inspectionRemark && String(s.inspectionRemark).trim()) ||
+                                                (s.remark && String(s.remark).trim()) ||
+                                                (s.inspectionFileUrl && String(s.inspectionFileUrl).trim()) ||
+                                                (s.fileUrl && String(s.fileUrl).trim()),
+                                              )
+                                            : Boolean(String(s).trim());
+                                        if (!hasContent) return null;
+
+                                        return (
+                                          <div className="mt-1 p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-100 dark:border-amber-800">
+                                            <p className="text-[10px] font-bold text-amber-600 uppercase mb-1">
+                                              Review Feedback:
+                                            </p>
+                                            {ctx.question ? (
+                                              <QuestionSuggestionRenderer
+                                                question={ctx.question}
+                                                value={ctx.suggestion}
+                                                currentAnswer={ctx.answer}
+                                                readOnly={true}
+                                              />
+                                            ) : (
+                                              <div className="text-xs text-gray-600 dark:text-gray-400">
+                                                {renderAnswerDisplay(
+                                                  ctx.suggestion,
+                                                  { type: "text" } as any,
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
                                     </div>
                                   ),
                                 )}
