@@ -4152,8 +4152,8 @@ export default function FormAnalyticsDashboard() {
 
       const flaggedQuestions = flaggedFromFilters.length > 0
         ? flaggedFromFilters
-        : Array.isArray((chatResponse?.biwReview as any)?.flaggedQuestions)
-          ? (chatResponse?.biwReview as any).flaggedQuestions
+        : Array.isArray((chatResponse?.review as any)?.flaggedQuestions)
+          ? (chatResponse?.review as any).flaggedQuestions
           : [];
 
       const reviewData = {
@@ -16383,11 +16383,16 @@ export default function FormAnalyticsDashboard() {
 
                 {/* Review Options - Right side of header */}
                 <div className="flex items-center gap-3">
-                  {/* === AFTER REVIEW: Show review badge + score === */}
+                  {/* === TVS REVIEW: Review Actions (Accept / Reject / Rework) & Status === */}
                   {(() => {
                     const responseId = chatResponse?.id || "";
 
-                    // First check if review is directly attached to chatResponse (immediate display)
+                    const tvsRev = tvsReviews.find(
+                      (tr) =>
+                        String(tr.responseId || tr.response_id || "") ===
+                        String(responseId),
+                    );
+
                     let reviewer = null;
                     let reviewOption = "";
 
@@ -16396,13 +16401,14 @@ export default function FormAnalyticsDashboard() {
                       reviewOption =
                         chatResponse.review.option ||
                         chatResponse.review.reviewOption;
+                    } else if (tvsRev?.status || tvsRev?.reviewOption) {
+                      reviewer = tvsRev.reviewer;
+                      reviewOption = tvsRev.status || tvsRev.reviewOption;
                     } else {
-                      // Fallback to state-based approach
                       reviewer = reviewedBy[responseId];
                       reviewOption = selectedReviewOptions[responseId];
                     }
 
-                    // Accept reviewer object with either .id or ._id field
                     const hasReviewer =
                       reviewer &&
                       (reviewer.id ||
@@ -16410,6 +16416,70 @@ export default function FormAnalyticsDashboard() {
                         reviewer.name ||
                         reviewer.email);
                     const hasOption = reviewOption && reviewOption !== "";
+
+                    // If a review option is currently pending, show the pending badge with cancel
+                    if (pendingReviewOption) {
+                      return (
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-3 py-1 text-xs font-bold rounded ${
+                              pendingReviewOption === "Rejected"
+                                ? "bg-red-500/30 text-red-100 border border-red-400"
+                                : "bg-yellow-500/30 text-yellow-100 border border-yellow-400"
+                            }`}
+                          >
+                            {pendingReviewOption === "Rejected" ? "❌" : "🔄"}{" "}
+                            {pendingReviewOption} — Select questions & enter feedback
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPendingReviewOption(null);
+                              setChatFilters((prev) => ({ ...prev, questions: [] }));
+                            }}
+                            className="px-2 py-1 text-xs font-bold rounded bg-white/10 text-white hover:bg-white/20 transition-all"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    const reviewCheck = canUserBiwReview(chatResponse);
+
+                    // If not reviewed yet and user is authorized, show the 3 TVS review buttons
+                    if (reviewCheck.canReview && (!hasOption || !hasReviewer)) {
+                      return (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-bold text-white/80 uppercase tracking-wider mr-1">
+                            TVS Review:
+                          </span>
+                          {["Accepted", "Rejected", "Rework"].map((opt) => (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => {
+                                if (opt === "Accepted") {
+                                  handleReviewSubmit(chatResponse.id, opt);
+                                } else {
+                                  setPendingReviewOption(opt);
+                                }
+                              }}
+                              className={`px-3 py-1 text-xs font-bold rounded transition-all border shadow-sm ${
+                                opt === "Accepted"
+                                  ? "bg-green-500/30 border-green-400 text-green-100 hover:bg-green-500/50"
+                                  : opt === "Rejected"
+                                    ? "bg-red-500/30 border-red-400 text-red-100 hover:bg-red-500/50"
+                                    : "bg-yellow-500/30 border-yellow-400 text-yellow-100 hover:bg-yellow-500/50"
+                              }`}
+                            >
+                              {opt === "Accepted" ? "✅" : opt === "Rejected" ? "❌" : "🔄"}{" "}
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    }
 
                     if (!hasReviewer || !hasOption) return null;
 
@@ -16419,8 +16489,8 @@ export default function FormAnalyticsDashboard() {
                       user?.name ||
                       user?.email ||
                       "Reviewer";
-                    const isAccepted = reviewOption === "Accepted";
-                    const isRejected = reviewOption === "Rejected";
+                    const isAccepted = String(reviewOption).toLowerCase().trim() === "accepted";
+                    const isRejected = String(reviewOption).toLowerCase().trim() === "rejected";
                     const emoji = isAccepted ? "✅" : isRejected ? "❌" : "🔄";
                     const badgeClass = isAccepted
                       ? "bg-green-500/20 border-green-400 text-green-100"
@@ -16428,22 +16498,39 @@ export default function FormAnalyticsDashboard() {
                         ? "bg-red-500/20 border-red-400 text-red-100"
                         : "bg-yellow-500/20 border-yellow-400 text-yellow-100";
 
-                    const scoreVal =
-                      performanceScores[chatResponse?.submittedBy || ""] ??
-                      performanceScores[
-                      (chatResponse?.createdBy as any)?._id ||
-                      (chatResponse?.createdBy as string) ||
-                      ""
-                      ];
-
                     return (
-                      <div
-                        className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-lg border ${badgeClass}`}
-                      >
-                        <span>
-                          <span className="font-bold">Status:</span> {emoji}{" "}
-                          {reviewOption} by {reviewerName}
-                        </span>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-lg border ${badgeClass}`}
+                        >
+                          <span>
+                            <span className="font-bold">TVS Review:</span> {emoji}{" "}
+                            {reviewOption} by {reviewerName}
+                          </span>
+                        </div>
+                        {reviewCheck.canReview && (
+                          <div className="flex items-center gap-1 ml-1">
+                            {["Accepted", "Rejected", "Rework"]
+                              .filter((opt) => opt.toLowerCase() !== String(reviewOption).toLowerCase())
+                              .map((opt) => (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  onClick={() => {
+                                    if (opt === "Accepted") {
+                                      handleReviewSubmit(chatResponse.id, opt);
+                                    } else {
+                                      setPendingReviewOption(opt);
+                                    }
+                                  }}
+                                  className="px-2 py-0.5 text-[10px] font-bold rounded bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all"
+                                  title={`Change TVS review to ${opt}`}
+                                >
+                                  {opt === "Accepted" ? "✅ Accept" : opt === "Rejected" ? "❌ Reject" : "🔄 Rework"}
+                                </button>
+                              ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -16513,177 +16600,289 @@ export default function FormAnalyticsDashboard() {
                       })()}
                     </p>
 
-                      {/* Display TVS review overview, status, feedback & discussion context */}
-                      <div className="space-y-4">
-                        {/* 1. Review Summary Card if reviewed */}
-                        {(() => {
-                          const tvsRev = tvsReviews.find(
-                            (tr) =>
-                              String(tr.responseId || tr.response_id || "") ===
-                              String(chatResponse?.id),
-                          );
-                          const revOption =
-                            chatResponse?.review?.option ||
-                            chatResponse?.review?.reviewOption ||
-                            tvsRev?.status ||
-                            tvsRev?.reviewOption ||
-                            selectedReviewOptions[chatResponse?.id || ""];
-                          const reviewerName =
-                            (typeof chatResponse?.review?.reviewer === "object"
-                              ? chatResponse?.review?.reviewer?.name || chatResponse?.review?.reviewer?.email
-                              : chatResponse?.review?.reviewer) ||
-                            tvsRev?.reviewer?.name ||
-                            tvsRev?.reviewer ||
-                            reviewedBy[chatResponse?.id || ""]?.name ||
-                            reviewedBy[chatResponse?.id || ""]?.email ||
-                            "";
-                          const reviewDate =
-                            chatResponse?.review?.reviewAt ||
-                            chatResponse?.review?.reviewedAt ||
-                            tvsRev?.createdAt ||
-                            "";
-                          const remark =
-                            chatResponse?.review?.message ||
-                            chatResponse?.review?.remark ||
-                            chatResponse?.review?.reason ||
-                            tvsRev?.remark ||
-                            "";
-                          const evidenceUrl = chatResponse?.review?.evidenceUrl;
+                      {/* Show question selection panel when Rejected/Rework is pending */}
+                      {pendingReviewOption ? (
+                        <div className="space-y-3">
+                          <div
+                            className={`flex items-center gap-2 p-3 rounded-xl border ${
+                              pendingReviewOption === "Rejected"
+                                ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+                                : "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800"
+                            }`}
+                          >
+                            <span className="text-xl">
+                              {pendingReviewOption === "Rejected" ? "❌" : "🔄"}
+                            </span>
+                            <div>
+                              <p
+                                className={`text-xs font-bold ${
+                                  pendingReviewOption === "Rejected"
+                                    ? "text-red-700 dark:text-red-300"
+                                    : "text-yellow-700 dark:text-yellow-300"
+                                }`}
+                              >
+                                {pendingReviewOption} TVS Review
+                              </p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                {pendingReviewOption === "Rejected"
+                                  ? "Flag questions with issues (optional), then enter mandatory rejection reason in the Message Center on the right."
+                                  : 'Select questions requiring rework, then type feedback in the Message Center and submit.'}
+                              </p>
+                            </div>
+                          </div>
 
-                          if (!revOption && !reviewerName) {
+                          <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">
+                            Select Questions to Flag ({chatFilters.questions.length} selected)
+                          </label>
+
+                          <div className="max-h-[420px] overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-xl shadow-inner scrollbar-thin bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
+                            {form?.sections
+                              ?.flatMap((s) =>
+                                (s.questions || []).filter(
+                                  (q: any) =>
+                                    !q.parentId && !q.showWhen?.questionId,
+                                ),
+                              )
+                              .map((q) => {
+                                const isChecked = chatFilters.questions.includes(q.id);
+                                const qAnswer = (
+                                  responses.find((r) => r.id === chatResponse.id) ||
+                                  tableResponses.find((r) => r.id === chatResponse.id) ||
+                                  chatResponse
+                                )?.answers?.[q.id];
+
+                                return (
+                                  <div
+                                    key={q.id}
+                                    className={`p-3 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 transition-colors ${
+                                      isChecked ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""
+                                    }`}
+                                  >
+                                    <div className="flex items-start gap-3">
+                                      <label className="mt-0.5 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={(e) => {
+                                            const checked = e.target.checked;
+                                            setChatFilters((prev) => ({
+                                              ...prev,
+                                              questions: checked
+                                                ? [...prev.questions, q.id]
+                                                : prev.questions.filter((id) => id !== q.id),
+                                            }));
+                                          }}
+                                          className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer"
+                                        />
+                                      </label>
+                                      <div className="flex-1 min-w-0">
+                                        <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 block mb-1">
+                                          {q.text}
+                                        </span>
+                                        {qAnswer !== undefined && (
+                                          <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-1.5 rounded mb-1">
+                                            <span className="font-semibold text-gray-600 dark:text-gray-400">Current: </span>
+                                            {typeof qAnswer === "object" ? JSON.stringify(qAnswer) : String(qAnswer)}
+                                          </div>
+                                        )}
+                                        {isChecked && (
+                                          <div className="mt-2 space-y-2">
+                                            <QuestionSuggestionRenderer
+                                              question={q}
+                                              currentAnswer={qAnswer}
+                                              value={chatFilters.suggestedAnswers?.[q.id] || {}}
+                                              onChange={(val) =>
+                                                setChatFilters((prev) => ({
+                                                  ...prev,
+                                                  suggestedAnswers: {
+                                                    ...prev.suggestedAnswers,
+                                                    [q.id]: val,
+                                                  },
+                                                }))
+                                              }
+                                            />
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      ) : (
+                        /* Display TVS review overview, status, feedback & discussion context */
+                        <div className="space-y-4">
+                          {/* 1. Review Summary Card if reviewed */}
+                          {(() => {
+                            const tvsRev = tvsReviews.find(
+                              (tr) =>
+                                String(tr.responseId || tr.response_id || "") ===
+                                String(chatResponse?.id),
+                            );
+                            const revOption =
+                              chatResponse?.review?.option ||
+                              chatResponse?.review?.reviewOption ||
+                              tvsRev?.status ||
+                              tvsRev?.reviewOption ||
+                              selectedReviewOptions[chatResponse?.id || ""];
+                            const reviewerName =
+                              (typeof chatResponse?.review?.reviewer === "object"
+                                ? chatResponse?.review?.reviewer?.name || chatResponse?.review?.reviewer?.email
+                                : chatResponse?.review?.reviewer) ||
+                              tvsRev?.reviewer?.name ||
+                              tvsRev?.reviewer ||
+                              reviewedBy[chatResponse?.id || ""]?.name ||
+                              reviewedBy[chatResponse?.id || ""]?.email ||
+                              "";
+                            const reviewDate =
+                              chatResponse?.review?.reviewAt ||
+                              chatResponse?.review?.reviewedAt ||
+                              tvsRev?.createdAt ||
+                              "";
+                            const remark =
+                              chatResponse?.review?.message ||
+                              chatResponse?.review?.remark ||
+                              chatResponse?.review?.reason ||
+                              tvsRev?.remark ||
+                              "";
+                            const evidenceUrl = chatResponse?.review?.evidenceUrl;
+
+                            if (!revOption && !reviewerName) {
+                              return (
+                                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-xs text-gray-500">
+                                  💬 Use the Message Center to discuss this chassis and share inspection feedback.
+                                </div>
+                              );
+                            }
+
+                            const isAccepted = String(revOption).toLowerCase().trim() === "accepted";
+                            const isRejected = String(revOption).toLowerCase().trim() === "rejected";
+                            const badgeColor = isAccepted
+                              ? "bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800"
+                              : isRejected
+                                ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
+                                : "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-800";
+
                             return (
-                              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-xs text-gray-500">
-                                💬 Use the Message Center to discuss this chassis and share inspection feedback.
+                              <div className="p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                    TVS Review Status
+                                  </span>
+                                  <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 ${badgeColor}`}>
+                                    {isAccepted ? "✅" : isRejected ? "❌" : "🔄"} {revOption}
+                                  </span>
+                                </div>
+
+                                {reviewerName && (
+                                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                                    <span className="font-semibold text-gray-700 dark:text-gray-300">Reviewed By:</span> {reviewerName}
+                                    {reviewDate && (
+                                      <span className="ml-2 text-gray-400">
+                                        ({new Date(reviewDate).toLocaleDateString()} {new Date(reviewDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                                      </span>
+                                    )}
+                                  </p>
+                                )}
+
+                                {remark && (
+                                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 text-xs">
+                                    <span className="font-bold text-amber-700 dark:text-amber-400 block mb-1">
+                                      Reviewer Feedback / Remarks:
+                                    </span>
+                                    <p className="text-gray-700 dark:text-gray-300 italic">"{remark}"</p>
+                                  </div>
+                                )}
+
+                                {evidenceUrl && (
+                                  <div>
+                                    <span className="text-[11px] font-bold text-gray-600 dark:text-gray-400 block mb-1">
+                                      Reviewer Attachment / Evidence:
+                                    </span>
+                                    <a href={evidenceUrl} target="_blank" rel="noreferrer" className="inline-block">
+                                      <img
+                                        src={evidenceUrl}
+                                        alt="Review evidence"
+                                        className="w-32 h-20 object-cover rounded-lg border border-gray-200 hover:opacity-90 transition-opacity"
+                                      />
+                                    </a>
+                                  </div>
+                                )}
                               </div>
                             );
-                          }
+                          })()}
 
-                          const isAccepted = String(revOption).toLowerCase().trim() === "accepted";
-                          const isRejected = String(revOption).toLowerCase().trim() === "rejected";
-                          const badgeColor = isAccepted
-                            ? "bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800"
-                            : isRejected
-                              ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
-                              : "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-800";
+                          {/* 2. Flagged Items for Discussion */}
+                          {(() => {
+                            const tvsRev = tvsReviews.find(
+                              (tr) =>
+                                String(tr.responseId || tr.response_id || "") ===
+                                String(chatResponse?.id),
+                            );
+                            const rawFlagged =
+                              chatResponse?.review?.flaggedQuestions ||
+                              tvsRev?.flaggedQuestions ||
+                              [];
+                            const allFlagged = rawFlagged.map((qText: any) => ({
+                              questionId: typeof qText === "string" ? qText : qText.questionId || qText.text || "",
+                              questionText: typeof qText === "string" ? qText : qText.questionText || qText.text || qText.title || "",
+                            })).filter((item: any) => Boolean(item.questionText));
 
-                          return (
-                            <div className="p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                  TVS Review Status
-                                </span>
-                                <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 ${badgeColor}`}>
-                                  {isAccepted ? "✅" : isRejected ? "❌" : "🔄"} {revOption}
-                                </span>
-                              </div>
+                            if (allFlagged.length === 0) return null;
 
-                              {reviewerName && (
-                                <p className="text-xs text-gray-600 dark:text-gray-400">
-                                  <span className="font-semibold text-gray-700 dark:text-gray-300">Reviewed By:</span> {reviewerName}
-                                  {reviewDate && (
-                                    <span className="ml-2 text-gray-400">
-                                      ({new Date(reviewDate).toLocaleDateString()} {new Date(reviewDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
-                                    </span>
-                                  )}
-                                </p>
-                              )}
-
-                              {remark && (
-                                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 text-xs">
-                                  <span className="font-bold text-amber-700 dark:text-amber-400 block mb-1">
-                                    Reviewer Feedback / Remarks:
-                                  </span>
-                                  <p className="text-gray-700 dark:text-gray-300 italic">"{remark}"</p>
+                            return (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                                    Flagged Items for Discussion ({allFlagged.length})
+                                  </label>
                                 </div>
-                              )}
+                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                                  {allFlagged.map((item: any, idx: number) => {
+                                    const qId = item.questionId || item.id;
+                                    const qTitle = item.questionText || item.title || qId;
+                                    const matchingQ = form?.sections
+                                      ?.flatMap((s) => s.questions || [])
+                                      .find((q: any) => q.id === qId || q.text === qTitle);
+                                    const ans = chatResponse?.answers?.[matchingQ?.id || qId];
 
-                              {evidenceUrl && (
-                                <div>
-                                  <span className="text-[11px] font-bold text-gray-600 dark:text-gray-400 block mb-1">
-                                    Reviewer Attachment / Evidence:
-                                  </span>
-                                  <a href={evidenceUrl} target="_blank" rel="noreferrer" className="inline-block">
-                                    <img
-                                      src={evidenceUrl}
-                                      alt="Review evidence"
-                                      className="w-32 h-20 object-cover rounded-lg border border-gray-200 hover:opacity-90 transition-opacity"
-                                    />
-                                  </a>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
-
-                        {/* 2. Flagged Items for Discussion */}
-                        {(() => {
-                          const tvsRev = tvsReviews.find(
-                            (tr) =>
-                              String(tr.responseId || tr.response_id || "") ===
-                              String(chatResponse?.id),
-                          );
-                          const rawFlagged =
-                            chatResponse?.review?.flaggedQuestions ||
-                            tvsRev?.flaggedQuestions ||
-                            [];
-                          const allFlagged = rawFlagged.map((qText: any) => ({
-                            questionId: typeof qText === "string" ? qText : qText.questionId || qText.text || "",
-                            questionText: typeof qText === "string" ? qText : qText.questionText || qText.text || qText.title || "",
-                          })).filter((item: any) => Boolean(item.questionText));
-
-                          if (allFlagged.length === 0) return null;
-
-                          return (
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                  Flagged Items for Discussion ({allFlagged.length})
-                                </label>
-                              </div>
-                              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                                {allFlagged.map((item: any, idx: number) => {
-                                  const qId = item.questionId || item.id;
-                                  const qTitle = item.questionText || item.title || qId;
-                                  const matchingQ = form?.sections
-                                    ?.flatMap((s) => s.questions || [])
-                                    .find((q: any) => q.id === qId || q.text === qTitle);
-                                  const ans = chatResponse?.answers?.[matchingQ?.id || qId];
-
-                                  return (
-                                    <div
-                                      key={idx}
-                                      className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-2xs space-y-2"
-                                    >
-                                      <div className="flex items-start justify-between gap-2">
-                                        <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">
-                                          {idx + 1}. {qTitle}
-                                        </p>
-                                        <button
-                                          onClick={() => {
-                                            const replyPrefix = `Replying regarding "${qTitle.substring(0, 30)}...": `;
-                                            setNewMessage((prev) => prev ? `${prev}\n${replyPrefix}` : replyPrefix);
-                                            const textarea = document.querySelector("textarea");
-                                            if (textarea) textarea.focus();
-                                          }}
-                                          className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
-                                        >
-                                          Reply to this
-                                        </button>
-                                      </div>
-                                      {ans !== undefined && (
-                                        <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-2 rounded">
-                                          <span className="font-semibold text-gray-600 dark:text-gray-400">Current Answer: </span>
-                                          {typeof ans === "object" ? JSON.stringify(ans) : String(ans)}
+                                    return (
+                                      <div
+                                        key={idx}
+                                        className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-2xs space-y-2"
+                                      >
+                                        <div className="flex items-start justify-between gap-2">
+                                          <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                                            {idx + 1}. {qTitle}
+                                          </p>
+                                          <button
+                                            onClick={() => {
+                                              const replyPrefix = `Replying regarding "${qTitle.substring(0, 30)}...": `;
+                                              setNewMessage((prev) => prev ? `${prev}\n${replyPrefix}` : replyPrefix);
+                                              const textarea = document.querySelector("textarea");
+                                              if (textarea) textarea.focus();
+                                            }}
+                                            className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
+                                          >
+                                            Reply to this
+                                          </button>
                                         </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
+                                        {ans !== undefined && (
+                                          <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-2 rounded">
+                                            <span className="font-semibold text-gray-600 dark:text-gray-400">Current Answer: </span>
+                                            {typeof ans === "object" ? JSON.stringify(ans) : String(ans)}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
+                            );
+                          })()}
+                        </div>
+                      )}
                   </div>
                 </div>
               </div>
@@ -16848,10 +17047,10 @@ export default function FormAnalyticsDashboard() {
                     (m) => !m.message?.startsWith("[BIW Review]")
                   );
                   const hasReviewFeedback = Boolean(
-                    chatResponse?.biwReview?.status ||
                     (chatResponse as any)?.review?.status ||
                     (chatResponse as any)?.review?.message ||
-                    chatResponse?.biwReview?.remark
+                    (chatResponse as any)?.review?.option ||
+                    (chatResponse as any)?.review?.reviewOption
                   );
                   const hasChatArisen = hasMessages || hasReviewFeedback;
 
@@ -16991,8 +17190,7 @@ export default function FormAnalyticsDashboard() {
                           {!isAssignedReviewer ? "Reply" : "Message"} will be sent to{" "}
                           <b>
                             {!isAssignedReviewer || isSubmitter
-                              ? chatResponse.biwReview?.reviewedByName ||
-                                (typeof chatResponse.review?.reviewer === "object"
+                              ? (typeof chatResponse.review?.reviewer === "object"
                                   ? chatResponse.review?.reviewer?.name || chatResponse.review?.reviewer?.email
                                   : chatResponse.review?.reviewer) ||
                                 "the reviewer"

@@ -5084,11 +5084,8 @@ export const getResponsesByForm = async (req, res) => {
           : (message.from.username || message.from.email);
       }
 
-      if (!reviewerName && response.biwReview?.reviewedByName) {
-        reviewerName = response.biwReview.reviewedByName;
-      }
-
-      const reviewStatus = review?.reviewOption || existingReview.reviewOption || existingReview.status || response.biwReview?.status || null;
+      // TVS Review is exclusively for chat discussion / Quality reviews, completely separate from BIW review
+      const reviewStatus = review?.reviewOption || existingReview.reviewOption || existingReview.status || null;
       const rawChatMsg = message?.message || existingReview.remark || existingReview.reason || null;
       const isAutoBiwMsg = rawChatMsg && String(rawChatMsg).startsWith('[BIW Review]');
       const chatMsg = isAutoBiwMsg ? null : rawChatMsg;
@@ -5098,7 +5095,7 @@ export const getResponsesByForm = async (req, res) => {
         ? message.questionContexts.map(c => c.title)
         : (message?.questionTitles?.length > 0
             ? message.questionTitles
-            : (response.biwReview?.flaggedQuestions?.map(q => typeof q === 'string' ? q : q.questionText) || existingReview.flaggedQuestions || []));
+            : (existingReview.flaggedQuestions || []));
 
       // Attach review info
       const reviewInfo = (reviewStatus || chatMsg || flaggedQuestions.length > 0) ? {
