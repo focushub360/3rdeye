@@ -17096,6 +17096,24 @@ export default function FormAnalyticsDashboard() {
                     return null;
                   }
 
+                  const questionRemarks = (chatFilters.questions || [])
+                    .map((qId) => {
+                      const s = chatFilters.suggestedAnswers?.[qId];
+                      return (s?.inspectionRemark || s?.remark || "").trim();
+                    })
+                    .filter(Boolean)
+                    .join("; ");
+
+                  const effectiveReviewNote = (newMessage.trim() || questionRemarks).trim();
+                  const isRejectionBlank = pendingReviewOption === "Rejected" && !effectiveReviewNote;
+                  const isSubmitDisabled = isSendingMessage || (
+                    pendingReviewOption === "Rejected"
+                      ? isRejectionBlank
+                      : pendingReviewOption === "Rework"
+                        ? (!effectiveReviewNote && (chatFilters.questions || []).length === 0)
+                        : !newMessage.trim()
+                  );
+
                   return (
                     <div className="space-y-3">
                       {pendingReviewOption === "Rejected" && (
@@ -17115,7 +17133,9 @@ export default function FormAnalyticsDashboard() {
                           onChange={(e) => setNewMessage(e.target.value)}
                           placeholder={
                             pendingReviewOption === "Rejected"
-                              ? "Enter mandatory rejection reason explaining why this chassis is rejected..."
+                              ? questionRemarks
+                                ? `Using remark from flagged question: "${questionRemarks}". Or type additional notes here...`
+                                : "Enter mandatory rejection reason explaining why this chassis is rejected..."
                               : !isAssignedReviewer
                                 ? "Type your reply to the reviewer..."
                                 : isSubmitter
@@ -17124,29 +17144,34 @@ export default function FormAnalyticsDashboard() {
                           }
                           className={`w-full px-5 py-4 bg-gray-50 dark:bg-gray-800 border-2 rounded-2xl text-sm focus:ring-0 transition-all resize-none shadow-inner text-gray-800 dark:text-gray-200 ${
                             pendingReviewOption === "Rejected"
-                              ? !newMessage.trim()
+                              ? isRejectionBlank
                                 ? "border-red-400/80 focus:border-red-600 dark:border-red-500/80 dark:focus:border-red-400 bg-red-50/20"
-                                : "border-red-300 focus:border-red-500 dark:border-red-600"
+                                : "border-emerald-300 focus:border-emerald-500 dark:border-emerald-600"
                               : "border-transparent focus:border-indigo-500 dark:focus:border-indigo-400"
                           }`}
                           rows={3}
                         />
                       </div>
-                      {pendingReviewOption === "Rejected" && !newMessage.trim() && (
+                      {pendingReviewOption === "Rejected" && isRejectionBlank && (
                         <p className="text-[11px] text-red-600 dark:text-red-400 font-semibold flex items-center gap-1 px-1">
-                          <span>⚠️</span> Rejection reason cannot be blank. Please enter the reason before submitting.
+                          <span>⚠️</span> Rejection reason cannot be blank. Enter a reason in the box above or add a remark on any flagged question.
+                        </p>
+                      )}
+                      {pendingReviewOption === "Rejected" && !isRejectionBlank && !newMessage.trim() && questionRemarks && (
+                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 px-1">
+                          <span>✓</span> Rejection reason detected from question remark: <i>"{questionRemarks}"</i>
                         </p>
                       )}
                       <button
                         onClick={async () => {
-                          if (pendingReviewOption === "Rejected" && !newMessage.trim()) {
-                            showToast("Rejection reason is mandatory. Please enter a reason in the chat box.", "error");
+                          if (pendingReviewOption === "Rejected" && !effectiveReviewNote) {
+                            showToast("Rejection reason is mandatory. Please enter a reason in the chat box or on a flagged question.", "error");
                             return;
                           }
                           // If a Rejected/Rework review is pending and user is not submitter, send message + submit review together
                           if (pendingReviewOption && !isSubmitter) {
                             const option = pendingReviewOption;
-                            const reviewNote = newMessage.trim();
+                            const reviewNote = effectiveReviewNote || (option === "Rework" ? "Rework requested for flagged questions." : "");
                             if (option === "Rejected" && !reviewNote) {
                               showToast("Rejection reason is mandatory.", "error");
                               return;
@@ -17162,7 +17187,7 @@ export default function FormAnalyticsDashboard() {
                             await handleSendMessage();
                           }
                         }}
-                        disabled={isSendingMessage || (pendingReviewOption === "Rejected" ? !newMessage.trim() : !newMessage.trim())}
+                        disabled={isSubmitDisabled}
                         className={`w-full flex items-center justify-center gap-2 px-6 py-3.5 text-white text-sm font-black rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98] shadow-xl ${pendingReviewOption && !isSubmitter
                           ? pendingReviewOption === "Rejected"
                             ? "bg-red-600 hover:bg-red-700 shadow-red-200 dark:shadow-none"
