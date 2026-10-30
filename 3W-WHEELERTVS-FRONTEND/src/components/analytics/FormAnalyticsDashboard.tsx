@@ -5421,8 +5421,22 @@ export default function FormAnalyticsDashboard() {
     }
 
     const rank = trackingQId ? r.responseRanks?.[trackingQId] : null;
-    const biwStatus = r.biwReview?.status;
+    const biwStatus = String(r.biwReview?.status || "").trim().toLowerCase();
+    const tvsReviewStatus = String(r.review?.reviewOption || r.review?.status || "").trim().toLowerCase();
     const rawStatus = (r.status || "").trim();
+
+    // 0. REVIEW OVERRIDES: Review feedback (BIW Review or TVS Review) overrides initial inspection status
+    if (biwStatus === "rejected" || tvsReviewStatus === "rejected") {
+      return "Rejected";
+    }
+    if (biwStatus === "rework" || biwStatus === "reworked" || tvsReviewStatus === "rework") {
+      if (trackingQId && rank && rank > 1) return `Rework ${rank}`;
+      return "Rework 1";
+    }
+    if (biwStatus === "accepted" || tvsReviewStatus === "accepted") {
+      if (isRework || (rank && rank > 1)) return "Rework Accepted";
+      return "Direct Ok";
+    }
 
     // 1. Explicit response status check
     if (rawStatus === "Rejected") return "Rejected";
@@ -5537,12 +5551,25 @@ export default function FormAnalyticsDashboard() {
         }
 
         const rank = (chassisQuestionId && r.responseRanks?.[chassisQuestionId]) || (index + 1);
-        const biwStatus = r.biwReview?.status;
+        const biwStatus = String(r.biwReview?.status || "").trim().toLowerCase();
+        const tvsReviewStatus = String(r.review?.reviewOption || r.review?.status || "").trim().toLowerCase();
         const rawStatus = (r.status || "").trim();
 
         let calculatedStatus = (rank && rank > 1) || hasBeenReworked ? "Rework Accepted" : "Direct Ok";
 
-        if (rawStatus === "Rejected") {
+        // 0. REVIEW OVERRIDES: Review feedback (BIW Review or TVS Review) overrides initial inspection status
+        if (biwStatus === "rejected" || tvsReviewStatus === "rejected") {
+          calculatedStatus = "Rejected";
+        } else if (biwStatus === "rework" || biwStatus === "reworked" || tvsReviewStatus === "rework") {
+          hasBeenReworked = true;
+          calculatedStatus = (!groupId.startsWith("untracked-") && rank > 1) ? `Rework ${rank}` : "Rework 1";
+        } else if (biwStatus === "accepted" || tvsReviewStatus === "accepted") {
+          if (isRework || hasBeenReworked || (rank && rank > 1)) {
+            calculatedStatus = "Rework Accepted";
+          } else {
+            calculatedStatus = "Direct Ok";
+          }
+        } else if (rawStatus === "Rejected") {
           calculatedStatus = "Rejected";
         } else if (rawStatus === "Rework Accepted" || rawStatus === "Rework Completed") {
           calculatedStatus = "Rework Accepted";
@@ -7944,9 +7971,17 @@ export default function FormAnalyticsDashboard() {
       }
 
       // Dispatch is tracked independently of status - a response can be
-      // Direct Ok (or any other status) AND already dispatched, so this
-      // is counted separately rather than as a mutually-exclusive bucket.
-      if (response.isDispatched) {
+      // Direct Ok (or any other status) AND already dispatched, but NEVER if it has active rework/rejection.
+      const respBiwStatus = String(response.biwReview?.status || "").toLowerCase();
+      const respTvsStatus = String(response.review?.reviewOption || response.review?.status || "").toLowerCase();
+      const isRespReworkOrRejected =
+        respBiwStatus === "rework" ||
+        respBiwStatus === "reworked" ||
+        respBiwStatus === "rejected" ||
+        respTvsStatus === "rework" ||
+        respTvsStatus === "rejected";
+
+      if (response.isDispatched && !isRespReworkOrRejected) {
         dispatched++;
       }
     });
@@ -12207,7 +12242,25 @@ export default function FormAnalyticsDashboard() {
     ? filteredResponses.filter(response => {
         if (!isOwnTenantResponse(response)) return false; // exclude cross-tenant
 
-        const status = responseStatuses[response.id] || "";
+        const biwStatus = String(response.biwReview?.status || "").toLowerCase();
+        const tvsStatus = String(response.review?.reviewOption || response.review?.status || "").toLowerCase();
+        const isReworkOrRejected =
+          biwStatus === "rework" ||
+          biwStatus === "reworked" ||
+          biwStatus === "rejected" ||
+          tvsStatus === "rework" ||
+          tvsStatus === "rejected";
+
+        if (isReworkOrRejected) return false;
+
+        const respId = response.id || (response as any)._id;
+        const status =
+          tableDisplayStatuses[response.id] ||
+          tableDisplayStatuses[(response as any)._id] ||
+          (respId ? tableDisplayStatuses[respId] : null) ||
+          responseStatuses[response.id] ||
+          "";
+
         return status === "Direct Ok" ||
           status === "Rework Accepted" ||
           status === "Rework Completed" ||
@@ -14360,21 +14413,32 @@ export default function FormAnalyticsDashboard() {
                                         computeFastRowStatus(response, chassisQuestionId) ||
                                         (response.status && response.status !== "pending" ? response.status : "Direct Ok");
 
-                                      // 1️⃣ Check if response is eligible for dispatch based on status
-                                      const canShowDispatch = status === "Direct Ok" ||
+                                      const biwStatus = String(response.biwReview?.status || "").toLowerCase();
+                                      const tvsStatus = String(response.review?.reviewOption || response.review?.status || "").toLowerCase();
+                                      const isReworkOrRejected =
+                                        biwStatus === "rework" ||
+                                        biwStatus === "reworked" ||
+                                        biwStatus === "rejected" ||
+                                        tvsStatus === "rework" ||
+                                        tvsStatus === "rejected";
+
+                                      // 1️⃣ Check if response is eligible for dispatch based on status and reviews
+                                      const canShowDispatch = !isReworkOrRejected && (
+                                        status === "Direct Ok" ||
                                         status === "Rework Accepted" ||
                                         status === "Rework Completed" ||
-                                        status === "Accepted";
+                                        status === "Accepted"
+                                      );
 
                                       // 2️⃣ Use the tenant check function
                                       const isSameTenant = isOwnTenantResponse(response);
 
-                                      // ❌ Not eligible based on status
-                                      if (!canShowDispatch) {
+                                      // ❌ If under active rework or rejection, dispatch is blocked
+                                      if (isReworkOrRejected || !canShowDispatch) {
                                         return <span className="text-gray-400 text-xs">-</span>;
                                       }
 
-                                      // ✅ Already dispatched - show read-only badge
+                                      // ✅ Already dispatched - show read-only badge (only if not under active rework/rejection)
                                       if (response.isDispatched) {
                                         const dispatchDate = response.dispatchedAt ? new Date(response.dispatchedAt) : null;
                                         return (

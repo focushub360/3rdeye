@@ -1067,6 +1067,13 @@ export const submitReview = async (req, res) => {
         } : {})
       };
 
+      if (reviewOption === 'Rework' || reviewOption === 'Rejected') {
+        reviewFieldsToSet.isDispatched = false;
+        reviewFieldsToSet.dispatchedAt = null;
+        reviewFieldsToSet.dispatchedBy = null;
+        reviewFieldsToSet.dispatchedByName = null;
+      }
+
       const updatedRespDoc = await Response.findOneAndUpdate(respQuery, {
         $set: reviewFieldsToSet
       }, { new: true });

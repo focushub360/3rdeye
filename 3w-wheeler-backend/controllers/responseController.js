@@ -4030,6 +4030,21 @@ export const updateResponse = async (req, res) => {
       }
 
       if (req.body.isDispatched === true && !response.isDispatched) {
+        const biwStatus = String(response.biwReview?.status || '').toLowerCase();
+        const tvsStatus = String(response.review?.reviewOption || response.review?.status || '').toLowerCase();
+        if (
+          biwStatus === 'rework' ||
+          biwStatus === 'reworked' ||
+          biwStatus === 'rejected' ||
+          tvsStatus === 'rework' ||
+          tvsStatus === 'rejected'
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: 'Cannot dispatch this chassis because it has an active Rework or Rejected review. It must be Accepted first.'
+          });
+        }
+
         response.isDispatched = true;
         response.dispatchedAt = new Date();
         response.dispatchedBy = req.user._id;
@@ -4143,6 +4158,13 @@ export const updateResponse = async (req, res) => {
           evidenceUrl: biwReview.evidenceUrl || '',
           flaggedQuestions: Array.isArray(biwReview.flaggedQuestions) ? biwReview.flaggedQuestions : []
         };
+
+        if (biwReview.status === 'Reworked' || biwReview.status === 'Rework' || biwReview.status === 'Rejected') {
+          response.isDispatched = false;
+          response.dispatchedAt = null;
+          response.dispatchedBy = null;
+          response.dispatchedByName = null;
+        }
       }
     }
 
@@ -4151,6 +4173,7 @@ export const updateResponse = async (req, res) => {
       if (reviewObj === null || reviewObj === undefined) {
         response.review = undefined;
       } else {
+        const revOption = String(reviewObj.reviewOption || reviewObj.status || '');
         response.review = {
           ...reviewObj,
           status: reviewObj.status || reviewObj.reviewOption || 'pending',
@@ -4159,6 +4182,13 @@ export const updateResponse = async (req, res) => {
           reviewedByName: userUsername || userEmail || 'Reviewer',
           reviewedAt: new Date()
         };
+
+        if (revOption === 'Rework' || revOption === 'Rejected') {
+          response.isDispatched = false;
+          response.dispatchedAt = null;
+          response.dispatchedBy = null;
+          response.dispatchedByName = null;
+        }
       }
     }
 
@@ -5778,6 +5808,13 @@ export const bulkUpdateBiwReview = async (req, res) => {
           reviewedByName: userUsername || userEmail || 'Reviewer',
           reviewedAt: new Date()
         };
+
+        if (status === 'Reworked' || status === 'Rework' || status === 'Rejected') {
+          response.isDispatched = false;
+          response.dispatchedAt = null;
+          response.dispatchedBy = null;
+          response.dispatchedByName = null;
+        }
       }
 
       await response.save();
