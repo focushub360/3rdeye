@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Calendar,
   ArrowUp,
@@ -13,21 +13,18 @@ import {
   Search,
   FileSpreadsheet,
   ArrowLeft,
-  Filter,
   List,
-  ExternalLink,
   Eye,
   FileText,
-  Users,
   Clock,
   Layers,
   LayoutGrid,
-  CheckCircle,
+  ChevronDown,
   X,
   PieChart as PieChartIcon
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend as ChartLegend } from 'chart.js';
 import { Doughnut } from 'react-chartjs-2';
 import { apiClient } from '../../api/client';
@@ -75,6 +72,9 @@ interface RawResponse {
   status: string;
   biwReviewStatus: string;
   defects: string[];
+  formTitle?: string;
+  chassisVin?: string;
+  partDescription?: string;
 }
 
 export interface FormSummaryItem {
@@ -117,9 +117,26 @@ interface SummaryData {
 
 export const QualityDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'tvs' | 'biw' | 'daily' | 'data' | 'overall'>('tvs');
-  const [selectedFormId, setSelectedFormId] = useState<string>('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Multi-form selection state initialized from URL query params (e.g. ?formIds=... or ?formId=...)
+  const initialFormIds = useMemo(() => {
+    const raw = searchParams.get('formIds') || searchParams.get('formId');
+    if (raw && raw !== 'all') {
+      return raw.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    return [];
+  }, []);
+
+  const [activeTab, setActiveTab] = useState<'tvs' | 'biw' | 'daily' | 'data' | 'overall'>('data');
   const [dateRange, setDateRange] = useState<string>('all');
+  const [selectedFormIds, setSelectedFormIds] = useState<string[]>(initialFormIds);
+  const [isFormDropdownOpen, setIsFormDropdownOpen] = useState<boolean>(false);
+  const [formSearchQuery, setFormSearchQuery] = useState<string>('');
+  const formDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Preserve all available forms and counts across filtered fetches
+  const [availableFormOptions, setAvailableFormOptions] = useState<Array<{ id: string; title: string; totalChecked?: number }>>([]);
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
   const [searchInspector, setSearchInspector] = useState<string>('');
@@ -130,27 +147,76 @@ export const QualityDashboard: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<SummaryData | null>(null);
-  const [loadTimeMs, setLoadTimeMs] = useState<number | null>(null);
+  const [, setLoadTimeMs] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState<number>(0);
 
-  // Filter forms list by search query
+  // Synchronize selected forms with URL search params
+  const updateSelectedForms = (newIds: string[]) => {
+    setSelectedFormIds(newIds);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (newIds.length > 0) {
+        next.set('formIds', newIds.join(','));
+      } else {
+        next.delete('formIds');
+        next.delete('formId');
+      }
+      return next;
+    }, { replace: true });
+  };
+
+  // Filter forms list by search query AND selectedFormIds
   const filteredForms = useMemo(() => {
     if (!data?.formsSummary) return [];
-    if (!searchForm.trim()) return data.formsSummary;
+    let list = data.formsSummary;
+    if (selectedFormIds.length > 0) {
+      list = list.filter(f => selectedFormIds.includes(f.id) || selectedFormIds.includes(f._id));
+    }
+    if (!searchForm.trim()) return list;
     const q = (searchForm || '').toLowerCase().trim();
-    return data.formsSummary.filter(f => String(f.title || '').toLowerCase().includes(q));
-  }, [data?.formsSummary, searchForm]);
+    return list.filter(f => String(f.title || '').toLowerCase().includes(q));
+  }, [data?.formsSummary, selectedFormIds, searchForm]);
+
+  // BIW Tab State and Form-Related Data Memos
+  const [biwInspectorSearch, setBiwInspectorSearch] = useState<string>('');
+
+  const biwFormItems = useMemo(() => {
+    if (!data?.formsSummary) return [];
+    if (selectedFormIds.length === 0) return data.formsSummary;
+    return data.formsSummary.filter(f => selectedFormIds.includes(f.id) || selectedFormIds.includes(f._id));
+  }, [data?.formsSummary, selectedFormIds]);
+
+  const biwOverallSummary = useMemo(() => {
+    const totalAccept = biwFormItems.reduce((sum, f) => sum + (f.biwAcceptCount || 0), 0);
+    const totalDefect = biwFormItems.reduce((sum, f) => sum + (f.biwDefectCount || 0), 0);
+    const totalReviewed = totalAccept + totalDefect;
+    const rate = totalReviewed > 0 ? Math.round((totalAccept / totalReviewed) * 10000) / 100 : 0;
+    return { totalAccept, totalDefect, totalReviewed, rate };
+  }, [biwFormItems]);
+
+  const biwInspectors = useMemo(() => {
+    if (!data?.inspectors) return [];
+    const filtered = data.inspectors.filter(insp => (insp.biwAcceptCount > 0 || insp.biwDefectCount > 0));
+    if (!biwInspectorSearch.trim()) return filtered;
+    const q = biwInspectorSearch.toLowerCase().trim();
+    return filtered.filter(insp => insp.name.toLowerCase().includes(q));
+  }, [data?.inspectors, biwInspectorSearch]);
 
   // Overall Quality Pie Chart State & Real Data Sync
   const [hoveredSlice, setHoveredSlice] = useState<'all' | 'accepted' | 'rework' | 'rejected'>('all');
   const [pieSearchQuery, setPieSearchQuery] = useState<string>('');
 
+  // Filter breakdown list strictly by selected forms (or show all if no selection)
   const filteredFormSummaryList = useMemo(() => {
     if (!data?.formsSummary) return [];
-    if (!pieSearchQuery.trim()) return data.formsSummary;
+    let list = data.formsSummary;
+    if (selectedFormIds.length > 0) {
+      list = list.filter(f => selectedFormIds.includes(f.id) || selectedFormIds.includes(f._id));
+    }
+    if (!pieSearchQuery.trim()) return list;
     const q = (pieSearchQuery || '').toLowerCase().trim();
-    return data.formsSummary.filter(f => String(f.title || '').toLowerCase().includes(q));
-  }, [data?.formsSummary, pieSearchQuery]);
+    return list.filter(f => String(f.title || '').toLowerCase().includes(q));
+  }, [data?.formsSummary, selectedFormIds, pieSearchQuery]);
 
   const pieChartData = useMemo(() => {
     if (!data) return { labels: [], datasets: [] };
@@ -304,7 +370,7 @@ export const QualityDashboard: React.FC = () => {
     return { startDate: start.toISOString(), endDate: new Date().toISOString() };
   }, [dateRange, customStartDate, customEndDate]);
 
-  const fetchSummary = async (forceNetwork = false) => {
+  const fetchSummary = async (forceNetwork = true) => {
     try {
       setLoading(true);
       setError(null);
@@ -318,7 +384,7 @@ export const QualityDashboard: React.FC = () => {
       const startTime = performance.now();
       
       const res = await apiClient.getQualitySummary({
-        formId: selectedFormId !== 'all' ? selectedFormId : undefined,
+        formIds: selectedFormIds.length > 0 ? selectedFormIds : undefined,
         startDate,
         endDate,
         forceNetwork
@@ -328,8 +394,19 @@ export const QualityDashboard: React.FC = () => {
       const endTime = performance.now();
       setLoadTimeMs(Math.round(endTime - startTime));
       
-      if (res && res.success && res.data) {
-        setData(res.data);
+      // Safely unwrap response whether client.ts returns payload directly or wrapped in { success, data }
+      const actualData = (res && res.summary) ? res : (res && res.data) ? res.data : null;
+
+      if (actualData && actualData.summary) {
+        setData(actualData);
+        if (actualData.formOptions && actualData.formOptions.length > 0) {
+          setAvailableFormOptions(prev => {
+            if (prev.length === 0 || selectedFormIds.length === 0) {
+              return actualData.formOptions;
+            }
+            return prev;
+          });
+        }
       } else {
         throw new Error('Invalid response structure');
       }
@@ -343,8 +420,22 @@ export const QualityDashboard: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchSummary(false);
-  }, [selectedFormId, startDate, endDate]);
+    fetchSummary(true);
+  }, [selectedFormIds, startDate, endDate]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (formDropdownRef.current && !formDropdownRef.current.contains(event.target as Node)) {
+        setIsFormDropdownOpen(false);
+      }
+    };
+    if (isFormDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isFormDropdownOpen]);
 
   const handleExportExcel = () => {
     if (!data) return;
@@ -423,6 +514,57 @@ export const QualityDashboard: React.FC = () => {
     }
   };
 
+  const allAvailableForms = useMemo(() => {
+    if (availableFormOptions.length > 0) return availableFormOptions;
+    if (data?.formOptions && data.formOptions.length > 0) return data.formOptions;
+    return [];
+  }, [availableFormOptions, data?.formOptions]);
+
+  const filteredDropdownForms = useMemo(() => {
+    if (!formSearchQuery.trim()) return allAvailableForms;
+    const q = formSearchQuery.toLowerCase().trim();
+    return allAvailableForms.filter(f => String(f.title || '').toLowerCase().includes(q));
+  }, [allAvailableForms, formSearchQuery]);
+
+  const totalAllFormsInspections = useMemo(() => {
+    return allAvailableForms.reduce((sum, f) => sum + (f.totalChecked || 0), 0);
+  }, [allAvailableForms]);
+
+  const selectedFormsInspections = useMemo(() => {
+    if (selectedFormIds.length === 0) return data?.summary?.totalChecked || totalAllFormsInspections;
+    return allAvailableForms
+      .filter(f => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id)))
+      .reduce((sum, f) => sum + (f.totalChecked || 0), 0);
+  }, [selectedFormIds, allAvailableForms, data?.summary?.totalChecked, totalAllFormsInspections]);
+
+  const formButtonLabel = useMemo(() => {
+    if (selectedFormIds.length === 0) {
+      return `All My Forms (${(data?.summary?.totalChecked || totalAllFormsInspections).toLocaleString()} Responses)`;
+    }
+    if (selectedFormIds.length === 1) {
+      const single = allAvailableForms.find(f => f.id === selectedFormIds[0] || (f._id && f._id === selectedFormIds[0]));
+      return single 
+        ? `${single.title} (${single.totalChecked !== undefined ? single.totalChecked.toLocaleString() : '...'} inspections)`
+        : '1 Form Selected';
+    }
+    return `${selectedFormIds.length} Forms Selected (${selectedFormsInspections.toLocaleString()} inspections)`;
+  }, [selectedFormIds, allAvailableForms, data?.summary?.totalChecked, totalAllFormsInspections, selectedFormsInspections]);
+
+  const handleToggleForm = (formId: string) => {
+    const next = selectedFormIds.includes(formId)
+      ? selectedFormIds.filter(id => id !== formId)
+      : [...selectedFormIds, formId];
+    updateSelectedForms(next);
+  };
+
+  const handleSelectAllForms = () => {
+    updateSelectedForms([]);
+  };
+
+  const handleClearAllForms = () => {
+    updateSelectedForms([]);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
@@ -441,18 +583,157 @@ export const QualityDashboard: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          <select
-            value={selectedFormId}
-            onChange={(e) => setSelectedFormId(e.target.value)}
-            className="input-field text-sm font-medium border-gray-300 py-2 rounded-lg bg-white shadow-sm"
-          >
-            <option value="all">All My Forms ({data?.summary?.totalChecked || 0} Responses)</option>
-            {data?.formOptions?.map(f => (
-              <option key={f.id} value={f.id}>
-                {f.title} ({f.totalChecked !== undefined ? f.totalChecked : '...'} inspections)
-              </option>
-            ))}
-          </select>
+          {/* Multi-Form Selection Filter Dropdown */}
+          <div className="relative" ref={formDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setIsFormDropdownOpen(prev => !prev)}
+              className={`flex items-center justify-between gap-2 px-3 py-2 text-sm font-medium border rounded-lg bg-white shadow-xs transition-all max-w-[280px] sm:max-w-[360px] cursor-pointer hover:border-blue-400 ${
+                selectedFormIds.length > 0
+                  ? 'border-blue-500 ring-2 ring-blue-100 text-blue-900 bg-blue-50/20'
+                  : 'border-gray-300 text-gray-800'
+              }`}
+              title={formButtonLabel}
+            >
+              <div className="flex items-center gap-2 truncate">
+                <Layers className={`w-4 h-4 flex-shrink-0 ${selectedFormIds.length > 0 ? 'text-blue-600' : 'text-gray-500'}`} />
+                <span className="truncate font-semibold">{formButtonLabel}</span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {selectedFormIds.length > 1 && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-blue-600 text-white leading-none">
+                    {selectedFormIds.length}
+                  </span>
+                )}
+                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isFormDropdownOpen ? 'rotate-180 text-blue-600' : ''}`} />
+              </div>
+            </button>
+
+            {/* Dropdown Menu Popover */}
+            {isFormDropdownOpen && (
+              <div className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                {/* Search Bar */}
+                <div className="p-2.5 border-b border-gray-100 bg-gray-50/80 flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={formSearchQuery}
+                      onChange={(e) => setFormSearchQuery(e.target.value)}
+                      placeholder="Search forms..."
+                      className="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-800 placeholder-gray-400"
+                      autoFocus
+                    />
+                    {formSearchQuery && (
+                      <button
+                        onClick={() => setFormSearchQuery('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={handleSelectAllForms}
+                      className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 px-2 py-1 hover:bg-blue-50 rounded"
+                    >
+                      All
+                    </button>
+                    {selectedFormIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleClearAllForms}
+                        className="text-[11px] font-semibold text-red-600 hover:text-red-800 px-2 py-1 hover:bg-red-50 rounded"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Form Options List */}
+                <div className="max-h-72 overflow-y-auto divide-y divide-gray-100 p-1">
+                  {/* "All My Forms" option */}
+                  <div
+                    onClick={handleSelectAllForms}
+                    className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs font-semibold ${
+                      selectedFormIds.length === 0
+                        ? 'bg-blue-50 text-blue-900 font-bold'
+                        : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedFormIds.length === 0}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={handleSelectAllForms}
+                        className="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500 accent-blue-600 cursor-pointer"
+                      />
+                      <span className="truncate">All My Forms</span>
+                    </div>
+                    <span className="text-[11px] font-medium text-gray-500 ml-2 whitespace-nowrap">
+                      {totalAllFormsInspections.toLocaleString()} total
+                    </span>
+                  </div>
+
+                  {/* Individual Forms */}
+                  {filteredDropdownForms.map(f => {
+                    const isSelected = selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id));
+                    return (
+                      <div
+                        key={f.id || f._id}
+                        onClick={() => handleToggleForm(f.id)}
+                        className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs ${
+                          isSelected
+                            ? 'bg-blue-50/70 text-blue-900 font-bold'
+                            : 'text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => handleToggleForm(f.id)}
+                            className="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500 accent-blue-600 cursor-pointer"
+                          />
+                          <span className="truncate" title={f.title}>{f.title}</span>
+                        </div>
+                        <span className={`text-[11px] font-semibold ml-2 whitespace-nowrap ${isSelected ? 'text-blue-700' : 'text-gray-400'}`}>
+                          {f.totalChecked !== undefined ? f.totalChecked.toLocaleString() : '...'} units
+                        </span>
+                      </div>
+                    );
+                  })}
+
+                  {filteredDropdownForms.length === 0 && (
+                    <div className="py-6 text-center text-xs text-gray-400">
+                      No forms matching "{formSearchQuery}"
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer status / Done button */}
+                <div className="p-2 border-t border-gray-100 bg-gray-50/80 flex items-center justify-between gap-2 text-xs">
+                  <span className="text-gray-500 text-[11px] px-1 font-medium">
+                    {selectedFormIds.length === 0
+                      ? 'Viewing all forms'
+                      : `${selectedFormIds.length} form${selectedFormIds.length > 1 ? 's' : ''} active`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsFormDropdownOpen(false)}
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md shadow-xs text-xs transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="flex items-center gap-1.5 bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 shadow-sm">
             <Calendar className="w-4 h-4 text-blue-600 flex-shrink-0" />
@@ -535,8 +816,30 @@ export const QualityDashboard: React.FC = () => {
         {loading && !data && (
           <div className="flex flex-col items-center justify-center py-20">
             <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-4" />
-            <p className="text-gray-600 font-medium">Aggregating {data?.summary?.totalChecked || 'thousands of'} responses...</p>
+            <p className="text-gray-600 font-medium">Aggregating responses...</p>
             <p className="text-xs text-gray-400 mt-2">{(elapsedMs / 1000).toFixed(1)}s elapsed</p>
+          </div>
+        )}
+
+        {/* Active Filter Pill / Banner */}
+        {selectedFormIds.length > 0 && (
+          <div className="bg-blue-50/90 border border-blue-200 text-blue-900 px-4 py-3 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <Layers className="w-4 h-4 text-blue-600 flex-shrink-0" />
+              <span className="font-semibold text-blue-800">Filtered View:</span>
+              <span className="font-bold text-blue-950 truncate">{formButtonLabel}</span>
+              <span className="text-blue-600 font-medium">
+                ({(data?.summary?.totalChecked || 0).toLocaleString()} inspections in this selection)
+              </span>
+            </div>
+            <button
+              onClick={handleClearAllForms}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-blue-100/70 text-blue-700 font-bold rounded-lg border border-blue-300 transition-colors shadow-2xs whitespace-nowrap cursor-pointer"
+              title="Show all forms"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Show All Forms</span>
+            </button>
           </div>
         )}
 
@@ -659,8 +962,24 @@ export const QualityDashboard: React.FC = () => {
                   <Doughnut
                     data={pieChartData}
                     options={pieChartOptions}
-                    plugins={[centerTextPlugin]}
                   />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className={`text-2xl font-black tracking-tight ${
+                      hoveredSlice === 'rework' ? 'text-amber-600' :
+                      hoveredSlice === 'rejected' ? 'text-red-600' : 'text-green-600'
+                    }`}>
+                      {Number(
+                        hoveredSlice === 'rework'
+                          ? (data.summary.totalRework1 || 0)
+                          : hoveredSlice === 'rejected'
+                          ? Math.max(0, (data.summary.totalDefects || 0) - (data.summary.totalRework1 || 0))
+                          : (data.summary.totalAccepted || 0)
+                      ).toLocaleString()}
+                    </span>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5">
+                      {hoveredSlice === 'rework' ? 'REWORK' : hoveredSlice === 'rejected' ? 'REJECTED' : 'ACCEPTED'}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Legend badges */}
@@ -717,10 +1036,10 @@ export const QualityDashboard: React.FC = () => {
                       {hoveredSlice === 'accepted' && 'Form-wise Accepted Breakdown'}
                       {hoveredSlice === 'rework' && 'Form-wise Rework Breakdown'}
                       {hoveredSlice === 'rejected' && 'Form-wise Rejected Breakdown'}
-                      {hoveredSlice === 'all' && 'All Forms Quality Breakdown'}
+                      {hoveredSlice === 'all' && (selectedFormIds.length > 0 ? 'Selected Form Quality Breakdown' : 'All Forms Quality Breakdown')}
                     </h4>
                     <span className="text-xs text-gray-400 font-normal">
-                      ({filteredFormSummaryList.length} forms)
+                      ({filteredFormSummaryList.length} form{filteredFormSummaryList.length === 1 ? '' : 's'})
                     </span>
                   </div>
 
@@ -853,7 +1172,7 @@ export const QualityDashboard: React.FC = () => {
                 className={`flex-1 py-3 px-4 text-sm font-semibold flex items-center justify-center transition-colors whitespace-nowrap ${activeTab === 'data' ? 'bg-white text-blue-700 border-b-2 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
               >
                 <FileSpreadsheet className="w-4 h-4 mr-2" />
-                Forms Data Grid ({data?.formsSummary?.length || data?.formOptions?.length || 0})
+                Forms Data Grid ({filteredForms.length})
               </button>
               <button
                 onClick={() => setActiveTab('tvs')}
@@ -942,7 +1261,7 @@ export const QualityDashboard: React.FC = () => {
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                           {filteredForms.map((form) => {
-                            const isCurrentSelected = selectedFormId === form.id || selectedFormId === form._id;
+                            const isCurrentSelected = selectedFormIds.includes(form.id) || selectedFormIds.includes(form._id);
                             const passRateColor =
                               form.acceptRate >= 95 ? 'text-green-600 bg-green-50 border-green-200' :
                               form.acceptRate >= 80 ? 'text-blue-600 bg-blue-50 border-blue-200' :
@@ -1026,7 +1345,7 @@ export const QualityDashboard: React.FC = () => {
                                 {/* Form Action Buttons */}
                                 <div className="pt-3 mt-3 border-t border-gray-100 flex items-center justify-between gap-2 text-xs">
                                   <button
-                                    onClick={() => setSelectedFormId(form.id)}
+                                    onClick={() => handleToggleForm(form.id || form._id)}
                                     className={`flex-1 py-2 px-3 rounded-lg font-semibold transition-all text-center shadow-sm ${isCurrentSelected ? 'bg-blue-600 text-white shadow-blue-200' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
                                     title="Filter dashboard metrics to this form"
                                   >
@@ -1108,11 +1427,11 @@ export const QualityDashboard: React.FC = () => {
                               <td className="px-3 py-2 border border-gray-300 text-center whitespace-nowrap">
                                 <div className="flex items-center justify-center gap-1.5">
                                   <button
-                                    onClick={() => setSelectedFormId(form.id)}
-                                    className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded text-[11px]"
-                                    title="Filter view"
+                                    onClick={() => handleToggleForm(form.id || form._id)}
+                                    className={`px-2 py-1 font-semibold rounded text-[11px] ${selectedFormIds.includes(form.id) || selectedFormIds.includes(form._id) ? 'bg-blue-600 text-white' : 'bg-blue-50 hover:bg-blue-100 text-blue-700'}`}
+                                    title="Toggle filter"
                                   >
-                                    Filter
+                                    {selectedFormIds.includes(form.id) || selectedFormIds.includes(form._id) ? '✓ Filtered' : 'Filter'}
                                   </button>
                                   <button
                                     onClick={() => navigate(`/forms/${form.id || form._id}/analytics?tab=responses`)}
@@ -1262,71 +1581,208 @@ export const QualityDashboard: React.FC = () => {
 
               {/* BIW QUALITY TAB */}
               {activeTab === 'biw' && (
-                <div className="p-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    
-                    {/* BIW Overview */}
-                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-200 flex flex-col">
-                      <h4 className="font-bold text-gray-800 mb-4 flex items-center">
-                        <CheckCircle2 className="w-5 h-5 text-blue-500 mr-2" />
-                        BIW Validation Overview
-                      </h4>
-                      <div className="space-y-3">
-                        {data.inspectors.slice(0, 8).map((insp, idx) => (
-                          <div key={idx} className="bg-white p-3 rounded-lg border border-gray-200 flex items-center justify-between shadow-xs">
-                            <span className="font-medium text-gray-700 truncate w-1/3">{insp.name}</span>
-                            <div className="flex items-center gap-3 text-sm">
-                              <div className="text-center">
-                                <p className="text-[10px] text-gray-400 uppercase font-bold">BIW Accept</p>
-                                <p className="font-bold text-green-600">{insp.biwAcceptCount}</p>
-                              </div>
-                              <div className="text-center">
-                                <p className="text-[10px] text-gray-400 uppercase font-bold">BIW Defect</p>
-                                <p className="font-bold text-red-500">{insp.biwDefectCount}</p>
-                              </div>
-                              <div className="text-center pl-3 border-l border-gray-100">
-                                <p className="text-[10px] text-gray-400 uppercase font-bold">Rate</p>
-                                <p className="font-bold text-gray-800">{insp.biwAcceptRate}%</p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                <div className="p-6 space-y-6">
+                  {/* Form-Related BIW Summary Banner */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-4">
+                      <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Total BIW Reviewed</p>
+                      <p className="text-2xl font-black text-blue-950 mt-1">{biwOverallSummary.totalReviewed.toLocaleString()}</p>
+                      <p className="text-[11px] text-blue-600 mt-0.5">Across {biwFormItems.length} selected form{biwFormItems.length > 1 ? 's' : ''}</p>
                     </div>
 
-                    {/* Defect Breakdown */}
-                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-200 flex flex-col">
-                      <h4 className="font-bold text-gray-800 mb-4 flex items-center">
-                        <AlertTriangle className="w-5 h-5 text-red-500 mr-2" />
-                        Top Defect Types
-                      </h4>
-                      <div className="max-h-[450px] overflow-y-auto pr-2 space-y-3">
-                        {data.defectBreakdown.length > 0 ? (
-                          data.defectBreakdown.map((defect, idx) => {
-                            const maxCount = data.defectBreakdown[0].count;
-                            const percentage = Math.max(5, (defect.count / maxCount) * 100);
-                            return (
-                              <div key={idx} className="bg-white p-3 rounded-lg border border-gray-200 relative overflow-hidden shadow-xs">
-                                <div 
-                                  className="absolute top-0 left-0 h-full bg-red-50 z-0 transition-all duration-1000"
-                                  style={{ width: `${percentage}%` }}
-                                ></div>
-                                <div className="relative z-10 flex justify-between items-center">
-                                  <span className="font-medium text-gray-800 truncate pr-4 text-sm">{defect.name}</span>
-                                  <span className="font-black text-red-600 bg-red-100 px-2 py-0.5 rounded text-xs">{defect.count}</span>
+                    <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-4">
+                      <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">BIW Accepted</p>
+                      <p className="text-2xl font-black text-emerald-800 mt-1">{biwOverallSummary.totalAccept.toLocaleString()}</p>
+                      <p className="text-[11px] text-emerald-600 mt-0.5 font-bold">{biwOverallSummary.rate}% Compliance</p>
+                    </div>
+
+                    <div className="bg-red-50/60 border border-red-200 rounded-xl p-4">
+                      <p className="text-xs font-semibold text-red-700 uppercase tracking-wider">BIW Defects / Rework</p>
+                      <p className="text-2xl font-black text-red-700 mt-1">{biwOverallSummary.totalDefect.toLocaleString()}</p>
+                      <p className="text-[11px] text-red-600 mt-0.5 font-bold">
+                        {biwOverallSummary.totalReviewed > 0 
+                          ? ((biwOverallSummary.totalDefect / biwOverallSummary.totalReviewed) * 100).toFixed(1) + '%' 
+                          : '0%'} defect rate
+                      </p>
+                    </div>
+
+                    <div className="bg-purple-50/60 border border-purple-200 rounded-xl p-4">
+                      <p className="text-xs font-semibold text-purple-700 uppercase tracking-wider">Active BIW Inspectors</p>
+                      <p className="text-2xl font-black text-purple-900 mt-1">{biwInspectors.length}</p>
+                      <p className="text-[11px] text-purple-600 mt-0.5">Assigned to selected forms</p>
+                    </div>
+                  </div>
+
+                  {/* Main Grid: Form-Wise BIW Breakdown (Left) & Top Defect Types (Right) */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    
+                    {/* 1. Form-Wise BIW Review Breakdown */}
+                    <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-xs flex flex-col">
+                      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                        <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                          <CheckCircle2 className="w-5 h-5 text-blue-600" />
+                          <span>Form-Wise BIW Quality Breakdown</span>
+                        </h4>
+                        <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
+                          {biwFormItems.length} Form{biwFormItems.length > 1 ? 's' : ''}
+                        </span>
+                      </div>
+
+                      <div className="space-y-3.5 max-h-[460px] overflow-y-auto pr-1">
+                        {biwFormItems.map((form) => {
+                          const formTotal = (form.biwAcceptCount || 0) + (form.biwDefectCount || 0);
+                          const passRate = formTotal > 0 ? Math.round((form.biwAcceptCount / formTotal) * 1000) / 10 : (form.totalChecked > 0 ? 100 : 0);
+                          return (
+                            <div key={form.id || form._id} className="p-4 rounded-xl border border-gray-200/90 hover:border-blue-300 bg-gray-50/40 hover:bg-white transition-all shadow-xs">
+                              <div className="flex items-center justify-between gap-3 mb-2">
+                                <div className="min-w-0">
+                                  <h5 className="font-bold text-sm text-gray-900 truncate" title={form.title}>{form.title}</h5>
+                                  <p className="text-xs text-gray-500 mt-0.5">
+                                    {formTotal > 0 ? `${formTotal.toLocaleString()} units reviewed` : `${form.totalChecked.toLocaleString()} total inspected`}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-black ${
+                                    passRate >= 95 ? 'bg-green-100 text-green-800' :
+                                    passRate >= 80 ? 'bg-blue-100 text-blue-800' :
+                                    'bg-red-100 text-red-800'
+                                  }`}>
+                                    {passRate}% Rate
+                                  </span>
+                                  <button
+                                    onClick={() => navigate(`/forms/${form.id || form._id}/analytics?tab=responses`)}
+                                    className="p-1 hover:bg-gray-100 text-gray-500 hover:text-blue-600 rounded transition-colors"
+                                    title="View responses"
+                                  >
+                                    <FileSpreadsheet className="w-4 h-4" />
+                                  </button>
                                 </div>
                               </div>
-                            )
-                          })
-                        ) : (
-                          <div className="py-16 flex flex-col items-center justify-center text-gray-400">
-                            <CheckCircle2 className="w-12 h-12 mb-3 text-green-400 opacity-50" />
-                            <p>No defects recorded in this period</p>
+
+                              {/* Progress bar */}
+                              <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden flex my-2">
+                                <div className="bg-green-500 h-full transition-all duration-500" style={{ width: `${passRate}%` }} />
+                                <div className="bg-red-500 h-full transition-all duration-500" style={{ width: `${100 - passRate}%` }} />
+                              </div>
+
+                              {/* Badges */}
+                              <div className="flex items-center justify-between text-xs pt-1 text-gray-600">
+                                <div className="flex items-center gap-3">
+                                  <span className="font-semibold text-green-700">✓ Accepted: <b className="font-black text-green-900">{form.biwAcceptCount || 0}</b></span>
+                                  <span className="font-semibold text-red-600">✕ Defects: <b className="font-black text-red-800">{form.biwDefectCount || 0}</b></span>
+                                </div>
+                                <span className="text-[11px] text-gray-400 font-medium">
+                                  {form.totalInspectors} inspector{form.totalInspectors !== 1 ? 's' : ''}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {biwFormItems.length === 0 && (
+                          <div className="py-12 text-center text-gray-400 text-sm">
+                            No forms found for the current selection.
                           </div>
                         )}
                       </div>
                     </div>
 
+                    {/* 2. Top Defect Types & Flagged Defect Breakdown */}
+                    <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-xs flex flex-col">
+                      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                        <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5 text-red-500" />
+                          <span>Top Defect Types & Flagged Issues</span>
+                        </h4>
+                        <span className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">
+                          {data.defectBreakdown.length} Categories
+                        </span>
+                      </div>
+
+                      <div className="max-h-[460px] overflow-y-auto pr-1 space-y-2.5">
+                        {data.defectBreakdown.length > 0 ? (
+                          data.defectBreakdown.map((defect, idx) => {
+                            const maxCount = data.defectBreakdown[0].count;
+                            const percentage = Math.max(5, (defect.count / maxCount) * 100);
+                            return (
+                              <div key={idx} className="bg-white p-3 rounded-xl border border-gray-200 relative overflow-hidden shadow-xs hover:border-red-200 transition-colors">
+                                <div 
+                                  className="absolute top-0 left-0 h-full bg-red-50/70 z-0 transition-all duration-700"
+                                  style={{ width: `${percentage}%` }}
+                                />
+                                <div className="relative z-10 flex justify-between items-center gap-3">
+                                  <span className="font-semibold text-gray-900 truncate text-xs sm:text-sm">{defect.name}</span>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    <span className="text-[11px] text-gray-500 font-medium">#{idx + 1}</span>
+                                    <span className="font-black text-red-700 bg-red-100/80 border border-red-200 px-2 py-0.5 rounded-md text-xs">
+                                      {defect.count}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="py-20 flex flex-col items-center justify-center text-gray-400">
+                            <CheckCircle2 className="w-12 h-12 mb-3 text-green-500 opacity-70" />
+                            <p className="font-medium text-gray-600">Zero defects reported for selected forms</p>
+                            <p className="text-xs text-gray-400 mt-1">All inspection units meet quality standards</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* 3. Inspector BIW Validation Overview */}
+                  <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-xs">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-100">
+                      <div>
+                        <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                          <Award className="w-5 h-5 text-blue-600" />
+                          <span>Inspector BIW Performance</span>
+                        </h4>
+                        <p className="text-xs text-gray-500 mt-0.5">Validation metrics for staff assigned to selected forms</p>
+                      </div>
+                      <div className="relative w-full sm:w-64">
+                        <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={biwInspectorSearch}
+                          onChange={(e) => setBiwInspectorSearch(e.target.value)}
+                          placeholder="Search inspector..."
+                          className="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-800 placeholder-gray-400"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[360px] overflow-y-auto pr-1">
+                      {biwInspectors.map((insp, idx) => (
+                        <div key={idx} className="bg-gray-50/70 p-3 rounded-xl border border-gray-200 flex items-center justify-between hover:bg-white transition-colors shadow-xs">
+                          <span className="font-semibold text-gray-800 truncate text-xs max-w-[120px] sm:max-w-[140px]">{insp.name}</span>
+                          <div className="flex items-center gap-2.5 text-xs">
+                            <div className="text-center px-1.5 py-0.5 rounded bg-green-50 border border-green-100">
+                              <p className="text-[9px] text-green-700 uppercase font-black">Acc</p>
+                              <p className="font-black text-green-800">{insp.biwAcceptCount}</p>
+                            </div>
+                            <div className="text-center px-1.5 py-0.5 rounded bg-red-50 border border-red-100">
+                              <p className="text-[9px] text-red-700 uppercase font-black">Def</p>
+                              <p className="font-black text-red-700">{insp.biwDefectCount}</p>
+                            </div>
+                            <div className="text-center pl-2 border-l border-gray-200">
+                              <p className="text-[9px] text-gray-400 uppercase font-bold">Rate</p>
+                              <p className="font-black text-gray-900">{insp.biwAcceptRate}%</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+
+                      {biwInspectors.length === 0 && (
+                        <div className="col-span-full py-8 text-center text-xs text-gray-400">
+                          No inspectors found matching "{biwInspectorSearch}"
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1336,8 +1792,9 @@ export const QualityDashboard: React.FC = () => {
                 <div className="min-h-[550px]">
                   <OverallResponsesTable 
                     rawResponses={data.rawResponses} 
-                    formOptions={data.formOptions} 
-                    initialFormFilter={selectedFormId !== 'all' ? selectedFormId : 'all'}
+                    formOptions={allAvailableForms} 
+                    initialFormFilter={selectedFormIds.length === 1 ? selectedFormIds[0] : 'all'}
+                    selectedFormIds={selectedFormIds}
                   />
                 </div>
               )}

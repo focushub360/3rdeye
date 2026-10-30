@@ -3310,17 +3310,32 @@ export const getOverallAnalytics = async (req, res) => {
 export const getQualitySummary = async (req, res) => {
   try {
     const startTimer = Date.now();
-    const { formId, startDate, endDate, tenantId: queryTenantId } = req.query;
+    const { formId, formIds, startDate, endDate, tenantId: queryTenantId } = req.query;
     const { role, tenantId: userTenantId } = req.user;
 
-    // ─── Cache check (3 minute TTL) ─────────────────────────────────────
-    const cacheKey = `quality_summary_v7_${userTenantId || 'superadmin'}_${formId || 'all'}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
-    const cached = appCache.get(cacheKey);
-    if (cached) {
-      console.log(`[Quality Summary] Cache HIT (${cacheKey}) - returning in ${Date.now() - startTimer}ms`);
-      return res.json(cached);
+    // Parse formIds (can be an array, comma-separated string, or single formId)
+    const rawFormInput = formIds || formId;
+    let selectedFormIdList = [];
+    if (rawFormInput && rawFormInput !== 'all') {
+      if (Array.isArray(rawFormInput)) {
+        selectedFormIdList = rawFormInput.flatMap(id => String(id).split(',')).map(s => s.trim()).filter(Boolean);
+      } else if (typeof rawFormInput === 'string') {
+        selectedFormIdList = rawFormInput.split(',').map(s => s.trim()).filter(Boolean);
+      }
     }
-    console.log(`[Quality Summary] Cache MISS (${cacheKey}) - computing from DB...`);
+
+    // ─── Cache check (3 minute TTL) ─────────────────────────────────────
+    const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
+    const cacheKey = `quality_summary_v9_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers['cache-control'] === 'no-cache';
+    if (!shouldBypassCache) {
+      const cached = appCache.get(cacheKey);
+      if (cached) {
+        console.log(`[Quality Summary] Cache HIT (${cacheKey}) - returning in ${Date.now() - startTimer}ms`);
+        return res.json(cached);
+      }
+    }
+    console.log(`[Quality Summary] Cache MISS or Bypassed (${cacheKey}) - computing from DB...`);
 
     // 1. Identify target tenant
     let targetTenantId = userTenantId;
@@ -3403,14 +3418,14 @@ export const getQualitySummary = async (req, res) => {
 
     // 3. Build response filter
     let formKeys = [];
-    if (formId && formId !== 'all') {
-      const selectedForm = accessibleForms.find(
-        f => f.id === formId || f._id.toString() === formId
+    if (selectedFormIdList.length > 0) {
+      const matchedForms = accessibleForms.filter(
+        f => selectedFormIdList.includes(f.id) || selectedFormIdList.includes(f._id.toString())
       );
-      if (selectedForm) {
-        formKeys = [selectedForm.id, selectedForm._id?.toString()].filter(Boolean);
+      if (matchedForms.length > 0) {
+        formKeys = matchedForms.flatMap(f => [f.id, f._id?.toString()]).filter(Boolean);
       } else {
-        formKeys = [formId];
+        formKeys = selectedFormIdList;
       }
     } else {
       formKeys = accessibleForms.flatMap(f => [f.id, f._id?.toString()]).filter(Boolean);
@@ -3626,8 +3641,8 @@ export const getQualitySummary = async (req, res) => {
                 ]
               }
             },
-            { $limit: 100 },
-            { $project: { _id: 1, submittedBy: 1, answers: 1 } }
+            { $limit: 1000 },
+            { $project: { _id: 1, submittedBy: 1, answers: 1, biwReview: 1, questionId: 1 } }
           ]
         }
       }
@@ -3652,6 +3667,7 @@ export const getQualitySummary = async (req, res) => {
       const rawName = (dr.submittedBy || 'Unknown Submitter').trim();
       if (!inspectorDefectMap[rawName]) inspectorDefectMap[rawName] = {};
 
+      // 1. Defect extraction from answers
       if (dr.answers && typeof dr.answers === 'object') {
         const answersObj = dr.answers instanceof Map ? Object.fromEntries(dr.answers) : dr.answers;
         for (const [key, val] of Object.entries(answersObj)) {
@@ -3672,25 +3688,73 @@ export const getQualitySummary = async (req, res) => {
           }
         }
       }
+
+      // 2. Defect extraction from biwReview flaggedQuestions and reason
+      if (dr.biwReview) {
+        if (Array.isArray(dr.biwReview.flaggedQuestions)) {
+          dr.biwReview.flaggedQuestions.forEach(fq => {
+            const fqTitle = (fq.questionText || fq.text || fq.title || questionTitleMap[fq.questionId] || fq.reason || '').trim();
+            if (fqTitle && !['other', 'none', '-', 'ok', 'accepted'].includes(fqTitle.toLowerCase())) {
+              defectTypeMap[fqTitle] = (defectTypeMap[fqTitle] || 0) + 1;
+              inspectorDefectMap[rawName][fqTitle] = (inspectorDefectMap[rawName][fqTitle] || 0) + 1;
+            }
+          });
+        }
+        if (dr.biwReview.reason && typeof dr.biwReview.reason === 'string') {
+          const reasonTitle = dr.biwReview.reason.trim();
+          if (reasonTitle && !['other', 'none', '-', 'ok', 'accepted'].includes(reasonTitle.toLowerCase())) {
+            defectTypeMap[reasonTitle] = (defectTypeMap[reasonTitle] || 0) + 1;
+            inspectorDefectMap[rawName][reasonTitle] = (inspectorDefectMap[rawName][reasonTitle] || 0) + 1;
+          }
+        }
+      }
     });
 
     const defectBreakdown = Object.entries(defectTypeMap)
       .sort((a, b) => b[1] - a[1])
       .map(([name, count]) => ({ name, count }));
 
-    // Per-Form Summary List
+    // Per-Form Summary List - Combine metrics for both UUID and ObjectId keys of each form
     const formMetricMap = {};
     (agg.byForm || []).forEach(item => {
       formMetricMap[item._id] = item;
     });
 
     const formsSummary = accessibleForms.map(f => {
-      const m = formMetricMap[f.id] || formMetricMap[f._id.toString()] || {};
-      const tChecked = m.totalChecked || 0;
-      const dCount = m.defectCount || 0;
+      const keys = [f.id, f._id ? f._id.toString() : ''].filter(Boolean);
+      let tChecked = 0;
+      let dCount = 0;
+      let r1Count = 0;
+      let bAccept = 0;
+      let bDefect = 0;
+      const inspectorSet = new Set();
+      let lastDate = null;
+
+      keys.forEach(k => {
+        const m = formMetricMap[k];
+        if (m) {
+          tChecked += m.totalChecked || 0;
+          dCount += m.defectCount || 0;
+          r1Count += m.rework1Count || 0;
+          bAccept += m.biwAcceptCount || 0;
+          bDefect += m.biwDefectCount || 0;
+          if (Array.isArray(m.inspectors)) {
+            m.inspectors.forEach(insp => { if (insp) inspectorSet.add(insp); });
+          }
+          if (m.lastInspectionDate) {
+            if (!lastDate || new Date(m.lastInspectionDate) > new Date(lastDate)) {
+              lastDate = m.lastInspectionDate;
+            }
+          }
+        }
+      });
+
       const aCount = Math.max(0, tChecked - dCount);
       const aRate = tChecked > 0 ? Math.round((aCount / tChecked) * 10000) / 100 : 0;
       const dRate = Math.max(0, Math.round((100 - aRate) * 100) / 100);
+
+      const biwTotal = bAccept + bDefect;
+      const biwRate = biwTotal > 0 ? Math.round((bAccept / biwTotal) * 10000) / 100 : (tChecked > 0 ? 100 : 0);
 
       return {
         id: f.id || f._id.toString(),
@@ -3699,13 +3763,15 @@ export const getQualitySummary = async (req, res) => {
         totalChecked: tChecked,
         acceptCount: aCount,
         defectCount: dCount,
-        rework1Count: m.rework1Count || 0,
-        biwAcceptCount: m.biwAcceptCount || 0,
-        biwDefectCount: m.biwDefectCount || 0,
+        rework1Count: r1Count,
+        biwAcceptCount: bAccept,
+        biwDefectCount: bDefect,
+        biwAcceptRate: biwRate,
         acceptRate: aRate,
         defectRate: dRate,
-        totalInspectors: m.inspectors ? m.inspectors.length : 0,
-        lastInspectionDate: m.lastInspectionDate ? new Date(m.lastInspectionDate).toISOString().split('T')[0] : null
+        totalInspectors: inspectorSet.size,
+        inspectors: Array.from(inspectorSet),
+        lastInspectionDate: lastDate ? new Date(lastDate).toISOString().split('T')[0] : null
       };
     }).sort((a, b) => b.totalChecked - a.totalChecked);
 

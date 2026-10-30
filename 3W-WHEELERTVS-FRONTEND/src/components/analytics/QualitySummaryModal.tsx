@@ -145,8 +145,10 @@ export const QualitySummaryModal: React.FC<QualitySummaryModalProps> = ({
         endDate,
         forceNetwork: true
       });
-      if (res && res.success && res.data) {
-        setData(res.data);
+      // Safely unwrap response whether client.ts returns payload directly or wrapped in { success, data }
+      const actualData = (res && res.summary) ? res : (res && res.data) ? res.data : null;
+      if (actualData && actualData.summary) {
+        setData(actualData);
         setLoadTimeMs(Math.round(performance.now() - t0));
       } else {
         setError(res?.message || 'Failed to fetch summary data');

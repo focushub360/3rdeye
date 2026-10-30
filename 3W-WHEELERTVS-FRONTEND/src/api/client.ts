@@ -3777,16 +3777,22 @@ class ApiClient {
 
   async getQualitySummary(params?: {
     formId?: string;
+    formIds?: string[];
     startDate?: string;
     endDate?: string;
     tenantId?: string;
     forceNetwork?: boolean;
   }) {
     const query = new URLSearchParams();
-    if (params?.formId) query.append("formId", params.formId);
+    if (params?.formIds && params.formIds.length > 0) {
+      query.append("formIds", params.formIds.join(","));
+    } else if (params?.formId) {
+      query.append("formId", params.formId);
+    }
     if (params?.startDate) query.append("startDate", params.startDate);
     if (params?.endDate) query.append("endDate", params.endDate);
     if (params?.tenantId) query.append("tenantId", params.tenantId);
+    if (params?.forceNetwork ?? true) query.append("forceNetwork", "true");
 
     const queryString = query.toString();
     const endpoint = `/analytics/quality-summary${queryString ? `?${queryString}` : ""}`;

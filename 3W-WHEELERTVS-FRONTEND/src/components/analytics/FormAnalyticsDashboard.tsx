@@ -1277,6 +1277,58 @@ const computeQuestionPerformanceStats = (
         }
       }
     }
+
+    // Process defects flagged during BIW / Quality reviews
+    const allReviewFlagged = [
+      ...(Array.isArray((response.biwReview as any)?.flaggedQuestions) ? (response.biwReview as any).flaggedQuestions : []),
+      ...(Array.isArray((response as any)?.review?.flaggedQuestions) ? (response as any).review.flaggedQuestions : []),
+      ...(Array.isArray((response as any)?.review?.questionContexts) ? (response as any).review.questionContexts : []),
+      ...(Array.isArray((response as any)?.tvsReview?.flaggedQuestions) ? (response as any).tvsReview.flaggedQuestions : []),
+      ...(Array.isArray((response as any)?.biwReview?.questionContexts) ? (response as any).biwReview.questionContexts : []),
+    ];
+
+    if (allReviewFlagged.length > 0) {
+      const revStatus = String(response.biwReview?.status || (response as any)?.review?.status || (response as any)?.tvsReview?.status || "").toLowerCase();
+      const isRej = revStatus === "rejected";
+      const isRew = revStatus.includes("rework");
+
+      if (isRej || isRew) {
+        const seenQKeys = new Set<string>();
+        allReviewFlagged.forEach((fq: any) => {
+          if (!fq) return;
+          const qId = typeof fq === "object" ? (fq.questionId || fq.id) : String(fq);
+          const qText = (typeof fq === "object" ? (fq.questionText || fq.text || fq.title || "") : "").trim();
+          const dedupKey = (qId ? String(qId).trim() : "") || qText.toLowerCase();
+          if (!dedupKey || seenQKeys.has(dedupKey)) return;
+          seenQKeys.add(dedupKey);
+
+          let match = qId ? questionMap.get(qId) : null;
+          if (!match && qText) {
+            match = questionList.find(q => q.text.toLowerCase().trim() === qText.toLowerCase());
+            if (!match) {
+              const entry = {
+                id: qId || `biw-flagged-${qText}`,
+                text: qText,
+                sectionTitle: "BIW Review Flagged",
+                counts: { accepted: 0, rejected: isRej ? 1 : 0, rework: isRew ? 1 : 0, total: 1 },
+                question: { id: qId, text: qText }
+              };
+              questionList.push(entry);
+              if (qId) questionMap.set(qId, entry);
+              return;
+            }
+          }
+          if (match) {
+            if (isRej) {
+              match.counts.rejected += 1;
+            } else {
+              match.counts.rework += 1;
+            }
+            match.counts.total += 1;
+          }
+        });
+      }
+    }
   });
 
   // Map result back to QuestionPerformanceStat format
@@ -2627,8 +2679,8 @@ export default function FormAnalyticsDashboard() {
           if (reviewsList.length > 0) {
             setTvsReviews((prev) => {
               const map = new Map();
-              prev.forEach((r: any) => map.set(String(r.id || r._id || r.responseId || r.response_id), r));
-              reviewsList.forEach((r: any) => map.set(String(r.id || r._id || r.responseId || r.response_id), r));
+              prev.forEach((r: any) => map.set(String(r.responseId || r.response_id || r.id || r._id), r));
+              reviewsList.forEach((r: any) => map.set(String(r.responseId || r.response_id || r.id || r._id), r));
               return Array.from(map.values());
             });
           }
@@ -3072,51 +3124,6 @@ export default function FormAnalyticsDashboard() {
     );
   };
 
-  // Only assigned tenant reviewers (or superadmin) can perform BIW review / review feedback
-  const canUserBiwReview = (response: Response | null | undefined): { canReview: boolean; reason?: string } => {
-    if (!response) return { canReview: false, reason: "No response selected" };
-    if (user?.role === "superadmin") return { canReview: true };
-
-    const userTenantStr = String((user?.tenantId as any)?._id || (user?.tenantId as any)?.id || user?.tenantId || "");
-
-    // 1. Check if the chassis has assigned tenants
-    const assignments = (form as any)?.chassisTenantAssignments;
-    if (Array.isArray(assignments) && assignments.length > 0) {
-      const respChassis = String(
-        response.chassisNumber ||
-        response.answers?.chassis_number ||
-        response.answers?.chassisNumber ||
-        (typeof response.answers === "object" && response.answers ? Object.values(response.answers).find((v: any) => v && typeof v === "object" && v.chassisNumber)?.chassisNumber : "") ||
-        ""
-      ).trim().toLowerCase();
-
-      const matchedAssignment = assignments.find((a: any) =>
-        a.chassisNumber && respChassis && String(a.chassisNumber).trim().toLowerCase() === respChassis
-      );
-
-      if (matchedAssignment && Array.isArray(matchedAssignment.assignedTenants) && matchedAssignment.assignedTenants.length > 0) {
-        const isAssigned = matchedAssignment.assignedTenants.some(
-          (t: any) => String(t?._id || t?.id || t) === userTenantStr
-        );
-        if (!isAssigned) {
-          return {
-            canReview: false,
-            reason: "Only assigned tenant reviewers can perform BIW review for this chassis."
-          };
-        }
-      }
-    }
-
-    // 2. Anti-tamper check: submitter cannot review their own submission
-    if (isSubmitterOfResponse(response)) {
-      return {
-        canReview: false,
-        reason: "You cannot BIW review your own submission"
-      };
-    }
-
-    return { canReview: true };
-  };
   const isOwnTenantResponse = (response: Response) => {
     // Only superadmins, direct form creators, or users belonging to the form's creator tenant can dispatch responses
     if (user?.role === "superadmin") {
@@ -5421,22 +5428,7 @@ export default function FormAnalyticsDashboard() {
     }
 
     const rank = trackingQId ? r.responseRanks?.[trackingQId] : null;
-    const biwStatus = String(r.biwReview?.status || "").trim().toLowerCase();
-    const tvsReviewStatus = String(r.review?.reviewOption || r.review?.status || "").trim().toLowerCase();
     const rawStatus = (r.status || "").trim();
-
-    // 0. REVIEW OVERRIDES: Review feedback (BIW Review or TVS Review) overrides initial inspection status
-    if (biwStatus === "rejected" || tvsReviewStatus === "rejected") {
-      return "Rejected";
-    }
-    if (biwStatus === "rework" || biwStatus === "reworked" || tvsReviewStatus === "rework") {
-      if (trackingQId && rank && rank > 1) return `Rework ${rank}`;
-      return "Rework 1";
-    }
-    if (biwStatus === "accepted" || tvsReviewStatus === "accepted") {
-      if (isRework || (rank && rank > 1)) return "Rework Accepted";
-      return "Direct Ok";
-    }
 
     // 1. Explicit response status check
     if (rawStatus === "Rejected") return "Rejected";
@@ -5551,25 +5543,11 @@ export default function FormAnalyticsDashboard() {
         }
 
         const rank = (chassisQuestionId && r.responseRanks?.[chassisQuestionId]) || (index + 1);
-        const biwStatus = String(r.biwReview?.status || "").trim().toLowerCase();
-        const tvsReviewStatus = String(r.review?.reviewOption || r.review?.status || "").trim().toLowerCase();
         const rawStatus = (r.status || "").trim();
 
         let calculatedStatus = (rank && rank > 1) || hasBeenReworked ? "Rework Accepted" : "Direct Ok";
 
-        // 0. REVIEW OVERRIDES: Review feedback (BIW Review or TVS Review) overrides initial inspection status
-        if (biwStatus === "rejected" || tvsReviewStatus === "rejected") {
-          calculatedStatus = "Rejected";
-        } else if (biwStatus === "rework" || biwStatus === "reworked" || tvsReviewStatus === "rework") {
-          hasBeenReworked = true;
-          calculatedStatus = (!groupId.startsWith("untracked-") && rank > 1) ? `Rework ${rank}` : "Rework 1";
-        } else if (biwStatus === "accepted" || tvsReviewStatus === "accepted") {
-          if (isRework || hasBeenReworked || (rank && rank > 1)) {
-            calculatedStatus = "Rework Accepted";
-          } else {
-            calculatedStatus = "Direct Ok";
-          }
-        } else if (rawStatus === "Rejected") {
+        if (rawStatus === "Rejected") {
           calculatedStatus = "Rejected";
         } else if (rawStatus === "Rework Accepted" || rawStatus === "Rework Completed") {
           calculatedStatus = "Rework Accepted";
@@ -5635,6 +5613,85 @@ export default function FormAnalyticsDashboard() {
     });
     return map;
   }, [tableResponses, responses, responseStatuses, chassisQuestionId]);
+
+  // Helper to determine if a response has an eligible status for BIW Review
+  // Rule: BIW review can ONLY be performed on "Direct Ok", "Accepted", "Rework Accepted", and "Rework Completed"
+  // Responses with defects / rework (e.g. "Rework 1", "Rework 2", "Rework", "Rejected") cannot receive BIW review
+  const isBiwEligibleResponse = (r: Response | null | undefined): boolean => {
+    if (!r) return false;
+    const respId = r.id || (r as any)._id;
+    const status =
+      tableDisplayStatuses[r.id] ||
+      tableDisplayStatuses[(r as any)._id] ||
+      (respId ? tableDisplayStatuses[respId] : null) ||
+      responseStatuses[r.id] ||
+      responseStatuses[(r as any)._id] ||
+      (respId ? responseStatuses[respId] : null) ||
+      computeFastRowStatus(r, chassisQuestionId) ||
+      (r.status && r.status !== "pending" ? r.status : "Direct Ok");
+
+    return (
+      status === "Direct Ok" ||
+      status === "Rework Accepted" ||
+      status === "Rework Completed" ||
+      status === "Accepted"
+    );
+  };
+
+  // Only assigned tenant reviewers (or superadmin) can perform BIW review / review feedback
+  const canUserBiwReview = (response: Response | null | undefined): { canReview: boolean; reason?: string } => {
+    if (!response) return { canReview: false, reason: "No response selected" };
+
+    // 0. Status check: BIW review can ONLY be performed for Direct Ok, Accepted, or Rework Accepted
+    if (!isBiwEligibleResponse(response)) {
+      return {
+        canReview: false,
+        reason: "BIW review can only be filled for Direct Ok, Accepted, or Rework Accepted.",
+      };
+    }
+
+    if (user?.role === "superadmin") return { canReview: true };
+
+    const userTenantStr = String((user?.tenantId as any)?._id || (user?.tenantId as any)?.id || user?.tenantId || "");
+
+    // 1. Check if the chassis has assigned tenants
+    const assignments = (form as any)?.chassisTenantAssignments;
+    if (Array.isArray(assignments) && assignments.length > 0) {
+      const respChassis = String(
+        response.chassisNumber ||
+        response.answers?.chassis_number ||
+        response.answers?.chassisNumber ||
+        (typeof response.answers === "object" && response.answers ? Object.values(response.answers).find((v: any) => v && typeof v === "object" && v.chassisNumber)?.chassisNumber : "") ||
+        ""
+      ).trim().toLowerCase();
+
+      const matchedAssignment = assignments.find((a: any) =>
+        a.chassisNumber && respChassis && String(a.chassisNumber).trim().toLowerCase() === respChassis
+      );
+
+      if (matchedAssignment && Array.isArray(matchedAssignment.assignedTenants) && matchedAssignment.assignedTenants.length > 0) {
+        const isAssigned = matchedAssignment.assignedTenants.some(
+          (t: any) => String(t?._id || t?.id || t) === userTenantStr
+        );
+        if (!isAssigned) {
+          return {
+            canReview: false,
+            reason: "Only assigned tenant reviewers can perform BIW review for this chassis."
+          };
+        }
+      }
+    }
+
+    // 2. Anti-tamper check: submitter cannot review their own submission
+    if (isSubmitterOfResponse(response)) {
+      return {
+        canReview: false,
+        reason: "You cannot BIW review your own submission"
+      };
+    }
+
+    return { canReview: true };
+  };
 
   // Chronological attempt rank per chassis (1st inspection = 1, 2nd inspection = 2, etc.)
   const chassisAttemptRanks = useMemo(() => {
@@ -8030,7 +8087,9 @@ export default function FormAnalyticsDashboard() {
         reworkCompleted: 0,
         no: 0,
         na: 0,
+        defects: 0,
         dispatched: 0,
+        pendingDispatch: 0,
         biwReviewed: 0,
         pendingData: 0,
         counts: {
@@ -8038,7 +8097,9 @@ export default function FormAnalyticsDashboard() {
           reworkCompleted: 0,
           no: 0,
           na: 0,
+          defects: 0,
           dispatched: 0,
+          pendingDispatch: 0,
           biwReviewed: 0,
           pendingData: 0,
           total: 0,
@@ -8050,12 +8111,12 @@ export default function FormAnalyticsDashboard() {
     const reworkCompletedPercent = (reworkCompleted / total) * 100;
     const noPercent = (totalNo / total) * 100;
     const naPercent = (totalNA / total) * 100;
-    // Dispatched is expressed as a % of the same total responses, but
-    // since it overlaps with the status buckets above (a dispatched
-    // response is still counted in Direct Ok/Rework/etc.), this slice
-    // won't sum to 100% together with the other four - it's a separate
-    // "how far along the pipeline" signal, not a disjoint category.
+    const totalDefectsCount = totalNo + totalNA;
+    const defectsPercent = (totalDefectsCount / total) * 100;
+
     const dispatchedPercent = (totalDispatched / total) * 100;
+    const pendingDispatchCount = Math.max(0, total - totalDispatched);
+    const pendingDispatchPercent = (pendingDispatchCount / total) * 100;
 
     const biwReviewedCount = Math.min(total, totalBiwReviewed);
     const pendingDataCount = Math.max(0, total - biwReviewedCount);
@@ -8067,7 +8128,9 @@ export default function FormAnalyticsDashboard() {
       reworkCompleted: Number(reworkCompletedPercent.toFixed(1)),
       no: Number(noPercent.toFixed(1)),
       na: Number(naPercent.toFixed(1)),
+      defects: Number(defectsPercent.toFixed(1)),
       dispatched: Number(dispatchedPercent.toFixed(1)),
+      pendingDispatch: Number(pendingDispatchPercent.toFixed(1)),
       biwReviewed: Number(biwReviewedPercent.toFixed(1)),
       pendingData: Number(pendingDataPercent.toFixed(1)),
       counts: {
@@ -8075,7 +8138,9 @@ export default function FormAnalyticsDashboard() {
         reworkCompleted: reworkCompleted,
         no: totalNo,
         na: totalNA,
+        defects: totalDefectsCount,
         dispatched: totalDispatched,
+        pendingDispatch: pendingDispatchCount,
         biwReviewed: biwReviewedCount,
         pendingData: pendingDataCount,
         total: total,
@@ -8294,131 +8359,163 @@ export default function FormAnalyticsDashboard() {
             </div>
           ) : (
             <>
-              <div style={{ height: "200px", position: "relative" }} className="flex items-center justify-center">
-                {/* Doughnut Chart */}
-                <Doughnut data={data} options={options} />
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                {/* Center / Left: Doughnut Chart */}
+                <div style={{ height: "260px", minHeight: "260px", position: "relative" }} className="flex-1 w-full min-w-0 flex items-center justify-center">
+                  {/* Doughnut Chart */}
+                  <Doughnut data={data} options={options} />
 
-                {/* Center count & label overlay - 100% guaranteed visible across all browsers and devices */}
-                <div
-                  className="absolute pointer-events-none flex flex-col items-center justify-center select-none"
-                  style={{
-                    top: "calc(50% - 15px)",
-                    left: "50%",
-                    transform: "translate(-50%, -50%)",
-                  }}
-                >
-                  <span className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white leading-none tracking-tight">
-                    {centerAcceptedCount}
-                  </span>
-                  <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 tracking-wider mt-1">
-                    ACCEPTED
-                  </span>
+                  {/* Center count & label overlay */}
+                  <div
+                    className="absolute pointer-events-none flex flex-col items-center justify-center select-none"
+                    style={{
+                      top: "calc(50% - 15px)",
+                      left: "50%",
+                      transform: "translate(-50%, -50%)",
+                    }}
+                  >
+                    <span className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white leading-none tracking-tight">
+                      {centerAcceptedCount}
+                    </span>
+                    <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 tracking-wider mt-1">
+                      ACCEPTED
+                    </span>
+                  </div>
+                </div>
+
+                {/* Right: Pipeline / Dispatch Cards placed Top-to-Bottom - Same rectangle box size */}
+                <div className="flex flex-row sm:flex-col gap-2 flex-wrap sm:flex-nowrap justify-center items-center flex-shrink-0">
+                  {/* Dispatched */}
+                  <div className="text-center p-2.5 bg-indigo-50/60 dark:bg-indigo-950/20 rounded-xl border border-indigo-100/70 dark:border-indigo-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                    <div className="text-xs sm:text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                      {totalPieChartData.dispatched}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
+                      Dispatched
+                    </div>
+                    <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                      ({totalPieChartData.counts.dispatched})
+                    </div>
+                  </div>
+
+                  {/* Pending Dispatch */}
+                  <div className="text-center p-2.5 bg-amber-50/60 dark:bg-amber-950/20 rounded-xl border border-amber-100/70 dark:border-amber-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                    <div className="text-xs sm:text-sm font-bold text-amber-600 dark:text-amber-400">
+                      {totalPieChartData.pendingDispatch}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-amber-700 dark:text-amber-300 whitespace-nowrap">
+                      Pending Dispatch
+                    </div>
+                    <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                      ({totalPieChartData.counts.pendingDispatch})
+                    </div>
+                  </div>
+
+                  {/* Total BIW Review */}
+                  <div className="text-center p-2.5 bg-teal-50/60 dark:bg-teal-950/20 rounded-xl border border-teal-100/70 dark:border-teal-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                    <div className="text-xs sm:text-sm font-bold text-teal-600 dark:text-teal-400">
+                      {totalPieChartData.biwReviewed}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-teal-700 dark:text-teal-300 whitespace-nowrap">
+                      Total BIW Review
+                    </div>
+                    <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                      ({totalPieChartData.counts.biwReviewed})
+                    </div>
+                  </div>
+
+                  {/* Pending Data */}
+                  <div className="text-center p-2.5 bg-rose-50/70 dark:bg-rose-950/20 rounded-xl border border-rose-200/80 dark:border-rose-800/40 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                    <div className="text-xs sm:text-sm font-bold text-rose-600 dark:text-rose-400">
+                      {totalPieChartData.pendingData}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-rose-700 dark:text-rose-300 whitespace-nowrap">
+                      Pending Data
+                    </div>
+                    <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                      ({totalPieChartData.counts.pendingData})
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Stats summary - Total Submissions, Direct Ok, Rework Accepted, Rework, Rejected, Dispatched, Total BIW Review, Pending Data */}
-              <div className="mt-4 grid grid-cols-2 xs:grid-cols-4 sm:grid-cols-4 lg:grid-cols-8 gap-1.5 sm:gap-2">
+              {/* Bottom: Core Inspection Statuses - Same rectangle box size */}
+              <div className="mt-4 grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-6 gap-2">
                 {/* Total Submissions */}
-                <div className="text-center p-1.5 bg-purple-50/60 dark:bg-purple-900/15 rounded-lg border border-purple-100/60 dark:border-purple-800/30 shadow-xs">
-                  <div className="text-[10px] sm:text-xs font-bold text-purple-600 dark:text-purple-400">
+                <div className="text-center p-2.5 bg-purple-50/60 dark:bg-purple-900/15 rounded-xl border border-purple-100/70 dark:border-purple-800/30 shadow-xs flex flex-col justify-center items-center h-[72px]">
+                  <div className="text-xs sm:text-sm font-bold text-purple-600 dark:text-purple-400">
                     100%
                   </div>
-                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Total Submissions">
+                  <div className="text-[10px] sm:text-[11px] font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                     Total Submissions
                   </div>
-                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
+                  <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
                     ({totalPieChartData.counts.total})
                   </div>
                 </div>
 
-                {/* Direct Ok / Accepted */}
-                <div className="text-center p-1.5 bg-green-50/60 dark:bg-green-900/15 rounded-lg border border-green-100/60 dark:border-green-800/30 shadow-xs">
-                  <div className="text-[10px] sm:text-xs font-bold text-green-600 dark:text-green-400">
+                {/* Direct Ok */}
+                <div className="text-center p-2.5 bg-green-50/60 dark:bg-green-900/15 rounded-xl border border-green-100/70 dark:border-green-800/30 shadow-xs flex flex-col justify-center items-center h-[72px]">
+                  <div className="text-xs sm:text-sm font-bold text-green-600 dark:text-green-400">
                     {totalPieChartData.directOk}%
                   </div>
-                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Direct Ok / Accepted">
+                  <div className="text-[10px] sm:text-[11px] font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                     Direct Ok
                   </div>
-                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
+                  <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
                     ({totalPieChartData.counts.directOk})
                   </div>
                 </div>
 
                 {/* Rework Accepted */}
-                <div className="text-center p-1.5 bg-blue-50/60 dark:bg-blue-900/15 rounded-lg border border-blue-100/60 dark:border-blue-800/30 shadow-xs">
-                  <div className="text-[10px] sm:text-xs font-bold text-blue-600 dark:text-blue-400">
+                <div className="text-center p-2.5 bg-blue-50/60 dark:bg-blue-900/15 rounded-xl border border-blue-100/70 dark:border-blue-800/30 shadow-xs flex flex-col justify-center items-center h-[72px]">
+                  <div className="text-xs sm:text-sm font-bold text-blue-600 dark:text-blue-400">
                     {totalPieChartData.reworkCompleted}%
                   </div>
-                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Rework Accepted">
+                  <div className="text-[10px] sm:text-[11px] font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                     Rework Accepted
                   </div>
-                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
+                  <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
                     ({totalPieChartData.counts.reworkCompleted})
                   </div>
                 </div>
 
                 {/* Ongoing Rework */}
-                <div className="text-center p-1.5 bg-amber-50/60 dark:bg-amber-900/15 rounded-lg border border-amber-100/60 dark:border-amber-800/30 shadow-xs">
-                  <div className="text-[10px] sm:text-xs font-bold text-amber-600 dark:text-amber-400">
+                <div className="text-center p-2.5 bg-amber-50/60 dark:bg-amber-900/15 rounded-xl border border-amber-100/70 dark:border-amber-800/30 shadow-xs flex flex-col justify-center items-center h-[72px]">
+                  <div className="text-xs sm:text-sm font-bold text-amber-600 dark:text-amber-400">
                     {totalPieChartData.na}%
                   </div>
-                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Ongoing Rework">
+                  <div className="text-[10px] sm:text-[11px] font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                     Rework
                   </div>
-                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
+                  <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
                     ({totalPieChartData.counts.na})
                   </div>
                 </div>
 
                 {/* Rejected */}
-                <div className="text-center p-1.5 bg-red-50/60 dark:bg-red-900/15 rounded-lg border border-red-100/60 dark:border-red-800/30 shadow-xs">
-                  <div className="text-[10px] sm:text-xs font-bold text-red-600 dark:text-red-400">
+                <div className="text-center p-2.5 bg-red-50/60 dark:bg-red-900/15 rounded-xl border border-red-100/70 dark:border-red-800/30 shadow-xs flex flex-col justify-center items-center h-[72px]">
+                  <div className="text-xs sm:text-sm font-bold text-red-600 dark:text-red-400">
                     {totalPieChartData.no}%
                   </div>
-                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Rejected">
+                  <div className="text-[10px] sm:text-[11px] font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                     Rejected
                   </div>
-                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
+                  <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
                     ({totalPieChartData.counts.no})
                   </div>
                 </div>
 
-                {/* Dispatched */}
-                <div className="text-center p-1.5 bg-indigo-50/60 dark:bg-indigo-900/15 rounded-lg border border-indigo-100/60 dark:border-indigo-800/30 shadow-xs">
-                  <div className="text-[10px] sm:text-xs font-bold text-indigo-600 dark:text-indigo-400">
-                    {totalPieChartData.dispatched}%
+                {/* Total Defects */}
+                <div className="text-center p-2.5 bg-rose-50/70 dark:bg-rose-950/20 rounded-xl border border-rose-200/80 dark:border-rose-800/40 shadow-xs flex flex-col justify-center items-center h-[72px]">
+                  <div className="text-xs sm:text-sm font-bold text-rose-600 dark:text-rose-400">
+                    {totalPieChartData.defects}%
                   </div>
-                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Dispatched">
-                    Dispatched
+                  <div className="text-[10px] sm:text-[11px] font-semibold text-rose-700 dark:text-rose-300 whitespace-nowrap">
+                    Total Defects
                   </div>
-                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
-                    ({totalPieChartData.counts.dispatched})
-                  </div>
-                </div>
-
-                {/* Total BIW Review */}
-                <div className="text-center p-1.5 bg-teal-50/60 dark:bg-teal-900/15 rounded-lg border border-teal-100/60 dark:border-teal-800/30 shadow-xs">
-                  <div className="text-[10px] sm:text-xs font-bold text-teal-600 dark:text-teal-400">
-                    {totalPieChartData.biwReviewed}%
-                  </div>
-                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Total BIW Review">
-                    Total BIW Review
-                  </div>
-                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
-                    ({totalPieChartData.counts.biwReviewed})
-                  </div>
-                </div>
-
-                {/* Pending Data */}
-                <div className="text-center p-1.5 bg-rose-50/60 dark:bg-rose-900/15 rounded-lg border border-rose-100/60 dark:border-rose-800/30 shadow-xs">
-                  <div className="text-[10px] sm:text-xs font-bold text-rose-600 dark:text-rose-400">
-                    {totalPieChartData.pendingData}%
-                  </div>
-                  <div className="text-[9px] font-semibold text-gray-700 dark:text-gray-300 truncate" title="Pending Data">
-                    Pending Data
-                  </div>
-                  <div className="text-[8px] text-gray-600 dark:text-gray-400 font-medium">
-                    ({totalPieChartData.counts.pendingData})
+                  <div className="text-[9px] text-rose-600 dark:text-rose-400 font-medium">
+                    ({totalPieChartData.counts.defects})
                   </div>
                 </div>
               </div>
@@ -8791,7 +8888,7 @@ export default function FormAnalyticsDashboard() {
       });
 
       uniqueResponses.forEach((response) => {
-        const biwStatus = response.biwReview?.status;
+        const biwStatus = response.biwReview?.status || (response as any).review?.status || (response as any).tvsReview?.status;
         if (!biwStatus) return;
 
         const sNorm = String(biwStatus).trim().toLowerCase();
@@ -8799,12 +8896,34 @@ export default function FormAnalyticsDashboard() {
         const isRework = sNorm.includes("rework");
         if (!isRejected && !isRework) return; // Do not count Accepted as defects
 
-        const hasBiwFlagged = Array.isArray(response.biwReview?.flaggedQuestions) && response.biwReview.flaggedQuestions.length > 0;
+        // Collect flagged questions across ALL review sources (biwReview, review, questionContexts, tvsReview)
+        const rawFlagged = [
+          ...(Array.isArray(response.biwReview?.flaggedQuestions) ? response.biwReview.flaggedQuestions : []),
+          ...(Array.isArray((response as any).review?.flaggedQuestions) ? (response as any).review.flaggedQuestions : []),
+          ...(Array.isArray((response as any).review?.questionContexts) ? (response as any).review.questionContexts : []),
+          ...(Array.isArray((response as any).tvsReview?.flaggedQuestions) ? (response as any).tvsReview.flaggedQuestions : []),
+          ...(Array.isArray((response as any).biwReview?.questionContexts) ? (response as any).biwReview.questionContexts : []),
+        ];
 
-        if (hasBiwFlagged) {
-          response.biwReview.flaggedQuestions.forEach((fq: any) => {
-            const qId = typeof fq === "object" ? (fq.questionId || fq.id) : String(fq);
-            const qText = typeof fq === "object" ? (fq.questionText || fq.title || fq.text || questionTextMap.get(qId) || qId) : (questionTextMap.get(qId) || qId);
+        // Deduplicate per response so each defect category is counted once per submission
+        const seenInThisResponse = new Set<string>();
+        const flaggedInThisResponse: { id: string; text: string }[] = [];
+        rawFlagged.forEach((fq: any) => {
+          if (!fq) return;
+          const qId = typeof fq === "object" ? (fq.questionId || fq.id || "") : String(fq);
+          const qText = typeof fq === "object"
+            ? (fq.questionText || fq.title || fq.text || questionTextMap.get(qId) || qId)
+            : (questionTextMap.get(qId) || qId);
+          const key = (qId ? String(qId).trim() : "") || String(qText).trim().toLowerCase();
+          if (!key) return;
+          if (!seenInThisResponse.has(key)) {
+            seenInThisResponse.add(key);
+            flaggedInThisResponse.push({ id: qId || key, text: qText || key });
+          }
+        });
+
+        if (flaggedInThisResponse.length > 0) {
+          flaggedInThisResponse.forEach(({ id: qId, text: qText }) => {
             if (!qMap.has(qId)) {
               qMap.set(qId, {
                 id: qId,
@@ -8863,23 +8982,25 @@ export default function FormAnalyticsDashboard() {
             }
           }
 
-          // If BIW review marked Rejected/Reworked without individual defect answers, capture general defect
-          if (!foundDefectAnswer) {
-            const generalLabel = response.biwReview?.reason || response.biwReview?.remark || "General BIW Review Defect";
-            const genId = "biw-general-" + generalLabel.toLowerCase().replace(/[^a-z0-9]/g, "-");
-            if (!qMap.has(genId)) {
-              qMap.set(genId, {
-                id: genId,
-                text: generalLabel,
-                rejected: 0,
-                rework: 0
-              });
-            }
-            const stat = qMap.get(genId)!;
-            if (isRejected) {
-              stat.rejected++;
-            } else {
-              stat.rework++;
+          // Category is required — uncategorized reviews without specific defect questions are omitted from category breakdown
+          const specificReason = (response.biwReview?.remark || response.biwReview?.reason || (response as any).review?.remark || (response as any).review?.reason || "")?.trim();
+          if (!foundDefectAnswer && specificReason) {
+            if (specificReason.toLowerCase() !== "general" && !specificReason.toLowerCase().includes("general biw")) {
+              const genId = "biw-reason-" + specificReason.toLowerCase().replace(/[^a-z0-9]/g, "-");
+              if (!qMap.has(genId)) {
+                qMap.set(genId, {
+                  id: genId,
+                  text: specificReason,
+                  rejected: 0,
+                  rework: 0
+                });
+              }
+              const stat = qMap.get(genId)!;
+              if (isRejected) {
+                stat.rejected++;
+              } else {
+                stat.rework++;
+              }
             }
           }
         }
@@ -8900,7 +9021,8 @@ export default function FormAnalyticsDashboard() {
         filtered = [...filtered].sort((a, b) => (b.rejected + b.rework) - (a.rejected + a.rework));
       }
 
-      return filtered.slice(0, 20);
+      // Return all categories so no defect data is hidden
+      return filtered;
     }, [defectChartResponses, responses, tableResponses, chartSortOrder, form]);
 
     if (
@@ -9023,10 +9145,14 @@ export default function FormAnalyticsDashboard() {
     const containerStyle =
       chartOrientation === "h"
         ? {
-          height: `${Math.max(500, biwProcessedQuestions.length * 45)}px`,
+          height: `${Math.max(450, biwProcessedQuestions.length * 40)}px`,
           position: "relative" as const,
         }
-        : { height: "400px", position: "relative" as const };
+        : {
+          height: "400px",
+          minWidth: biwProcessedQuestions.length > 8 ? `${Math.max(600, biwProcessedQuestions.length * 65)}px` : "100%",
+          position: "relative" as const,
+        };
 
     return (
       <div
@@ -9139,7 +9265,7 @@ export default function FormAnalyticsDashboard() {
           </div>
         ) : (
           <div
-            className={chartOrientation === "h" ? "overflow-y-auto" : "w-full"}
+            className={chartOrientation === "h" ? "overflow-y-auto max-h-[700px]" : "w-full overflow-x-auto"}
           >
             <div style={containerStyle} id="biw-issue-percentage-chart">
               <Bar data={data} options={options} />
@@ -9166,7 +9292,7 @@ export default function FormAnalyticsDashboard() {
       // ✅ STEP 1: Deduplicate tvsReviews by responseId
       const uniqueReviewsMap = new Map();
       tvsReviews.forEach((review) => {
-        const id = String(review._id || review.id || review.responseId || review.response_id || "");
+        const id = String(review.responseId || review.response_id || review.id || review._id || "");
         if (id && !uniqueReviewsMap.has(id)) {
           uniqueReviewsMap.set(id, review);
         }
@@ -9197,7 +9323,7 @@ export default function FormAnalyticsDashboard() {
           flaggedList.forEach((qc: any) => {
             const qId = typeof qc === "object" ? (qc.questionId || qc.id) : String(qc);
             const qText = typeof qc === "object"
-              ? (qc.title || qc.text || qc.questionText || questionTextMap.get(qId) || qId)
+              ? (qc.title || qc.questionText || qc.text || questionTextMap.get(qId) || qId)
               : (questionTextMap.get(qId) || qId);
 
             if (!qMap.has(qId)) {
@@ -9225,9 +9351,15 @@ export default function FormAnalyticsDashboard() {
             tableResponses.find(r => String(r.id || (r as any)._id) === rId);
 
           let foundFlaggedOnResp = false;
-          if (Array.isArray(resp?.review?.flaggedQuestions) && resp.review.flaggedQuestions.length > 0) {
+          const respFlagged = (Array.isArray(resp?.review?.flaggedQuestions) && resp.review.flaggedQuestions.length > 0)
+            ? resp.review.flaggedQuestions
+            : (Array.isArray(resp?.review?.questionContexts) && resp.review.questionContexts.length > 0
+                ? resp.review.questionContexts
+                : []);
+
+          if (respFlagged.length > 0) {
             foundFlaggedOnResp = true;
-            resp.review.flaggedQuestions.forEach((fq: any) => {
+            respFlagged.forEach((fq: any) => {
               const qId = typeof fq === "object" ? (fq.questionId || fq.id) : String(fq);
               const qText = typeof fq === "object"
                 ? (fq.questionText || fq.title || fq.text || questionTextMap.get(qId) || qId)
@@ -9274,7 +9406,19 @@ export default function FormAnalyticsDashboard() {
               }
             }
             if (!foundDefectAns && (isRejected || isRework)) {
-              const label = (review as any).notes || (review as any).remark || (review as any).reason || "TVS Review Assessment";
+              let label = (review as any).notes || (review as any).remark || (review as any).reason || "";
+              if (label) {
+                const lLower = label.toLowerCase().trim();
+                for (const [, formQText] of questionTextMap.entries()) {
+                  if (formQText && (lLower.includes(formQText.toLowerCase()) || formQText.toLowerCase().includes(lLower))) {
+                    label = formQText;
+                    break;
+                  }
+                }
+              }
+              if (!label || label.toLowerCase().trim() === "rework" || label.toLowerCase().trim() === "rejected") {
+                label = "TVS Review Assessment";
+              }
               const qId = "tvs-gen-" + label.toLowerCase().replace(/[^a-z0-9]/g, "-");
               if (!qMap.has(qId)) {
                 qMap.set(qId, { id: qId, text: label, rejected: 0, rework: 0, accepted: 0 });
@@ -9309,9 +9453,15 @@ export default function FormAnalyticsDashboard() {
 
         if (!isRejected && !isRework && !isAccepted) return;
 
-        // Check if rev has flaggedQuestions from Chat selection!
-        if (Array.isArray(rev?.flaggedQuestions) && rev.flaggedQuestions.length > 0) {
-          rev.flaggedQuestions.forEach((fq: any) => {
+        // Check if rev has flaggedQuestions or questionContexts from Chat selection!
+        const revFlaggedList = (Array.isArray(rev?.questionContexts) && rev.questionContexts.length > 0)
+          ? rev.questionContexts
+          : (Array.isArray(rev?.flaggedQuestions) && rev.flaggedQuestions.length > 0
+              ? rev.flaggedQuestions
+              : []);
+
+        if (revFlaggedList.length > 0) {
+          revFlaggedList.forEach((fq: any) => {
             const qId = typeof fq === "object" ? (fq.questionId || fq.id) : String(fq);
             const qText = typeof fq === "object"
               ? (fq.questionText || fq.title || fq.text || questionTextMap.get(qId) || qId)
@@ -9360,7 +9510,19 @@ export default function FormAnalyticsDashboard() {
           }
         }
         if (!foundAny && (isRejected || isRework)) {
-          const label = rev.feedback || rev.notes || rev.remark || rev.reason || "TVS Review Assessment";
+          let label = rev.feedback || rev.notes || rev.remark || rev.reason || "";
+          if (label) {
+            const lLower = label.toLowerCase().trim();
+            for (const [, formQText] of questionTextMap.entries()) {
+              if (formQText && (lLower.includes(formQText.toLowerCase()) || formQText.toLowerCase().includes(lLower))) {
+                label = formQText;
+                break;
+              }
+            }
+          }
+          if (!label || label.toLowerCase().trim() === "rework" || label.toLowerCase().trim() === "rejected") {
+            label = "TVS Review Assessment";
+          }
           const qId = "tvs-gen-" + label.toLowerCase().replace(/[^a-z0-9]/g, "-");
           if (!qMap.has(qId)) {
             qMap.set(qId, { id: qId, text: label, rejected: 0, rework: 0, accepted: 0 });
@@ -10974,13 +11136,20 @@ export default function FormAnalyticsDashboard() {
   const PerformanceTableBarChart = () => {
     if (performanceTableData.length === 0) return null;
 
-    // Get the top 10 performers by total submitted
+    // Get the top 10 performers sorted by Performance Score (with totalSubmitted as secondary tiebreaker)
     const sortedData = [...performanceTableData]
-      .sort((a, b) => (b.totalSubmitted || 0) - (a.totalSubmitted || 0))
+      .sort((a, b) => {
+        const scoreDiff = (b.performanceScore || 0) - (a.performanceScore || 0);
+        if (scoreDiff !== 0) return scoreDiff;
+        return (b.totalSubmitted || 0) - (a.totalSubmitted || 0);
+      })
       .slice(0, 10);
 
     const data = {
-      labels: sortedData.map(row => row.name?.length > 15 ? row.name.substring(0, 15) + "..." : row.name),
+      labels: sortedData.map(row => {
+        const baseName = row.name?.length > 14 ? row.name.substring(0, 14) + "..." : (row.name || "Unknown");
+        return `${baseName} (${row.performanceScore || 0}%)`;
+      }),
       datasets: [
         {
           label: "Accepted",
@@ -11026,6 +11195,12 @@ export default function FormAnalyticsDashboard() {
           mode: "nearest" as const,
           intersect: true,
           callbacks: {
+            title: (items: any) => {
+              if (!items?.length) return "";
+              const idx = items[0].dataIndex;
+              const row = sortedData[idx];
+              return `${row.name || "Unknown"} • Score: ${row.performanceScore || 0}%`;
+            },
             label: (context: any) => {
               const datasetLabel = context.dataset.label;
               const value = context.raw;
@@ -11085,7 +11260,7 @@ export default function FormAnalyticsDashboard() {
                 Performance Table - Inspector Metrics
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Top 10 inspectors by submission volume
+                Top 10 inspectors by performance score
               </p>
             </div>
           </div>
@@ -11099,25 +11274,30 @@ export default function FormAnalyticsDashboard() {
   const BiwReviewTableBarChart = () => {
     if (biwReviewTableData.length === 0) return null;
 
-    // ✅ STEP 1: Filter out inspectors who have ALL zeros (Accepted, Rejected, Reworked are all 0)
+    // Filter out inspectors who have ALL zeros
     const filteredData = biwReviewTableData.filter((row) => {
       const accepted = row.accepted || 0;
       const rejected = row.rejected || 0;
       const rework = row.rework || 0;
-      // Only keep if at least one value is > 0
       return accepted > 0 || rejected > 0 || rework > 0;
     });
 
-    // ✅ STEP 2: If after filtering there's no data, return null (hide the chart)
     if (filteredData.length === 0) return null;
 
-    // Get the top 10 by total submitted (from filtered data)
+    // Get the top 10 sorted by Performance Score (with totalReviewed/totalSubmitted as tiebreaker)
     const sortedData = [...filteredData]
-      .sort((a, b) => (b.totalSubmitted || 0) - (a.totalSubmitted || 0))
+      .sort((a, b) => {
+        const scoreDiff = (b.performanceScore || 0) - (a.performanceScore || 0);
+        if (scoreDiff !== 0) return scoreDiff;
+        return (b.totalReviewed || b.totalSubmitted || 0) - (a.totalReviewed || a.totalSubmitted || 0);
+      })
       .slice(0, 10);
 
     const data = {
-      labels: sortedData.map(row => row.name?.length > 15 ? row.name.substring(0, 15) + "..." : row.name),
+      labels: sortedData.map(row => {
+        const baseName = row.name?.length > 14 ? row.name.substring(0, 14) + "..." : (row.name || "Unknown");
+        return `${baseName} (${row.performanceScore || 0}%)`;
+      }),
       datasets: [
         {
           label: "Accepted",
@@ -11167,6 +11347,12 @@ export default function FormAnalyticsDashboard() {
           mode: "nearest" as const,
           intersect: true,
           callbacks: {
+            title: (items: any) => {
+              if (!items?.length) return "";
+              const idx = items[0].dataIndex;
+              const row = sortedData[idx];
+              return `${row.name || "Unknown"} • Score: ${row.performanceScore || 0}%`;
+            },
             label: (context: any) => {
               const datasetLabel = context.dataset.label;
               const value = context.raw;
@@ -11175,7 +11361,6 @@ export default function FormAnalyticsDashboard() {
           },
         },
         datalabels: {
-          // ✅ Show 0 values as well (display even when value is 0)
           display: (context: any) => true,
           color: "#fff",
           font: { weight: "bold" as const, size: 9 },
@@ -11227,7 +11412,7 @@ export default function FormAnalyticsDashboard() {
                 BIW Review Table - Inspector Metrics
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Inspectors with BIW review activity
+                Top inspectors by BIW performance score
               </p>
             </div>
           </div>
@@ -11886,44 +12071,13 @@ export default function FormAnalyticsDashboard() {
               </h3>
               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
                 Performance based on BIW review checkmarks
-                {(biwFilterStartDate || biwFilterEndDate) && (
+                {commonDateRangeLabel !== "All Time" && (
                   <span className="text-purple-500 ml-1">
-                    {biwFilterStartDate && biwFilterEndDate
-                      ? ` (${new Date(biwFilterStartDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${new Date(biwFilterEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })})`
-                      : biwFilterStartDate
-                        ? ` (From ${new Date(biwFilterStartDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })})`
-                        : ` (Until ${new Date(biwFilterEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })})`}
+                    ({commonDateRangeLabel})
                   </span>
                 )}
               </p>
             </div>
-          </div>
-
-          {/* ✅ Date filter inputs for BIW Review Table */}
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              value={biwFilterStartDate}
-              onChange={(e) => { setBiwFilterStartDate(e.target.value); setBiwReviewPage(1); }}
-              className="text-[10px] font-bold bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-purple-500/50 shadow-sm"
-              title="Start Date"
-            />
-            <span className="text-[10px] font-bold text-gray-400">to</span>
-            <input
-              type="date"
-              value={biwFilterEndDate}
-              onChange={(e) => { setBiwFilterEndDate(e.target.value); setBiwReviewPage(1); }}
-              className="text-[10px] font-bold bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-purple-500/50 shadow-sm"
-              title="End Date"
-            />
-            {(biwFilterStartDate || biwFilterEndDate) && (
-              <button
-                onClick={() => { setBiwFilterStartDate(""); setBiwFilterEndDate(""); setBiwReviewPage(1); }}
-                className="text-[10px] font-bold text-red-500 hover:text-red-700 px-2 py-1.5 rounded-lg border border-red-200 hover:border-red-400 bg-red-50 hover:bg-red-100 transition-colors"
-              >
-                Clear
-              </button>
-            )}
           </div>
         </div>
 
@@ -13845,35 +13999,40 @@ export default function FormAnalyticsDashboard() {
                                     }}
                                   />
                                 </div>
-                                {canBulkSelectResponses && (
-                                  <label className="flex items-center gap-1.5 cursor-pointer font-normal text-[10px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 normal-case">
-                                    <input
-                                      type="checkbox"
-                                      checked={tableResponses.length > 0 && selectedBiwIds.length === tableResponses.length}
-                                      disabled={tableResponses.length === 0 || isBulkBiwUpdating}
-                                      onChange={(e) => {
-                                        e.stopPropagation();
-                                        console.log('[BIW] Header select all clicked:', e.target.checked);
+                                {canBulkSelectResponses && (() => {
+                                  const eligibleBiwResponses = tableResponses.filter(r => isBiwEligibleResponse(r));
+                                  const eligibleBiwIds = eligibleBiwResponses.map(r => r.id);
+                                  const isAllEligibleSelected = eligibleBiwIds.length > 0 && eligibleBiwIds.every(id => selectedBiwIds.includes(id));
 
-                                        if (e.target.checked) {
-                                          const allIds = tableResponses.map(r => r.id);
-                                          console.log('[BIW] Selecting all:', allIds.length, 'items');
-                                          setSelectedBiwIds(allIds);
-                                        } else {
-                                          console.log('[BIW] Clearing all selections');
-                                          setSelectedBiwIds([]);
-                                        }
-                                      }}
-                                      className="w-3.5 h-3.5 text-purple-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-purple-600"
-                                    />
-                                    <span>Select All</span>
-                                    {selectedBiwIds.length > 0 && (
-                                      <span className="text-[9px] font-bold text-purple-600 bg-purple-100 dark:bg-purple-900/30 px-1.5 py-0.5 rounded ml-1">
-                                        {selectedBiwIds.length}
-                                      </span>
-                                    )}
-                                  </label>
-                                )}
+                                  return (
+                                    <label className="flex items-center gap-1.5 cursor-pointer font-normal text-[10px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 normal-case">
+                                      <input
+                                        type="checkbox"
+                                        checked={isAllEligibleSelected}
+                                        disabled={eligibleBiwIds.length === 0 || isBulkBiwUpdating}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          console.log('[BIW] Header select all clicked:', e.target.checked);
+
+                                          if (e.target.checked) {
+                                            console.log('[BIW] Selecting all eligible:', eligibleBiwIds.length, 'items');
+                                            setSelectedBiwIds(prev => Array.from(new Set([...prev, ...eligibleBiwIds])));
+                                          } else {
+                                            console.log('[BIW] Clearing all eligible selections');
+                                            setSelectedBiwIds(prev => prev.filter(id => !eligibleBiwIds.includes(id)));
+                                          }
+                                        }}
+                                        className="w-3.5 h-3.5 text-purple-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-purple-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                                      />
+                                      <span>Select All</span>
+                                      {selectedBiwIds.length > 0 && (
+                                        <span className="text-[9px] font-bold text-purple-600 bg-purple-100 dark:bg-purple-900/30 px-1.5 py-0.5 rounded ml-1">
+                                          {selectedBiwIds.length}
+                                        </span>
+                                      )}
+                                    </label>
+                                  );
+                                })()}
 
                                 {/* Bulk actions dropdown */}
                                 <select
@@ -13889,10 +14048,15 @@ export default function FormAnalyticsDashboard() {
                                       } else {
                                         const validResponseIds: string[] = [];
                                         let selfSubmissionsCount = 0;
+                                        let reworkSkippedCount = 0;
 
                                         selectedBiwIds.forEach((id) => {
                                           const resp = responses.find((r) => r.id === id) || tableResponses.find((r) => r.id === id);
                                           if (resp) {
+                                            if (!isBiwEligibleResponse(resp)) {
+                                              reworkSkippedCount++;
+                                              return;
+                                            }
                                             if (status !== null && isSubmitterOfResponse(resp)) {
                                               selfSubmissionsCount++;
                                             } else {
@@ -13902,7 +14066,7 @@ export default function FormAnalyticsDashboard() {
                                         });
 
                                         if (validResponseIds.length === 0) {
-                                          showToast("You cannot BIW review your own submissions. All selected items were skipped.", "error");
+                                          showToast("No eligible items selected (rework items and self-submissions cannot receive BIW review).", "error");
                                         } else {
                                           setBiwBulkUpdateStatus(status);
                                           setBiwBulkUpdateTargetIds(validResponseIds);
@@ -14284,13 +14448,15 @@ export default function FormAnalyticsDashboard() {
                                       const rawFlagged =
                                         (serverRev?.flaggedQuestions && serverRev.flaggedQuestions.length > 0)
                                           ? serverRev.flaggedQuestions
-                                          : (tvsRev?.flaggedQuestions || []);
+                                          : (Array.isArray(tvsRev?.flaggedQuestions) && tvsRev.flaggedQuestions.length > 0
+                                              ? tvsRev.flaggedQuestions
+                                              : (Array.isArray(tvsRev?.questionContexts) ? tvsRev.questionContexts : []));
 
                                       const flaggedCategories: string[] = rawFlagged
                                         .map((q: any) =>
                                           typeof q === "string"
                                             ? q
-                                            : q?.questionText || q?.text || q?.title || q?.questionId || ""
+                                            : q?.questionText || q?.title || q?.text || q?.questionId || ""
                                         )
                                         .filter(Boolean);
 
@@ -14631,6 +14797,67 @@ export default function FormAnalyticsDashboard() {
                                       const reviewBlockReason = reviewAuth.reason || (isSubmitter ? "You cannot BIW review your own submission" : "Only assigned tenant reviewers can perform BIW review");
                                       const currentStatus = response.biwReview?.status;
                                       const isSaving = biwSavingResponseId === response.id;
+                                      const isEligible = isBiwEligibleResponse(response);
+
+                                      // Extract BIW flagged categories
+                                      const biwFlaggedCategories: string[] = (
+                                        Array.isArray(response.biwReview?.flaggedQuestions) && response.biwReview.flaggedQuestions.length > 0
+                                          ? response.biwReview.flaggedQuestions
+                                          : Array.isArray((response as any).review?.flaggedQuestions) && (response as any).review.flaggedQuestions.length > 0
+                                          ? (response as any).review.flaggedQuestions
+                                          : Array.isArray((response as any).review?.questionContexts) && (response as any).review.questionContexts.length > 0
+                                          ? (response as any).review.questionContexts
+                                          : Array.isArray((response as any).tvsReview?.flaggedQuestions) && (response as any).tvsReview.flaggedQuestions.length > 0
+                                          ? (response as any).tvsReview.flaggedQuestions
+                                          : []
+                                      )
+                                        .map((q: any) => typeof q === "object" ? (q.questionText || q.title || q.text || q.questionId) : String(q))
+                                        .filter((s): s is string => Boolean(s && s.trim()));
+
+                                      // ❌ Rework responses do not receive BIW review:
+                                      // Only "Direct Ok", "Accepted", and "Rework Accepted" can receive BIW review.
+                                      if (!isEligible) {
+                                        if (currentStatus) {
+                                          return (
+                                            <div className="flex flex-col items-center justify-center gap-1">
+                                              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                                                {currentStatus}
+                                              </span>
+                                              {biwFlaggedCategories.length > 0 && (
+                                                <div className="flex flex-wrap gap-1 justify-center mt-0.5 max-w-full">
+                                                  {biwFlaggedCategories.map((cat, i) => (
+                                                    <span
+                                                      key={i}
+                                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-50 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 max-w-[200px] truncate"
+                                                      title={`BIW Defect Category: ${cat}`}
+                                                    >
+                                                      <span>⚠️</span>
+                                                      <span className="truncate">{cat}</span>
+                                                    </span>
+                                                  ))}
+                                                </div>
+                                              )}
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setBiwViewResponse(response);
+                                                  setShowBiwViewModal(true);
+                                                }}
+                                                className="flex items-center gap-1 text-[11px] font-medium text-purple-600 dark:text-purple-400 hover:underline"
+                                              >
+                                                <Eye className="w-3 h-3" />
+                                                <span>View</span>
+                                              </button>
+                                            </div>
+                                          );
+                                        }
+                                        return (
+                                          <div className="flex items-center justify-center text-center">
+                                            <span className="text-gray-400 text-xs font-medium">-</span>
+                                          </div>
+                                        );
+                                      }
 
                                       // 🔥 FIX: Define options here - this is the missing piece!
                                       const biwOptions: {
@@ -14731,20 +14958,36 @@ export default function FormAnalyticsDashboard() {
                                           )}
 
                                           {/* Eye icon: view modal showing BIW remark/questions/evidence and discussion */}
-                                          {Boolean(currentStatus || response.biwReview?.remark || response.biwReview?.reviewedBy || (response.biwReview?.flaggedQuestions && response.biwReview.flaggedQuestions.length > 0)) && (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                setBiwViewResponse(response);
-                                                setShowBiwViewModal(true);
-                                              }}
-                                              className="flex items-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300 border-t border-gray-200 dark:border-gray-700 pt-1.5 mt-0.5"
-                                              title="View BIW review details"
-                                            >
-                                              <Eye className="w-3.5 h-3.5" />
-                                              <span>View</span>
-                                            </button>
+                                          {Boolean(currentStatus || response.biwReview?.remark || response.biwReview?.reviewedBy || biwFlaggedCategories.length > 0) && (
+                                            <div className="flex flex-col gap-1 border-t border-gray-200 dark:border-gray-700 pt-1.5 mt-0.5">
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setBiwViewResponse(response);
+                                                  setShowBiwViewModal(true);
+                                                }}
+                                                className="flex items-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300"
+                                                title="View BIW review details"
+                                              >
+                                                <Eye className="w-3.5 h-3.5" />
+                                                <span>View</span>
+                                              </button>
+                                              {biwFlaggedCategories.length > 0 && (
+                                                <div className="flex flex-wrap gap-1 mt-0.5 max-w-full">
+                                                  {biwFlaggedCategories.map((cat, i) => (
+                                                    <span
+                                                      key={i}
+                                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-50 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 max-w-[200px] truncate"
+                                                      title={`BIW Defect Category: ${cat}`}
+                                                    >
+                                                      <span>⚠️</span>
+                                                      <span className="truncate">{cat}</span>
+                                                    </span>
+                                                  ))}
+                                                </div>
+                                              )}
+                                            </div>
                                           )}
                                         </div>
                                       );
@@ -16233,11 +16476,26 @@ export default function FormAnalyticsDashboard() {
 
       {/* NEW - BIW Review Eye/View Modal (read-only) */}
       {showBiwViewModal && biwViewResponse && (() => {
-        const biwRev = biwViewResponse.biwReview;
-        const currentReviewStatus = biwRev?.status || "";
-        const currentReviewerName = biwRev?.reviewedByName || "Reviewer";
-        const currentReviewedAt = biwRev?.reviewedAt;
+        const biwRev = biwViewResponse.biwReview || (biwViewResponse as any).review || (biwViewResponse as any).tvsReview;
+        const currentReviewStatus = biwRev?.status || (biwViewResponse as any).review?.status || (biwViewResponse as any).tvsReview?.status || "";
+        const currentReviewerName = biwRev?.reviewedByName || biwRev?.reviewedBy || (biwViewResponse as any).review?.reviewedByName || (biwViewResponse as any).review?.reviewedBy || "Reviewer";
+        const currentReviewedAt = biwRev?.reviewedAt || (biwViewResponse as any).review?.reviewedAt;
         const chassisVal = getResponseChassisValue(biwViewResponse);
+
+        const modalFlaggedQuestions: any[] = (
+          Array.isArray(biwRev?.flaggedQuestions) && biwRev.flaggedQuestions.length > 0
+            ? biwRev.flaggedQuestions
+            : Array.isArray((biwViewResponse as any).review?.flaggedQuestions) && (biwViewResponse as any).review.flaggedQuestions.length > 0
+            ? (biwViewResponse as any).review.flaggedQuestions
+            : Array.isArray((biwViewResponse as any).review?.questionContexts) && (biwViewResponse as any).review.questionContexts.length > 0
+            ? (biwViewResponse as any).review.questionContexts
+            : Array.isArray((biwViewResponse as any).tvsReview?.flaggedQuestions) && (biwViewResponse as any).tvsReview.flaggedQuestions.length > 0
+            ? (biwViewResponse as any).tvsReview.flaggedQuestions
+            : []
+        );
+
+        const modalRemark = biwRev?.remark || biwRev?.reason || (biwViewResponse as any).review?.remark || (biwViewResponse as any).review?.reason;
+        const modalEvidenceUrl = biwRev?.evidenceUrl || (biwViewResponse as any).review?.evidenceUrl;
 
         return (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
@@ -16309,44 +16567,51 @@ export default function FormAnalyticsDashboard() {
                   </div>
 
                   {/* Flagged questions */}
-                  {biwRev?.flaggedQuestions && biwRev.flaggedQuestions.length > 0 && (
+                  {modalFlaggedQuestions && modalFlaggedQuestions.length > 0 && (
                     <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-                      <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide block mb-1">
+                      <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide block mb-1.5">
                         Flagged Question(s)
                       </label>
-                      <ul className="space-y-1 list-disc list-inside">
-                        {biwRev.flaggedQuestions.map((q, idx) => (
-                          <li key={`${q.questionId}-${idx}`} className="text-xs text-gray-700 dark:text-gray-300">
-                            {q.questionText}
-                          </li>
-                        ))}
-                      </ul>
+                      <div className="flex flex-wrap gap-1.5">
+                        {modalFlaggedQuestions.map((q: any, idx: number) => {
+                          const catText = typeof q === "object" ? (q.questionText || q.title || q.text || q.questionId) : String(q);
+                          return (
+                            <span
+                              key={`${q.questionId || idx}-${idx}`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold bg-purple-50 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60"
+                            >
+                              <span>⚠️</span>
+                              <span>{catText}</span>
+                            </span>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 
                   {/* Remark */}
-                  {biwRev?.remark && (
+                  {modalRemark && (
                     <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
                       <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide block mb-1">
                         Review Remark
                       </label>
                       <p className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                        {biwRev.remark}
+                        {modalRemark}
                       </p>
                     </div>
                   )}
 
                   {/* Evidence Image */}
-                  {biwRev?.evidenceUrl && (
+                  {modalEvidenceUrl && (
                     <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
                       <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide block mb-1.5">
                         Evidence Image
                       </label>
                       <img
-                        src={biwRev.evidenceUrl}
+                        src={modalEvidenceUrl}
                         alt="Evidence"
                         className="w-full max-h-48 object-contain rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:opacity-95 transition-opacity"
-                        onClick={() => window.open(biwRev.evidenceUrl!, "_blank")}
+                        onClick={() => window.open(modalEvidenceUrl, "_blank")}
                         title="Click to view full size"
                       />
                     </div>

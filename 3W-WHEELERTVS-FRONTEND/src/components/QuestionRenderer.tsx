@@ -324,7 +324,7 @@ export default function QuestionRenderer({
   const [biwReasonText, setBiwReasonText] = useState<string>("");
   const [biwEvidenceUrl, setBiwEvidenceUrl] = useState<string>("");
   const [biwUploading, setBiwUploading] = useState<boolean>(false);
-  const [formQuestions, setFormQuestions] = useState<{id: string, text: string}[]>([]);
+  const [formQuestions, setFormQuestions] = useState<{ id: string, text: string }[]>([]);
   const [biwSelectedQuestionIds, setBiwSelectedQuestionIds] = useState<string[]>([]);
 
   // Track global rank matched answers for this question
@@ -390,16 +390,16 @@ export default function QuestionRenderer({
     }
   };
 
-  const handleUpdateBiwStatus = async (status: "Accepted" | "Rejected" | "Reworked", remark?: string, evidenceUrl?: string, flaggedQuestions?: {questionId: string, questionText: string}[]) => {
+  const handleUpdateBiwStatus = async (status: "Accepted" | "Rejected" | "Reworked", remark?: string, evidenceUrl?: string, flaggedQuestions?: { questionId: string, questionText: string }[]) => {
     const targetId = lastResponseId || (rankHistory.length > 0 ? rankHistory[rankHistory.length - 1].id : null);
     if (!targetId) return;
 
     setUpdatingBiw(true);
     try {
       await apiClient.updateResponse(targetId, {
-        biwReview: { 
-          status, 
-          remark: remark || "", 
+        biwReview: {
+          status,
+          remark: remark || "",
           evidenceUrl: evidenceUrl || "",
           flaggedQuestions: flaggedQuestions || []
         }
@@ -686,21 +686,21 @@ export default function QuestionRenderer({
       setDispatchInfo(
         newDispatchedState
           ? {
-              isDispatched: true,
-              dispatchedAt: nowIso,
-              dispatchedByName: currentUserName,
-            }
+            isDispatched: true,
+            dispatchedAt: nowIso,
+            dispatchedByName: currentUserName,
+          }
           : null
       );
 
       if (typeof window !== "undefined") {
         (window as any).__currentChassisDispatchState = newDispatchedState
           ? {
-              isDispatched: true,
-              dispatchedAt: nowIso,
-              dispatchedByName: currentUserName,
-              dispatchedBy: currentUserId,
-            }
+            isDispatched: true,
+            dispatchedAt: nowIso,
+            dispatchedByName: currentUserName,
+            dispatchedBy: currentUserId,
+          }
           : null;
       }
     } catch (err) {
@@ -773,7 +773,7 @@ export default function QuestionRenderer({
     // If suggestedAnswers is an array of records (new behavior)
     if (Array.isArray(suggestedAnswers)) {
       if (suggestedAnswers.length === 0) return null;
-      
+
       const allMatches = suggestedAnswers.map(s => {
         const answers = s.answers || {};
         const matchKey = Object.keys(answers).find((key) => {
@@ -781,8 +781,8 @@ export default function QuestionRenderer({
           const normKey = normalize(key);
           return targets.includes(normKey);
         });
-        return { 
-          rank: s.rank, 
+        return {
+          rank: s.rank,
           status: s.status,
           submittedBy: s.submittedBy,
           timestamp: s.timestamp || s.createdAt,
@@ -864,7 +864,7 @@ export default function QuestionRenderer({
 
     const formatSuggestionValue = (val: any) => {
       if (val === null || val === undefined) return "";
-      
+
       if (typeof val === "object") {
         if (val.status) {
           const parts = [`Status: ${val.status}`];
@@ -890,7 +890,7 @@ export default function QuestionRenderer({
             if (cats.length > 0) parts.push(`Cat: ${cats.join(', ')}`);
           }
           if (val.defects && Array.isArray(val.defects) && val.defects.length > 0) {
-             parts.push(`Defects: ${val.defects.length}`);
+            parts.push(`Defects: ${val.defects.length}`);
           }
           return parts.join(" | ");
         }
@@ -903,7 +903,7 @@ export default function QuestionRenderer({
           return "Object";
         }
       }
-      
+
       return String(val);
     };
 
@@ -1059,7 +1059,7 @@ export default function QuestionRenderer({
             <ParagraphInput
               question={question}
               value={value}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
               readOnly={readOnly}
@@ -1110,9 +1110,8 @@ export default function QuestionRenderer({
               onBlur={() => setIsFocused(false)}
               required={question.required}
               disabled={readOnly}
-              className={`w-full px-3 py-1.5 border rounded-xl text-[11px] font-medium transition-all duration-300 ${getBorderClass()} ${readOnly ? "opacity-50 cursor-not-allowed" : ""} ${
-                error ? "border-red-500 ring-4 ring-red-500/10" : ""
-              }`}
+              className={`w-full px-3 py-1.5 border rounded-xl text-[11px] font-medium transition-all duration-300 ${getBorderClass()} ${readOnly ? "opacity-50 cursor-not-allowed" : ""} ${error ? "border-red-500 ring-4 ring-red-500/10" : ""
+                }`}
             >
               <option value="">Select an option</option>
               {question.options?.map((option) => (
@@ -1148,15 +1147,14 @@ export default function QuestionRenderer({
                 return (
                   <label
                     key={option}
-                    className={`flex items-center space-x-3 cursor-pointer p-2 rounded-lg border transition-all duration-200 ${
-                      isSelected
+                    className={`flex items-center space-x-3 cursor-pointer p-2 rounded-lg border transition-all duration-200 ${isSelected
                         ? isApplied
                           ? "border-emerald-500/50 bg-emerald-500/5 dark:bg-emerald-500/10 ring-4 ring-emerald-500/5"
                           : "border-blue-500/50 bg-blue-500/5 dark:bg-blue-500/10"
                         : error
                           ? "border-red-500 bg-red-50/50 dark:bg-red-500/5"
                           : "border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:bg-slate-50 dark:hover:bg-slate-800"
-                    }`}
+                      }`}
                   >
                     <div className="relative flex items-center">
                       <input
@@ -1185,21 +1183,18 @@ export default function QuestionRenderer({
                         }}
                         required={question.required && !value}
                         disabled={readOnly}
-                        className={`h-3.5 w-3.5 ${
-                          isApplied
+                        className={`h-3.5 w-3.5 ${isApplied
                             ? "text-emerald-600 focus:ring-emerald-500/20"
                             : "text-blue-600 focus:ring-blue-500/20"
-                        } border-slate-300 dark:border-slate-700 dark:bg-slate-900 ${
-                          readOnly ? "cursor-not-allowed" : ""
-                        } ${question.type === "radio" ? "rounded-full" : "rounded"}`}
+                          } border-slate-300 dark:border-slate-700 dark:bg-slate-900 ${readOnly ? "cursor-not-allowed" : ""
+                          } ${question.type === "radio" ? "rounded-full" : "rounded"}`}
                       />
                     </div>
                     <span
-                      className={`text-[11px] font-bold ${
-                        isApplied && isSelected
+                      className={`text-[11px] font-bold ${isApplied && isSelected
                           ? "text-emerald-700 dark:text-emerald-300"
                           : "text-slate-700 dark:text-slate-300"
-                      } transition-colors group-hover:text-blue-600 dark:group-hover:text-blue-400`}
+                        } transition-colors group-hover:text-blue-600 dark:group-hover:text-blue-400`}
                     >
                       {option}
                     </span>
@@ -1257,7 +1252,7 @@ export default function QuestionRenderer({
             <GridQuestion
               question={question}
               value={value || {}}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               type={question.type === "radio-grid" ? "radio" : "checkbox"}
               readOnly={readOnly}
               error={!!error}
@@ -1275,7 +1270,7 @@ export default function QuestionRenderer({
             <RadioImageQuestion
               question={question}
               value={value}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               error={!!error}
               isApplied={isApplied}
             />
@@ -1291,7 +1286,7 @@ export default function QuestionRenderer({
             <RatingQuestion
               question={question}
               value={value}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               readOnly={readOnly}
               error={!!error}
               isApplied={isApplied}
@@ -1307,7 +1302,7 @@ export default function QuestionRenderer({
             <RatingNumberQuestion
               question={question}
               value={value}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               readOnly={readOnly}
               error={!!error}
               isApplied={isApplied}
@@ -1324,7 +1319,7 @@ export default function QuestionRenderer({
             <SatisfactionRatingQuestion
               question={question}
               value={value}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               readOnly={readOnly}
               error={!!error}
               isApplied={isApplied}
@@ -1341,7 +1336,7 @@ export default function QuestionRenderer({
             <RangeQuestion
               question={question}
               value={value}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               readOnly={readOnly}
               error={!!error}
               isApplied={isApplied}
@@ -1358,7 +1353,7 @@ export default function QuestionRenderer({
             <ScaleQuestion
               question={question}
               value={value}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               readOnly={readOnly}
               error={!!error}
               isApplied={isApplied}
@@ -1375,7 +1370,7 @@ export default function QuestionRenderer({
             <SliderFeedback
               question={question}
               value={value}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               readOnly={readOnly}
               error={!!error}
               isApplied={isApplied}
@@ -1392,7 +1387,7 @@ export default function QuestionRenderer({
             <EmojiStarFeedback
               question={question}
               value={value}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               readOnly={readOnly}
               error={!!error}
               isApplied={isApplied}
@@ -1409,7 +1404,7 @@ export default function QuestionRenderer({
             <EmojiReactionFeedback
               question={question}
               value={value}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               readOnly={readOnly}
               error={!!error}
               isApplied={isApplied}
@@ -1425,7 +1420,7 @@ export default function QuestionRenderer({
           <div className="space-y-1">
             <ProductNPSBuckets
               value={value}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               disabled={readOnly}
               error={!!error}
               isApplied={isApplied}
@@ -1602,7 +1597,7 @@ export default function QuestionRenderer({
             <FileInput
               question={question}
               value={value}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               readOnly={readOnly}
               isValidationError={!!error}
               isApplied={isApplied}
@@ -1620,7 +1615,7 @@ export default function QuestionRenderer({
             <DateTimeInput
               question={question}
               value={value}
-              onChange={onChange || (() => {})}
+              onChange={onChange || (() => { })}
               readOnly={readOnly}
               error={!!error}
               isApplied={isApplied}
@@ -1646,9 +1641,8 @@ export default function QuestionRenderer({
               onBlur={() => setIsFocused(false)}
               required={question.required}
               disabled={readOnly}
-              className={`w-full px-3 py-1.5 border rounded-xl text-[11px] font-medium transition-all duration-300 ${getBorderClass()} ${readOnly ? "opacity-50 cursor-not-allowed" : ""} ${
-                error ? "border-red-500 ring-4 ring-red-500/10" : ""
-              }`}
+              className={`w-full px-3 py-1.5 border rounded-xl text-[11px] font-medium transition-all duration-300 ${getBorderClass()} ${readOnly ? "opacity-50 cursor-not-allowed" : ""} ${error ? "border-red-500 ring-4 ring-red-500/10" : ""
+                }`}
               placeholder={question.placeholder || (question.text && question.text.toLowerCase().includes("chassis") ? "Enter Chassis Number / VIN..." : `Enter ${effectiveType === "email" ? "email" : effectiveType === "number" ? "number" : "response"}...`)}
             />
             {renderLoadingIndicator()}
@@ -1708,9 +1702,8 @@ export default function QuestionRenderer({
             onBlur={() => setIsFocused(false)}
             required
             disabled={readOnly}
-            className={`w-full px-3 py-1.5 border rounded-xl text-[11px] font-medium transition-all duration-300 ${getBorderClass(true)} ${readOnly ? "opacity-50 cursor-not-allowed" : ""} ${
-              trackingError ? "border-red-500 ring-4 ring-red-500/10" : ""
-            }`}
+            className={`w-full px-3 py-1.5 border rounded-xl text-[11px] font-medium transition-all duration-300 ${getBorderClass(true)} ${readOnly ? "opacity-50 cursor-not-allowed" : ""} ${trackingError ? "border-red-500 ring-4 ring-red-500/10" : ""
+              }`}
             placeholder={`Enter ${trackingInputType === "email" ? "email" : trackingInputType === "number" ? "number" : "tracking response"}...`}
           />
           {trackingError && (
@@ -1823,35 +1816,158 @@ export default function QuestionRenderer({
               </span>
             )}
             {typeof rank === "number" && rank > 0 && (() => {
-            const isParentFollowUp = Boolean(parentMatchInfo?.isParentLinked || (parentMatchInfo?.exists && parentMatchInfo?.attemptsCount > 0));
-            const statusLower = (previousStatus || "").toLowerCase().trim();
+              const isParentFollowUp = Boolean(parentMatchInfo?.isParentLinked || (parentMatchInfo?.exists && parentMatchInfo?.attemptsCount > 0));
+              const statusLower = (previousStatus || "").toLowerCase().trim();
 
-            const historyItems = (rankHistory && rankHistory.length > 0)
-              ? rankHistory
-              : [];
+              const historyItems = (rankHistory && rankHistory.length > 0)
+                ? rankHistory
+                : [];
 
-            // Render action icons:
-            // - Creator Tenant (e.g. Manoj Mohan / LMPL):
-            //   1. If Direct OK & not dispatched: render prominent direct Dispatch button right here!
-            //   2. If already dispatched: render Dispatched badge, AND show BIW review & Chat icons ONLY IF entered from assigned tenant!
-            //   3. If not dispatched: DO NOT show BIW review or Chat icons!
-            // - Assigned Tenant (e.g. Saify): Sees BIW Review and Chat icons ONLY AFTER review has occurred.
-            const renderActionIcons = () => {
-              // 1. Creator Tenant:
-              if (isCreatorTenant) {
-                const isDisp = Boolean(dispatchInfo?.isDispatched);
+              // Render action icons:
+              // - Creator Tenant (e.g. Manoj Mohan / LMPL):
+              //   1. If Direct OK & not dispatched: render prominent direct Dispatch button right here!
+              //   2. If already dispatched: render Dispatched badge, AND show BIW review & Chat icons ONLY IF entered from assigned tenant!
+              //   3. If not dispatched: DO NOT show BIW review or Chat icons!
+              // - Assigned Tenant (e.g. Saify): Sees BIW Review and Chat icons ONLY AFTER review has occurred.
+              const renderActionIcons = () => {
+                // 1. Creator Tenant:
+                if (isCreatorTenant) {
+                  const isDisp = Boolean(dispatchInfo?.isDispatched);
 
-                // Check if BIW review is entered from assigned tenant (e.g. Saify / vendor tenant)
-                const isReviewFromAssignedTenant =
-                  Boolean(biwInfo && biwInfo.status) &&
-                  (Boolean((biwInfo as any).isFromAssignedTenant) ||
-                   Boolean(biwInfo.reviewedByName && biwInfo.reviewedByName.toLowerCase().includes("saify")) ||
-                   Boolean(biwInfo.reviewedBy && String(biwInfo.reviewedBy) !== String(currentUser?._id || currentUser?.id)) ||
-                   Boolean(rankFormTenantId && (biwInfo as any).tenantId && String((biwInfo as any).tenantId) !== String(rankFormTenantId)));
+                  // Check if BIW review is entered from assigned tenant (e.g. Saify / vendor tenant)
+                  const isReviewFromAssignedTenant =
+                    Boolean(biwInfo && biwInfo.status) &&
+                    (Boolean((biwInfo as any).isFromAssignedTenant) ||
+                      Boolean(biwInfo.reviewedByName && biwInfo.reviewedByName.toLowerCase().includes("saify")) ||
+                      Boolean(biwInfo.reviewedBy && String(biwInfo.reviewedBy) !== String(currentUser?._id || currentUser?.id)) ||
+                      Boolean(rankFormTenantId && (biwInfo as any).tenantId && String((biwInfo as any).tenantId) !== String(rankFormTenantId)));
 
-                const isChatFromAssignedTenant =
-                  chatCount > 0 &&
-                  (isReviewFromAssignedTenant || Boolean((biwInfo as any)?.isFromAssignedTenant));
+                  const isChatFromAssignedTenant =
+                    chatCount > 0 &&
+                    (isReviewFromAssignedTenant || Boolean((biwInfo as any)?.isFromAssignedTenant));
+
+                  const bStr = String(biwInfo?.status || "").toLowerCase();
+                  const isBiwRej = bStr.includes("reject");
+                  const isBiwAccepted = bStr.includes("accept") || bStr.includes("ok");
+                  const isBiwRework = bStr.includes("rework");
+                  const biwIconColor = isBiwRej
+                    ? "text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800"
+                    : isBiwAccepted
+                      ? "text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"
+                      : isBiwRework
+                        ? "text-purple-600 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800"
+                        : "text-amber-600 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800";
+
+                  return (
+                    <div className="flex items-center gap-1.5 ml-1 self-center">
+                      {/* If Direct OK / Accepted and not yet dispatched: render direct Dispatch button right here */}
+                      {!isDisp && isAccepted && (
+                        <button
+                          type="button"
+                          disabled={isUpdatingDispatch}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleDispatch();
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                          title="Direct OK - Dispatch unit directly"
+                        >
+                          {isUpdatingDispatch ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Truck className="w-3.5 h-3.5" />
+                          )}
+                          <span>Dispatch</span>
+                        </button>
+                      )}
+
+                      {/* If Not Dispatched and Not Accepted: show pending dispatch button that opens the Not Accepted screen */}
+                      {!isDisp && !isAccepted && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowDispatchModal(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer shadow-xs hover:scale-105 text-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700"
+                          title={`Dispatch Status: Not Accepted (${previousStatus || "Pending Inspection"}) - Click to view status`}
+                        >
+                          <Truck className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Dispatch</span>
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                        </button>
+                      )}
+
+                      {/* If Dispatched: show green Dispatched badge */}
+                      {isDisp && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowDispatchModal(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 hover:scale-105 transition-all cursor-pointer shadow-xs"
+                          title={`Dispatched by ${dispatchInfo?.dispatchedByName || "Admin"}${dispatchInfo?.dispatchedAt ? ` on ${new Date(dispatchInfo.dispatchedAt).toLocaleDateString()}` : ""}`}
+                        >
+                          <Truck className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>✓ Dispatched</span>
+                        </button>
+                      )}
+
+                      {/* ONLY when Dispatched: show BIW review & Chat icons IF entered from assigned tenant */}
+                      {isDisp && isReviewFromAssignedTenant && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowBiwModal(true);
+                          }}
+                          className={`relative p-1.5 rounded-lg border flex items-center justify-center transition-all cursor-pointer shadow-xs hover:scale-105 ${biwIconColor}`}
+                          title={`BIW Review from Assigned Tenant: ${biwInfo?.status || "Reviewed"}${biwInfo?.reviewedByName ? ` (by ${biwInfo.reviewedByName})` : ""}`}
+                        >
+                          <ShieldCheck className="w-4 h-4" />
+                          <span
+                            className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900 ${isBiwRej
+                                ? "bg-rose-500"
+                                : isBiwAccepted
+                                  ? "bg-emerald-500"
+                                  : isBiwRework
+                                    ? "bg-purple-500"
+                                    : "bg-amber-400"
+                              }`}
+                          />
+                        </button>
+                      )}
+
+                      {isDisp && isChatFromAssignedTenant && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowChatModal(true);
+                            fetchChatHistory();
+                          }}
+                          title={`Assigned Tenant Discussion / Chat (${chatCount} messages)`}
+                          className="relative p-1.5 rounded-lg border text-indigo-600 dark:text-indigo-400 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 hover:scale-105 active:scale-95 border-indigo-200 dark:border-indigo-800 flex items-center justify-center transition-all cursor-pointer shadow-xs"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                          {chatCount > 0 && (
+                            <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full text-[9px] font-black bg-indigo-600 text-white flex items-center justify-center ring-1.5 ring-white dark:ring-gray-900 leading-none">
+                              {chatCount}
+                            </span>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  );
+                }
+
+                // 2. Assigned Tenant (e.g. Saify):
+                // BIW review and chat should appear ONLY after review has occurred (biwInfo?.status exists)
+                const hasBiwReviewOccurred = Boolean(biwInfo && biwInfo.status);
+                if (!hasBiwReviewOccurred) {
+                  return null;
+                }
 
                 const bStr = String(biwInfo?.status || "").toLowerCase();
                 const isBiwRej = bStr.includes("reject");
@@ -1867,328 +1983,203 @@ export default function QuestionRenderer({
 
                 return (
                   <div className="flex items-center gap-1.5 ml-1 self-center">
-                    {/* If Direct OK / Accepted and not yet dispatched: render direct Dispatch button right here */}
-                    {!isDisp && isAccepted && (
-                      <button
-                        type="button"
-                        disabled={isUpdatingDispatch}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleDispatch();
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer transition-all active:scale-95 disabled:opacity-50"
-                        title="Direct OK - Dispatch unit directly"
-                      >
-                        {isUpdatingDispatch ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Truck className="w-3.5 h-3.5" />
-                        )}
-                        <span>Dispatch</span>
-                      </button>
-                    )}
-
-                    {/* If Not Dispatched and Not Accepted: show pending dispatch button that opens the Not Accepted screen */}
-                    {!isDisp && !isAccepted && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowDispatchModal(true);
-                        }}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer shadow-xs hover:scale-105 text-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700"
-                        title={`Dispatch Status: Not Accepted (${previousStatus || "Pending Inspection"}) - Click to view status`}
-                      >
-                        <Truck className="w-3.5 h-3.5 text-amber-600" />
-                        <span>Dispatch</span>
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                      </button>
-                    )}
-
-                    {/* If Dispatched: show green Dispatched badge */}
-                    {isDisp && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowDispatchModal(true);
-                        }}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 hover:scale-105 transition-all cursor-pointer shadow-xs"
-                        title={`Dispatched by ${dispatchInfo?.dispatchedByName || "Admin"}${dispatchInfo?.dispatchedAt ? ` on ${new Date(dispatchInfo.dispatchedAt).toLocaleDateString()}` : ""}`}
-                      >
-                        <Truck className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>✓ Dispatched</span>
-                      </button>
-                    )}
-
-                    {/* ONLY when Dispatched: show BIW review & Chat icons IF entered from assigned tenant */}
-                    {isDisp && isReviewFromAssignedTenant && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowBiwModal(true);
-                        }}
-                        className={`relative p-1.5 rounded-lg border flex items-center justify-center transition-all cursor-pointer shadow-xs hover:scale-105 ${biwIconColor}`}
-                        title={`BIW Review from Assigned Tenant: ${biwInfo?.status || "Reviewed"}${biwInfo?.reviewedByName ? ` (by ${biwInfo.reviewedByName})` : ""}`}
-                      >
-                        <ShieldCheck className="w-4 h-4" />
-                        <span
-                          className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900 ${
-                            isBiwRej
-                              ? "bg-rose-500"
-                              : isBiwAccepted
-                                ? "bg-emerald-500"
-                                : isBiwRework
-                                  ? "bg-purple-500"
-                                  : "bg-amber-400"
+                    {/* BIW Review Icon */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowBiwModal(true);
+                      }}
+                      className={`relative p-1.5 rounded-lg border flex items-center justify-center transition-all cursor-pointer shadow-xs hover:scale-105 ${biwIconColor}`}
+                      title={`BIW Review: ${biwInfo?.status || "Pending Review"}${biwInfo?.reviewedByName ? ` (by ${biwInfo.reviewedByName})` : ""}`}
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      <span
+                        className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900 ${isBiwRej
+                            ? "bg-rose-500"
+                            : isBiwAccepted
+                              ? "bg-emerald-500"
+                              : isBiwRework
+                                ? "bg-purple-500"
+                                : "bg-amber-400"
                           }`}
-                        />
-                      </button>
-                    )}
+                      />
+                    </button>
 
-                    {isDisp && isChatFromAssignedTenant && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowChatModal(true);
-                          fetchChatHistory();
-                        }}
-                        title={`Assigned Tenant Discussion / Chat (${chatCount} messages)`}
-                        className="relative p-1.5 rounded-lg border text-indigo-600 dark:text-indigo-400 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 hover:scale-105 active:scale-95 border-indigo-200 dark:border-indigo-800 flex items-center justify-center transition-all cursor-pointer shadow-xs"
-                      >
-                        <MessageCircle className="w-4 h-4" />
-                        {chatCount > 0 && (
-                          <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full text-[9px] font-black bg-indigo-600 text-white flex items-center justify-center ring-1.5 ring-white dark:ring-gray-900 leading-none">
-                            {chatCount}
-                          </span>
-                        )}
-                      </button>
-                    )}
+                    {/* Chat Icon */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowChatModal(true);
+                        fetchChatHistory();
+                      }}
+                      title={`Chassis Discussion / Chat (${chatCount} messages) - Click to open discussion`}
+                      className="relative p-1.5 rounded-lg border text-indigo-600 dark:text-indigo-400 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 hover:scale-105 active:scale-95 border-indigo-200 dark:border-indigo-800 flex items-center justify-center transition-all cursor-pointer shadow-xs"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      {chatCount > 0 && (
+                        <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full text-[9px] font-black bg-indigo-600 text-white flex items-center justify-center ring-1.5 ring-white dark:ring-gray-900 leading-none">
+                          {chatCount}
+                        </span>
+                      )}
+                    </button>
                   </div>
                 );
-              }
+              };
 
-              // 2. Assigned Tenant (e.g. Saify):
-              // BIW review and chat should appear ONLY after review has occurred (biwInfo?.status exists)
-              const hasBiwReviewOccurred = Boolean(biwInfo && biwInfo.status);
-              if (!hasBiwReviewOccurred) {
-                return null;
-              }
+              // Render previous tenant rank badge
+              const renderPrevTenantBadge = () => {
+                if (!previousTenantRank || !previousTenantRank.exists) return null;
 
-              const bStr = String(biwInfo?.status || "").toLowerCase();
-              const isBiwRej = bStr.includes("reject");
-              const isBiwAccepted = bStr.includes("accept") || bStr.includes("ok");
-              const isBiwRework = bStr.includes("rework");
-              const biwIconColor = isBiwRej
-                ? "text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800"
-                : isBiwAccepted
-                  ? "text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"
-                  : isBiwRework
-                    ? "text-purple-600 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800"
-                    : "text-amber-600 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800";
+                const tName = previousTenantRank.tenantName || "Prev Tenant";
+                const pRank = previousTenantRank.rank || 1;
+                const pStatus = previousTenantRank.status || "Direct Ok";
+                const sStr = String(pStatus).toLowerCase();
+                const isPRej = sStr.includes("reject");
+                const isPAccepted = sStr.includes("accept") || sStr.includes("direct ok") || sStr.includes("ok") || sStr === "verified";
 
-              return (
-                <div className="flex items-center gap-1.5 ml-1 self-center">
-                  {/* BIW Review Icon */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowBiwModal(true);
-                    }}
-                    className={`relative p-1.5 rounded-lg border flex items-center justify-center transition-all cursor-pointer shadow-xs hover:scale-105 ${biwIconColor}`}
-                    title={`BIW Review: ${biwInfo?.status || "Pending Review"}${biwInfo?.reviewedByName ? ` (by ${biwInfo.reviewedByName})` : ""}`}
-                  >
-                    <ShieldCheck className="w-4 h-4" />
-                    <span
-                      className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900 ${
-                        isBiwRej
-                          ? "bg-rose-500"
-                          : isBiwAccepted
-                            ? "bg-emerald-500"
-                            : isBiwRework
-                              ? "bg-purple-500"
-                              : "bg-amber-400"
-                      }`}
-                    />
-                  </button>
+                const chipStyle = isPRej
+                  ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
+                  : isPAccepted
+                    ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800"
+                    : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
 
-                  {/* Chat Icon */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowChatModal(true);
-                      fetchChatHistory();
-                    }}
-                    title={`Chassis Discussion / Chat (${chatCount} messages) - Click to open discussion`}
-                    className="relative p-1.5 rounded-lg border text-indigo-600 dark:text-indigo-400 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 hover:scale-105 active:scale-95 border-indigo-200 dark:border-indigo-800 flex items-center justify-center transition-all cursor-pointer shadow-xs"
-                  >
-                    <MessageCircle className="w-4 h-4" />
-                    {chatCount > 0 && (
-                      <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full text-[9px] font-black bg-indigo-600 text-white flex items-center justify-center ring-1.5 ring-white dark:ring-gray-900 leading-none">
-                        {chatCount}
-                      </span>
-                    )}
-                  </button>
-                </div>
-              );
-            };
+                const respId = previousTenantRank.responseId || previousTenantRank.id;
 
-            // Render previous tenant rank badge
-            const renderPrevTenantBadge = () => {
-              if (!previousTenantRank || !previousTenantRank.exists) return null;
+                if (respId) {
+                  return (
+                    <a
+                      key="prev-tenant-rank-badge"
+                      href={`/responses/${respId}?tab=responses`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border transition-all hover:scale-105 cursor-pointer shadow-xs ${chipStyle}`}
+                      title={`Previous Tenant (${tName}) Inspection - Attempt #${pRank} (${pStatus})${previousTenantRank.submittedBy ? ` by ${previousTenantRank.submittedBy}` : ''} - Click to view response`}
+                    >
+                      <Building2 className="w-3 h-3 opacity-70" />
+                      <span>{tName ? `${tName} Rank:` : 'Prev Tenant Rank:'} Attempt #{pRank}</span>
+                      <span className="text-[10px] font-medium opacity-85">({pStatus})</span>
+                      <Eye className="w-3 h-3 ml-0.5 opacity-70" />
+                    </a>
+                  );
+                }
 
-              const tName = previousTenantRank.tenantName || "Prev Tenant";
-              const pRank = previousTenantRank.rank || 1;
-              const pStatus = previousTenantRank.status || "Direct Ok";
-              const sStr = String(pStatus).toLowerCase();
-              const isPRej = sStr.includes("reject");
-              const isPAccepted = sStr.includes("accept") || sStr.includes("direct ok") || sStr.includes("ok") || sStr === "verified";
-
-              const chipStyle = isPRej
-                ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
-                : isPAccepted
-                  ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800"
-                  : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
-
-              const respId = previousTenantRank.responseId || previousTenantRank.id;
-
-              if (respId) {
                 return (
-                  <a
+                  <span
                     key="prev-tenant-rank-badge"
-                    href={`/responses/${respId}?tab=responses`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border transition-all hover:scale-105 cursor-pointer shadow-xs ${chipStyle}`}
-                    title={`Previous Tenant (${tName}) Inspection - Attempt #${pRank} (${pStatus})${previousTenantRank.submittedBy ? ` by ${previousTenantRank.submittedBy}` : ''} - Click to view response`}
+                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border shadow-xs ${chipStyle}`}
+                    title={`Previous Tenant (${tName}) Inspection - Attempt #${pRank} (${pStatus})`}
                   >
                     <Building2 className="w-3 h-3 opacity-70" />
                     <span>{tName ? `${tName} Rank:` : 'Prev Tenant Rank:'} Attempt #{pRank}</span>
                     <span className="text-[10px] font-medium opacity-85">({pStatus})</span>
-                    <Eye className="w-3 h-3 ml-0.5 opacity-70" />
-                  </a>
+                  </span>
+                );
+              };
+
+              // Rank badges & action icons
+
+              if (rank === 1 && historyItems.length === 0) {
+                return (
+                  <div className="flex flex-wrap items-center gap-1.5 ml-2">
+                    <span
+                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md border text-xs font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                      title="Inspection Attempt #1 (Initial inspection)"
+                    >
+                      <span>Attempt #1</span>
+                      <span className="text-[10px] font-medium opacity-80">(Initial)</span>
+                    </span>
+                    {renderPrevTenantBadge()}
+                    {renderActionIcons()}
+                  </div>
                 );
               }
 
               return (
-                <span
-                  key="prev-tenant-rank-badge"
-                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border shadow-xs ${chipStyle}`}
-                  title={`Previous Tenant (${tName}) Inspection - Attempt #${pRank} (${pStatus})`}
-                >
-                  <Building2 className="w-3 h-3 opacity-70" />
-                  <span>{tName ? `${tName} Rank:` : 'Prev Tenant Rank:'} Attempt #{pRank}</span>
-                  <span className="text-[10px] font-medium opacity-85">({pStatus})</span>
-                </span>
-              );
-            };
-
-            // Rank badges & action icons
-
-            if (rank === 1 && historyItems.length === 0) {
-              return (
-                <div className="flex flex-wrap items-center gap-1.5 ml-2">
-                  <span
-                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md border text-xs font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
-                    title="Inspection Attempt #1 (Initial inspection)"
-                  >
-                    <span>Attempt #1</span>
-                    <span className="text-[10px] font-medium opacity-80">(Initial)</span>
-                  </span>
+                <div className="flex flex-wrap items-center gap-1.5 ml-2 mt-1 sm:mt-0">
                   {renderPrevTenantBadge()}
+                  {/* Historical attempts */}
+                  {historyItems.map((hist: any) => {
+                    const sStr = String(hist.status || "").toLowerCase().trim();
+                    const isHistRej = sStr.includes("reject");
+                    const isHistAccepted = sStr.includes("accept") || sStr.includes("direct ok") || sStr.includes("ok") || sStr === "verified";
+                    const chipStyle = isHistRej
+                      ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
+                      : isHistAccepted
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                        : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
+
+                    const respId = hist.id || hist.responseId || hist._id;
+                    const canViewRecord = isHistAccepted && Boolean(respId);
+
+                    if (canViewRecord) {
+                      return (
+                        <a
+                          key={`prev-attempt-${hist.rank}`}
+                          href={`/responses/${hist.responseId}?tab=responses`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border transition-all hover:scale-105 cursor-pointer ${chipStyle}`}
+                          title={`Attempt #${hist.rank} (${hist.status || "Accepted"}) - Click to view response`}
+                        >
+                          <span>Attempt #{hist.rank}</span>
+                          {hist.status && hist.status !== 'pending' && (
+                            <span className="text-[10px] font-medium opacity-80">({hist.status})</span>
+                          )}
+                          <Eye className="w-3 h-3 ml-0.5 opacity-70" />
+                        </a>
+                      );
+                    }
+
+                    return (
+                      <span
+                        key={`prev-attempt-${hist.rank}`}
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border ${chipStyle}`}
+                      >
+                        <span>Attempt #{hist.rank}</span>
+                        {hist.status && (
+                          <span className="text-[10px] font-medium opacity-80">({hist.status})</span>
+                        )}
+                      </span>
+                    );
+                  })}
+
+                  {/* If no history items array yet, but rank > 1 */}
+                  {historyItems.length === 0 && rank > 1 && (() => {
+                    const isPrevAccepted = statusLower.includes("accept") || statusLower.includes("direct ok") || statusLower.includes("ok") || statusLower === "verified";
+                    const isPrevRej = statusLower.includes("reject");
+                    const chipStyle = isPrevRej
+                      ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
+                      : isPrevAccepted
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                        : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
+
+                    return (
+                      <span
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border ${chipStyle}`}
+                      >
+                        <span>Attempt #{rank - 1}</span>
+                        {previousStatus && (
+                          <span className="text-[10px] font-medium opacity-80">({previousStatus})</span>
+                        )}
+                      </span>
+                    );
+                  })()}
+
+                  {/* Current Active Attempt */}
+                  <span
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800"
+                    title={`Current inspection attempt #${rank}`}
+                  >
+                    <span>Attempt #{rank}</span>
+                    <span className="text-[10px] font-medium px-1 bg-indigo-200/50 dark:bg-indigo-800/50 rounded">Current</span>
+                  </span>
+
                   {renderActionIcons()}
                 </div>
               );
-            }
-
-            return (
-              <div className="flex flex-wrap items-center gap-1.5 ml-2 mt-1 sm:mt-0">
-                {renderPrevTenantBadge()}
-                {/* Historical attempts */}
-                {historyItems.map((hist: any) => {
-                  const sStr = String(hist.status || "").toLowerCase().trim();
-                  const isHistRej = sStr.includes("reject");
-                  const isHistAccepted = sStr.includes("accept") || sStr.includes("direct ok") || sStr.includes("ok") || sStr === "verified";
-                  const chipStyle = isHistRej
-                    ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
-                    : isHistAccepted
-                      ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
-                      : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
-
-                  const respId = hist.id || hist.responseId || hist._id;
-                  const canViewRecord = isHistAccepted && Boolean(respId);
-
-                  if (canViewRecord) {
-                    return (
-                      <a
-                        key={`prev-attempt-${hist.rank}`}
-                        href={`/responses/${hist.responseId}?tab=responses`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border transition-all hover:scale-105 cursor-pointer ${chipStyle}`}
-                        title={`Attempt #${hist.rank} (${hist.status || "Accepted"}) - Click to view response`}
-                      >
-                        <span>Attempt #{hist.rank}</span>
-                        {hist.status && hist.status !== 'pending' && (
-                          <span className="text-[10px] font-medium opacity-80">({hist.status})</span>
-                        )}
-                        <Eye className="w-3 h-3 ml-0.5 opacity-70" />
-                      </a>
-                    );
-                  }
-
-                  return (
-                    <span
-                      key={`prev-attempt-${hist.rank}`}
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border ${chipStyle}`}
-                    >
-                      <span>Attempt #{hist.rank}</span>
-                      {hist.status && (
-                        <span className="text-[10px] font-medium opacity-80">({hist.status})</span>
-                      )}
-                    </span>
-                  );
-                })}
-
-                {/* If no history items array yet, but rank > 1 */}
-                {historyItems.length === 0 && rank > 1 && (() => {
-                  const isPrevAccepted = statusLower.includes("accept") || statusLower.includes("direct ok") || statusLower.includes("ok") || statusLower === "verified";
-                  const isPrevRej = statusLower.includes("reject");
-                  const chipStyle = isPrevRej
-                    ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
-                    : isPrevAccepted
-                      ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
-                      : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
-
-                  return (
-                    <span
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border ${chipStyle}`}
-                    >
-                      <span>Attempt #{rank - 1}</span>
-                      {previousStatus && (
-                        <span className="text-[10px] font-medium opacity-80">({previousStatus})</span>
-                      )}
-                    </span>
-                  );
-                })()}
-
-                {/* Current Active Attempt */}
-                <span
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800"
-                  title={`Current inspection attempt #${rank}`}
-                >
-                  <span>Attempt #{rank}</span>
-                  <span className="text-[10px] font-medium px-1 bg-indigo-200/50 dark:bg-indigo-800/50 rounded">Current</span>
-                </span>
-
-                {renderActionIcons()}
-              </div>
-            );
-          })()}
+            })()}
           </div>
         </label>
       ) : null}
@@ -2283,9 +2274,9 @@ export default function QuestionRenderer({
                     msg.from?.name || msg.from?.username || msg.from?.email || "User";
                   const timeStr = msg.createdAt
                     ? new Date(msg.createdAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
                     : "";
                   return (
                     <div
@@ -2394,13 +2385,12 @@ export default function QuestionRenderer({
                   Review Status
                 </span>
                 <span
-                  className={`px-3 py-1 rounded-lg font-black text-xs ${
-                    String(biwInfo?.status).toLowerCase().includes("reject")
+                  className={`px-3 py-1 rounded-lg font-black text-xs ${String(biwInfo?.status).toLowerCase().includes("reject")
                       ? "bg-red-500 text-white"
                       : String(biwInfo?.status).toLowerCase().includes("accept")
                         ? "bg-emerald-600 text-white"
                         : "bg-purple-600 text-white"
-                  }`}
+                    }`}
                 >
                   {biwInfo?.status || "Pending Review"}
                 </span>
@@ -2417,11 +2407,10 @@ export default function QuestionRenderer({
                       type="button"
                       disabled={updatingBiw}
                       onClick={() => handleUpdateBiwStatus("Accepted")}
-                      className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                        biwInfo?.status === "Accepted"
+                      className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${biwInfo?.status === "Accepted"
                           ? "bg-green-600 text-white border-green-600 shadow-xs"
                           : "bg-white dark:bg-gray-800 text-green-700 border-green-300 hover:bg-green-50"
-                      }`}
+                        }`}
                     >
                       <span>✅</span> Accepted
                     </button>
@@ -2429,11 +2418,10 @@ export default function QuestionRenderer({
                       type="button"
                       disabled={updatingBiw}
                       onClick={() => setPendingBiwAction("Rejected")}
-                      className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                        biwInfo?.status === "Rejected"
+                      className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${biwInfo?.status === "Rejected"
                           ? "bg-red-600 text-white border-red-600 shadow-xs"
                           : "bg-white dark:bg-gray-800 text-red-700 border-red-300 hover:bg-red-50"
-                      }`}
+                        }`}
                     >
                       <span>❌</span> Rejected
                     </button>
@@ -2441,11 +2429,10 @@ export default function QuestionRenderer({
                       type="button"
                       disabled={updatingBiw}
                       onClick={() => setPendingBiwAction("Reworked")}
-                      className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                        biwInfo?.status === "Reworked"
+                      className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 ${biwInfo?.status === "Reworked"
                           ? "bg-purple-600 text-white border-purple-600 shadow-xs"
                           : "bg-white dark:bg-gray-800 text-purple-700 border-purple-300 hover:bg-purple-50"
-                      }`}
+                        }`}
                     >
                       <span>🔄</span> Rework
                     </button>
@@ -2478,7 +2465,7 @@ export default function QuestionRenderer({
                                 type="checkbox"
                                 checked={biwSelectedQuestionIds.includes(q.id)}
                                 onChange={() => {
-                                  setBiwSelectedQuestionIds(prev => 
+                                  setBiwSelectedQuestionIds(prev =>
                                     prev.includes(q.id) ? prev.filter(id => id !== q.id) : [...prev, q.id]
                                   );
                                 }}
@@ -2494,7 +2481,7 @@ export default function QuestionRenderer({
                             type="checkbox"
                             checked={biwSelectedQuestionIds.includes("other")}
                             onChange={() => {
-                              setBiwSelectedQuestionIds(prev => 
+                              setBiwSelectedQuestionIds(prev =>
                                 prev.includes("other") ? prev.filter(id => id !== "other") : [...prev, "other"]
                               );
                             }}
@@ -2568,9 +2555,9 @@ export default function QuestionRenderer({
 
                     <button
                       disabled={
-                        (biwSelectedQuestionIds.length === 0 && !biwReasonText.trim()) || 
-                        (biwSelectedQuestionIds.includes("other") && !biwReasonText.trim()) || 
-                        updatingBiw || 
+                        (biwSelectedQuestionIds.length === 0 && !biwReasonText.trim()) ||
+                        (biwSelectedQuestionIds.includes("other") && !biwReasonText.trim()) ||
+                        updatingBiw ||
                         biwUploading
                       }
                       onClick={() => {
@@ -2580,7 +2567,7 @@ export default function QuestionRenderer({
                             questionId: id,
                             questionText: formQuestions.find(q => q.id === id)?.text || id
                           }));
-                          
+
                         handleUpdateBiwStatus(pendingBiwAction, biwReasonText.trim(), biwEvidenceUrl, flaggedQuestions);
                         setPendingBiwAction(null);
                         setBiwSelectedQuestionIds([]);
@@ -2638,11 +2625,10 @@ export default function QuestionRenderer({
                   </span>
                 </div>
                 <span
-                  className={`font-bold px-2 py-0.5 rounded text-[11px] ${
-                    dispatchInfo?.isDispatched
+                  className={`font-bold px-2 py-0.5 rounded text-[11px] ${dispatchInfo?.isDispatched
                       ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
                       : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400"
-                  }`}
+                    }`}
                 >
                   {dispatchInfo?.isDispatched ? "✓ Dispatched" : "Pending Dispatch"}
                 </span>
@@ -2751,10 +2737,10 @@ export default function QuestionRenderer({
                         {!hasInspectionHistory
                           ? "This chassis has not been inspected or submitted yet. It cannot be dispatched. Inspection must be completed and Accepted (Direct OK) first."
                           : statusLower.includes("rework")
-                          ? `This chassis has open rework/defects (Status: ${previousStatus}). All rework must be cleared and Accepted before it can be dispatched.`
-                          : statusLower.includes("reject")
-                          ? `This chassis was Marked as Rejected (${previousStatus}). Rejected units cannot be dispatched.`
-                          : `Inspection status is "${previousStatus || "Pending"}". Only units with "Direct OK" or "Rework Accepted" can be dispatched.`}
+                            ? `This chassis has open rework/defects (Status: ${previousStatus}). All rework must be cleared and Accepted before it can be dispatched.`
+                            : statusLower.includes("reject")
+                              ? `This chassis was Marked as Rejected (${previousStatus}). Rejected units cannot be dispatched.`
+                              : `Inspection status is "${previousStatus || "Pending"}". Only units with "Direct OK" or "Rework Accepted" can be dispatched.`}
                       </p>
                     </div>
                   </div>
@@ -2766,15 +2752,14 @@ export default function QuestionRenderer({
                   type="button"
                   disabled={!isCreatorTenant || isUpdatingDispatch || (!dispatchInfo?.isDispatched && !isAccepted)}
                   onClick={handleToggleDispatch}
-                  className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
-                    !isCreatorTenant
+                  className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${!isCreatorTenant
                       ? "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed border border-gray-300 dark:border-gray-700"
                       : !dispatchInfo?.isDispatched && !isAccepted
-                      ? "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed border border-gray-300 dark:border-gray-700"
-                      : dispatchInfo?.isDispatched
-                      ? "bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300 cursor-pointer"
-                      : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25 cursor-pointer"
-                  }`}
+                        ? "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed border border-gray-300 dark:border-gray-700"
+                        : dispatchInfo?.isDispatched
+                          ? "bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300 cursor-pointer"
+                          : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25 cursor-pointer"
+                    }`}
                 >
                   {isUpdatingDispatch ? (
                     <>

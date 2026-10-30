@@ -1256,28 +1256,65 @@ export const getReviewsForResponse = async (req, res) => {
     const reviews = await Review.find({ responseId }).sort({ createdAt: -1 });
     console.log(`[getReviewsForResponse] Found ${reviews.length} reviews`);
 
-    const formattedReviews = reviews.map(review => ({
-      id: review._id,
-      responseId: review.responseId || review.response_id,
-      reviewer: {
-        id: review.reviewerId,
-        name: review.reviewerName || 'Unknown',
-        email: review.reviewerEmail || ''
-      },
-      option: review.reviewOption,
-      reviewOption: review.reviewOption,
-      scoreChange: review.scoreChange,
-      remark: review.remark || review.reason || '',
-      reason: review.reason || review.remark || '',
-      flaggedQuestions: review.flaggedQuestions || [],
-      questionContexts: Array.isArray(review.flaggedQuestions) ? review.flaggedQuestions.map(fq => ({
-        questionId: typeof fq === 'object' ? (fq.questionId || fq.id) : String(fq),
-        id: typeof fq === 'object' ? (fq.questionId || fq.id) : String(fq),
-        title: typeof fq === 'object' ? (fq.questionText || fq.title || fq.text) : String(fq),
-        text: typeof fq === 'object' ? (fq.questionText || fq.title || fq.text) : String(fq)
-      })) : [],
-      createdAt: review.createdAt
-    }));
+    const ChatMessageModel = mongoose.models.ChatMessage || mongoose.model('ChatMessage');
+    const chatMsg = await ChatMessageModel.findOne({
+      $and: [
+        { $or: [{ responseId }, { response_id: responseId }] },
+        {
+          $or: [
+            { 'questionContexts.0': { $exists: true } },
+            { 'questionTitles.0': { $exists: true } }
+          ]
+        }
+      ]
+    }).sort({ createdAt: -1 }).lean();
+
+    const chatContexts = (Array.isArray(chatMsg?.questionContexts) && chatMsg.questionContexts.length > 0)
+      ? chatMsg.questionContexts.map(qc => ({
+          questionId: qc.questionId || qc.id,
+          id: qc.questionId || qc.id,
+          questionText: qc.title || qc.questionText || qc.text,
+          title: qc.title || qc.questionText || qc.text,
+          text: qc.title || qc.questionText || qc.text
+        }))
+      : (Array.isArray(chatMsg?.questionTitles) && chatMsg.questionTitles.length > 0
+          ? chatMsg.questionTitles.map((t, idx) => ({
+              questionId: chatMsg.questionIds?.[idx] || `chat-q-${idx}`,
+              id: chatMsg.questionIds?.[idx] || `chat-q-${idx}`,
+              questionText: t,
+              title: t,
+              text: t
+            }))
+          : []);
+
+    const formattedReviews = reviews.map(review => {
+      const flagged = (Array.isArray(review.flaggedQuestions) && review.flaggedQuestions.length > 0)
+        ? review.flaggedQuestions
+        : chatContexts;
+
+      return {
+        id: review._id,
+        responseId: review.responseId || review.response_id,
+        reviewer: {
+          id: review.reviewerId,
+          name: review.reviewerName || 'Unknown',
+          email: review.reviewerEmail || ''
+        },
+        option: review.reviewOption,
+        reviewOption: review.reviewOption,
+        scoreChange: review.scoreChange,
+        remark: review.remark || review.reason || '',
+        reason: review.reason || review.remark || '',
+        flaggedQuestions: flagged,
+        questionContexts: Array.isArray(flagged) ? flagged.map(fq => ({
+          questionId: typeof fq === 'object' ? (fq.questionId || fq.id) : String(fq),
+          id: typeof fq === 'object' ? (fq.questionId || fq.id) : String(fq),
+          title: typeof fq === 'object' ? (fq.questionText || fq.title || fq.text) : String(fq),
+          text: typeof fq === 'object' ? (fq.questionText || fq.title || fq.text) : String(fq)
+        })) : [],
+        createdAt: review.createdAt
+      };
+    });
 
     res.json({
       success: true,
@@ -1329,12 +1366,62 @@ export const getBulkReviewsForResponses = async (req, res) => {
       if (rd.review) respReviewMap.set(rid, rd.review);
     });
 
+    // Also look up ChatMessages for any response where question contexts were sent in chat discussion
+    const ChatMessageModel = mongoose.models.ChatMessage || mongoose.model('ChatMessage');
+    const chatDocs = await ChatMessageModel.find({
+      $and: [
+        {
+          $or: [
+            { responseId: { $in: stringIds } },
+            { response_id: { $in: stringIds } }
+          ]
+        },
+        {
+          $or: [
+            { 'questionContexts.0': { $exists: true } },
+            { 'questionTitles.0': { $exists: true } }
+          ]
+        }
+      ]
+    }).sort({ createdAt: -1 }).lean();
+
+    const chatContextMap = new Map();
+    chatDocs.forEach(msg => {
+      const rid = String(msg.responseId || msg.response_id || '');
+      if (!chatContextMap.has(rid)) {
+        let contexts = [];
+        if (Array.isArray(msg.questionContexts) && msg.questionContexts.length > 0) {
+          contexts = msg.questionContexts.map(qc => ({
+            questionId: qc.questionId || qc.id,
+            id: qc.questionId || qc.id,
+            questionText: qc.title || qc.questionText || qc.text,
+            title: qc.title || qc.questionText || qc.text,
+            text: qc.title || qc.questionText || qc.text
+          }));
+        } else if (Array.isArray(msg.questionTitles) && msg.questionTitles.length > 0) {
+          contexts = msg.questionTitles.map((t, idx) => ({
+            questionId: msg.questionIds?.[idx] || `chat-q-${idx}`,
+            id: msg.questionIds?.[idx] || `chat-q-${idx}`,
+            questionText: t,
+            title: t,
+            text: t
+          }));
+        }
+        if (contexts.length > 0) {
+          chatContextMap.set(rid, contexts);
+        }
+      }
+    });
+
     const formattedReviews = reviews.map(review => {
       const respId = String(review.responseId || review.response_id || '');
       const respRev = respReviewMap.get(respId);
+      const chatFlagged = chatContextMap.get(respId) || [];
       const flagged = (Array.isArray(review.flaggedQuestions) && review.flaggedQuestions.length > 0)
         ? review.flaggedQuestions
-        : (Array.isArray(respRev?.flaggedQuestions) ? respRev.flaggedQuestions : []);
+        : (Array.isArray(respRev?.flaggedQuestions) && respRev.flaggedQuestions.length > 0
+            ? respRev.flaggedQuestions
+            : chatFlagged);
 
       return {
         id: review._id,

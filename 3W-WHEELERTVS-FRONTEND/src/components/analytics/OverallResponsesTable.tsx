@@ -21,12 +21,14 @@ interface OverallResponsesTableProps {
   rawResponses?: any[];
   formOptions?: Array<{ id: string; _id?: string; title: string; totalChecked?: number }>;
   initialFormFilter?: string;
+  selectedFormIds?: string[];
 }
 
 export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({ 
   rawResponses = [], 
   formOptions = [],
-  initialFormFilter = 'all'
+  initialFormFilter = 'all',
+  selectedFormIds = []
 }) => {
   const navigate = useNavigate();
   const { showSuccess, showError, showConfirm } = useNotification();
@@ -199,6 +201,11 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
         const matchesId = rFormId === formFilter;
         const matchesTitle = selectedTitle && (rFormTitle === selectedTitle || formsMap[rFormId] === selectedTitle);
         if (!matchesId && !matchesTitle) return false;
+      } else if (selectedFormIds && selectedFormIds.length > 0) {
+        const rFormId = String(r.formId || r.questionId || '');
+        const rFormTitle = r.formTitle || formsMap[rFormId];
+        const matchesAny = selectedFormIds.includes(rFormId) || selectedFormIds.some(sfId => formsMap[sfId] === rFormTitle || formsMap[rFormId] === formsMap[sfId]);
+        if (!matchesAny) return false;
       }
 
       // 2. Status Filter
