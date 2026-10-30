@@ -1024,6 +1024,9 @@ export const submitReview = async (req, res) => {
         existingReview.remark = finalReason;
         existingReview.reason = finalReason;
       }
+      if (Array.isArray(req.body.flaggedQuestions)) {
+        existingReview.flaggedQuestions = req.body.flaggedQuestions;
+      }
       savedReview = await existingReview.save();
     } else {
       // Create review record
@@ -1037,7 +1040,8 @@ export const submitReview = async (req, res) => {
         scoreChange: 0, // No longer used for ratio formula
         tenantId,
         remark: finalReason || '',
-        reason: finalReason || ''
+        reason: finalReason || '',
+        flaggedQuestions: Array.isArray(req.body.flaggedQuestions) ? req.body.flaggedQuestions : []
       });
       savedReview = await review.save();
     }
@@ -1247,13 +1251,24 @@ export const getReviewsForResponse = async (req, res) => {
 
     const formattedReviews = reviews.map(review => ({
       id: review._id,
+      responseId: review.responseId || review.response_id,
       reviewer: {
         id: review.reviewerId,
         name: review.reviewerName || 'Unknown',
         email: review.reviewerEmail || ''
       },
       option: review.reviewOption,
+      reviewOption: review.reviewOption,
       scoreChange: review.scoreChange,
+      remark: review.remark || review.reason || '',
+      reason: review.reason || review.remark || '',
+      flaggedQuestions: review.flaggedQuestions || [],
+      questionContexts: Array.isArray(review.flaggedQuestions) ? review.flaggedQuestions.map(fq => ({
+        questionId: typeof fq === 'object' ? (fq.questionId || fq.id) : String(fq),
+        id: typeof fq === 'object' ? (fq.questionId || fq.id) : String(fq),
+        title: typeof fq === 'object' ? (fq.questionText || fq.title || fq.text) : String(fq),
+        text: typeof fq === 'object' ? (fq.questionText || fq.title || fq.text) : String(fq)
+      })) : [],
       createdAt: review.createdAt
     }));
 
@@ -1293,19 +1308,50 @@ export const getBulkReviewsForResponses = async (req, res) => {
       ]
     }).sort({ createdAt: -1 }).lean();
 
-    const formattedReviews = reviews.map(review => ({
-      id: review._id,
-      responseId: review.responseId || review.response_id,
-      reviewer: {
-        id: review.reviewerId,
-        name: review.reviewerName || 'Unknown',
-        email: review.reviewerEmail || ''
-      },
-      reviewOption: review.reviewOption || review.option,
-      option: review.reviewOption || review.option,
-      scoreChange: review.scoreChange,
-      createdAt: review.createdAt
-    }));
+    // Also look up Response documents for any review where flaggedQuestions might be stored directly on response.review
+    const ResponseModel = mongoose.models.Response || mongoose.model('Response');
+    const respDocs = await ResponseModel.find({
+      $or: [
+        { _id: { $in: objectIds } },
+        { id: { $in: stringIds } }
+      ]
+    }).select('id review').lean();
+    const respReviewMap = new Map();
+    respDocs.forEach(rd => {
+      const rid = String(rd.id || rd._id);
+      if (rd.review) respReviewMap.set(rid, rd.review);
+    });
+
+    const formattedReviews = reviews.map(review => {
+      const respId = String(review.responseId || review.response_id || '');
+      const respRev = respReviewMap.get(respId);
+      const flagged = (Array.isArray(review.flaggedQuestions) && review.flaggedQuestions.length > 0)
+        ? review.flaggedQuestions
+        : (Array.isArray(respRev?.flaggedQuestions) ? respRev.flaggedQuestions : []);
+
+      return {
+        id: review._id,
+        responseId: review.responseId || review.response_id,
+        reviewer: {
+          id: review.reviewerId,
+          name: review.reviewerName || 'Unknown',
+          email: review.reviewerEmail || ''
+        },
+        reviewOption: review.reviewOption || review.option,
+        option: review.reviewOption || review.option,
+        scoreChange: review.scoreChange,
+        remark: review.remark || review.reason || respRev?.remark || respRev?.reason || '',
+        reason: review.reason || review.remark || respRev?.reason || respRev?.remark || '',
+        flaggedQuestions: flagged,
+        questionContexts: Array.isArray(flagged) ? flagged.map(fq => ({
+          questionId: typeof fq === 'object' ? (fq.questionId || fq.id) : String(fq),
+          id: typeof fq === 'object' ? (fq.questionId || fq.id) : String(fq),
+          title: typeof fq === 'object' ? (fq.questionText || fq.title || fq.text) : String(fq),
+          text: typeof fq === 'object' ? (fq.questionText || fq.title || fq.text) : String(fq)
+        })) : [],
+        createdAt: review.createdAt
+      };
+    });
 
     res.json({
       success: true,

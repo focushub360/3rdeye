@@ -36,6 +36,18 @@ const reviewSchema = new mongoose.Schema({
     enum: ['Accepted', 'Rejected', 'Rework'],
     required: true
   },
+  remark: {
+    type: String,
+    default: ''
+  },
+  reason: {
+    type: String,
+    default: ''
+  },
+  flaggedQuestions: [{
+    questionId: String,
+    questionText: String
+  }],
   scoreChange: {
     type: Number,
     required: true

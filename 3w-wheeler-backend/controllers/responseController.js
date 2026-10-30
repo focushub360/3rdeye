@@ -4695,7 +4695,7 @@ export const getResponsesByForm = async (req, res) => {
       const responseIds = responses.flatMap(r => [r.id, r._id ? r._id.toString() : null]).filter(Boolean);
       const [reviews, chatMessages] = await Promise.all([
         Review.find({ responseId: { $in: responseIds } })
-          .select('responseId reviewerName reviewerId reviewOption createdAt')
+          .select('responseId reviewerName reviewerId reviewOption remark reason flaggedQuestions createdAt')
           .populate('reviewerId', 'firstName lastName email username')
           .sort({ createdAt: -1 })
           .lean(),
