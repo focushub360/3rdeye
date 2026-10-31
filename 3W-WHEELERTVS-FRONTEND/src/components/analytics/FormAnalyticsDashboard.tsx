@@ -2279,7 +2279,17 @@ const renderMessageWithImages = (message: string) => {
   );
 };
 
-export default function FormAnalyticsDashboard() {
+export interface FormAnalyticsDashboardProps {
+  formId?: string;
+  embedded?: boolean;
+  initialTab?: "responses" | "dashboard";
+}
+
+export default function FormAnalyticsDashboard({
+  formId: propFormId,
+  embedded = false,
+  initialTab,
+}: FormAnalyticsDashboardProps = {}) {
   const [selectedForm, setSelectedForm] = useState<Form | null>(null);
 
   const generateTableBarChart = (
@@ -2432,7 +2442,8 @@ export default function FormAnalyticsDashboard() {
     timestamp: number;
   }>();
 
-  const { id } = useParams<{ id: string }>();
+  const { id: paramId } = useParams<{ id: string }>();
+  const id = propFormId || paramId;
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -2624,12 +2635,22 @@ export default function FormAnalyticsDashboard() {
   const [tvsReviews, setTvsReviews] = useState<any[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
   const [analyticsView, setAnalyticsView] = useState<"responses" | "dashboard">(() => {
+    if (initialTab && ["responses", "dashboard"].includes(initialTab)) {
+      return initialTab;
+    }
     const tabParam = new URLSearchParams(window.location.search).get("tab");
     if (tabParam && ["responses", "dashboard"].includes(tabParam)) {
       return tabParam as any;
     }
     return "dashboard";
   });
+
+  useEffect(() => {
+    if (initialTab && ["responses", "dashboard"].includes(initialTab)) {
+      setAnalyticsView(initialTab);
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   useEffect(() => {
     const tabParam = searchParams.get("tab");
@@ -12541,14 +12562,14 @@ export default function FormAnalyticsDashboard() {
 
   return (
     <div
-      className="p-2 sm:p-6 space-y-4 sm:space-y-6 bg-gray-50 dark:bg-gray-950 min-h-screen"
+      className={embedded ? "space-y-4" : "p-2 sm:p-6 space-y-4 sm:space-y-6 bg-gray-50 dark:bg-gray-950 min-h-screen"}
       id="analytics-scroll-container"
     >
       {/* Header with Tabs - Single Row */}
       {form && (
         <div className="bg-white dark:bg-gray-900 p-3 sm:p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 flex flex-col lg:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2 sm:gap-4 w-full lg:w-auto">
-            {!isGuest && (
+            {!isGuest && !embedded && (
               <button
                 onClick={() => navigate(-1)}
                 className="p-1.5 sm:p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"

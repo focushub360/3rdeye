@@ -29,6 +29,7 @@ import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend as ChartL
 import { Doughnut } from 'react-chartjs-2';
 import { apiClient } from '../../api/client';
 import { OverallResponsesTable } from './OverallResponsesTable';
+import FormAnalyticsDashboard from './FormAnalyticsDashboard';
 
 ChartJS.register(ArcElement, ChartTooltip, ChartLegend);
 
@@ -128,7 +129,9 @@ export const QualityDashboard: React.FC = () => {
     return [];
   }, []);
 
-  const [activeTab, setActiveTab] = useState<'tvs' | 'biw' | 'daily' | 'data' | 'overall'>('data');
+  const [activeTab, setActiveTab] = useState<'tvs' | 'biw' | 'daily' | 'data' | 'overall' | 'form-dashboard' | 'form-responses'>(() => {
+    return initialFormIds.length === 1 ? 'form-dashboard' : 'data';
+  });
   const [dateRange, setDateRange] = useState<string>('all');
   const [selectedFormIds, setSelectedFormIds] = useState<string[]>(initialFormIds);
   const [isFormDropdownOpen, setIsFormDropdownOpen] = useState<boolean>(false);
@@ -550,6 +553,25 @@ export const QualityDashboard: React.FC = () => {
     return `${selectedFormIds.length} Forms Selected (${selectedFormsInspections.toLocaleString()} inspections)`;
   }, [selectedFormIds, allAvailableForms, data?.summary?.totalChecked, totalAllFormsInspections, selectedFormsInspections]);
 
+  const selectedSingleFormId = selectedFormIds.length === 1 ? selectedFormIds[0] : null;
+  const selectedSingleForm = useMemo(() => {
+    if (!selectedSingleFormId) return null;
+    return allAvailableForms.find(f => f.id === selectedSingleFormId || f._id === selectedSingleFormId) || null;
+  }, [selectedSingleFormId, allAvailableForms]);
+
+  // When a single form is selected, auto-switch to form-dashboard if currently on general data grid
+  useEffect(() => {
+    if (selectedFormIds.length === 1) {
+      if (activeTab === 'data') {
+        setActiveTab('form-dashboard');
+      }
+    } else if (selectedFormIds.length === 0) {
+      if (activeTab === 'form-dashboard' || activeTab === 'form-responses') {
+        setActiveTab('data');
+      }
+    }
+  }, [selectedFormIds]);
+
   const handleToggleForm = (formId: string) => {
     const next = selectedFormIds.includes(formId)
       ? selectedFormIds.filter(id => id !== formId)
@@ -687,7 +709,8 @@ export const QualityDashboard: React.FC = () => {
                         key={f.id || f._id}
                         onClick={() => {
                           setIsFormDropdownOpen(false);
-                          navigate(`/forms/${f.id || f._id}/analytics?tab=dashboard`);
+                          updateSelectedForms([f.id]);
+                          setActiveTab('form-dashboard');
                         }}
                         className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs hover:bg-blue-50/70 group ${
                           isSelected
@@ -742,12 +765,12 @@ export const QualityDashboard: React.FC = () => {
                         type="button"
                         onClick={() => {
                           setIsFormDropdownOpen(false);
-                          navigate(`/forms/${selectedFormIds[0]}/analytics?tab=dashboard`);
+                          setActiveTab('form-dashboard');
                         }}
-                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-md shadow-xs text-xs transition-colors flex items-center gap-1"
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md shadow-xs text-xs transition-colors flex items-center gap-1"
                       >
                         <BarChart3 className="w-3.5 h-3.5" />
-                        <span>Form Dashboard</span>
+                        <span>Show Dashboard</span>
                       </button>
                     )}
                     <button
@@ -862,18 +885,36 @@ export const QualityDashboard: React.FC = () => {
             </div>
             <div className="flex items-center gap-2">
               {selectedFormIds.length === 1 && (
-                <button
-                  onClick={() => navigate(`/forms/${selectedFormIds[0]}/analytics?tab=dashboard`)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-2xs whitespace-nowrap cursor-pointer"
-                  title="Open this form's dedicated analytics dashboard"
-                >
-                  <BarChart3 className="w-3.5 h-3.5" />
-                  <span>Open Form Dashboard →</span>
-                </button>
+                <>
+                  <button
+                    onClick={() => setActiveTab('form-dashboard')}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-lg transition-all shadow-xs whitespace-nowrap cursor-pointer text-xs ${
+                      activeTab === 'form-dashboard'
+                        ? 'bg-blue-600 text-white shadow-blue-200'
+                        : 'bg-white text-blue-700 hover:bg-blue-100/70 border border-blue-300'
+                    }`}
+                    title="View this form's analytics dashboard below"
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    <span>Dashboard</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('form-responses')}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-lg transition-all shadow-xs whitespace-nowrap cursor-pointer text-xs ${
+                      activeTab === 'form-responses'
+                        ? 'bg-emerald-600 text-white shadow-emerald-200'
+                        : 'bg-white text-emerald-700 hover:bg-emerald-100/70 border border-emerald-300'
+                    }`}
+                    title="View this form's responses table below"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>Responses</span>
+                  </button>
+                </>
               )}
               <button
                 onClick={handleClearAllForms}
-                className="inline-flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-blue-100/70 text-blue-700 font-bold rounded-lg border border-blue-300 transition-colors shadow-2xs whitespace-nowrap cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-700 font-bold rounded-lg border border-gray-300 transition-colors shadow-2xs whitespace-nowrap cursor-pointer text-xs"
                 title="Show all forms"
               >
                 <X className="w-3.5 h-3.5" />
@@ -1207,11 +1248,42 @@ export const QualityDashboard: React.FC = () => {
         {data && (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[550px]">
             <div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto">
+              {selectedSingleFormId && (
+                <>
+                  <button
+                    onClick={() => setActiveTab('form-dashboard')}
+                    className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center transition-colors whitespace-nowrap ${
+                      activeTab === 'form-dashboard'
+                        ? 'bg-white text-blue-700 border-b-2 border-blue-600 shadow-xs'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    <BarChart3 className="w-4 h-4 mr-2 text-blue-600" />
+                    <span>Form Dashboard</span>
+                    {selectedSingleForm?.title && (
+                      <span className="ml-1.5 px-2 py-0.5 rounded-full text-[11px] bg-blue-100 text-blue-800 font-extrabold max-w-[150px] truncate">
+                        {selectedSingleForm.title}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('form-responses')}
+                    className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center transition-colors whitespace-nowrap ${
+                      activeTab === 'form-responses'
+                        ? 'bg-white text-emerald-700 border-b-2 border-emerald-600 shadow-xs'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
+                    <span>Form Responses</span>
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => setActiveTab('data')}
                 className={`flex-1 py-3 px-4 text-sm font-semibold flex items-center justify-center transition-colors whitespace-nowrap ${activeTab === 'data' ? 'bg-white text-blue-700 border-b-2 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
               >
-                <FileSpreadsheet className="w-4 h-4 mr-2" />
+                <Layers className="w-4 h-4 mr-2" />
                 Forms Data Grid ({filteredForms.length})
               </button>
               <button
@@ -1240,6 +1312,28 @@ export const QualityDashboard: React.FC = () => {
             {/* Content Area */}
             <div className="flex-1 flex flex-col bg-white">
               
+              {/* EMBEDDED FORM DASHBOARD */}
+              {activeTab === 'form-dashboard' && selectedSingleFormId && (
+                <div className="p-2 sm:p-4 bg-gray-50/50 min-h-[600px]">
+                  <FormAnalyticsDashboard
+                    formId={selectedSingleFormId}
+                    embedded={true}
+                    initialTab="dashboard"
+                  />
+                </div>
+              )}
+
+              {/* EMBEDDED FORM RESPONSES */}
+              {activeTab === 'form-responses' && selectedSingleFormId && (
+                <div className="p-2 sm:p-4 bg-gray-50/50 min-h-[600px]">
+                  <FormAnalyticsDashboard
+                    formId={selectedSingleFormId}
+                    embedded={true}
+                    initialTab="responses"
+                  />
+                </div>
+              )}
+
               {/* FORMS DATA GRID (Each form of this login shown with summary metrics) */}
               {activeTab === 'data' && (
                 <div className="flex flex-col">
@@ -1385,17 +1479,23 @@ export const QualityDashboard: React.FC = () => {
                                 {/* Form Action Buttons */}
                                 <div className="pt-3 mt-3 border-t border-gray-100 flex items-center justify-between gap-2 text-xs">
                                   <button
-                                    onClick={() => navigate(`/forms/${form.id || form._id}/analytics?tab=dashboard`)}
+                                    onClick={() => {
+                                      updateSelectedForms([form.id || form._id]);
+                                      setActiveTab('form-dashboard');
+                                    }}
                                     className="flex-1 py-2 px-3 rounded-lg font-bold transition-all text-center shadow-sm bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200 flex items-center justify-center gap-1.5"
-                                    title="Open Form Analytics Dashboard"
+                                    title="View Form Analytics Dashboard right here"
                                   >
                                     <BarChart3 className="w-3.5 h-3.5" />
                                     <span>Dashboard</span>
                                   </button>
                                   <button
-                                    onClick={() => navigate(`/forms/${form.id || form._id}/analytics?tab=responses`)}
-                                    className="px-2.5 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50/50 transition-all flex items-center gap-1 font-medium shadow-sm"
-                                    title="Open full responses table"
+                                    onClick={() => {
+                                      updateSelectedForms([form.id || form._id]);
+                                      setActiveTab('form-responses');
+                                    }}
+                                    className="px-2.5 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 hover:text-emerald-600 hover:border-emerald-300 hover:bg-emerald-50/50 transition-all flex items-center gap-1 font-medium shadow-sm"
+                                    title="View responses table right here"
                                   >
                                     <FileSpreadsheet className="w-3.5 h-3.5 text-green-600" />
                                     <span>Responses</span>
