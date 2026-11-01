@@ -128,58 +128,73 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
     );
   };
 
+  const INVALID_CHASSIS_TAGS = new Set(['TVS', 'SAFTY', 'SAIFY', 'SRIDEVI', 'EXCEL IMPORT', 'N/A', '-', 'DEFAULT', 'UNKNOWN', 'NONE']);
+
   const getChassisNumber = (r: any) => {
-    if (r.chassisNumber && r.chassisNumber !== 'N/A' && r.chassisNumber !== '-') return String(r.chassisNumber);
-    if (!r.answers) return 'N/A';
-    const ans = r.answers;
-    
-    // First scan answers for identification/chassis/id number keys
-    for (const key in ans) {
-      const k = key.toLowerCase();
-      if (k.includes('identification') || k.includes('chassis') || k.includes('id number') || k.includes('id_number') || k.includes('vin')) {
-        const c = ans[key];
-        if (typeof c === 'object' && c) {
-          const val = c.chassisNumber || c.v || c.status || c.id;
-          if (val && val !== 'N/A') return String(val);
-        } else if (typeof c === 'string' && c.trim()) {
-          return c.trim();
+    // If r.chassisNumber is already a valid unique identifier (and not a static vendor tag), use it directly
+    if (r.chassisNumber && !INVALID_CHASSIS_TAGS.has(String(r.chassisNumber).toUpperCase().trim())) {
+      return String(r.chassisNumber).trim();
+    }
+
+    if (r.answers && typeof r.answers === 'object') {
+      const ans = r.answers;
+
+      // 1. Scan for question keys containing identification/chassis/id number/vin
+      for (const key in ans) {
+        const k = key.toLowerCase();
+        if (k.includes('identification') || k.includes('chassis') || k.includes('id number') || k.includes('id_number') || k.includes('vin') || k.includes('serial')) {
+          const c = ans[key];
+          if (typeof c === 'object' && c) {
+            const val = c.chassisNumber || c.value || c.v || c.id;
+            if (val && !INVALID_CHASSIS_TAGS.has(String(val).toUpperCase().trim())) return String(val).trim();
+          } else if (typeof c === 'string' && c.trim() && !INVALID_CHASSIS_TAGS.has(c.toUpperCase().trim())) {
+            return c.trim();
+          } else if (typeof c === 'number') {
+            return String(c);
+          }
+        }
+      }
+
+      // 2. Scan for any string or number answer that represents an identification code
+      for (const [key, c] of Object.entries(ans)) {
+        if (key === 'chassis_number' || key === 'chassis') continue;
+        if (typeof c === 'number') {
+          return String(c);
+        }
+        if (typeof c === 'string') {
+          const val = c.trim();
+          const low = val.toLowerCase();
+          if (
+            val.length > 0 &&
+            val.length < 50 &&
+            !['accepted', 'rejected', 'reworked', 'pending', 'direct ok', 'rework 1', 'rework 2', 'ok', 'not ok', 'pass', 'fail', 'true', 'false', 'none', 'n/a', '-'].includes(low) &&
+            !INVALID_CHASSIS_TAGS.has(val.toUpperCase()) &&
+            !val.startsWith('{') &&
+            !val.startsWith('http')
+          ) {
+            return val;
+          }
         }
       }
     }
 
-    if (ans.chassis_number) {
-      const c = ans.chassis_number;
-      if (typeof c === 'object' && c) return String(c.chassisNumber || c.v || c.status || 'N/A');
-      return String(c);
-    }
-    if (ans.chassis) {
-      const c = ans.chassis;
-      if (typeof c === 'object' && c) return String(c.chassisNumber || c.v || 'N/A');
-      return String(c);
-    }
-    if (ans.id_number) {
-      const c = ans.id_number;
-      if (typeof c === 'object' && c) return String(c.chassisNumber || c.v || 'N/A');
-      return String(c);
-    }
+    if (r.chassisNumber && r.chassisNumber !== 'N/A' && r.chassisNumber !== '-') return String(r.chassisNumber);
     return 'N/A';
   };
 
   const getChassisVin = (r: any) => {
     if (r.chassisVin && r.chassisVin !== 'N/A' && r.chassisVin !== '-') return String(r.chassisVin);
     if (r.partDescription && r.partDescription !== 'N/A' && r.partDescription !== '-') return String(r.partDescription);
+    const chNum = getChassisNumber(r);
+    if (r.chassisNumber && String(r.chassisNumber).trim().toLowerCase() !== chNum.toLowerCase()) {
+      return String(r.chassisNumber).trim();
+    }
     if (!r.answers) return '-';
     const ans = r.answers;
     if (ans.dealerName) return String(ans.dealerName).trim();
     if (ans.chassis && typeof ans.chassis === 'object' && ans.chassis.partDescription) return String(ans.chassis.partDescription).trim();
     if (ans.part_description) return String(ans.part_description).trim();
     if (ans['Chassis / VIN']) return String(ans['Chassis / VIN']).trim();
-    
-    const chNum = getChassisNumber(r);
-    if (ans.chassis_number && String(ans.chassis_number).trim() !== chNum) {
-      const c = ans.chassis_number;
-      return typeof c === 'object' && c ? String(c.partDescription || c.chassisNumber || '-') : String(c).trim();
-    }
     return '-';
   };
 

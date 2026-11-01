@@ -2875,6 +2875,19 @@ export default function FormAnalyticsDashboard({
       "selected_chassis_number",
     ];
 
+    // Priority 0: If form has a designated chassis / identification question answered, use it
+    if (chassisQuestionId && r.answers) {
+      if (r.answers[chassisQuestionId] !== undefined && r.answers[chassisQuestionId] !== null && r.answers[chassisQuestionId] !== "") {
+        const val = getChassisDisplayValue(r.answers[chassisQuestionId]);
+        if (val && val !== "-" && val !== "N/A" && val !== "None") return formatMasterMatch(val);
+      }
+      const trackingKey = `${chassisQuestionId}_tracking`;
+      if (r.answers[trackingKey] !== undefined && r.answers[trackingKey] !== null && r.answers[trackingKey] !== "") {
+        const val = getChassisDisplayValue(r.answers[trackingKey]);
+        if (val && val !== "-" && val !== "N/A" && val !== "None") return formatMasterMatch(val);
+      }
+    }
+
     // CASE A: Form HAS configured chassis options in form.chassisNumbers (e.g. "Saify", "Sridevi", "TVS")
     if (masterOptions.length > 0) {
       // 1. Check explicit system chassis answer keys first

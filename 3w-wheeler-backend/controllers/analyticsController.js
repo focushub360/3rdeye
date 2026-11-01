@@ -3326,7 +3326,7 @@ export const getQualitySummary = async (req, res) => {
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
     const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
-    const cacheKey = `quality_summary_v9_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v10_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers['cache-control'] === 'no-cache';
     if (!shouldBypassCache) {
       const cached = appCache.get(cacheKey);
@@ -3628,7 +3628,8 @@ export const getQualitySummary = async (req, res) => {
                 questionId: 1,
                 formId: 1,
                 isDispatched: 1,
-                chassisNumber: 1
+                chassisNumber: 1,
+                answers: 1
               }
             }
           ],
@@ -3859,17 +3860,98 @@ export const getQualitySummary = async (req, res) => {
       };
     });
 
+    const KNOWN_STATIC_TAGS = new Set(['TVS', 'SAFTY', 'SAIFY', 'SRIDEVI', 'EXCEL IMPORT', 'N/A', '-', 'DEFAULT', 'UNKNOWN', 'NONE']);
+
+    const extractUniqueChassis = (r) => {
+      const fId = (r.formId || r.questionId)?.toString();
+      const chassisMeta = (fId && formChassisQuestionMap[fId]) || {};
+      const targetQId = chassisMeta.primaryChassisQId;
+      const ans = r.answers || {};
+
+      // 1. Check designated chassis/identification question if present
+      if (targetQId && ans[targetQId] !== undefined && ans[targetQId] !== null) {
+        const val = ans[targetQId];
+        if (typeof val === 'string' && val.trim()) return val.trim();
+        if (typeof val === 'number') return String(val);
+        if (typeof val === 'object') {
+          const v = val.chassisNumber || val.value || val.id || val.v;
+          if (v && typeof v !== 'object') return String(v).trim();
+        }
+      }
+
+      // 2. Check any other answer key that might be an identification/chassis question
+      for (const [key, val] of Object.entries(ans)) {
+        if (!val) continue;
+        const meta = questionMetaMap[key];
+        const qTitle = (meta?.text || '').toLowerCase();
+        if (
+          qTitle.includes('identification') ||
+          qTitle.includes('id number') ||
+          qTitle.includes('id no') ||
+          qTitle.includes('chassis') ||
+          qTitle.includes('vin') ||
+          qTitle.includes('serial')
+        ) {
+          if (typeof val === 'string' && val.trim() && val !== 'Accepted' && val !== 'Rejected' && val !== 'Reworked') {
+            return val.trim();
+          }
+          if (typeof val === 'number') return String(val);
+          if (typeof val === 'object') {
+            const v = val.chassisNumber || val.value || val.id;
+            if (v && typeof v !== 'object' && String(v).trim()) return String(v).trim();
+          }
+        }
+      }
+
+      // 3. Scan for any answer that looks like a unique unit code (not a status like 'Accepted'/'Rejected'/'Direct Ok')
+      for (const [key, val] of Object.entries(ans)) {
+        if (key === 'chassis_number' || key === 'chassis') continue;
+        if (typeof val === 'string') {
+          const s = val.trim();
+          const low = s.toLowerCase();
+          if (
+            s.length > 0 &&
+            s.length < 50 &&
+            !['accepted', 'rejected', 'reworked', 'pending', 'direct ok', 'rework 1', 'rework 2', 'ok', 'not ok', 'pass', 'fail', 'true', 'false', 'none', 'n/a', '-'].includes(low) &&
+            !KNOWN_STATIC_TAGS.has(s.toUpperCase()) &&
+            !s.startsWith('{') &&
+            !s.startsWith('http')
+          ) {
+            return s;
+          }
+        } else if (typeof val === 'number') {
+          return String(val);
+        }
+      }
+
+      // 4. If root r.chassisNumber exists and is NOT a known static vendor tag, use it
+      if (r.chassisNumber && !KNOWN_STATIC_TAGS.has(String(r.chassisNumber).toUpperCase().trim())) {
+        return String(r.chassisNumber).trim();
+      }
+
+      // 5. Fallback: root r.chassisNumber
+      if (r.chassisNumber && r.chassisNumber !== 'none' && r.chassisNumber !== 'N/A' && r.chassisNumber !== '-') {
+        return String(r.chassisNumber);
+      }
+
+      return 'N/A';
+    };
+
     // Recent raw responses for the Excel-like grid
     const rawResponsesList = (agg.recentResponses || []).map(r => {
       const fTitle = formTitleMap[r.questionId] || formTitleMap[r.formId] || 'Unknown Form';
       const rawSt = (r.status || '').trim();
       let dynamicStatus = rawSt === 'Accepted' || rawSt === 'Direct Ok' || rawSt === 'Rework Accepted' ? rawSt : (rawSt.startsWith('Rework') || rawSt === 'Rejected' ? rawSt : 'Direct Ok');
 
+      const uniqueChassis = extractUniqueChassis(r);
+      const rootChassis = r.chassisNumber && r.chassisNumber !== 'none' && r.chassisNumber !== 'N/A' && r.chassisNumber !== '-' ? String(r.chassisNumber).trim() : '';
+      const chassisVin = (rootChassis && rootChassis.toLowerCase() !== uniqueChassis.toLowerCase()) ? rootChassis : '-';
+
       return {
         id: r._id.toString(),
-        chassisNumber: r.chassisNumber && r.chassisNumber !== 'none' ? r.chassisNumber : 'N/A',
-        chassisVin: '-',
-        partDescription: '-',
+        chassisNumber: uniqueChassis,
+        chassisVin: chassisVin,
+        partDescription: chassisVin !== '-' ? chassisVin : '-',
         submittedBy: (r.submittedBy || 'Unknown Submitter').trim(),
         date: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
         createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
@@ -3878,6 +3960,7 @@ export const getQualitySummary = async (req, res) => {
         formId: (r.formId || r.questionId)?.toString() || '',
         formTitle: fTitle,
         isDispatched: Boolean(r.isDispatched),
+        answers: r.answers || {},
         defects: []
       };
     });
