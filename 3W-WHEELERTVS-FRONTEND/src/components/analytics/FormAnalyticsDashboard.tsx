@@ -11291,6 +11291,7 @@ export default function FormAnalyticsDashboard({
         y: {
           stacked: true,
           beginAtZero: true,
+          grace: '18%',
           ticks: {
             stepSize: 1,
             color: darkMode ? "#9ca3af" : "#6b7280",
@@ -11313,6 +11314,67 @@ export default function FormAnalyticsDashboard({
         },
       },
     };
+
+    const perfTopBarPlugins = useMemo(() => ([
+      {
+        id: 'performanceTopBarLabels',
+        afterDatasetsDraw(chart: any) {
+          const { ctx, scales: { y } } = chart;
+          ctx.save();
+          chart.data.labels?.forEach((_: any, index: number) => {
+            let totalValue = 0;
+            chart.data.datasets.forEach((ds: any) => {
+              totalValue += (ds.data[index] || 0);
+            });
+            if (totalValue <= 0) return;
+
+            const row = sortedData[index];
+            if (!row) return;
+            const perf = getBiwPerformanceLabel(row.performanceScore || 0);
+            const text = perf.label;
+
+            const meta = chart.getDatasetMeta(0);
+            const barElement = meta?.data?.[index];
+            if (!barElement) return;
+
+            const xPos = barElement.x;
+            const yPos = y.getPixelForValue(totalValue);
+
+            ctx.font = 'bold 9.5px Inter, system-ui, -apple-system, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            const metrics = ctx.measureText(text);
+            const pillWidth = Math.max(metrics.width + 12, 40);
+            const pillHeight = 18;
+            const pillX = xPos - pillWidth / 2;
+            const pillY = yPos - pillHeight - 5;
+
+            const score = row.performanceScore || 0;
+            const isGreen = score >= 90;
+            const isBlue = score >= 80 && score < 90;
+            const isYellow = score >= 70 && score < 80;
+
+            ctx.fillStyle = isGreen ? '#ecfdf5' : isBlue ? '#eff6ff' : isYellow ? '#fefce8' : '#fef2f2';
+            ctx.strokeStyle = isGreen ? '#10b981' : isBlue ? '#3b82f6' : isYellow ? '#eab308' : '#ef4444';
+            ctx.lineWidth = 1.2;
+
+            ctx.beginPath();
+            if (ctx.roundRect) {
+              ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 4);
+            } else {
+              ctx.rect(pillX, pillY, pillWidth, pillHeight);
+            }
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = isGreen ? '#065f46' : isBlue ? '#1e40af' : isYellow ? '#854d0e' : '#991b1b';
+            ctx.fillText(text, xPos, pillY + pillHeight / 2);
+          });
+          ctx.restore();
+        }
+      }
+    ]), [sortedData]);
 
     return (
       <div
@@ -11340,7 +11402,7 @@ export default function FormAnalyticsDashboard({
 
 
         <div style={{ height: "400px", position: "relative" }}>
-          <Bar data={data} options={options} />
+          <Bar data={data} options={options} plugins={perfTopBarPlugins} />
         </div>
       </div>
     );
@@ -11459,6 +11521,7 @@ export default function FormAnalyticsDashboard({
         y: {
           stacked: true,
           beginAtZero: true,
+          grace: '18%',
           ticks: {
             stepSize: 1,
             color: darkMode ? "#9ca3af" : "#6b7280",
@@ -11481,6 +11544,67 @@ export default function FormAnalyticsDashboard({
         },
       },
     };
+
+    const biwTopBarPlugins = useMemo(() => ([
+      {
+        id: 'biwTopBarLabels',
+        afterDatasetsDraw(chart: any) {
+          const { ctx, scales: { y } } = chart;
+          ctx.save();
+          chart.data.labels?.forEach((_: any, index: number) => {
+            let totalValue = 0;
+            chart.data.datasets.forEach((ds: any) => {
+              totalValue += (ds.data[index] || 0);
+            });
+            if (totalValue <= 0) return;
+
+            const row = sortedData[index];
+            if (!row) return;
+            const perf = getBiwPerformanceLabel(row.performanceScore || 0);
+            const text = perf.label;
+
+            const meta = chart.getDatasetMeta(0);
+            const barElement = meta?.data?.[index];
+            if (!barElement) return;
+
+            const xPos = barElement.x;
+            const yPos = y.getPixelForValue(totalValue);
+
+            ctx.font = 'bold 9.5px Inter, system-ui, -apple-system, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            const metrics = ctx.measureText(text);
+            const pillWidth = Math.max(metrics.width + 12, 40);
+            const pillHeight = 18;
+            const pillX = xPos - pillWidth / 2;
+            const pillY = yPos - pillHeight - 5;
+
+            const score = row.performanceScore || 0;
+            const isGreen = score >= 90;
+            const isBlue = score >= 80 && score < 90;
+            const isYellow = score >= 70 && score < 80;
+
+            ctx.fillStyle = isGreen ? '#ecfdf5' : isBlue ? '#eff6ff' : isYellow ? '#fefce8' : '#fef2f2';
+            ctx.strokeStyle = isGreen ? '#10b981' : isBlue ? '#3b82f6' : isYellow ? '#eab308' : '#ef4444';
+            ctx.lineWidth = 1.2;
+
+            ctx.beginPath();
+            if (ctx.roundRect) {
+              ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 4);
+            } else {
+              ctx.rect(pillX, pillY, pillWidth, pillHeight);
+            }
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = isGreen ? '#065f46' : isBlue ? '#1e40af' : isYellow ? '#854d0e' : '#991b1b';
+            ctx.fillText(text, xPos, pillY + pillHeight / 2);
+          });
+          ctx.restore();
+        }
+      }
+    ]), [sortedData]);
 
     return (
       <div
@@ -11508,7 +11632,7 @@ export default function FormAnalyticsDashboard({
 
 
         <div style={{ height: "400px", position: "relative" }}>
-          <Bar data={data} options={options} />
+          <Bar data={data} options={options} plugins={biwTopBarPlugins} />
         </div>
       </div>
     );
