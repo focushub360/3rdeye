@@ -3568,7 +3568,7 @@ export const getQualitySummary = async (req, res) => {
           byInspector: [
             {
               $group: {
-                _id: { $ifNull: ['$submittedBy', 'Unknown Submitter'] },
+                _id: { $trim: { input: { $ifNull: ['$submittedBy', 'Unknown Submitter'] } } },
                 totalChecked: { $sum: 1 },
                 defectCount: {
                   $sum: {
@@ -3670,8 +3670,7 @@ export const getQualitySummary = async (req, res) => {
                 questionId: 1,
                 formId: 1,
                 isDispatched: 1,
-                chassisNumber: 1,
-                answers: 1
+                chassisNumber: 1
               }
             }
           ],
@@ -3684,8 +3683,8 @@ export const getQualitySummary = async (req, res) => {
                 ]
               }
             },
-            { $limit: 1000 },
-            { $project: { _id: 1, submittedBy: 1, answers: 1, biwReview: 1, questionId: 1 } }
+            { $limit: 300 },
+            { $project: { _id: 1, submittedBy: 1, answers: 1, 'biwReview.flaggedQuestions': 1, 'biwReview.reason': 1 } }
           ]
         }
       }

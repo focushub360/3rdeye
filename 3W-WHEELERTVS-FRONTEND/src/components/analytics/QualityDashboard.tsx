@@ -21,6 +21,7 @@ import {
   LayoutGrid,
   ChevronDown,
   X,
+  Filter,
   PieChart as PieChartIcon
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -145,6 +146,7 @@ export const QualityDashboard: React.FC = () => {
   const formDropdownRef = useRef<HTMLDivElement>(null);
 
   // Preserve all available forms and counts across filtered fetches
+  const masterFormsSummaryRef = useRef<any[] | null>(null);
   const [availableFormOptions, setAvailableFormOptions] = useState<Array<{ id: string; title: string; totalChecked?: number }>>([]);
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
@@ -232,7 +234,11 @@ export const QualityDashboard: React.FC = () => {
     if (!data?.summary) return null;
     if (selectedFormIds.length === 0) return data.summary;
 
-    const matchedForms = (data.formsSummary || []).filter(
+    const sourceForms = (data.formsSummary && data.formsSummary.some(f => (f.totalChecked || 0) > 0 && (selectedFormIds.includes(f.id) || selectedFormIds.includes(f._id))))
+      ? data.formsSummary
+      : (masterFormsSummaryRef.current || data.formsSummary || []);
+
+    const matchedForms = sourceForms.filter(
       f => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id))
     );
 
@@ -370,6 +376,115 @@ export const QualityDashboard: React.FC = () => {
     };
   }, [data]);
 
+  const selectedFormTitles = useMemo(() => {
+    return availableFormOptions
+      .filter((f: any) => selectedFormIds.includes(f.id) || selectedFormIds.includes(f._id))
+      .map((f: any) => f.title);
+  }, [availableFormOptions, selectedFormIds]);
+
+  const mergedInspectors = useMemo(() => {
+    const map = new Map<string, any>();
+    relevantInspectors.forEach(insp => {
+      const cleanName = (insp.name || 'Unknown').trim();
+      const key = cleanName.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, { ...insp, name: cleanName });
+      } else {
+        const existing = map.get(key);
+        existing.totalChecked += (insp.totalChecked || 0);
+        existing.acceptCount += (insp.acceptCount || 0);
+        existing.defectCount += (insp.defectCount || 0);
+        existing.rework1Count = (existing.rework1Count || 0) + (insp.rework1Count || 0);
+        existing.biwAcceptCount = (existing.biwAcceptCount || 0) + (insp.biwAcceptCount || 0);
+        existing.biwDefectCount = (existing.biwDefectCount || 0) + (insp.biwDefectCount || 0);
+        const rate = existing.totalChecked > 0 ? Math.round((existing.acceptCount / existing.totalChecked) * 10000) / 100 : 0;
+        existing.acceptRate = rate;
+        existing.defectRate = Math.max(0, Math.round((100 - rate) * 100) / 100);
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => b.totalChecked - a.totalChecked);
+  }, [relevantInspectors]);
+
+  const biwPieChartData = useMemo(() => {
+    const accepted = biwOverallSummary.totalAccept || 0;
+    const defects = biwOverallSummary.totalDefect || 0;
+    if (accepted === 0 && defects === 0) {
+      return {
+        labels: ['No Data'],
+        datasets: [{
+          data: [1],
+          backgroundColor: ['#e5e7eb'],
+          borderColor: ['#ffffff'],
+          borderWidth: 2,
+        }]
+      };
+    }
+    return {
+      labels: ['BIW Accepted', 'BIW Defects / Rework'],
+      datasets: [
+        {
+          data: [accepted, defects],
+          backgroundColor: ['#10b981', '#ef4444'],
+          borderColor: ['#ffffff', '#ffffff'],
+          borderWidth: 2,
+          hoverOffset: 6
+        }
+      ]
+    };
+  }, [biwOverallSummary]);
+
+  const biwCenterTextPlugin = useMemo(
+    () => ({
+      id: 'biwDonutCenterText',
+      afterDatasetsDraw(chart: any) {
+        const meta = chart.getDatasetMeta(0);
+        if (!meta || !meta.data || !meta.data[0]) return;
+        const { ctx } = chart;
+        const { x, y } = meta.data[0];
+
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        ctx.font = 'bold 20px Inter, system-ui, -apple-system, sans-serif';
+        ctx.fillStyle = biwOverallSummary.rate >= 90 ? '#059669' : biwOverallSummary.rate >= 75 ? '#2563eb' : '#dc2626';
+        ctx.fillText(`${biwOverallSummary.rate}%`, x, y - 7);
+
+        ctx.font = 'bold 9px Inter, system-ui, -apple-system, sans-serif';
+        ctx.fillStyle = '#6b7280';
+        ctx.fillText('COMPLIANCE', x, y + 12);
+
+        ctx.restore();
+      },
+    }),
+    [biwOverallSummary],
+  );
+
+  const biwPieOptions: any = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '72%',
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(17, 24, 39, 0.95)',
+        titleFont: { size: 12, weight: 'bold' as const },
+        bodyFont: { size: 11 },
+        padding: 8,
+        cornerRadius: 6,
+        callbacks: {
+          label: (context: any) => {
+            const label = context.label || '';
+            const val = Number(context.raw) || 0;
+            const total = biwOverallSummary.totalReviewed || 1;
+            const pct = ((val / total) * 100).toFixed(1);
+            return ` ${label}: ${val.toLocaleString()} (${pct}%)`;
+          }
+        }
+      }
+    }
+  }), [biwOverallSummary]);
+
   const centerTextPlugin = useMemo(
     () => ({
       id: 'qualityDonutCenterText',
@@ -498,6 +613,11 @@ export const QualityDashboard: React.FC = () => {
         setData(actualData);
         if (actualData.formOptions && actualData.formOptions.length > 0) {
           setAvailableFormOptions(actualData.formOptions);
+        }
+        if (selectedFormIds.length === 0 && actualData.formsSummary && actualData.formsSummary.length > 0) {
+          masterFormsSummaryRef.current = actualData.formsSummary;
+        } else if (!masterFormsSummaryRef.current && actualData.formsSummary && actualData.formsSummary.some((f: any) => (f.totalChecked || 0) > 0)) {
+          masterFormsSummaryRef.current = actualData.formsSummary;
         }
       } else {
         throw new Error('Invalid response structure');
@@ -1768,7 +1888,24 @@ export const QualityDashboard: React.FC = () => {
               {/* INSPECTOR TVS PERFORMANCE TAB */}
               {activeTab === 'tvs' && (
                 <div className="flex flex-col">
-                  <div className="p-4 border-b border-gray-100 bg-white flex justify-end">
+                  {selectedFormIds.length > 0 && (
+                    <div className="bg-blue-50 border-b border-blue-100 px-6 py-2.5 flex items-center justify-between text-xs text-blue-900">
+                      <div className="flex items-center gap-2">
+                        <Filter className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Filtered by: <b>{selectedFormTitles.join(', ') || 'Selected Form'}</b> ({activeSummary?.totalChecked || 0} inspections)</span>
+                      </div>
+                      <button
+                        onClick={() => updateSelectedForms([])}
+                        className="text-blue-600 hover:text-blue-800 font-bold underline cursor-pointer"
+                      >
+                        Show All Forms
+                      </button>
+                    </div>
+                  )}
+                  <div className="p-4 border-b border-gray-100 bg-white flex justify-between items-center">
+                    <div className="text-xs text-gray-500 font-medium">
+                      Showing {mergedInspectors.filter(i => String(i.name || '').toLowerCase().includes((searchInspector || '').toLowerCase())).length} inspector{mergedInspectors.length !== 1 ? 's' : ''}
+                    </div>
                     <div className="relative w-64">
                       <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                       <input
@@ -1793,7 +1930,7 @@ export const QualityDashboard: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
-                        {relevantInspectors
+                        {mergedInspectors
                           .filter(i => String(i.name || '').toLowerCase().includes((searchInspector || '').toLowerCase()))
                           .map((insp, idx) => (
                           <tr key={idx} className="hover:bg-blue-50/50 transition-colors group">
@@ -1856,10 +1993,42 @@ export const QualityDashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Main Grid: Form-Wise BIW Breakdown (Left) & Top Defect Types (Right) */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Main Grid: BIW Pie Chart (Left), Form-Wise Breakdown (Middle), Top Defect Types (Right) */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                    {/* 1. BIW Quality & Review Distribution Donut / Pie Chart */}
+                    <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-xs flex flex-col">
+                      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                        <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                          <PieChartIcon className="w-5 h-5 text-indigo-600" />
+                          <span>BIW Quality Distribution</span>
+                        </h4>
+                        <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100">
+                          {biwOverallSummary.rate}% Pass
+                        </span>
+                      </div>
+
+                      <div className="h-64 relative flex items-center justify-center my-auto">
+                        <Doughnut data={biwPieChartData} options={biwPieOptions} plugins={[biwCenterTextPlugin]} />
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-gray-100 grid grid-cols-2 gap-2 text-xs">
+                        <div className="bg-emerald-50/70 border border-emerald-100 rounded-lg p-2.5 text-center">
+                          <span className="text-[11px] text-emerald-700 font-semibold block">Accepted</span>
+                          <span className="text-base font-black text-emerald-900">{biwOverallSummary.totalAccept.toLocaleString()}</span>
+                          <span className="text-[10px] text-emerald-600 block mt-0.5 font-medium">{biwOverallSummary.rate}%</span>
+                        </div>
+                        <div className="bg-red-50/70 border border-red-100 rounded-lg p-2.5 text-center">
+                          <span className="text-[11px] text-red-700 font-semibold block">Defects / Rework</span>
+                          <span className="text-base font-black text-red-900">{biwOverallSummary.totalDefect.toLocaleString()}</span>
+                          <span className="text-[10px] text-red-600 block mt-0.5 font-medium">
+                            {biwOverallSummary.totalReviewed > 0 ? (100 - biwOverallSummary.rate).toFixed(1) : '0'}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                     
-                    {/* 1. Form-Wise BIW Review Breakdown */}
+                    {/* 2. Form-Wise BIW Review Breakdown */}
                     <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-xs flex flex-col">
                       <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
                         <h4 className="font-bold text-gray-900 flex items-center gap-2">

@@ -4702,7 +4702,7 @@ export const getResponsesByForm = async (req, res) => {
         .maxTimeMS(30000)
         .lean();
     
-    const countPromise = Response.countDocuments(query).maxTimeMS(15000);
+    const countPromise = (isAnalytics && parseInt(page) > 1) ? Promise.resolve(0) : Response.countDocuments(query).maxTimeMS(15000);
 
     const [responsesRaw, total] = await Promise.all([responsesPromise, countPromise]);
     let responses = responsesRaw;
