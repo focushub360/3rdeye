@@ -2285,6 +2285,14 @@ export interface FormAnalyticsDashboardProps {
   initialTab?: "responses" | "dashboard";
 }
 
+// Module-level in-memory cache to enable 0ms instant dashboard switching between forms
+const formAnalyticsMemoryCache = new Map<string, {
+  form: any;
+  responses: any[];
+  tableResponses: any[];
+  timestamp: number;
+}>();
+
 export default function FormAnalyticsDashboard({
   formId: propFormId,
   embedded = false,
@@ -2434,13 +2442,7 @@ export default function FormAnalyticsDashboard({
     !isGuest && (user?.role === "superadmin" || user?.role === "admin");
 
 
-  // In-memory cache to enable 0ms instant dashboard switching between forms
-  const formAnalyticsMemoryCache = new Map<string, {
-    form: any;
-    responses: any[];
-    tableResponses: any[];
-    timestamp: number;
-  }>();
+// Using module-level formAnalyticsMemoryCache for instant switching
 
   const { id: paramId } = useParams<{ id: string }>();
   const id = propFormId || paramId;

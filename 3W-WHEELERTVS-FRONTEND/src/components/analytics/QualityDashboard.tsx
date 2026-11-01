@@ -116,6 +116,12 @@ interface SummaryData {
   rawResponses: RawResponse[];
 }
 
+// ─── Module-level SWR Cache for 0ms Instant Loading ─────────────────────────
+const qualitySummaryClientCache = new Map<string, {
+  data: any;
+  timestamp: number;
+}>();
+
 export const QualityDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -373,7 +379,40 @@ export const QualityDashboard: React.FC = () => {
     return { startDate: start.toISOString(), endDate: new Date().toISOString() };
   }, [dateRange, customStartDate, customEndDate]);
 
-  const fetchSummary = async (forceNetwork = true) => {
+  const fetchSummary = async (forceNetwork = false) => {
+    const sortedFormKey = [...selectedFormIds].sort().join(',');
+    const cacheKey = `${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
+    const cached = qualitySummaryClientCache.get(cacheKey);
+
+    // ─── 0ms SWR Instant Loading: Render immediately from cache if available ────
+    if (cached && !forceNetwork && Date.now() - cached.timestamp < 300000) { // 5-minute cache
+      setData(cached.data);
+      setLoading(false);
+      setLoadTimeMs(0);
+
+      // Populate available form options from cached data
+      if (cached.data.formOptions && cached.data.formOptions.length > 0) {
+        setAvailableFormOptions(prev => (prev.length === 0 || selectedFormIds.length === 0 ? cached.data.formOptions : prev));
+      }
+
+      // Revalidate in background if older than 15s to keep numbers perfectly fresh
+      if (Date.now() - cached.timestamp > 15000) {
+        apiClient.getQualitySummary({
+          formIds: selectedFormIds.length > 0 ? selectedFormIds : undefined,
+          startDate,
+          endDate,
+          forceNetwork: false
+        }).then(res => {
+          const actualData = (res && res.summary) ? res : (res && res.data) ? res.data : null;
+          if (actualData && actualData.summary) {
+            qualitySummaryClientCache.set(cacheKey, { data: actualData, timestamp: Date.now() });
+            setData(actualData);
+          }
+        }).catch(() => {});
+      }
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -401,6 +440,7 @@ export const QualityDashboard: React.FC = () => {
       const actualData = (res && res.summary) ? res : (res && res.data) ? res.data : null;
 
       if (actualData && actualData.summary) {
+        qualitySummaryClientCache.set(cacheKey, { data: actualData, timestamp: Date.now() });
         setData(actualData);
         if (actualData.formOptions && actualData.formOptions.length > 0) {
           setAvailableFormOptions(prev => {
@@ -423,7 +463,7 @@ export const QualityDashboard: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchSummary(true);
+    fetchSummary(false);
   }, [selectedFormIds, startDate, endDate]);
 
   useEffect(() => {
