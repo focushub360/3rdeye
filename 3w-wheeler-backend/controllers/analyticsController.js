@@ -209,7 +209,14 @@ export const getDashboardStats = async (req, res) => {
             _id: {
               $dateToString: {
                 format: '%Y-%m-%d',
-                date: '$createdAt'
+                date: {
+                  $convert: {
+                    input: '$createdAt',
+                    to: 'date',
+                    onError: new Date(0),
+                    onNull: new Date(0)
+                  }
+                }
               }
             },
             count: { $sum: 1 }
@@ -529,7 +536,14 @@ export const getUserAnalytics = async (req, res) => {
           _id: {
             $dateToString: {
               format: '%Y-%m-%d',
-              date: '$lastLogin'
+              date: {
+                $convert: {
+                  input: '$lastLogin',
+                  to: 'date',
+                  onError: new Date(0),
+                  onNull: new Date(0)
+                }
+              }
             }
           },
           count: { $sum: 1 }
@@ -3327,7 +3341,7 @@ export const getQualitySummary = async (req, res) => {
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
     const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
-    const cacheKey = `quality_summary_v12_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v13_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers['cache-control'] === 'no-cache';
     if (!shouldBypassCache) {
       const cached = appCache.get(cacheKey);
@@ -3604,7 +3618,17 @@ export const getQualitySummary = async (req, res) => {
             {
               $group: {
                 _id: {
-                  $dateToString: { format: '%Y-%m-%d', date: '$createdAt' }
+                  $dateToString: {
+                    format: '%Y-%m-%d',
+                    date: {
+                      $convert: {
+                        input: '$createdAt',
+                        to: 'date',
+                        onError: new Date(0),
+                        onNull: new Date(0)
+                      }
+                    }
+                  }
                 },
                 totalChecked: { $sum: 1 },
                 defectCount: {

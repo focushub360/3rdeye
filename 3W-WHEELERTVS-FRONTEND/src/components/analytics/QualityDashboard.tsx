@@ -435,7 +435,7 @@ export const QualityDashboard: React.FC = () => {
 
   const fetchSummary = async (forceNetwork = false) => {
     const sortedFormKey = [...selectedFormIds].sort().join(',');
-    const cacheKey = `v12_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
+    const cacheKey = `v13_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
     const cached = qualitySummaryClientCache.get(cacheKey);
 
     // ─── 0ms SWR Instant Loading: Render immediately from cache if available ────

@@ -11269,27 +11269,22 @@ export default function FormAnalyticsDashboard({
           },
         },
         datalabels: {
-          display: (context: any) => context.dataset.data[context.dataIndex] > 0,
-          color: "#ffffff",
+          display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+          color: (context: any) => {
+            if (context.datasetIndex === 0) return "#064e3b"; // High-contrast dark green
+            if (context.datasetIndex === 1) return "#7f1d1d"; // High-contrast dark red
+            return "#78350f"; // High-contrast dark amber
+          },
+          backgroundColor: "rgba(255, 255, 255, 0.95)",
+          borderRadius: 4,
+          padding: { top: 2, bottom: 2, left: 5, right: 5 },
           anchor: "center" as const,
           align: "center" as const,
           textAlign: "center" as const,
-          font: (context: any) => {
-            const isMain = context.datasetIndex === 0;
-            return { weight: "bold" as const, size: isMain ? 8 : 9 };
-          },
-          formatter: (value: number, context: any) => {
-            if (value <= 0) return "";
-            const firstActiveIdx = context.chart.data.datasets.findIndex(
-              (ds: any) => (ds.data[context.dataIndex] || 0) > 0
-            );
-            if (context.datasetIndex === firstActiveIdx) {
-              const row = sortedData[context.dataIndex];
-              const perf = getBiwPerformanceLabel(row?.performanceScore || 0);
-              const words = perf.label.toUpperCase().split(" ");
-              return [String(value), ...words];
-            }
-            return value;
+          font: { weight: "bold" as const, size: 11 },
+          formatter: (value: number) => {
+            if (!value || value <= 0) return "";
+            return String(value);
           },
         },
       },
@@ -11443,27 +11438,22 @@ export default function FormAnalyticsDashboard({
           },
         },
         datalabels: {
-          display: (context: any) => context.dataset.data[context.dataIndex] > 0,
-          color: "#ffffff",
+          display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+          color: (context: any) => {
+            if (context.datasetIndex === 0) return "#064e3b"; // High-contrast dark green
+            if (context.datasetIndex === 1) return "#7f1d1d"; // High-contrast dark red
+            return "#78350f"; // High-contrast dark amber
+          },
+          backgroundColor: "rgba(255, 255, 255, 0.95)",
+          borderRadius: 4,
+          padding: { top: 2, bottom: 2, left: 5, right: 5 },
           anchor: "center" as const,
           align: "center" as const,
           textAlign: "center" as const,
-          font: (context: any) => {
-            const isMain = context.datasetIndex === 0;
-            return { weight: "bold" as const, size: isMain ? 8 : 9 };
-          },
-          formatter: (value: number, context: any) => {
-            if (value <= 0) return "";
-            const firstActiveIdx = context.chart.data.datasets.findIndex(
-              (ds: any) => (ds.data[context.dataIndex] || 0) > 0
-            );
-            if (context.datasetIndex === firstActiveIdx) {
-              const row = sortedData[context.dataIndex];
-              const perf = getBiwPerformanceLabel(row?.performanceScore || 0);
-              const words = perf.label.toUpperCase().split(" ");
-              return [String(value), ...words];
-            }
-            return value;
+          font: { weight: "bold" as const, size: 11 },
+          formatter: (value: number) => {
+            if (!value || value <= 0) return "";
+            return String(value);
           },
         },
       },
