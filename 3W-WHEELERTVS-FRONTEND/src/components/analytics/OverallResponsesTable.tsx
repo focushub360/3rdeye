@@ -14,7 +14,10 @@ import {
   X,
   RotateCcw,
   Calendar,
-  FileSpreadsheet
+  FileSpreadsheet,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 
 interface OverallResponsesTableProps {
@@ -44,11 +47,23 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
   const [page, setPage] = useState(1);
   const itemsPerPage = 50;
 
+  type SortField = 'createdAt' | 'form' | 'chassis' | 'vin' | 'submitter' | 'biw' | 'dispatch';
+  const [sortField, setSortField] = useState<SortField>('createdAt');
+  const [sortAsc, setSortAsc] = useState<boolean>(false); // default: newest first (descending)
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortAsc(prev => !prev);
+    } else {
+      setSortField(field);
+      setSortAsc(field === 'createdAt' ? false : true);
+    }
+    setPage(1);
+  };
+
   // Keep in sync if initialFormFilter prop changes
   useEffect(() => {
-    if (initialFormFilter && initialFormFilter !== 'all') {
-      setFormFilter(initialFormFilter);
-    }
+    setFormFilter(initialFormFilter || 'all');
   }, [initialFormFilter]);
 
   const formsMap = useMemo(() => {
@@ -208,15 +223,17 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
     return rawResponses.filter(r => {
       // 1. Form Filter
       if (formFilter !== 'all') {
-        const rFormId = String(r.formId || r.questionId || '');
-        const rFormTitle = r.formTitle || formsMap[rFormId];
+        const rFormId = String(r.formId || r.questionId || '').toLowerCase();
+        const rFormTitle = (r.formTitle || formsMap[r.formId || ''] || formsMap[r.questionId || ''] || '').trim().toLowerCase();
         const selectedForm = formOptions.find(f => f.id === formFilter || f._id === formFilter);
-        const selectedTitle = selectedForm?.title;
+        const selId = String(selectedForm?.id || formFilter).toLowerCase();
+        const selMongoId = String(selectedForm?._id || '').toLowerCase();
+        const selTitle = (selectedForm?.title || '').trim().toLowerCase();
 
-        const matchesId = rFormId === formFilter;
-        const matchesTitle = selectedTitle && (rFormTitle === selectedTitle || formsMap[rFormId] === selectedTitle);
+        const matchesId = rFormId === selId || (selMongoId && rFormId === selMongoId);
+        const matchesTitle = selTitle ? (rFormTitle === selTitle || formsMap[r.formId || '']?.trim().toLowerCase() === selTitle || formsMap[r.questionId || '']?.trim().toLowerCase() === selTitle) : false;
         if (!matchesId && !matchesTitle) return false;
-      } else if (selectedFormIds && selectedFormIds.length > 0) {
+      } else if (selectedFormIds && selectedFormIds.length > 1) {
         const rFormId = String(r.formId || r.questionId || '');
         const rFormTitle = r.formTitle || formsMap[rFormId];
         const matchesAny = selectedFormIds.includes(rFormId) || selectedFormIds.some(sfId => formsMap[sfId] === rFormTitle || formsMap[rFormId] === formsMap[sfId]);
@@ -241,7 +258,7 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
         if (dispatchFilter === 'pending' && r.isDispatched) return false;
       }
 
-      // 5. Calendar / Date Range Filter
+      // 5. Calendar / Date Range Filter (Robust timezone handling)
       if (startDate || endDate) {
         const rDateVal = r.createdAt || r.date;
         if (!rDateVal) return false;
@@ -249,13 +266,13 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
         if (isNaN(rDate.getTime())) return false;
 
         if (startDate) {
-          const start = new Date(startDate);
-          start.setHours(0, 0, 0, 0);
+          const [sy, sm, sd] = startDate.split('-').map(Number);
+          const start = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
           if (rDate < start) return false;
         }
         if (endDate) {
-          const end = new Date(endDate);
-          end.setHours(23, 59, 59, 999);
+          const [ey, em, ed] = endDate.split('-').map(Number);
+          const end = new Date(ey, em - 1, ed, 23, 59, 59, 999);
           if (rDate > end) return false;
         }
       }
@@ -267,12 +284,13 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
         const chassis = safeString(getChassisNumber(r)).toLowerCase();
         const chassisVinVal = safeString(getChassisVin(r)).toLowerCase();
         const title = safeString(r.formTitle || formsMap[r.formId || ''] || formsMap[r.questionId || '']).toLowerCase();
-        if (!submitter.includes(s) && !chassis.includes(s) && !chassisVinVal.includes(s) && !title.includes(s)) return false;
+        const biw = safeString(r.biwReviewStatus || r.biwReview?.status || '').toLowerCase();
+        if (!submitter.includes(s) && !chassis.includes(s) && !chassisVinVal.includes(s) && !title.includes(s) && !biw.includes(s)) return false;
       }
 
       return true;
     });
-  }, [rawResponses, formFilter, statusFilter, biwFilter, dispatchFilter, startDate, endDate, search, formsMap, formOptions]);
+  }, [rawResponses, formFilter, statusFilter, biwFilter, dispatchFilter, startDate, endDate, search, formsMap, formOptions, selectedFormIds]);
 
   // Reset to first page when any filter changes
   useEffect(() => {
@@ -296,11 +314,61 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
     setDatePreset('all');
     setStartDate('');
     setEndDate('');
+    setSortField('createdAt');
+    setSortAsc(false);
     setPage(1);
   };
 
-  const totalPages = Math.ceil(filteredResponses.length / itemsPerPage);
-  const paginatedResponses = filteredResponses.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+  const sortedResponses = useMemo(() => {
+    return [...filteredResponses].sort((a, b) => {
+      let valA: any = '';
+      let valB: any = '';
+      switch (sortField) {
+        case 'form': {
+          valA = (a.formTitle || formsMap[a.formId || ''] || formsMap[a.questionId || ''] || '').toLowerCase();
+          valB = (b.formTitle || formsMap[b.formId || ''] || formsMap[b.questionId || ''] || '').toLowerCase();
+          break;
+        }
+        case 'chassis': {
+          valA = getChassisNumber(a).toLowerCase();
+          valB = getChassisNumber(b).toLowerCase();
+          break;
+        }
+        case 'vin': {
+          valA = getChassisVin(a).toLowerCase();
+          valB = getChassisVin(b).toLowerCase();
+          break;
+        }
+        case 'submitter': {
+          valA = (a.submittedBy || '').toLowerCase();
+          valB = (b.submittedBy || '').toLowerCase();
+          break;
+        }
+        case 'biw': {
+          valA = (a.biwReviewStatus || a.biwReview?.status || '').toLowerCase();
+          valB = (b.biwReviewStatus || b.biwReview?.status || '').toLowerCase();
+          break;
+        }
+        case 'dispatch': {
+          valA = a.isDispatched ? 1 : 0;
+          valB = b.isDispatched ? 1 : 0;
+          break;
+        }
+        case 'createdAt':
+        default: {
+          valA = new Date(a.date || a.createdAt || 0).getTime();
+          valB = new Date(b.date || b.createdAt || 0).getTime();
+          break;
+        }
+      }
+      if (valA < valB) return sortAsc ? -1 : 1;
+      if (valA > valB) return sortAsc ? 1 : -1;
+      return 0;
+    });
+  }, [filteredResponses, sortField, sortAsc, formsMap]);
+
+  const totalPages = Math.ceil(sortedResponses.length / itemsPerPage);
+  const paginatedResponses = sortedResponses.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
   return (
     <div className="flex flex-col h-full bg-white">
@@ -454,13 +522,104 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
           <thead className="bg-gray-50/90 backdrop-blur-md sticky top-0 z-10 text-gray-600 uppercase text-[11px] font-bold tracking-wider">
             <tr>
               <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Actions</th>
-              <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Dispatch</th>
-              <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Form Name</th>
-              <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Chassis Number</th>
-              <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Chassis / VIN</th>
-              <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Submitted By</th>
-              <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">BIW Review</th>
-              <th className="px-4 py-3 border-b border-gray-200 bg-gray-100">Timestamp</th>
+              <th 
+                onClick={() => handleSort('dispatch')} 
+                className="px-4 py-3 border-b border-gray-200 bg-gray-100 cursor-pointer hover:bg-gray-200 select-none transition-colors"
+                title="Sort by Dispatch status"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Dispatch</span>
+                  {sortField === 'dispatch' ? (
+                    sortAsc ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-gray-400 opacity-60" />
+                  )}
+                </div>
+              </th>
+              <th 
+                onClick={() => handleSort('form')} 
+                className="px-4 py-3 border-b border-gray-200 bg-gray-100 cursor-pointer hover:bg-gray-200 select-none transition-colors"
+                title="Sort by Form Name"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Form Name</span>
+                  {sortField === 'form' ? (
+                    sortAsc ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-gray-400 opacity-60" />
+                  )}
+                </div>
+              </th>
+              <th 
+                onClick={() => handleSort('chassis')} 
+                className="px-4 py-3 border-b border-gray-200 bg-gray-100 cursor-pointer hover:bg-gray-200 select-none transition-colors"
+                title="Sort by Chassis Number"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Chassis Number</span>
+                  {sortField === 'chassis' ? (
+                    sortAsc ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-gray-400 opacity-60" />
+                  )}
+                </div>
+              </th>
+              <th 
+                onClick={() => handleSort('vin')} 
+                className="px-4 py-3 border-b border-gray-200 bg-gray-100 cursor-pointer hover:bg-gray-200 select-none transition-colors"
+                title="Sort by Chassis / VIN"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Chassis / VIN</span>
+                  {sortField === 'vin' ? (
+                    sortAsc ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-gray-400 opacity-60" />
+                  )}
+                </div>
+              </th>
+              <th 
+                onClick={() => handleSort('submitter')} 
+                className="px-4 py-3 border-b border-gray-200 bg-gray-100 cursor-pointer hover:bg-gray-200 select-none transition-colors"
+                title="Sort by Submitter"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Submitted By</span>
+                  {sortField === 'submitter' ? (
+                    sortAsc ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-gray-400 opacity-60" />
+                  )}
+                </div>
+              </th>
+              <th 
+                onClick={() => handleSort('biw')} 
+                className="px-4 py-3 border-b border-gray-200 bg-gray-100 cursor-pointer hover:bg-gray-200 select-none transition-colors"
+                title="Sort by BIW Review"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>BIW Review</span>
+                  {sortField === 'biw' ? (
+                    sortAsc ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-gray-400 opacity-60" />
+                  )}
+                </div>
+              </th>
+              <th 
+                onClick={() => handleSort('createdAt')} 
+                className="px-4 py-3 border-b border-gray-200 bg-gray-100 cursor-pointer hover:bg-gray-200 select-none transition-colors"
+                title="Sort by Timestamp"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Timestamp</span>
+                  {sortField === 'createdAt' ? (
+                    sortAsc ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-gray-400 opacity-60" />
+                  )}
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">

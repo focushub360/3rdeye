@@ -3326,7 +3326,7 @@ export const getQualitySummary = async (req, res) => {
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
     const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
-    const cacheKey = `quality_summary_v10_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v11_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers['cache-control'] === 'no-cache';
     if (!shouldBypassCache) {
       const cached = appCache.get(cacheKey);
@@ -3947,14 +3947,18 @@ export const getQualitySummary = async (req, res) => {
       const rootChassis = r.chassisNumber && r.chassisNumber !== 'none' && r.chassisNumber !== 'N/A' && r.chassisNumber !== '-' ? String(r.chassisNumber).trim() : '';
       const chassisVin = (rootChassis && rootChassis.toLowerCase() !== uniqueChassis.toLowerCase()) ? rootChassis : '-';
 
+      const rawDate = r.createdAt ? new Date(r.createdAt) : new Date();
+      const safeDate = rawDate.getTime() > Date.now() ? (r.submissionMetadata?.submittedAt ? new Date(r.submissionMetadata.submittedAt) : new Date()) : rawDate;
+      const dateIso = !isNaN(safeDate.getTime()) ? safeDate.toISOString() : new Date().toISOString();
+
       return {
         id: r._id.toString(),
         chassisNumber: uniqueChassis,
         chassisVin: chassisVin,
         partDescription: chassisVin !== '-' ? chassisVin : '-',
         submittedBy: (r.submittedBy || 'Unknown Submitter').trim(),
-        date: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
-        createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+        date: dateIso,
+        createdAt: dateIso,
         status: dynamicStatus,
         biwReviewStatus: r.biwReview?.status || (dynamicStatus === 'Direct Ok' || dynamicStatus === 'Accepted' ? 'Accepted' : 'Pending'),
         formId: (r.formId || r.questionId)?.toString() || '',
