@@ -630,7 +630,7 @@ export function generateAnalyticsHTML(
 
         <!-- Defect Distribution -->
         <div class="chart-full">
-          <div class="chart-main-title">Defect Distribution</div>
+          <div class="chart-main-title">Main Defect Distribution</div>
           <div class="chart-sub-title">Rejected &amp; Rework volume${dateRangeStr}</div>
           ${
             chartImages["defect-distribution-chart"]
@@ -918,7 +918,7 @@ export async function exportDashboardToPPT(
       "inspection-status-distribution-chart": "Inspection Status Distribution",
       "performance-trend-chart": "Response Trend (Last 30 Days)",
       "status-trends-rework-chart": "Inspection Status Trends for Rework",
-      "defect-distribution-chart": "Defect Distribution",
+      "defect-distribution-chart": "Main Defect Distribution",
       "issue-percentage-chart": "Question Status Distribution",
       "performance-table-chart": "Inspector Metrics",
     };

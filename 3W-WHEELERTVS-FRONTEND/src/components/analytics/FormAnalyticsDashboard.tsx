@@ -8756,7 +8756,7 @@ export default function FormAnalyticsDashboard({
             </div>
             <div>
               <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white uppercase tracking-tight">
-                Defect Distribution
+                Main Defect Distribution
               </h3>
               <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">
                 {complianceLabels.no} & {complianceLabels.na} volume (
@@ -13010,9 +13010,9 @@ export default function FormAnalyticsDashboard({
                   <div className="w-full" id="question-distribution-card">
                     <div className="w-full space-y-6">
                       <InspectionStatusLineChart />
+                      <QuestionStatusDistributionChart />
                       <BiwDefectDistributionChart />
                       <TvsDefectDistributionChart />
-                      <QuestionStatusDistributionChart />
                       <TimeBasedPerformanceGraph />
                       <DirectAcceptedPerformanceGraph />
                       {renderSummaryTable()}

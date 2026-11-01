@@ -2416,7 +2416,7 @@ export const getPerformanceTable = async (req, res) => {
     const [totalResponsesInRange, allResponses] = await Promise.all([
       Response.countDocuments(responseBaseFilter).maxTimeMS(30000),
       Response.find(responseBaseFilter)
-        .select('createdBy submittedBy isDispatched biwReview answers questionId createdAt id _id')
+        .select('createdBy submittedBy isDispatched biwReview status chassisNumber questionId createdAt id _id')
         .sort({ createdAt: -1 })
         .limit(10000)
         .maxTimeMS(30000)
@@ -2682,6 +2682,7 @@ export const getPerformanceTable = async (req, res) => {
 
     // Helper: Determine inspection status
     const getInspectionStatus = (response) => {
+      if (response.status) return response.status;
       let isRework = false;
       let isAccepted = false;
       let isRejected = false;

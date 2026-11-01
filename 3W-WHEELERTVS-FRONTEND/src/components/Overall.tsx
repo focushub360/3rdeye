@@ -4165,7 +4165,7 @@ export default function Overall() {
                   <BarChart3 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
                   <div>
                     <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-                      Defect Distribution
+                      Main Defect Distribution
                     </h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
                       No/Rejected & Rework volume by question {defectDateRangeLabel ? `(${defectDateRangeLabel})` : ""}
