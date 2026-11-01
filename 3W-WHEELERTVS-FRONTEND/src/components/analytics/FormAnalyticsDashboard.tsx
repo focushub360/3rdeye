@@ -4721,7 +4721,7 @@ export default function FormAnalyticsDashboard({
 
       // Fetch form details
       const formData = await apiClient.request<{ form: any }>(formCacheKey, {
-        forceNetwork: true,
+        forceNetwork: false,
         timeout: 60000, // 60 seconds for form data
       });
 
@@ -4761,7 +4761,19 @@ export default function FormAnalyticsDashboard({
     if (!id) return;
 
     // SWR: Check if we have recent analytics data for this form to display instantly
-    const cached = formAnalyticsMemoryCache.get(id);
+    let cached = formAnalyticsMemoryCache.get(id);
+    if (!cached) {
+      try {
+        const stored = sessionStorage.getItem(`form_analytics_cache_${id}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Date.now() - parsed.timestamp < 600000) {
+            cached = parsed;
+            formAnalyticsMemoryCache.set(id, parsed);
+          }
+        }
+      } catch (_) {}
+    }
     if (cached && Date.now() - cached.timestamp < 180000) {
       setForm(cached.form);
       setResponses(cached.responses);
@@ -4792,12 +4804,22 @@ export default function FormAnalyticsDashboard({
   // Update memory cache whenever form data or responses finish loading
   useEffect(() => {
     if (id && form) {
-      formAnalyticsMemoryCache.set(id, {
+      const payload = {
         form,
         responses,
         tableResponses,
         timestamp: Date.now(),
-      });
+      };
+      formAnalyticsMemoryCache.set(id, payload);
+      try {
+        const compactPayload = {
+          form,
+          responses: responses.slice(0, 300),
+          tableResponses: tableResponses.slice(0, 100),
+          timestamp: Date.now(),
+        };
+        sessionStorage.setItem(`form_analytics_cache_${id}`, JSON.stringify(compactPayload));
+      } catch (_) {}
     }
   }, [id, form, responses, tableResponses]);
 
@@ -4828,7 +4850,7 @@ export default function FormAnalyticsDashboard({
       const isUploadOnly = searchParams.get("uploadOnly") === "true";
       const responsesData = await apiClient.getAllFormResponses(id, {
         analytics: true,
-        forceNetwork: true,
+        forceNetwork: false,
         ...(currentBatchId ? { batchId: currentBatchId } : {}),
         ...(isUploadOnly ? { uploadOnly: true } : {}),
         onPage: ({ responses: pageResponses, pageNumber, totalPages, totalResponses, isLast }: {
@@ -4876,7 +4898,7 @@ export default function FormAnalyticsDashboard({
         page: page,
         limit: responsesPageSize,
         analytics: false,
-        forceNetwork: true,
+        forceNetwork: false,
         ...(currentBatchId ? { batchId: currentBatchId } : {}),
         ...(isUploadOnly ? { uploadOnly: true } : {}),
       });

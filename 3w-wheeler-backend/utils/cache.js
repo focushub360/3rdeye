@@ -16,6 +16,8 @@ export const cacheMiddleware = (duration = 300) => {
       return next();
     }
 
+    const shouldBypass = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers['cache-control'] === 'no-cache';
+
     // Generate unique key based on URL and user/tenant
     // We must isolate cache per tenant/user if applicable
     const userId = req.user ? (req.user._id || req.user.id) : 'guest';
@@ -26,7 +28,7 @@ export const cacheMiddleware = (duration = 300) => {
     
     const cachedBody = appCache.get(key);
     
-    if (cachedBody) {
+    if (!shouldBypass && cachedBody) {
       // Send cached response
       res.setHeader('X-Cache', 'HIT');
       return res.json(JSON.parse(cachedBody));

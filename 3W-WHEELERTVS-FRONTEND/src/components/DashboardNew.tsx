@@ -1085,7 +1085,13 @@ export default function DashboardNew() {
     if (!tenantId) return;
 
     const cacheKey = `/forms?tenantId=${tenantId}&limit=100`;
-    const cachedForms = !forceNetwork ? (apiClient.getCachedData<any>(cacheKey) || apiClient.getCachedData<any>("/forms")) : null;
+    let cachedForms = !forceNetwork ? (apiClient.getCachedData<any>(cacheKey) || apiClient.getAnyCachedList<any>("/forms")) : null;
+    if (!cachedForms && !forceNetwork) {
+      try {
+        const stored = localStorage.getItem(`dashboard_forms_${tenantId}`);
+        if (stored) cachedForms = JSON.parse(stored);
+      } catch (_) {}
+    }
     if (cachedForms) {
       setFormsData(cachedForms);
       setFormsLoaded(true);
@@ -1104,6 +1110,9 @@ export default function DashboardNew() {
 
       setFormsData(formsResponse);
       setFormsLoaded(true); // ✅ Mark as loaded
+      try {
+        localStorage.setItem(`dashboard_forms_${tenantId}`, JSON.stringify(formsResponse));
+      } catch (_) {}
     } catch (error: any) {
       console.error("Error loading forms:", error);
       if (!cachedForms) {

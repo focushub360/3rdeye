@@ -922,7 +922,7 @@ class ApiClient {
 
     const result = await this.request<{ forms: any[] }>(endpoint, {
       timeout: 60000,
-      forceNetwork: params?.forceNetwork ?? true,
+      forceNetwork: params?.forceNetwork ?? false,
     });
 
     return result;
