@@ -11206,8 +11206,7 @@ export default function FormAnalyticsDashboard({
     const data = {
       labels: sortedData.map(row => {
         const baseName = row.name?.length > 14 ? row.name.substring(0, 14) + "..." : (row.name || "Unknown");
-        const perf = getBiwPerformanceLabel(row.performanceScore || 0);
-        return [`${baseName} (${row.performanceScore || 0}%)`, perf.label];
+        return `${baseName} (${row.performanceScore || 0}%)`;
       }),
       datasets: [
         {
@@ -11371,8 +11370,7 @@ export default function FormAnalyticsDashboard({
     const data = {
       labels: sortedData.map(row => {
         const baseName = row.name?.length > 14 ? row.name.substring(0, 14) + "..." : (row.name || "Unknown");
-        const perf = getBiwPerformanceLabel(row.performanceScore || 0);
-        return [`${baseName} (${row.performanceScore || 0}%)`, perf.label];
+        return `${baseName} (${row.performanceScore || 0}%)`;
       }),
       datasets: [
         {
