@@ -435,7 +435,7 @@ export const QualityDashboard: React.FC = () => {
 
   const fetchSummary = async (forceNetwork = false) => {
     const sortedFormKey = [...selectedFormIds].sort().join(',');
-    const cacheKey = `${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
+    const cacheKey = `v12_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
     const cached = qualitySummaryClientCache.get(cacheKey);
 
     // ─── 0ms SWR Instant Loading: Render immediately from cache if available ────
@@ -446,7 +446,7 @@ export const QualityDashboard: React.FC = () => {
 
       // Populate available form options from cached data
       if (cached.data.formOptions && cached.data.formOptions.length > 0) {
-        setAvailableFormOptions(prev => (prev.length === 0 || selectedFormIds.length === 0 ? cached.data.formOptions : prev));
+        setAvailableFormOptions(cached.data.formOptions);
       }
 
       // Revalidate in background if older than 15s to keep numbers perfectly fresh
@@ -497,12 +497,7 @@ export const QualityDashboard: React.FC = () => {
         qualitySummaryClientCache.set(cacheKey, { data: actualData, timestamp: Date.now() });
         setData(actualData);
         if (actualData.formOptions && actualData.formOptions.length > 0) {
-          setAvailableFormOptions(prev => {
-            if (prev.length === 0 || selectedFormIds.length === 0) {
-              return actualData.formOptions;
-            }
-            return prev;
-          });
+          setAvailableFormOptions(actualData.formOptions);
         }
       } else {
         throw new Error('Invalid response structure');
@@ -612,8 +607,8 @@ export const QualityDashboard: React.FC = () => {
   };
 
   const allAvailableForms = useMemo(() => {
-    if (availableFormOptions.length > 0) return availableFormOptions;
     if (data?.formOptions && data.formOptions.length > 0) return data.formOptions;
+    if (availableFormOptions.length > 0) return availableFormOptions;
     return [];
   }, [availableFormOptions, data?.formOptions]);
 
@@ -666,9 +661,10 @@ export const QualityDashboard: React.FC = () => {
     }
   }, [selectedFormIds]);
 
-  const handleToggleForm = (formId: string) => {
-    const next = selectedFormIds.includes(formId)
-      ? selectedFormIds.filter(id => id !== formId)
+  const handleToggleForm = (formId: string, formAltId?: string) => {
+    const isCurrentlySelected = selectedFormIds.includes(formId) || (formAltId ? selectedFormIds.includes(formAltId) : false);
+    const next = isCurrentlySelected
+      ? selectedFormIds.filter(id => id !== formId && (!formAltId || id !== formAltId))
       : [...selectedFormIds, formId];
     updateSelectedForms(next);
   };
@@ -818,7 +814,7 @@ export const QualityDashboard: React.FC = () => {
                             checked={isSelected}
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleToggleForm(f.id);
+                              handleToggleForm(f.id, (f as any)._id);
                             }}
                             onChange={() => {}}
                             className="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500 accent-blue-600 cursor-pointer"

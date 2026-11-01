@@ -3326,7 +3326,7 @@ export const getQualitySummary = async (req, res) => {
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
     const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
-    const cacheKey = `quality_summary_v11_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v12_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers['cache-control'] === 'no-cache';
     if (!shouldBypassCache) {
       const cached = appCache.get(cacheKey);
@@ -3415,6 +3415,23 @@ export const getQualitySummary = async (req, res) => {
         formChassisQuestionMap[fid] = { primaryChassisQId };
       });
     });
+
+    // 2b. Compute or retrieve master inspection counts for all accessible forms
+    const masterCountsKey = `master_form_counts_${userTenantId || 'superadmin'}`;
+    let masterFormCounts = appCache.get(masterCountsKey);
+
+    if (!masterFormCounts || req.query.forceNetwork === 'true') {
+      const allAccessibleKeys = accessibleForms.flatMap(f => [f.id, f._id?.toString()]).filter(Boolean);
+      const countAgg = await Response.aggregate([
+        { $match: { questionId: { $in: allAccessibleKeys }, isSectionSubmit: { $ne: true } } },
+        { $group: { _id: '$questionId', count: { $sum: 1 } } }
+      ]);
+      masterFormCounts = {};
+      countAgg.forEach(c => {
+        if (c._id) masterFormCounts[c._id.toString()] = c.count;
+      });
+      appCache.set(masterCountsKey, masterFormCounts, 300); // 5 min TTL
+    }
 
     // 3. Build response filter
     let formKeys = [];
@@ -3776,12 +3793,17 @@ export const getQualitySummary = async (req, res) => {
       };
     }).sort((a, b) => b.totalChecked - a.totalChecked);
 
-    const formOptions = formsSummary.map(f => ({
-      id: f.id,
-      _id: f._id,
-      title: f.title,
-      totalChecked: f.totalChecked
-    }));
+    const formOptions = accessibleForms.map(f => {
+      const idStr = f.id ? f.id.toString() : '';
+      const mongoIdStr = f._id ? f._id.toString() : '';
+      const mCount = (masterFormCounts[idStr] || 0) + (masterFormCounts[mongoIdStr] || 0);
+      return {
+        id: idStr || mongoIdStr,
+        _id: mongoIdStr,
+        title: f.title,
+        totalChecked: mCount
+      };
+    }).sort((a, b) => b.totalChecked - a.totalChecked);
 
     // Inspector performance ratings
     let exemplaryCount = 0;
