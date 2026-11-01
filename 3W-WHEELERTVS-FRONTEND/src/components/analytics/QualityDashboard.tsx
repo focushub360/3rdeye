@@ -227,12 +227,66 @@ export const QualityDashboard: React.FC = () => {
     return list.filter(f => String(f.title || '').toLowerCase().includes(q));
   }, [data?.formsSummary, selectedFormIds, pieSearchQuery]);
 
-  const pieChartData = useMemo(() => {
-    if (!data) return { labels: [], datasets: [] };
+  // Dynamically compute active summary for selected combination of forms with 0ms instant reactivity
+  const activeSummary = useMemo(() => {
+    if (!data?.summary) return null;
+    if (selectedFormIds.length === 0) return data.summary;
 
-    const accepted = data.summary.totalAccepted || 0;
-    const rework = data.summary.totalRework1 || 0;
-    const rejected = Math.max(0, (data.summary.totalDefects || 0) - rework);
+    const matchedForms = (data.formsSummary || []).filter(
+      f => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id))
+    );
+
+    if (matchedForms.length === 0) return data.summary;
+
+    const totalChecked = matchedForms.reduce((sum, f) => sum + (f.totalChecked || 0), 0);
+    const totalAccepted = matchedForms.reduce((sum, f) => sum + (f.acceptCount || 0), 0);
+    const totalDefects = matchedForms.reduce((sum, f) => sum + (f.defectCount || 0), 0);
+    const totalRework1 = matchedForms.reduce((sum, f) => sum + (f.rework1Count || 0), 0);
+    const overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
+    const overallDefectRate = totalChecked > 0 ? Math.round((totalDefects / totalChecked) * 10000) / 100 : 0;
+
+    const inspectorSet = new Set<string>();
+    matchedForms.forEach(f => {
+      (f.inspectors || []).forEach((name: string) => { if (name) inspectorSet.add(name.toLowerCase().trim()); });
+    });
+
+    const relevantInspectors = (data.inspectors || []).filter(i => inspectorSet.has(String(i.name || '').toLowerCase().trim()));
+    const exemplaryCount = relevantInspectors.filter(i => i.tier === 'Exemplary Performer' || i.acceptRate >= 90).length;
+
+    return {
+      totalChecked,
+      totalAccepted,
+      totalDefects,
+      totalRework1,
+      overallAcceptRate,
+      overallDefectRate,
+      totalInspectors: inspectorSet.size || relevantInspectors.length || data.summary.totalInspectors,
+      exemplaryCount: exemplaryCount || (relevantInspectors.length > 0 ? exemplaryCount : data.summary.exemplaryCount),
+      exceededCount: data.summary.exceededCount,
+      metCount: data.summary.metCount,
+      partiallyMetCount: data.summary.partiallyMetCount
+    };
+  }, [data?.summary, data?.formsSummary, data?.inspectors, selectedFormIds]);
+
+  const relevantInspectors = useMemo(() => {
+    if (!data?.inspectors) return [];
+    if (selectedFormIds.length === 0) return data.inspectors;
+    const inspectorSet = new Set<string>();
+    (data.formsSummary || [])
+      .filter(f => selectedFormIds.includes(f.id) || selectedFormIds.includes(f._id))
+      .forEach(f => {
+        (f.inspectors || []).forEach((n: string) => { if (n) inspectorSet.add(n.toLowerCase().trim()); });
+      });
+    if (inspectorSet.size === 0) return data.inspectors;
+    return data.inspectors.filter(i => inspectorSet.has(String(i.name || '').toLowerCase().trim()));
+  }, [data?.inspectors, data?.formsSummary, selectedFormIds]);
+
+  const pieChartData = useMemo(() => {
+    if (!activeSummary) return { labels: [], datasets: [] };
+
+    const accepted = activeSummary.totalAccepted || 0;
+    const rework = activeSummary.totalRework1 || 0;
+    const rejected = Math.max(0, (activeSummary.totalDefects || 0) - rework);
 
     return {
       labels: ['Accepted', 'Rework', 'Rejected'],
@@ -329,14 +383,14 @@ export const QualityDashboard: React.FC = () => {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
-        let displayCount = data?.summary.totalAccepted || 0;
+        let displayCount = activeSummary?.totalAccepted || 0;
         let displayLabel = 'ACCEPTED';
 
         if (hoveredSlice === 'rework') {
-          displayCount = data?.summary.totalRework1 || 0;
+          displayCount = activeSummary?.totalRework1 || 0;
           displayLabel = 'REWORK';
         } else if (hoveredSlice === 'rejected') {
-          displayCount = Math.max(0, (data?.summary.totalDefects || 0) - (data?.summary.totalRework1 || 0));
+          displayCount = Math.max(0, (activeSummary?.totalDefects || 0) - (activeSummary?.totalRework1 || 0));
           displayLabel = 'REJECTED';
         }
 
@@ -917,11 +971,8 @@ export const QualityDashboard: React.FC = () => {
           <div className="bg-blue-50/90 border border-blue-200 text-blue-900 px-4 py-3 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-xs">
             <div className="flex items-center gap-2 min-w-0">
               <Layers className="w-4 h-4 text-blue-600 flex-shrink-0" />
-              <span className="font-semibold text-blue-800">Filtered View:</span>
-              <span className="font-bold text-blue-950 truncate">{formButtonLabel}</span>
-              <span className="text-blue-600 font-medium">
-                ({(data?.summary?.totalChecked || 0).toLocaleString()} inspections in this selection)
-              </span>
+              <span className="px-2 py-0.5 bg-blue-600 text-white text-[11px] font-bold rounded-md uppercase tracking-wider">Filtered View</span>
+              <span className="font-bold text-blue-950 truncate text-sm">{formButtonLabel}</span>
             </div>
             <div className="flex items-center gap-2">
               {selectedFormIds.length === 1 && (
@@ -965,15 +1016,15 @@ export const QualityDashboard: React.FC = () => {
         )}
 
         {/* Top Summary Metric Cards */}
-        {data && (
+        {activeSummary && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white p-5 rounded-xl border border-gray-200">
               <div className="flex justify-between items-start mb-2">
                 <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Checked</p>
                 <div className="p-1.5 bg-blue-50 rounded-lg"><CheckCircle2 className="w-4 h-4 text-blue-600" /></div>
               </div>
-              <h3 className="text-3xl font-black text-gray-900">{data.summary.totalChecked}</h3>
-              <p className="text-sm text-gray-500 mt-1">Across {data.summary.totalInspectors} inspectors</p>
+              <h3 className="text-3xl font-black text-gray-900">{Number(activeSummary.totalChecked).toLocaleString()}</h3>
+              <p className="text-sm text-gray-500 mt-1">Across {activeSummary.totalInspectors} inspectors</p>
             </div>
 
             <div className="bg-white p-5 rounded-xl border border-gray-200 relative overflow-hidden">
@@ -982,8 +1033,8 @@ export const QualityDashboard: React.FC = () => {
                 <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Accept / Pass Rate</p>
                 <div className="p-1.5 bg-green-50 rounded-lg"><CheckCircle2 className="w-4 h-4 text-green-600" /></div>
               </div>
-              <h3 className="text-3xl font-black text-green-600">{data.summary.overallAcceptRate}%</h3>
-              <p className="text-sm text-gray-500 mt-1">{data.summary.totalAccepted} units accepted</p>
+              <h3 className="text-3xl font-black text-green-600">{activeSummary.overallAcceptRate}%</h3>
+              <p className="text-sm text-gray-500 mt-1">{Number(activeSummary.totalAccepted).toLocaleString()} units accepted</p>
             </div>
 
             <div className="bg-white p-5 rounded-xl border border-gray-200 relative overflow-hidden">
@@ -992,8 +1043,8 @@ export const QualityDashboard: React.FC = () => {
                 <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Defect Rate</p>
                 <div className="p-1.5 bg-red-50 rounded-lg"><AlertTriangle className="w-4 h-4 text-red-600" /></div>
               </div>
-              <h3 className="text-3xl font-black text-red-600">{data.summary.overallDefectRate}%</h3>
-              <p className="text-sm text-gray-500 mt-1">{data.summary.totalDefects} defects detected</p>
+              <h3 className="text-3xl font-black text-red-600">{activeSummary.overallDefectRate}%</h3>
+              <p className="text-sm text-gray-500 mt-1">{Number(activeSummary.totalDefects).toLocaleString()} defects detected</p>
             </div>
 
             <div className="bg-white p-5 rounded-xl border border-gray-200">
@@ -1001,7 +1052,7 @@ export const QualityDashboard: React.FC = () => {
                 <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Exemplary Staff</p>
                 <div className="p-1.5 bg-purple-50 rounded-lg"><Award className="w-4 h-4 text-purple-600" /></div>
               </div>
-              <h3 className="text-3xl font-black text-gray-900">{data.summary.exemplaryCount} <span className="text-lg font-medium text-gray-500">Staff</span></h3>
+              <h3 className="text-3xl font-black text-gray-900">{activeSummary.exemplaryCount} <span className="text-lg font-medium text-gray-500">Staff</span></h3>
               <p className="text-sm text-gray-500 mt-1">&ge; 90% acceptance performance</p>
             </div>
           </div>
@@ -1032,7 +1083,7 @@ export const QualityDashboard: React.FC = () => {
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
-                  All Statuses ({data.summary.totalChecked.toLocaleString()})
+                  All Statuses ({(activeSummary || data.summary).totalChecked.toLocaleString()})
                 </button>
                 <button
                   type="button"
@@ -1044,7 +1095,7 @@ export const QualityDashboard: React.FC = () => {
                   }`}
                 >
                   <span className="w-2 h-2 rounded-full bg-green-400"></span>
-                  Accepted ({data.summary.totalAccepted.toLocaleString()})
+                  Accepted ({(activeSummary || data.summary).totalAccepted.toLocaleString()})
                 </button>
                 <button
                   type="button"
@@ -1056,7 +1107,7 @@ export const QualityDashboard: React.FC = () => {
                   }`}
                 >
                   <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                  Rework ({((data.summary.totalRework1 || 0)).toLocaleString()})
+                  Rework ({(((activeSummary || data.summary).totalRework1 || 0)).toLocaleString()})
                 </button>
                 <button
                   type="button"
@@ -1068,7 +1119,7 @@ export const QualityDashboard: React.FC = () => {
                   }`}
                 >
                   <span className="w-2 h-2 rounded-full bg-red-400"></span>
-                  Rejected ({Math.max(0, (data.summary.totalDefects || 0) - (data.summary.totalRework1 || 0)).toLocaleString()})
+                  Rejected ({Math.max(0, ((activeSummary || data.summary).totalDefects || 0) - ((activeSummary || data.summary).totalRework1 || 0)).toLocaleString()})
                 </button>
               </div>
             </div>
@@ -1091,10 +1142,10 @@ export const QualityDashboard: React.FC = () => {
                     }`}>
                       {Number(
                         hoveredSlice === 'rework'
-                          ? (data.summary.totalRework1 || 0)
+                          ? ((activeSummary || data.summary).totalRework1 || 0)
                           : hoveredSlice === 'rejected'
-                          ? Math.max(0, (data.summary.totalDefects || 0) - (data.summary.totalRework1 || 0))
-                          : (data.summary.totalAccepted || 0)
+                          ? Math.max(0, ((activeSummary || data.summary).totalDefects || 0) - ((activeSummary || data.summary).totalRework1 || 0))
+                          : ((activeSummary || data.summary).totalAccepted || 0)
                       ).toLocaleString()}
                     </span>
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5">
@@ -1112,8 +1163,8 @@ export const QualityDashboard: React.FC = () => {
                     }`}
                   >
                     <p className="text-[10px] uppercase font-bold text-gray-400">Accepted</p>
-                    <p className="text-sm font-black text-green-600">{data.summary.overallAcceptRate}%</p>
-                    <p className="text-[11px] text-gray-500 font-medium">{data.summary.totalAccepted.toLocaleString()}</p>
+                    <p className="text-sm font-black text-green-600">{(activeSummary || data.summary).overallAcceptRate}%</p>
+                    <p className="text-[11px] text-gray-500 font-medium">{(activeSummary || data.summary).totalAccepted.toLocaleString()}</p>
                   </div>
 
                   <div 
@@ -1124,9 +1175,9 @@ export const QualityDashboard: React.FC = () => {
                   >
                     <p className="text-[10px] uppercase font-bold text-gray-400">Rework</p>
                     <p className="text-sm font-black text-amber-600">
-                      {data.summary.totalChecked > 0 ? (((data.summary.totalRework1 || 0) / data.summary.totalChecked) * 100).toFixed(2) : 0}%
+                      {(activeSummary || data.summary).totalChecked > 0 ? (((activeSummary || data.summary).totalRework1 || 0) / (activeSummary || data.summary).totalChecked * 100).toFixed(2) : 0}%
                     </p>
-                    <p className="text-[11px] text-gray-500 font-medium">{(data.summary.totalRework1 || 0).toLocaleString()}</p>
+                    <p className="text-[11px] text-gray-500 font-medium">{((activeSummary || data.summary).totalRework1 || 0).toLocaleString()}</p>
                   </div>
 
                   <div 
@@ -1137,9 +1188,9 @@ export const QualityDashboard: React.FC = () => {
                   >
                     <p className="text-[10px] uppercase font-bold text-gray-400">Rejected</p>
                     <p className="text-sm font-black text-red-600">
-                      {data.summary.totalChecked > 0 ? ((Math.max(0, (data.summary.totalDefects || 0) - (data.summary.totalRework1 || 0)) / data.summary.totalChecked) * 100).toFixed(2) : 0}%
+                      {(activeSummary || data.summary).totalChecked > 0 ? ((Math.max(0, ((activeSummary || data.summary).totalDefects || 0) - ((activeSummary || data.summary).totalRework1 || 0)) / (activeSummary || data.summary).totalChecked) * 100).toFixed(2) : 0}%
                     </p>
-                    <p className="text-[11px] text-gray-500 font-medium">{Math.max(0, (data.summary.totalDefects || 0) - (data.summary.totalRework1 || 0)).toLocaleString()}</p>
+                    <p className="text-[11px] text-gray-500 font-medium">{Math.max(0, ((activeSummary || data.summary).totalDefects || 0) - ((activeSummary || data.summary).totalRework1 || 0)).toLocaleString()}</p>
                   </div>
                 </div>
               </div>
@@ -1746,7 +1797,7 @@ export const QualityDashboard: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
-                        {data.inspectors
+                        {relevantInspectors
                           .filter(i => String(i.name || '').toLowerCase().includes((searchInspector || '').toLowerCase()))
                           .map((insp, idx) => (
                           <tr key={idx} className="hover:bg-blue-50/50 transition-colors group">
