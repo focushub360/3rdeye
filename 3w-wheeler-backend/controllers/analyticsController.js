@@ -3341,7 +3341,7 @@ export const getQualitySummary = async (req, res) => {
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
     const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
-    const cacheKey = `quality_summary_v13_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v15_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers['cache-control'] === 'no-cache';
     if (!shouldBypassCache) {
       const cached = appCache.get(cacheKey);
@@ -3358,78 +3358,100 @@ export const getQualitySummary = async (req, res) => {
       targetTenantId = queryTenantId;
     }
 
-    // 2. Fetch accessible forms
-    const formQuery = {};
-    if (role === 'superadmin' && !queryTenantId) {
-      // Superadmin sees all forms
-    } else if (targetTenantId) {
-      const tIdObj = mongoose.Types.ObjectId.isValid(targetTenantId)
-        ? new mongoose.Types.ObjectId(targetTenantId)
-        : targetTenantId;
+    // 2. Fetch accessible forms (cached in memory for 5 minutes)
+    const formsMetaCacheKey = `forms_meta_${targetTenantId || 'all'}`;
+    let formsMeta = appCache.get(formsMetaCacheKey);
 
-      formQuery.$or = [
-        { tenantId: tIdObj },
-        { tenantId: targetTenantId.toString() },
-        { isGlobal: true },
-        { sharedWithTenants: targetTenantId.toString() },
-        { sharedWithTenants: tIdObj },
-        { 'chassisTenantAssignments.assignedTenants': targetTenantId.toString() }
-      ];
-    }
+    if (!formsMeta || shouldBypassCache) {
+      const formQuery = {};
+      if (role === 'superadmin' && !queryTenantId) {
+        // Superadmin sees all forms
+      } else if (targetTenantId) {
+        const tIdObj = mongoose.Types.ObjectId.isValid(targetTenantId)
+          ? new mongoose.Types.ObjectId(targetTenantId)
+          : targetTenantId;
 
-    const accessibleForms = await Form.find(formQuery)
-      .select('id _id title sections tenantId')
-      .lean();
+        formQuery.$or = [
+          { tenantId: tIdObj },
+          { tenantId: targetTenantId.toString() },
+          { isGlobal: true },
+          { sharedWithTenants: targetTenantId.toString() },
+          { sharedWithTenants: tIdObj },
+          { 'chassisTenantAssignments.assignedTenants': targetTenantId.toString() }
+        ];
+      }
 
-    const formTitleMap = {};
-    const formChassisQuestionMap = {};
-    const questionTitleMap = {};
-    const questionMetaMap = {};
+      const accessibleForms = await Form.find(formQuery)
+        .select('id _id title sections tenantId')
+        .lean();
 
-    accessibleForms.forEach(f => {
-      const idStr = f.id ? f.id.toString() : '';
-      const mongoIdStr = f._id ? f._id.toString() : '';
-      if (idStr) formTitleMap[idStr] = f.title;
-      if (mongoIdStr) formTitleMap[mongoIdStr] = f.title;
+      const formTitleMap = {};
+      const formChassisQuestionMap = {};
+      const questionTitleMap = {};
+      const questionMetaMap = {};
 
-      const fIds = [idStr, mongoIdStr].filter(Boolean);
-      let primaryChassisQId = null;
+      accessibleForms.forEach(f => {
+        const idStr = f.id ? f.id.toString() : '';
+        const mongoIdStr = f._id ? f._id.toString() : '';
+        if (idStr) formTitleMap[idStr] = f.title;
+        if (mongoIdStr) formTitleMap[mongoIdStr] = f.title;
 
-      (f.sections || []).forEach(sec => {
-        (sec.questions || []).forEach(q => {
-          if (!q.id) return;
-          const qText = (q.text || '').trim();
-          const qTextLow = qText.toLowerCase();
-          const qType = q.type || '';
+        const fIds = [idStr, mongoIdStr].filter(Boolean);
+        let primaryChassisQId = null;
 
-          questionTitleMap[q.id] = qText;
-          questionMetaMap[q.id] = { text: qText, type: qType, formId: idStr || mongoIdStr };
+        (f.sections || []).forEach(sec => {
+          (sec.questions || []).forEach(q => {
+            if (!q.id) return;
+            const qText = (q.text || '').trim();
+            const qTextLow = qText.toLowerCase();
+            const qType = q.type || '';
 
-          if (!primaryChassisQId) {
-            if (
-              qType === 'chassis' ||
-              qType === 'chassisWithZone' ||
-              qType === 'chassisWithoutZone' ||
-              qTextLow === 'chassis number' ||
-              qTextLow === 'identification number' ||
-              qTextLow === 'id number' ||
-              qTextLow === 'chassis' ||
-              qTextLow === 'chassis / vin' ||
-              qTextLow.includes('chassis number') ||
-              qTextLow.includes('identification number') ||
-              qTextLow.includes('id number') ||
-              qTextLow.includes('registration number')
-            ) {
-              primaryChassisQId = q.id;
+            questionTitleMap[q.id] = qText;
+            questionMetaMap[q.id] = { text: qText, type: qType, formId: idStr || mongoIdStr };
+
+            if (!primaryChassisQId) {
+              if (
+                qType === 'chassis' ||
+                qType === 'chassisWithZone' ||
+                qType === 'chassisWithoutZone' ||
+                qTextLow === 'chassis number' ||
+                qTextLow === 'identification number' ||
+                qTextLow === 'id number' ||
+                qTextLow === 'chassis' ||
+                qTextLow === 'chassis / vin' ||
+                qTextLow.includes('chassis number') ||
+                qTextLow.includes('identification number') ||
+                qTextLow.includes('id number') ||
+                qTextLow.includes('registration number')
+              ) {
+                primaryChassisQId = q.id;
+              }
             }
-          }
+          });
+        });
+
+        fIds.forEach(fid => {
+          formChassisQuestionMap[fid] = { primaryChassisQId };
         });
       });
 
-      fIds.forEach(fid => {
-        formChassisQuestionMap[fid] = { primaryChassisQId };
-      });
-    });
+      formsMeta = {
+        accessibleForms,
+        formTitleMap,
+        formChassisQuestionMap,
+        questionTitleMap,
+        questionMetaMap
+      };
+      appCache.set(formsMetaCacheKey, formsMeta, 300); // 5 min TTL
+    }
+
+    const {
+      accessibleForms,
+      formTitleMap,
+      formChassisQuestionMap,
+      questionTitleMap,
+      questionMetaMap
+    } = formsMeta;
 
     // 2b. Compute or retrieve master inspection counts for all accessible forms
     const masterCountsKey = `master_form_counts_${userTenantId || 'superadmin'}`;
@@ -3568,7 +3590,10 @@ export const getQualitySummary = async (req, res) => {
           byInspector: [
             {
               $group: {
-                _id: { $trim: { input: { $ifNull: ['$submittedBy', 'Unknown Submitter'] } } },
+                _id: {
+                  inspector: { $trim: { input: { $ifNull: ['$submittedBy', 'Unknown Submitter'] } } },
+                  formKey: '$questionId'
+                },
                 totalChecked: { $sum: 1 },
                 defectCount: {
                   $sum: {
@@ -3618,17 +3643,14 @@ export const getQualitySummary = async (req, res) => {
             {
               $group: {
                 _id: {
-                  $dateToString: {
-                    format: '%Y-%m-%d',
-                    date: {
-                      $convert: {
-                        input: '$createdAt',
-                        to: 'date',
-                        onError: new Date(0),
-                        onNull: new Date(0)
-                      }
-                    }
-                  }
+                  date: {
+                    $cond: [
+                      { $eq: [{ $type: '$createdAt' }, 'date'] },
+                      { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+                      { $substrCP: [{ $ifNull: ['$createdAt', '1970-01-01'] }, 0, 10] }
+                    ]
+                  },
+                  formKey: '$questionId'
                 },
                 totalChecked: { $sum: 1 },
                 defectCount: {
@@ -3684,7 +3706,7 @@ export const getQualitySummary = async (req, res) => {
               }
             },
             { $limit: 300 },
-            { $project: { _id: 1, submittedBy: 1, answers: 1, 'biwReview.flaggedQuestions': 1, 'biwReview.reason': 1 } }
+            { $project: { _id: 1, submittedBy: 1, questionId: 1, answers: 1, 'biwReview.flaggedQuestions': 1, 'biwReview.reason': 1 } }
           ]
         }
       }
@@ -3704,8 +3726,10 @@ export const getQualitySummary = async (req, res) => {
     // Defect breakdown extraction from top defect responses
     const defectTypeMap = {};
     const inspectorDefectMap = {};
+    const defectFormMap = {};
 
     (agg.defectResponses || []).forEach(dr => {
+      const fTitle = formTitleMap[dr.questionId] || 'Selected Form';
       const rawName = (dr.submittedBy || 'Unknown Submitter').trim();
       if (!inspectorDefectMap[rawName]) inspectorDefectMap[rawName] = {};
 
@@ -3727,6 +3751,8 @@ export const getQualitySummary = async (req, res) => {
             const qTitle = questionTitleMap[key] || key;
             defectTypeMap[qTitle] = (defectTypeMap[qTitle] || 0) + 1;
             inspectorDefectMap[rawName][qTitle] = (inspectorDefectMap[rawName][qTitle] || 0) + 1;
+            if (!defectFormMap[qTitle]) defectFormMap[qTitle] = {};
+            defectFormMap[qTitle][fTitle] = (defectFormMap[qTitle][fTitle] || 0) + 1;
           }
         }
       }
@@ -3739,6 +3765,8 @@ export const getQualitySummary = async (req, res) => {
             if (fqTitle && !['other', 'none', '-', 'ok', 'accepted'].includes(fqTitle.toLowerCase())) {
               defectTypeMap[fqTitle] = (defectTypeMap[fqTitle] || 0) + 1;
               inspectorDefectMap[rawName][fqTitle] = (inspectorDefectMap[rawName][fqTitle] || 0) + 1;
+              if (!defectFormMap[fqTitle]) defectFormMap[fqTitle] = {};
+              defectFormMap[fqTitle][fTitle] = (defectFormMap[fqTitle][fTitle] || 0) + 1;
             }
           });
         }
@@ -3747,6 +3775,8 @@ export const getQualitySummary = async (req, res) => {
           if (reasonTitle && !['other', 'none', '-', 'ok', 'accepted'].includes(reasonTitle.toLowerCase())) {
             defectTypeMap[reasonTitle] = (defectTypeMap[reasonTitle] || 0) + 1;
             inspectorDefectMap[rawName][reasonTitle] = (inspectorDefectMap[rawName][reasonTitle] || 0) + 1;
+            if (!defectFormMap[reasonTitle]) defectFormMap[reasonTitle] = {};
+            defectFormMap[reasonTitle][fTitle] = (defectFormMap[reasonTitle][fTitle] || 0) + 1;
           }
         }
       }
@@ -3754,7 +3784,11 @@ export const getQualitySummary = async (req, res) => {
 
     const defectBreakdown = Object.entries(defectTypeMap)
       .sort((a, b) => b[1] - a[1])
-      .map(([name, count]) => ({ name, count }));
+      .map(([name, count]) => ({
+        name,
+        count,
+        forms: defectFormMap[name] || {}
+      }));
 
     // Per-Form Summary List - Combine metrics for both UUID and ObjectId keys of each form
     const formMetricMap = {};
@@ -3835,7 +3869,42 @@ export const getQualitySummary = async (req, res) => {
     let metCount = 0;
     let partiallyMetCount = 0;
 
-    const inspectorList = (agg.byInspector || []).map(insp => {
+    // Aggregate inspector records by name and retain form-wise metrics
+    const inspectorAggMap = {};
+    (agg.byInspector || []).forEach(item => {
+      const inspName = typeof item._id === 'object' ? (item._id.inspector || 'Unknown Submitter') : (item._id || 'Unknown Submitter');
+      const formKey = typeof item._id === 'object' ? item._id.formKey : null;
+      const fTitle = formTitleMap[formKey] || formKey || 'Selected Form';
+
+      if (!inspectorAggMap[inspName]) {
+        inspectorAggMap[inspName] = {
+          name: inspName,
+          totalChecked: 0,
+          defectCount: 0,
+          rework1Count: 0,
+          biwAcceptCount: 0,
+          biwDefectCount: 0,
+          forms: {}
+        };
+      }
+
+      inspectorAggMap[inspName].totalChecked += item.totalChecked || 0;
+      inspectorAggMap[inspName].defectCount += item.defectCount || 0;
+      inspectorAggMap[inspName].rework1Count += item.rework1Count || 0;
+      inspectorAggMap[inspName].biwAcceptCount += item.biwAcceptCount || 0;
+      inspectorAggMap[inspName].biwDefectCount += item.biwDefectCount || 0;
+
+      if (formKey) {
+        if (!inspectorAggMap[inspName].forms[fTitle]) {
+          inspectorAggMap[inspName].forms[fTitle] = { checked: 0, defects: 0, acceptCount: 0 };
+        }
+        inspectorAggMap[inspName].forms[fTitle].checked += item.totalChecked || 0;
+        inspectorAggMap[inspName].forms[fTitle].defects += item.defectCount || 0;
+        inspectorAggMap[inspName].forms[fTitle].acceptCount += Math.max(0, (item.totalChecked || 0) - (item.defectCount || 0));
+      }
+    });
+
+    const inspectorList = Object.values(inspectorAggMap).map(insp => {
       const tChecked = insp.totalChecked;
       const dCount = insp.defectCount;
       const aCount = Math.max(0, tChecked - dCount);
@@ -3869,13 +3938,13 @@ export const getQualitySummary = async (req, res) => {
       const biwAcceptRate = biwTotal > 0 ? Math.round((insp.biwAcceptCount / biwTotal) * 100) : 0;
       const biwDefectRate = Math.max(0, 100 - biwAcceptRate);
 
-      const topDefects = Object.entries(inspectorDefectMap[insp._id] || {})
+      const topDefects = Object.entries(inspectorDefectMap[insp.name] || {})
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
         .map(([name, count]) => ({ name, count }));
 
       return {
-        name: insp._id,
+        name: insp.name,
         totalChecked: tChecked,
         acceptCount: aCount,
         defectCount: dCount,
@@ -3889,22 +3958,54 @@ export const getQualitySummary = async (req, res) => {
         arrow,
         biwAcceptRate,
         biwDefectRate,
-        topDefects
+        topDefects,
+        forms: insp.forms
       };
     }).sort((a, b) => b.totalChecked - a.totalChecked);
 
-    // Daily trends array
-    const dailyTrends = (agg.byDay || []).map(d => {
-      const aCount = Math.max(0, d.totalChecked - d.defectCount);
-      return {
-        date: d._id,
-        totalChecked: d.totalChecked,
-        acceptCount: aCount,
-        defectCount: d.defectCount,
-        reworkCount: d.reworkCount,
-        passRate: d.totalChecked > 0 ? Math.round((aCount / d.totalChecked) * 10000) / 100 : 0
-      };
+    // Daily trends array with form-wise numbers
+    const dayMap = {};
+    (agg.byDay || []).forEach(d => {
+      const dateStr = d._id?.date || d._id;
+      if (!dateStr || dateStr === '1970-01-01') return;
+      if (!dayMap[dateStr]) {
+        dayMap[dateStr] = {
+          date: dateStr,
+          totalChecked: 0,
+          defectCount: 0,
+          reworkCount: 0,
+          forms: {}
+        };
+      }
+      dayMap[dateStr].totalChecked += d.totalChecked || 0;
+      dayMap[dateStr].defectCount += d.defectCount || 0;
+      dayMap[dateStr].reworkCount += d.reworkCount || 0;
+
+      const fKey = d._id?.formKey;
+      if (fKey) {
+        const fTitle = formTitleMap[fKey] || fKey;
+        if (!dayMap[dateStr].forms[fTitle]) {
+          dayMap[dateStr].forms[fTitle] = { checked: 0, defects: 0 };
+        }
+        dayMap[dateStr].forms[fTitle].checked += d.totalChecked || 0;
+        dayMap[dateStr].forms[fTitle].defects += d.defectCount || 0;
+      }
     });
+
+    const dailyTrends = Object.values(dayMap)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(d => {
+        const aCount = Math.max(0, d.totalChecked - d.defectCount);
+        return {
+          date: d.date,
+          totalChecked: d.totalChecked,
+          acceptCount: aCount,
+          defectCount: d.defectCount,
+          reworkCount: d.reworkCount,
+          passRate: d.totalChecked > 0 ? Math.round((aCount / d.totalChecked) * 10000) / 100 : 0,
+          forms: d.forms
+        };
+      });
 
     const KNOWN_STATIC_TAGS = new Set(['TVS', 'SAFTY', 'SAIFY', 'SRIDEVI', 'EXCEL IMPORT', 'N/A', '-', 'DEFAULT', 'UNKNOWN', 'NONE']);
 

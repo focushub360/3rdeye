@@ -3792,11 +3792,11 @@ class ApiClient {
     if (params?.startDate) query.append("startDate", params.startDate);
     if (params?.endDate) query.append("endDate", params.endDate);
     if (params?.tenantId) query.append("tenantId", params.tenantId);
-    if (params?.forceNetwork ?? true) query.append("forceNetwork", "true");
+    if (params?.forceNetwork === true) query.append("forceNetwork", "true");
 
     const queryString = query.toString();
     const endpoint = `/analytics/quality-summary${queryString ? `?${queryString}` : ""}`;
-    return this.get<any>(endpoint, { forceNetwork: params?.forceNetwork ?? true });
+    return this.get<any>(endpoint, { forceNetwork: params?.forceNetwork === true });
   }
 }
 

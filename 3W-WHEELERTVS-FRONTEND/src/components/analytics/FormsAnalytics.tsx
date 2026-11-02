@@ -41,6 +41,7 @@ import {
   LogIn,
   AlertCircle,
   SlidersHorizontal,
+  Pin,
 } from "lucide-react";
 import ImportHistoryModal from "../history/ImportHistoryModal";
 import { QualitySummaryModal } from "./QualitySummaryModal";
@@ -101,6 +102,44 @@ interface ResponseData {
 export default function FormsAnalytics() {
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  // --- Pinned Forms State & Persistence ---
+  const [pinnedFormIds, setPinnedFormIds] = useState<string[]>(() => {
+    try {
+      const userKey = user?.id || user?._id || user?.email || 'default';
+      const saved = localStorage.getItem(`pinned_forms_${userKey}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch (_) {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const userKey = user?.id || user?._id || user?.email || 'default';
+      const saved = localStorage.getItem(`pinned_forms_${userKey}`);
+      if (saved) {
+        setPinnedFormIds(JSON.parse(saved));
+      }
+    } catch (_) {}
+  }, [user?.id, user?._id, user?.email]);
+
+  const togglePinForm = useCallback((id: string) => {
+    if (!id) return;
+    setPinnedFormIds((prev) => {
+      const strId = String(id);
+      const isPinned = prev.includes(strId);
+      const next = isPinned
+        ? prev.filter((item) => item !== strId)
+        : [strId, ...prev]; // Newly pinned goes to the top
+      try {
+        const userKey = user?.id || user?._id || user?.email || 'default';
+        localStorage.setItem(`pinned_forms_${userKey}`, JSON.stringify(next));
+      } catch (_) {}
+      return next;
+    });
+  }, [user]);
   
   // --- Permission Helpers ---
   const userPermissions = user?.permissions || [];
@@ -903,6 +942,23 @@ export default function FormsAnalytics() {
 
     return result;
   }, [filteredForms, formsMap, isFormAChild]);
+
+  const sortedGroupedForms = useMemo(() => {
+    return Object.values(groupedForms).sort((a, b) => {
+      if (!a.parent || !b.parent) return 0;
+      const aId = String(a.parent._id || a.parent.id || "");
+      const bId = String(b.parent._id || b.parent.id || "");
+      const aPinned = pinnedFormIds.includes(aId);
+      const bPinned = pinnedFormIds.includes(bId);
+
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+      if (aPinned && bPinned) {
+        return pinnedFormIds.indexOf(aId) - pinnedFormIds.indexOf(bId);
+      }
+      return 0;
+    });
+  }, [groupedForms, pinnedFormIds]);
 
   const allForms = filteredForms.length;
   const totalResponses = filteredForms.reduce((sum, form) => {
@@ -1739,10 +1795,11 @@ export default function FormsAnalytics() {
         </div>
       ) : (
         <div className="space-y-6">
-          {Object.values(groupedForms).map(({ parent, children }) => {
+          {sortedGroupedForms.map(({ parent, children }) => {
             if (!parent) return null;
 
             const formId = parent._id || parent.id;
+            const isPinned = formId ? pinnedFormIds.includes(String(formId)) : false;
             const responseCount = (parent.id && actualResponseCounts[parent.id]) || (parent._id && actualResponseCounts[parent._id]) || actualResponseCounts[formId] || parent.responseCount || 0;
 
             const totalChildResponses = children.reduce((sum, c) => {
@@ -1796,14 +1853,24 @@ export default function FormsAnalytics() {
             return (
               <div
                 key={formId}
-                className="card p-6 hover:border-primary-300 transition-colors duration-200"
+                className={`card p-6 transition-all duration-200 ${
+                  isPinned
+                    ? "border-amber-300 ring-1 ring-amber-200/60 dark:border-amber-600/50 bg-gradient-to-r from-amber-50/15 via-white to-transparent dark:from-amber-950/10 dark:via-gray-900 shadow-sm"
+                    : "hover:border-primary-300"
+                }`}
               >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
+                <div className="flex items-start justify-between mb-4 gap-3">
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
                       <h3 className="font-medium text-primary-800 line-clamp-2 mb-0">
                         {parent.title}
                       </h3>
+                      {isPinned && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 uppercase tracking-wider dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 shadow-2xs">
+                          <Pin className="w-2.5 h-2.5 fill-amber-600 text-amber-600 rotate-45" />
+                          <span>Pinned</span>
+                        </span>
+                      )}
                       {tenantName && !isOwner && userRole !== "superadmin" && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100 uppercase tracking-wider">
                           {tenantName}
@@ -1814,6 +1881,23 @@ export default function FormsAnalytics() {
                       {parent.description}
                     </p>
                   </div>
+
+                  {/* Quick Pin / Unpin Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePinForm(formId);
+                    }}
+                    className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg transition-all flex items-center gap-1 text-xs font-semibold flex-shrink-0 ${
+                      isPinned
+                        ? "bg-amber-100/90 text-amber-800 hover:bg-amber-200 border border-amber-300 shadow-2xs dark:bg-amber-900/50 dark:text-amber-300 dark:border-amber-700"
+                        : "text-gray-400 hover:text-amber-600 hover:bg-amber-50/70 border border-gray-200 hover:border-amber-300 dark:hover:bg-gray-800"
+                    }`}
+                    title={isPinned ? "Unpin form (click to unpin from top)" : "Pin form (click to show at the top)"}
+                  >
+                    <Pin className={`w-3.5 h-3.5 ${isPinned ? "fill-amber-600 text-amber-600 rotate-45" : ""}`} />
+                    <span className="hidden sm:inline">{isPinned ? "Pinned" : "Pin"}</span>
+                  </button>
                 </div>
 
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-primary-500 mb-6 gap-4">
@@ -1912,6 +1996,32 @@ export default function FormsAnalytics() {
                                 <X className="w-4 h-4" />
                               </button>
                             </div>
+
+                            {/* Pin / Unpin Action in Menu */}
+                            <button
+                              onClick={() => {
+                                togglePinForm(formId);
+                                setOpenMenuId(null);
+                              }}
+                              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-amber-800 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-900/30 transition-colors border-b border-primary-50"
+                            >
+                              <div className="p-1.5 bg-amber-100 dark:bg-amber-900/50 rounded-lg">
+                                <Pin className={`w-4 h-4 text-amber-600 dark:text-amber-400 ${isPinned ? "fill-amber-600 rotate-45" : ""}`} />
+                              </div>
+                              <div className="text-left flex-1">
+                                <div className="font-semibold text-amber-900 dark:text-amber-100">
+                                  {isPinned ? "Unpin from Top" : "Pin Form to Top"}
+                                </div>
+                                <div className="text-[10px] text-amber-600 dark:text-amber-400">
+                                  {isPinned ? "Remove priority position" : "Keep this form at the top of the list"}
+                                </div>
+                              </div>
+                              {isPinned && (
+                                <span className="px-2 py-0.5 bg-amber-500 text-white text-[10px] font-bold rounded-full">
+                                  Pinned
+                                </span>
+                              )}
+                            </button>
                             {isOwner && (
                               <>
                                 {canEdit && (

@@ -31,6 +31,7 @@ import { Doughnut } from 'react-chartjs-2';
 import { apiClient } from '../../api/client';
 import { OverallResponsesTable } from './OverallResponsesTable';
 import FormAnalyticsDashboard from './FormAnalyticsDashboard';
+import { CombinedDashboard } from './CombinedDashboard';
 
 ChartJS.register(ArcElement, ChartTooltip, ChartLegend);
 
@@ -117,11 +118,38 @@ interface SummaryData {
   rawResponses: RawResponse[];
 }
 
-// ─── Module-level SWR Cache for 0ms Instant Loading ─────────────────────────
+// ─── Module-level SWR Cache with SessionStorage for 0ms Instant Loading ──────
 const qualitySummaryClientCache = new Map<string, {
   data: any;
   timestamp: number;
 }>();
+
+const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_';
+
+const getClientCachedData = (key: string) => {
+  const mem = qualitySummaryClientCache.get(key);
+  if (mem && Date.now() - mem.timestamp < 600000) return mem;
+
+  try {
+    const raw = sessionStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}${key}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.data && Date.now() - parsed.timestamp < 600000) {
+        qualitySummaryClientCache.set(key, parsed);
+        return parsed;
+      }
+    }
+  } catch (_) {}
+  return null;
+};
+
+const setClientCachedData = (key: string, data: any) => {
+  const entry = { data, timestamp: Date.now() };
+  qualitySummaryClientCache.set(key, entry);
+  try {
+    sessionStorage.setItem(`${SWR_STORAGE_KEY_PREFIX}${key}`, JSON.stringify(entry));
+  } catch (_) {}
+};
 
 export const QualityDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -136,8 +164,10 @@ export const QualityDashboard: React.FC = () => {
     return [];
   }, []);
 
-  const [activeTab, setActiveTab] = useState<'tvs' | 'biw' | 'daily' | 'data' | 'overall' | 'form-dashboard' | 'form-responses'>(() => {
-    return initialFormIds.length === 1 ? 'form-dashboard' : 'data';
+  const [activeTab, setActiveTab] = useState<'tvs' | 'biw' | 'daily' | 'data' | 'overall' | 'form-dashboard' | 'form-responses' | 'combined-dashboard'>(() => {
+    if (initialFormIds.length === 1) return 'form-dashboard';
+    if (initialFormIds.length > 1) return 'combined-dashboard';
+    return 'data';
   });
   const [dateRange, setDateRange] = useState<string>('all');
   const [selectedFormIds, setSelectedFormIds] = useState<string[]>(initialFormIds);
@@ -161,6 +191,74 @@ export const QualityDashboard: React.FC = () => {
   const [, setLoadTimeMs] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState<number>(0);
 
+  // Master available forms memo
+  const allAvailableForms = useMemo(() => {
+    if (data?.formOptions && data.formOptions.length > 0) return data.formOptions;
+    if (availableFormOptions.length > 0) return availableFormOptions;
+    return [];
+  }, [availableFormOptions, data?.formOptions]);
+
+  // Master cache map to preserve known form stats and eliminate 0 units flicker
+  const formsCacheMapRef = useRef<Map<string, any>>(new Map());
+
+  // Whenever data.formsSummary arrives or updates, store all non-zero form summaries in formsCacheMapRef
+  useEffect(() => {
+    if (data?.formsSummary && Array.isArray(data.formsSummary)) {
+      data.formsSummary.forEach((f: any) => {
+        if ((f.totalChecked || 0) > 0) {
+          if (f.id) formsCacheMapRef.current.set(String(f.id), f);
+          if (f._id) formsCacheMapRef.current.set(String(f._id), f);
+        }
+      });
+    }
+  }, [data?.formsSummary]);
+
+  // Enriched forms summary ensuring accurate numbers even before background fetch completes
+  const enrichedFormsSummary = useMemo(() => {
+    const baseList = (data?.formsSummary && data.formsSummary.length > 0)
+      ? data.formsSummary
+      : (masterFormsSummaryRef.current || []);
+
+    return baseList.map((f: any) => {
+      if ((f.totalChecked || 0) > 0) return f;
+
+      const cached = formsCacheMapRef.current.get(String(f.id)) || (f._id ? formsCacheMapRef.current.get(String(f._id)) : null);
+      if (cached && (cached.totalChecked || 0) > 0) {
+        return {
+          ...f,
+          totalChecked: cached.totalChecked,
+          acceptCount: cached.acceptCount,
+          defectCount: cached.defectCount,
+          rework1Count: cached.rework1Count,
+          acceptRate: cached.acceptRate,
+          defectRate: cached.defectRate,
+          biwAcceptCount: cached.biwAcceptCount,
+          biwDefectCount: cached.biwDefectCount,
+          biwRate: cached.biwRate,
+          inspectors: cached.inspectors || f.inspectors
+        };
+      }
+
+      const opt = allAvailableForms.find((o: any) => o.id === f.id || (f._id && (o.id === f._id || (o as any)._id === f._id)));
+      if (opt && (opt.totalChecked || 0) > 0) {
+        return {
+          ...f,
+          totalChecked: opt.totalChecked,
+          acceptCount: opt.totalChecked,
+          defectCount: 0,
+          rework1Count: 0,
+          acceptRate: 100,
+          defectRate: 0,
+          biwAcceptCount: 0,
+          biwDefectCount: 0,
+          biwRate: 100
+        };
+      }
+
+      return f;
+    });
+  }, [data?.formsSummary, allAvailableForms]);
+
   // Synchronize selected forms with URL search params
   const updateSelectedForms = (newIds: string[]) => {
     setSelectedFormIds(newIds);
@@ -178,28 +276,28 @@ export const QualityDashboard: React.FC = () => {
 
   // Filter forms list by search query AND selectedFormIds
   const filteredForms = useMemo(() => {
-    if (!data?.formsSummary) return [];
-    let list = data.formsSummary;
+    if (!enrichedFormsSummary) return [];
+    let list = enrichedFormsSummary;
     if (selectedFormIds.length > 0) {
-      list = list.filter(f => selectedFormIds.includes(f.id) || selectedFormIds.includes(f._id));
+      list = list.filter((f: any) => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id)));
     }
     if (!searchForm.trim()) return list;
     const q = (searchForm || '').toLowerCase().trim();
-    return list.filter(f => String(f.title || '').toLowerCase().includes(q));
-  }, [data?.formsSummary, selectedFormIds, searchForm]);
+    return list.filter((f: any) => String(f.title || '').toLowerCase().includes(q));
+  }, [enrichedFormsSummary, selectedFormIds, searchForm]);
 
   // BIW Tab State and Form-Related Data Memos
   const [biwInspectorSearch, setBiwInspectorSearch] = useState<string>('');
 
   const biwFormItems = useMemo(() => {
-    if (!data?.formsSummary) return [];
-    if (selectedFormIds.length === 0) return data.formsSummary;
-    return data.formsSummary.filter(f => selectedFormIds.includes(f.id) || selectedFormIds.includes(f._id));
-  }, [data?.formsSummary, selectedFormIds]);
+    if (!enrichedFormsSummary) return [];
+    if (selectedFormIds.length === 0) return enrichedFormsSummary;
+    return enrichedFormsSummary.filter((f: any) => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id)));
+  }, [enrichedFormsSummary, selectedFormIds]);
 
   const biwOverallSummary = useMemo(() => {
-    const totalAccept = biwFormItems.reduce((sum, f) => sum + (f.biwAcceptCount || 0), 0);
-    const totalDefect = biwFormItems.reduce((sum, f) => sum + (f.biwDefectCount || 0), 0);
+    const totalAccept = biwFormItems.reduce((sum: number, f: any) => sum + (f.biwAcceptCount || 0), 0);
+    const totalDefect = biwFormItems.reduce((sum: number, f: any) => sum + (f.biwDefectCount || 0), 0);
     const totalReviewed = totalAccept + totalDefect;
     const rate = totalReviewed > 0 ? Math.round((totalAccept / totalReviewed) * 10000) / 100 : 0;
     return { totalAccept, totalDefect, totalReviewed, rate };
@@ -207,52 +305,55 @@ export const QualityDashboard: React.FC = () => {
 
   const biwInspectors = useMemo(() => {
     if (!data?.inspectors) return [];
-    const filtered = data.inspectors.filter(insp => (insp.biwAcceptCount > 0 || insp.biwDefectCount > 0));
+    const inspectorSet = new Set<string>();
+    (biwFormItems || []).forEach((f: any) => {
+      (f.inspectors || []).forEach((n: string) => { if (n) inspectorSet.add(n.toLowerCase().trim()); });
+    });
+    const pool = (selectedFormIds.length > 0 && inspectorSet.size > 0)
+      ? data.inspectors.filter(i => inspectorSet.has(String(i.name || '').toLowerCase().trim()))
+      : data.inspectors;
+    const filtered = pool.filter(insp => (insp.biwAcceptCount > 0 || insp.biwDefectCount > 0));
     if (!biwInspectorSearch.trim()) return filtered;
     const q = biwInspectorSearch.toLowerCase().trim();
     return filtered.filter(insp => insp.name.toLowerCase().includes(q));
-  }, [data?.inspectors, biwInspectorSearch]);
+  }, [data?.inspectors, biwFormItems, selectedFormIds, biwInspectorSearch]);
 
   // Overall Quality Pie Chart State & Real Data Sync
   const [hoveredSlice, setHoveredSlice] = useState<'all' | 'accepted' | 'rework' | 'rejected'>('all');
   const [pieSearchQuery, setPieSearchQuery] = useState<string>('');
 
-  // Filter breakdown list strictly by selected forms (or show all if no selection)
+  // Filter breakdown list strictly by selected forms (or show all if no selection) with guaranteed non-zero counts
   const filteredFormSummaryList = useMemo(() => {
-    if (!data?.formsSummary) return [];
-    let list = data.formsSummary;
+    if (!enrichedFormsSummary || enrichedFormsSummary.length === 0) return [];
+    let list = enrichedFormsSummary;
     if (selectedFormIds.length > 0) {
-      list = list.filter(f => selectedFormIds.includes(f.id) || selectedFormIds.includes(f._id));
+      list = list.filter((f: any) => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id)));
     }
     if (!pieSearchQuery.trim()) return list;
     const q = (pieSearchQuery || '').toLowerCase().trim();
-    return list.filter(f => String(f.title || '').toLowerCase().includes(q));
-  }, [data?.formsSummary, selectedFormIds, pieSearchQuery]);
+    return list.filter((f: any) => String(f.title || '').toLowerCase().includes(q));
+  }, [enrichedFormsSummary, selectedFormIds, pieSearchQuery]);
 
   // Dynamically compute active summary for selected combination of forms with 0ms instant reactivity
   const activeSummary = useMemo(() => {
     if (!data?.summary) return null;
     if (selectedFormIds.length === 0) return data.summary;
 
-    const sourceForms = (data.formsSummary && data.formsSummary.some(f => (f.totalChecked || 0) > 0 && (selectedFormIds.includes(f.id) || selectedFormIds.includes(f._id))))
-      ? data.formsSummary
-      : (masterFormsSummaryRef.current || data.formsSummary || []);
-
-    const matchedForms = sourceForms.filter(
-      f => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id))
+    const matchedForms = enrichedFormsSummary.filter(
+      (f: any) => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id))
     );
 
     if (matchedForms.length === 0) return data.summary;
 
-    const totalChecked = matchedForms.reduce((sum, f) => sum + (f.totalChecked || 0), 0);
-    const totalAccepted = matchedForms.reduce((sum, f) => sum + (f.acceptCount || 0), 0);
-    const totalDefects = matchedForms.reduce((sum, f) => sum + (f.defectCount || 0), 0);
-    const totalRework1 = matchedForms.reduce((sum, f) => sum + (f.rework1Count || 0), 0);
+    const totalChecked = matchedForms.reduce((sum: number, f: any) => sum + (f.totalChecked || 0), 0);
+    const totalAccepted = matchedForms.reduce((sum: number, f: any) => sum + (f.acceptCount || 0), 0);
+    const totalDefects = matchedForms.reduce((sum: number, f: any) => sum + (f.defectCount || 0), 0);
+    const totalRework1 = matchedForms.reduce((sum: number, f: any) => sum + (f.rework1Count || 0), 0);
     const overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
     const overallDefectRate = totalChecked > 0 ? Math.round((totalDefects / totalChecked) * 10000) / 100 : 0;
 
     const inspectorSet = new Set<string>();
-    matchedForms.forEach(f => {
+    matchedForms.forEach((f: any) => {
       (f.inspectors || []).forEach((name: string) => { if (name) inspectorSet.add(name.toLowerCase().trim()); });
     });
 
@@ -260,32 +361,32 @@ export const QualityDashboard: React.FC = () => {
     const exemplaryCount = relevantInspectors.filter(i => i.tier === 'Exemplary Performer' || i.acceptRate >= 90).length;
 
     return {
-      totalChecked,
-      totalAccepted,
-      totalDefects,
-      totalRework1,
-      overallAcceptRate,
-      overallDefectRate,
+      totalChecked: totalChecked || data.summary.totalChecked,
+      totalAccepted: totalAccepted || data.summary.totalAccepted,
+      totalDefects: totalDefects !== undefined ? totalDefects : data.summary.totalDefects,
+      totalRework1: totalRework1 !== undefined ? totalRework1 : data.summary.totalRework1,
+      overallAcceptRate: overallAcceptRate || data.summary.overallAcceptRate,
+      overallDefectRate: overallDefectRate !== undefined ? overallDefectRate : data.summary.overallDefectRate,
       totalInspectors: inspectorSet.size || relevantInspectors.length || data.summary.totalInspectors,
       exemplaryCount: exemplaryCount || (relevantInspectors.length > 0 ? exemplaryCount : data.summary.exemplaryCount),
       exceededCount: data.summary.exceededCount,
       metCount: data.summary.metCount,
       partiallyMetCount: data.summary.partiallyMetCount
     };
-  }, [data?.summary, data?.formsSummary, data?.inspectors, selectedFormIds]);
+  }, [data?.summary, enrichedFormsSummary, data?.inspectors, selectedFormIds]);
 
   const relevantInspectors = useMemo(() => {
     if (!data?.inspectors) return [];
     if (selectedFormIds.length === 0) return data.inspectors;
     const inspectorSet = new Set<string>();
-    (data.formsSummary || [])
-      .filter(f => selectedFormIds.includes(f.id) || selectedFormIds.includes(f._id))
-      .forEach(f => {
+    (enrichedFormsSummary || [])
+      .filter((f: any) => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id)))
+      .forEach((f: any) => {
         (f.inspectors || []).forEach((n: string) => { if (n) inspectorSet.add(n.toLowerCase().trim()); });
       });
     if (inspectorSet.size === 0) return data.inspectors;
     return data.inspectors.filter(i => inspectorSet.has(String(i.name || '').toLowerCase().trim()));
-  }, [data?.inspectors, data?.formsSummary, selectedFormIds]);
+  }, [data?.inspectors, enrichedFormsSummary, selectedFormIds]);
 
   const pieChartData = useMemo(() => {
     if (!activeSummary) return { labels: [], datasets: [] };
@@ -336,11 +437,11 @@ export const QualityDashboard: React.FC = () => {
               return ` ${label}: ${value.toLocaleString()} (${pct}%)`;
             },
             afterBody: (context: any) => {
-              if (!context || !context[0] || !data?.formsSummary) return [];
+              if (!context || !context[0]) return [];
               const index = context[0].dataIndex;
-              const forms = data.formsSummary;
+              const forms = enrichedFormsSummary.length > 0 ? enrichedFormsSummary : (data?.formsSummary || []);
 
-              const lines: string[] = ['', 'Top Contributing Forms:'];
+              const lines: string[] = ['', 'Form-Wise Numbers:'];
               const sorted = [...forms].sort((a, b) => {
                 if (index === 0) return (b.acceptCount || 0) - (a.acceptCount || 0);
                 if (index === 1) return (b.rework1Count || 0) - (a.rework1Count || 0);
@@ -349,14 +450,16 @@ export const QualityDashboard: React.FC = () => {
                 return rejB - rejA;
               });
 
-              sorted.slice(0, 5).forEach(f => {
+              sorted.forEach(f => {
                 let count = 0;
                 if (index === 0) count = f.acceptCount || 0;
                 else if (index === 1) count = f.rework1Count || 0;
                 else count = Math.max(0, (f.defectCount || 0) - (f.rework1Count || 0));
 
-                if (count > 0 || forms.length <= 2) {
-                  lines.push(` • ${f.title}: ${count.toLocaleString()}`);
+                if (count > 0 || forms.length <= 3) {
+                  const total = index === 0 ? (activeSummary?.totalAccepted || 1) : index === 1 ? (activeSummary?.totalRework1 || 1) : Math.max(1, (activeSummary?.totalDefects || 0) - (activeSummary?.totalRework1 || 0));
+                  const pct = total > 0 ? ((count / total) * 100).toFixed(1) : '0';
+                  lines.push(` • ${f.title}: ${count.toLocaleString()} (${pct}%)`);
                 }
               });
 
@@ -479,11 +582,26 @@ export const QualityDashboard: React.FC = () => {
             const total = biwOverallSummary.totalReviewed || 1;
             const pct = ((val / total) * 100).toFixed(1);
             return ` ${label}: ${val.toLocaleString()} (${pct}%)`;
+          },
+          afterBody: (context: any) => {
+            if (!context || !context[0]) return [];
+            const isAccepted = context[0].dataIndex === 0;
+            const activeForms = enrichedFormsSummary.length > 0 ? enrichedFormsSummary : (data?.formsSummary || []);
+            const total = isAccepted ? biwOverallSummary.totalAccept : biwOverallSummary.totalDefect;
+            const lines: string[] = ['', 'Form-Wise Numbers:'];
+            activeForms.forEach((f: any) => {
+              const count = isAccepted ? (f.biwAcceptCount || 0) : (f.biwDefectCount || 0);
+              const pct = total > 0 ? ((count / total) * 100).toFixed(1) : '0';
+              if (count > 0 || activeForms.length <= 3) {
+                lines.push(` • ${f.title}: ${count.toLocaleString()} (${pct}%)`);
+              }
+            });
+            return lines;
           }
         }
       }
     }
-  }), [biwOverallSummary]);
+  }), [biwOverallSummary, enrichedFormsSummary, data?.formsSummary]);
 
   const centerTextPlugin = useMemo(
     () => ({
@@ -550,11 +668,11 @@ export const QualityDashboard: React.FC = () => {
 
   const fetchSummary = async (forceNetwork = false) => {
     const sortedFormKey = [...selectedFormIds].sort().join(',');
-    const cacheKey = `v13_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
-    const cached = qualitySummaryClientCache.get(cacheKey);
+    const cacheKey = `v15_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
+    const cached = getClientCachedData(cacheKey);
 
     // ─── 0ms SWR Instant Loading: Render immediately from cache if available ────
-    if (cached && !forceNetwork && Date.now() - cached.timestamp < 300000) { // 5-minute cache
+    if (cached && !forceNetwork) {
       setData(cached.data);
       setLoading(false);
       setLoadTimeMs(0);
@@ -564,8 +682,8 @@ export const QualityDashboard: React.FC = () => {
         setAvailableFormOptions(cached.data.formOptions);
       }
 
-      // Revalidate in background if older than 15s to keep numbers perfectly fresh
-      if (Date.now() - cached.timestamp > 15000) {
+      // Revalidate in background if older than 10s to keep numbers perfectly fresh
+      if (Date.now() - cached.timestamp > 10000) {
         apiClient.getQualitySummary({
           formIds: selectedFormIds.length > 0 ? selectedFormIds : undefined,
           startDate,
@@ -574,7 +692,7 @@ export const QualityDashboard: React.FC = () => {
         }).then(res => {
           const actualData = (res && res.summary) ? res : (res && res.data) ? res.data : null;
           if (actualData && actualData.summary) {
-            qualitySummaryClientCache.set(cacheKey, { data: actualData, timestamp: Date.now() });
+            setClientCachedData(cacheKey, actualData);
             setData(actualData);
           }
         }).catch(() => {});
@@ -609,7 +727,7 @@ export const QualityDashboard: React.FC = () => {
       const actualData = (res && res.summary) ? res : (res && res.data) ? res.data : null;
 
       if (actualData && actualData.summary) {
-        qualitySummaryClientCache.set(cacheKey, { data: actualData, timestamp: Date.now() });
+        setClientCachedData(cacheKey, actualData);
         setData(actualData);
         if (actualData.formOptions && actualData.formOptions.length > 0) {
           setAvailableFormOptions(actualData.formOptions);
@@ -726,11 +844,6 @@ export const QualityDashboard: React.FC = () => {
     }
   };
 
-  const allAvailableForms = useMemo(() => {
-    if (data?.formOptions && data.formOptions.length > 0) return data.formOptions;
-    if (availableFormOptions.length > 0) return availableFormOptions;
-    return [];
-  }, [availableFormOptions, data?.formOptions]);
 
   const filteredDropdownForms = useMemo(() => {
     if (!formSearchQuery.trim()) return allAvailableForms;
@@ -768,14 +881,18 @@ export const QualityDashboard: React.FC = () => {
     return allAvailableForms.find(f => f.id === selectedSingleFormId || f._id === selectedSingleFormId) || null;
   }, [selectedSingleFormId, allAvailableForms]);
 
-  // When a single form is selected, auto-switch to form-dashboard if currently on general data grid
+  // When forms are selected, auto-switch to dashboard tab if currently on general data grid
   useEffect(() => {
     if (selectedFormIds.length === 1) {
-      if (activeTab === 'data') {
+      if (activeTab === 'data' || activeTab === 'combined-dashboard') {
         setActiveTab('form-dashboard');
       }
+    } else if (selectedFormIds.length > 1) {
+      if (activeTab === 'data' || activeTab === 'form-dashboard' || activeTab === 'form-responses') {
+        setActiveTab('combined-dashboard');
+      }
     } else if (selectedFormIds.length === 0) {
-      if (activeTab === 'form-dashboard' || activeTab === 'form-responses') {
+      if (activeTab === 'form-dashboard' || activeTab === 'form-responses' || activeTab === 'combined-dashboard') {
         setActiveTab('data');
       }
     }
@@ -787,6 +904,11 @@ export const QualityDashboard: React.FC = () => {
       ? selectedFormIds.filter(id => id !== formId && (!formAltId || id !== formAltId))
       : [...selectedFormIds, formId];
     updateSelectedForms(next);
+    if (next.length === 1) {
+      setActiveTab('form-dashboard');
+    } else if (next.length > 1) {
+      setActiveTab('combined-dashboard');
+    }
   };
 
   const handleSelectAllForms = () => {
@@ -977,16 +1099,29 @@ export const QualityDashboard: React.FC = () => {
                           setIsFormDropdownOpen(false);
                           setActiveTab('form-dashboard');
                         }}
-                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md shadow-xs text-xs transition-colors flex items-center gap-1"
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md shadow-xs text-xs transition-colors flex items-center gap-1 cursor-pointer"
                       >
                         <BarChart3 className="w-3.5 h-3.5" />
                         <span>Show Dashboard</span>
                       </button>
                     )}
+                    {selectedFormIds.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsFormDropdownOpen(false);
+                          setActiveTab('combined-dashboard');
+                        }}
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md shadow-xs text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                      >
+                        <BarChart3 className="w-3.5 h-3.5" />
+                        <span>Show Combined Dashboard</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setIsFormDropdownOpen(false)}
-                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md shadow-xs text-xs transition-colors"
+                      className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-md shadow-xs text-xs transition-colors cursor-pointer"
                     >
                       Done
                     </button>
@@ -1091,7 +1226,7 @@ export const QualityDashboard: React.FC = () => {
               <span className="font-bold text-blue-950 truncate text-sm">{formButtonLabel}</span>
             </div>
             <div className="flex items-center gap-2">
-              {selectedFormIds.length === 1 && (
+              {selectedFormIds.length === 1 ? (
                 <>
                   <button
                     onClick={() => setActiveTab('form-dashboard')}
@@ -1118,6 +1253,19 @@ export const QualityDashboard: React.FC = () => {
                     <span>Responses</span>
                   </button>
                 </>
+              ) : (
+                <button
+                  onClick={() => setActiveTab('combined-dashboard')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-lg transition-all shadow-xs whitespace-nowrap cursor-pointer text-xs ${
+                    activeTab === 'combined-dashboard'
+                      ? 'bg-blue-600 text-white shadow-blue-200'
+                      : 'bg-white text-blue-700 hover:bg-blue-100/70 border border-blue-300'
+                  }`}
+                  title="View combined analytics dashboard below"
+                >
+                  <BarChart3 className="w-3.5 h-3.5" />
+                  <span>Combined Dashboard</span>
+                </button>
               )}
               <button
                 onClick={handleClearAllForms}
@@ -1486,6 +1634,22 @@ export const QualityDashboard: React.FC = () => {
                   </button>
                 </>
               )}
+              {selectedFormIds.length > 1 && (
+                <button
+                  onClick={() => setActiveTab('combined-dashboard')}
+                  className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center transition-colors whitespace-nowrap ${
+                    activeTab === 'combined-dashboard'
+                      ? 'bg-white text-blue-700 border-b-2 border-blue-600 shadow-xs'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <BarChart3 className="w-4 h-4 mr-2 text-blue-600" />
+                  <span>Combined Dashboard</span>
+                  <span className="ml-1.5 px-2 py-0.5 rounded-full text-[11px] bg-blue-100 text-blue-800 font-extrabold">
+                    {selectedFormIds.length} Forms
+                  </span>
+                </button>
+              )}
               <button
                 onClick={() => setActiveTab('data')}
                 className={`flex-1 py-3 px-4 text-sm font-semibold flex items-center justify-center transition-colors whitespace-nowrap ${activeTab === 'data' ? 'bg-white text-blue-700 border-b-2 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
@@ -1537,6 +1701,24 @@ export const QualityDashboard: React.FC = () => {
                     formId={selectedSingleFormId}
                     embedded={true}
                     initialTab="responses"
+                  />
+                </div>
+              )}
+
+              {/* COMBINED MULTI-FORM DASHBOARD */}
+              {activeTab === 'combined-dashboard' && selectedFormIds.length > 1 && activeSummary && (
+                <div className="min-h-[600px]">
+                  <CombinedDashboard
+                    summary={activeSummary}
+                    forms={filteredForms.length > 0 ? filteredForms : filteredFormSummaryList}
+                    dailyTrends={data.dailyTrends}
+                    defectBreakdown={data.defectBreakdown}
+                    inspectors={data.inspectors}
+                    recentResponses={data.recentResponses || data.rawResponses}
+                    onIsolateForm={(formId) => {
+                      updateSelectedForms([formId]);
+                      setActiveTab('form-dashboard');
+                    }}
                   />
                 </div>
               )}
