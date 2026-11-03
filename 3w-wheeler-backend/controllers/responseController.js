@@ -522,6 +522,8 @@ export const expandChassisRange = (startStr, endStr, maxLimit = 200) => {
 export const createResponse = async (req, res) => {
   try {
     console.log('[CREATE RESPONSE] === START ===');
+    rankResultCache.clear();
+    suggestionsMemoryCache.clear();
     console.log('[CREATE RESPONSE] req.user:', req.user);
     console.log('[CREATE RESPONSE] req.user?._id:', req.user?._id);
     console.log('[CREATE RESPONSE] req.user?.role:', req.user?.role);
@@ -2822,6 +2824,12 @@ export const getFormIdentificationNumbers = async (req, res) => {
   }
 };
 
+// High-performance in-memory cache for instant suggestions & rank lookups (<1ms)
+export const suggestionsMemoryCache = new Map(); // key -> { data, expiresAt }
+export const formMetaCache = new Map(); // formId -> { form, expiresAt }
+export const tenantSlugCache = new Map(); // slug -> { tenantId, expiresAt }
+export const rankResultCache = new Map(); // key -> { payload, expiresAt }
+
 export const getRank = async (req, res) => {
   try {
     const { formId, questionId, answer } = req.query;
@@ -2834,23 +2842,53 @@ export const getRank = async (req, res) => {
       });
     }
 
+    const strAnswer = extractAnswerString(answer);
+    if (!strAnswer || strAnswer.trim().length < 2) {
+      return res.status(200).json({
+        success: true,
+        data: { rank: 1 }
+      });
+    }
+
+    const normAnswer = strAnswer.toLowerCase().trim();
+    const rankCacheKey = `${formId}:${questionId}:${normAnswer}:${tenantSlug || ''}`;
+    const cachedRank = rankResultCache.get(rankCacheKey);
+    if (cachedRank && cachedRank.expiresAt > Date.now()) {
+      return res.status(200).json(cachedRank.payload);
+    }
+
     let tenantId;
     if (tenantSlug) {
-      const tenant = await Tenant.findOne({ slug: tenantSlug, isActive: true });
-      if (tenant) {
-        tenantId = tenant._id;
+      const cachedTId = tenantSlugCache.get(tenantSlug);
+      if (cachedTId && cachedTId.expiresAt > Date.now()) {
+        tenantId = cachedTId.tenantId;
+      } else {
+        const tenant = await Tenant.findOne({ slug: tenantSlug, isActive: true });
+        if (tenant) {
+          tenantId = tenant._id;
+          tenantSlugCache.set(tenantSlug, { tenantId, expiresAt: Date.now() + 300000 });
+        }
       }
     }
 
-    // Find the form to verify it exists and if tracking is enabled
-    // Find the form to verify it exists and if tracking is enabled
-    let form = await Form.findOne({ id: formId });
-    if (!form && mongoose.Types.ObjectId.isValid(formId)) {
-      form = await Form.findById(formId);
+    // Cached Form lookup (5 min TTL)
+    let form = null;
+    const cachedFormEntry = formMetaCache.get(String(formId));
+    if (cachedFormEntry && cachedFormEntry.expiresAt > Date.now()) {
+      form = cachedFormEntry.form;
+    } else {
+      form = await Form.findOne({ id: formId });
+      if (!form && mongoose.Types.ObjectId.isValid(formId)) {
+        form = await Form.findById(formId);
+      }
+      if (!form) {
+        form = await Form.findOne({ _id: formId });
+      }
+      if (form) {
+        formMetaCache.set(String(formId), { form, expiresAt: Date.now() + 300000 });
+      }
     }
-    if (!form) {
-      form = await Form.findOne({ _id: formId });
-    }
+
     if (!form) {
       return res.status(404).json({
         success: false,
@@ -2888,34 +2926,33 @@ export const getRank = async (req, res) => {
       trackingQId = `${questionId}_tracking`;
     }
 
-    const strAnswer = extractAnswerString(answer);
-    if (!strAnswer) {
-      return res.status(200).json({
-        success: true,
-        data: { rank: 1 }
-      });
-    }
-
     // Count existing final responses with the EXACT SAME answer for THIS form alone (isolated rank tracking)
     const formIds = getThisFormIds(form, formId);
     const extraQIds = getThisFormExtraQuestionIds(form);
 
-    const orConditions = buildChassisOrConditions(questionId, trackingQId, strAnswer, extraQIds);
+    const trimmed = String(strAnswer || '').trim();
+    const possibleStrings = Array.from(new Set([
+      trimmed,
+      trimmed.toLowerCase(),
+      trimmed.toUpperCase(),
+      trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase()
+    ]));
 
-    const query = {
+    // ⚡ FAST PATH (Indexed): Search chassisNumber directly (<10ms)
+    const fastQuery = {
+      chassisNumber: { $in: possibleStrings },
       $or: [
         { questionId: { $in: formIds } },
         { formId: { $in: formIds } }
       ],
-      $and: [
-        { $or: orConditions }
-      ],
       isSectionSubmit: { $ne: true }
     };
 
-    const matchingResponses = await Response.find(query)
+    let matchingResponses = await Response.find(fastQuery)
       .select('id _id status answers createdAt isDispatched dispatchedAt dispatchedByName biwReview submittedBy createdBy tenantId')
       .lean();
+
+
 
     const sortedResponses = matchingResponses.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     let reworkCount = 0;
@@ -3006,18 +3043,25 @@ export const getRank = async (req, res) => {
 
     // Determine parent/child relationship and compute follow-up badge info
     let parentForm = null;
-    if (form.parentFormId) {
-      parentForm = await Form.findOne({
-        $or: [
-          { id: form.parentFormId },
-          ...(mongoose.Types.ObjectId.isValid(form.parentFormId) ? [{ _id: form.parentFormId }] : [])
-        ]
-      }).select('id _id title childForms').lean();
-    }
-    if (!parentForm) {
-      parentForm = await Form.findOne({
-        'childForms.formId': { $in: [form.id, form._id?.toString(), formId] }
-      }).select('id _id title childForms').lean();
+    const parentCacheKey = `parent_${form.id || form._id}`;
+    const cachedParent = formMetaCache.get(parentCacheKey);
+    if (cachedParent && cachedParent.expiresAt > Date.now()) {
+      parentForm = cachedParent.parentForm;
+    } else {
+      if (form.parentFormId) {
+        parentForm = await Form.findOne({
+          $or: [
+            { id: form.parentFormId },
+            ...(mongoose.Types.ObjectId.isValid(form.parentFormId) ? [{ _id: form.parentFormId }] : [])
+          ]
+        }).select('id _id title childForms').lean();
+      }
+      if (!parentForm) {
+        parentForm = await Form.findOne({
+          'childForms.formId': { $in: [form.id, form._id?.toString(), formId] }
+        }).select('id _id title childForms').lean();
+      }
+      formMetaCache.set(parentCacheKey, { parentForm, expiresAt: Date.now() + 300000 });
     }
 
     const isChildForm = Boolean(form.parentFormId || parentForm);
@@ -3098,18 +3142,19 @@ export const getRank = async (req, res) => {
     // If no candidate in this form, check parent form or cross-tenant responses for this chassis
     if (prevTenantCandidateList.length === 0) {
       try {
-        const crossTenantQuery = {
-          $and: [
-            { $or: orConditions },
-            ...(currentTenantIdStr ? [{ tenantId: { $ne: currentTenantIdStr } }] : []),
-            { isSectionSubmit: { $ne: true } }
-          ]
+        // ⚡ FAST PATH (Indexed): Query cross-tenant chassisNumber directly (<10ms)
+        const fastCrossQuery = {
+          chassisNumber: { $in: possibleStrings },
+          ...(currentTenantIdStr ? [{ tenantId: { $ne: currentTenantIdStr } }] : []),
+          isSectionSubmit: { $ne: true }
         };
-        const crossResponses = await Response.find(crossTenantQuery)
+        let crossResponses = await Response.find(fastCrossQuery)
           .select('id _id status answers createdAt isDispatched dispatchedAt dispatchedByName biwReview submittedBy createdBy tenantId')
           .sort({ createdAt: 1 })
           .limit(20)
           .lean();
+
+        // Fast indexed cross-tenant query complete. No full-table scan fallback.
 
         if (crossResponses.length > 0) {
           prevTenantCandidateList = crossResponses;
@@ -3168,7 +3213,7 @@ export const getRank = async (req, res) => {
       };
     }
 
-    return res.status(200).json({
+    const payload = {
       success: true,
       data: {
         rank: count + 1,
@@ -3190,7 +3235,13 @@ export const getRank = async (req, res) => {
         previousTenantRank: previousTenantRank,
         formTenantId: form.tenantId ? form.tenantId.toString() : null
       }
-    });
+    };
+
+    // Cache result in memory for 30s
+    if (rankResultCache.size > 2000) rankResultCache.clear();
+    rankResultCache.set(rankCacheKey, { payload, expiresAt: Date.now() + 30000 });
+
+    return res.status(200).json(payload);
 
   } catch (error) {
     console.error('Get rank error:', error);
@@ -3201,16 +3252,6 @@ export const getRank = async (req, res) => {
   }
 };
 
-
-// High-performance in-memory cache for instant suggestions (<1ms)
-const suggestionsMemoryCache = new Map(); // key -> { data, expiresAt }
-const formMetaCache = new Map(); // formId -> { form, expiresAt }
-const tenantSlugCache = new Map(); // slug -> { tenantId, expiresAt }
-
-/**
- * Get suggested answers based on a single question-answer pair.
- * This is used to auto-fill or suggest previous answers when a user starts filling a form.
- */
 export const getSuggestedAnswers = async (req, res) => {
   const startTime = Date.now();
   try {

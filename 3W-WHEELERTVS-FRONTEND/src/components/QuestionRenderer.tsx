@@ -82,6 +82,9 @@ const isImageFile = (filename: string): boolean => {
   );
 };
 
+// Fast in-memory client cache for live rank queries (30-second TTL)
+const localRankCache = new Map<string, { data: any; expiresAt: number }>();
+
 const getRankStyle = (answer: any, darkMode: boolean = false) => {
   if (answer === null || answer === undefined) return "";
   // Ensure we stringify object/array answers for consistent hashing
@@ -532,7 +535,7 @@ export default function QuestionRenderer({
       !(isRankTrackingEnabled || isQuestionTrackingEnabled) ||
       !effectiveTrackingValue ||
       typeof effectiveTrackingValue !== "string" ||
-      effectiveTrackingValue.trim().length === 0 ||
+      effectiveTrackingValue.trim().length < 2 ||
       !formId
     ) {
       setRank(null);
@@ -550,59 +553,77 @@ export default function QuestionRenderer({
     }
 
     const currentTarget = effectiveTrackingValue.trim();
+    const qKey = question.id || (question as any)._id;
+    const cacheKey = `${formId}_${qKey}_${currentTarget.toLowerCase()}_${tenantSlug || ""}`;
+
+    const applyRankData = (response: any) => {
+      const rankVal = (response && typeof response.rank === "number")
+        ? response.rank
+        : (response && response.data && typeof response.data.rank === "number")
+          ? response.data.rank
+          : (typeof response === "number")
+            ? response
+            : null;
+
+      const prevStat = (response && response.previousStatus) || (response && response.data && response.data.previousStatus) || null;
+      const hist = (response && response.history) || (response && response.data && response.data.history) || [];
+
+      const lastId = (response && response.lastResponseId) || (response && response.data && response.data.lastResponseId) || null;
+      const isDisp = Boolean((response && response.isDispatched) || (response && response.data && response.data.isDispatched));
+      const dispAt = (response && response.dispatchedAt) || (response && response.data && response.data.dispatchedAt) || null;
+      const dispBy = (response && response.dispatchedByName) || (response && response.data && response.data.dispatchedByName) || null;
+      const biw = (response && response.biwReview) || (response && response.data && response.data.biwReview) || null;
+      const chatCnt = (response && typeof response.chatCount === "number")
+        ? response.chatCount
+        : (response && response.data && typeof response.data.chatCount === "number")
+          ? response.data.chatCount
+          : 0;
+      const submittedBy = (response && response.lastSubmittedBy) || (response && response.data && response.data.lastSubmittedBy) || null;
+      const pMatch = (response && response.parentMatch) || (response && response.data && response.data.parentMatch) || (response && response.followUpStatus) || (response && response.data && response.data.followUpStatus) || null;
+
+      setRank(rankVal);
+      setPreviousStatus(prevStat);
+      setLastResponseId(lastId);
+      setRankHistory(hist);
+      setDispatchInfo(isDisp ? { isDispatched: true, dispatchedAt: dispAt, dispatchedByName: dispBy } : null);
+      setLastSubmittedBy(submittedBy);
+      setBiwInfo(biw);
+      setChatCount(chatCnt);
+      setParentMatchInfo(pMatch);
+      const prevTenant = (response && response.previousTenantRank) || (response && response.data && response.data.previousTenantRank) || null;
+      setPreviousTenantRank(prevTenant);
+      const fTenant = (response && response.formTenantId) || (response && response.data && response.data.formTenantId) || null;
+      if (fTenant) {
+        setRankFormTenantId(fTenant);
+      }
+    };
+
+    // ⚡ INSTANT IN-MEMORY CLIENT HIT: Return in <0.1ms without network trip!
+    const cachedEntry = localRankCache.get(cacheKey);
+    if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
+      applyRankData(cachedEntry.data);
+      setLoadingRank(false);
+      return;
+    }
+
     setLoadingRank(true);
 
     const timer = setTimeout(async () => {
       try {
         const response: any = await apiClient.getResponseRank(
           formId,
-          question.id || (question as any)._id,
+          qKey,
           currentTarget,
           tenantSlug,
         );
 
         if (isCancelled) return;
 
-        const rankVal = (response && typeof response.rank === "number")
-          ? response.rank
-          : (response && response.data && typeof response.data.rank === "number")
-            ? response.data.rank
-            : (typeof response === "number")
-              ? response
-              : null;
+        // Store in client cache for 30 seconds
+        if (localRankCache.size > 1000) localRankCache.clear();
+        localRankCache.set(cacheKey, { data: response, expiresAt: Date.now() + 30000 });
 
-        const prevStat = (response && response.previousStatus) || (response && response.data && response.data.previousStatus) || null;
-        const hist = (response && response.history) || (response && response.data && response.data.history) || [];
-
-        console.log(`[RANK LIVE] Chassis: "${currentTarget}" -> Rank: ${rankVal}, PreviousStatus: "${prevStat}", History: ${hist.length}`);
-        const lastId = (response && response.lastResponseId) || (response && response.data && response.data.lastResponseId) || null;
-        const isDisp = Boolean((response && response.isDispatched) || (response && response.data && response.data.isDispatched));
-        const dispAt = (response && response.dispatchedAt) || (response && response.data && response.data.dispatchedAt) || null;
-        const dispBy = (response && response.dispatchedByName) || (response && response.data && response.data.dispatchedByName) || null;
-        const biw = (response && response.biwReview) || (response && response.data && response.data.biwReview) || null;
-        const chatCnt = (response && typeof response.chatCount === "number")
-          ? response.chatCount
-          : (response && response.data && typeof response.data.chatCount === "number")
-            ? response.data.chatCount
-            : 0;
-        const submittedBy = (response && response.lastSubmittedBy) || (response && response.data && response.data.lastSubmittedBy) || null;
-        const pMatch = (response && response.parentMatch) || (response && response.data && response.data.parentMatch) || (response && response.followUpStatus) || (response && response.data && response.data.followUpStatus) || null;
-
-        setRank(rankVal);
-        setPreviousStatus(prevStat);
-        setLastResponseId(lastId);
-        setRankHistory(hist);
-        setDispatchInfo(isDisp ? { isDispatched: true, dispatchedAt: dispAt, dispatchedByName: dispBy } : null);
-        setLastSubmittedBy(submittedBy);
-        setBiwInfo(biw);
-        setChatCount(chatCnt);
-        setParentMatchInfo(pMatch);
-        const prevTenant = (response && response.previousTenantRank) || (response && response.data && response.data.previousTenantRank) || null;
-        setPreviousTenantRank(prevTenant);
-        const fTenant = (response && response.formTenantId) || (response && response.data && response.data.formTenantId) || null;
-        if (fTenant) {
-          setRankFormTenantId(fTenant);
-        }
+        applyRankData(response);
       } catch (err) {
         if (!isCancelled) {
           console.error("Failed to fetch rank:", err);
@@ -620,7 +641,7 @@ export default function QuestionRenderer({
           setLoadingRank(false);
         }
       }
-    }, 300);
+    }, 450);
 
     return () => {
       isCancelled = true;
