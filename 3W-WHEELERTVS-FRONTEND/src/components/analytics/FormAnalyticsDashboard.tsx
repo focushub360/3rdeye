@@ -2867,26 +2867,17 @@ export default function FormAnalyticsDashboard({
     };
 
     const systemChassisKeys = [
-      "chassis_number",
+      "system_chassis",
+      "systemChassis",
+      "System Chassis",
+      "SYSTEM CHASSIS",
       "selected_chassis",
       "selectedChassis",
       "Selected Chassis",
       "SELECTED CHASSIS",
       "selected_chassis_number",
+      "chassis_number",
     ];
-
-    // Priority 0: If form has a designated chassis / identification question answered, use it
-    if (chassisQuestionId && r.answers) {
-      if (r.answers[chassisQuestionId] !== undefined && r.answers[chassisQuestionId] !== null && r.answers[chassisQuestionId] !== "") {
-        const val = getChassisDisplayValue(r.answers[chassisQuestionId]);
-        if (val && val !== "-" && val !== "N/A" && val !== "None") return formatMasterMatch(val);
-      }
-      const trackingKey = `${chassisQuestionId}_tracking`;
-      if (r.answers[trackingKey] !== undefined && r.answers[trackingKey] !== null && r.answers[trackingKey] !== "") {
-        const val = getChassisDisplayValue(r.answers[trackingKey]);
-        if (val && val !== "-" && val !== "N/A" && val !== "None") return formatMasterMatch(val);
-      }
-    }
 
     // CASE A: Form HAS configured chassis options in form.chassisNumbers (e.g. "Saify", "Sridevi", "TVS")
     if (masterOptions.length > 0) {
@@ -2944,13 +2935,11 @@ export default function FormAnalyticsDashboard({
         }
       }
 
-      // 4. Single-option default: if form only has 1 chassis configuration (e.g. "Saify", "Sridevi", "TVS")
-      if (masterOptions.length === 1) {
-        const single = masterOptions[0];
-        return single.partDescription
-          ? `${single.chassisNumber} — ${single.partDescription}`
-          : single.chassisNumber;
-      }
+      // 4. Default to the configured chassis option (e.g. "Saify", "Sridevi", "TVS")
+      const single = masterOptions[0];
+      return single.partDescription
+        ? `${single.chassisNumber} — ${single.partDescription}`
+        : single.chassisNumber;
     }
 
     // CASE B: Form does NOT have configured chassis in form.chassisNumbers (e.g. unit ID forms)
@@ -4848,6 +4837,7 @@ export default function FormAnalyticsDashboard({
     try {
       const currentBatchId = searchParams.get("batchId");
       const isUploadOnly = searchParams.get("uploadOnly") === "true";
+      const currentUnits = searchParams.get("units") || searchParams.get("identificationNumber") || searchParams.get("chassisNumber");
       const responsesData = await apiClient.getAllFormResponses(id, {
         analytics: true,
         forceNetwork: false,
@@ -4894,6 +4884,7 @@ export default function FormAnalyticsDashboard({
     try {
       const currentBatchId = searchParams.get("batchId");
       const isUploadOnly = searchParams.get("uploadOnly") === "true";
+      const currentUnits = searchParams.get("units") || searchParams.get("identificationNumber") || searchParams.get("chassisNumber");
       const data = await apiClient.getFormResponses(id, {
         page: page,
         limit: responsesPageSize,
@@ -5076,10 +5067,36 @@ export default function FormAnalyticsDashboard({
   // ensure we fetch specifically that batch or reload when params change.
   const urlBatchId = searchParams.get("batchId");
   const urlUploadOnly = searchParams.get("uploadOnly");
+  const urlUnitsParam = searchParams.get("units");
+  const urlRangeStart = searchParams.get("rangeStart");
+  const urlRangeEnd = searchParams.get("rangeEnd");
+  const urlIdentification = searchParams.get("identification") || searchParams.get("identificationNumber");
+  const urlChassis = searchParams.get("chassis") || searchParams.get("chassisNumber");
+
+  const targetUnitsSet = useMemo(() => {
+    const set = new Set<string>();
+    if (urlUnitsParam) {
+      urlUnitsParam.split(",").forEach((u) => {
+        const tr = u.trim().toLowerCase();
+        if (tr) set.add(tr);
+      });
+    }
+    if (urlIdentification) {
+      const tr = urlIdentification.trim().toLowerCase();
+      if (tr) set.add(tr);
+    }
+    if (urlChassis) {
+      const tr = urlChassis.trim().toLowerCase();
+      if (tr) set.add(tr);
+    }
+    return set;
+  }, [urlUnitsParam, urlIdentification, urlChassis]);
+
   const lastBatchParamRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const batchKey = `${urlBatchId || ""}_${urlUploadOnly || ""}`;
+    const unitsKey = `${urlUnitsParam || ""}_${urlRangeStart || ""}_${urlRangeEnd || ""}_${urlIdentification || ""}_${urlChassis || ""}`;
+    const batchKey = `${urlBatchId || ""}_${urlUploadOnly || ""}_${unitsKey}`;
     if (activeTab === "responses" && id) {
       if (!loadedTabs.has("responses") || lastBatchParamRef.current !== batchKey) {
         lastBatchParamRef.current = batchKey;
@@ -5088,7 +5105,7 @@ export default function FormAnalyticsDashboard({
         setLoadedTabs((prev) => new Set(prev).add("responses"));
       }
     }
-  }, [activeTab, id, loadedTabs, urlBatchId, urlUploadOnly]);
+  }, [activeTab, id, loadedTabs, urlBatchId, urlUploadOnly, urlUnitsParam, urlRangeStart, urlRangeEnd, urlIdentification, urlChassis]);
 
   // Page / page-size changes on an already-loaded Responses tab re-fetch
   // from the server instead of re-slicing an in-memory array.
@@ -6676,6 +6693,39 @@ export default function FormAnalyticsDashboard({
   const filteredResponses = useMemo(() => {
     let result = baseFilteredResponses;
 
+    // 0. Filter by target identification / chassis units if specified in URL
+    if (targetUnitsSet.size > 0) {
+      result = result.filter((response) => {
+        const chResolved = getResponseChassisValue(response);
+        if (chResolved && chResolved !== "-" && targetUnitsSet.has(chResolved.toLowerCase())) return true;
+        if (response.chassisNumber && targetUnitsSet.has(String(response.chassisNumber).toLowerCase())) return true;
+        const chVal = response.answers?.chassis_number;
+        if (chVal) {
+          if (typeof chVal === "object") {
+            if (chVal.chassisNumber && targetUnitsSet.has(String(chVal.chassisNumber).toLowerCase())) return true;
+            if (chVal.partDescription && targetUnitsSet.has(String(chVal.partDescription).toLowerCase())) return true;
+          } else if (targetUnitsSet.has(String(chVal).toLowerCase())) {
+            return true;
+          }
+        }
+        if (response.answers) {
+          for (const [key, val] of Object.entries(response.answers)) {
+            if (val === null || val === undefined) continue;
+            if (typeof val === "object") {
+              const valStr = JSON.stringify(val).toLowerCase();
+              for (const u of targetUnitsSet) {
+                if (valStr.includes(u)) return true;
+              }
+            } else {
+              const strVal = String(val).toLowerCase();
+              if (targetUnitsSet.has(strVal)) return true;
+            }
+          }
+        }
+        return false;
+      });
+    }
+
     // 1. Global Date Filter
     if (dateFilter.type !== "all") {
       result = result.filter((response) => {
@@ -6764,11 +6814,11 @@ export default function FormAnalyticsDashboard({
     }
 
     return result;
-  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, deferredSearchTerm, responseStatuses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet]);
+  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, deferredSearchTerm, responseStatuses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet, targetUnitsSet]);
 
   useEffect(() => {
     setResponsesPage(1);
-  }, [dateFilter, selectedInspectorForTrend, id, responsesSearchTerm, columnFilters, tableSort]);
+  }, [dateFilter, selectedInspectorForTrend, id, responsesSearchTerm, columnFilters, tableSort, targetUnitsSet]);
 
   // Check if any client-side filters (column filters, search term, date, or inspector) or sort are active
   const hasActiveFiltersOrSort = useMemo(() => {
@@ -6777,9 +6827,10 @@ export default function FormAnalyticsDashboard({
       responsesSearchTerm.trim() !== "" ||
       dateFilter.type !== "all" ||
       selectedInspectorForTrend !== "Overall" ||
-      tableSort !== null
+      tableSort !== null ||
+      targetUnitsSet.size > 0
     );
-  }, [columnFilters, responsesSearchTerm, dateFilter, selectedInspectorForTrend, tableSort]);
+  }, [columnFilters, responsesSearchTerm, dateFilter, selectedInspectorForTrend, tableSort, targetUnitsSet]);
 
   // Sort helper function that handles natural alphanumeric sorting
   const sortResponses = (list: Response[]) => {
@@ -6907,6 +6958,39 @@ export default function FormAnalyticsDashboard({
     }
 
     let result = tableResponses;
+
+    if (targetUnitsSet.size > 0) {
+      result = result.filter((response) => {
+        const chResolved = getResponseChassisValue(response);
+        if (chResolved && chResolved !== "-" && targetUnitsSet.has(chResolved.toLowerCase())) return true;
+        if (response.chassisNumber && targetUnitsSet.has(String(response.chassisNumber).toLowerCase())) return true;
+        const chVal = response.answers?.chassis_number;
+        if (chVal) {
+          if (typeof chVal === "object") {
+            if (chVal.chassisNumber && targetUnitsSet.has(String(chVal.chassisNumber).toLowerCase())) return true;
+            if (chVal.partDescription && targetUnitsSet.has(String(chVal.partDescription).toLowerCase())) return true;
+          } else if (targetUnitsSet.has(String(chVal).toLowerCase())) {
+            return true;
+          }
+        }
+        if (response.answers) {
+          for (const [key, val] of Object.entries(response.answers)) {
+            if (val === null || val === undefined) continue;
+            if (typeof val === "object") {
+              const valStr = JSON.stringify(val).toLowerCase();
+              for (const u of targetUnitsSet) {
+                if (valStr.includes(u)) return true;
+              }
+            } else {
+              const strVal = String(val).toLowerCase();
+              if (targetUnitsSet.has(strVal)) return true;
+            }
+          }
+        }
+        return false;
+      });
+    }
+
     const activeColumnFilters = Object.entries(columnFilters).filter(
       ([_, values]) => values && values.length > 0,
     );
@@ -6925,7 +7009,7 @@ export default function FormAnalyticsDashboard({
     }
 
     return result;
-  }, [hasActiveFiltersOrSort, responses, sortedFilteredResponses, tableResponses, columnFilters, currentResponsesPage, responsesPageSize, chassisAttemptRanks, tableDisplayStatuses, responseStatuses, chassisQuestionId, tableSort]);
+  }, [hasActiveFiltersOrSort, responses, sortedFilteredResponses, tableResponses, columnFilters, currentResponsesPage, responsesPageSize, chassisAttemptRanks, tableDisplayStatuses, responseStatuses, chassisQuestionId, tableSort, targetUnitsSet]);
 
   // Fetch TVS reviews for visible table responses when server-paginated
   useEffect(() => {
@@ -13183,6 +13267,48 @@ export default function FormAnalyticsDashboard({
                 </div>
               )}
 
+              {/* Active Identification / Chassis Range Filter Banner */}
+              {(targetUnitsSet.size > 0 || urlRangeStart || urlIdentification || urlChassis) && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-indigo-900 dark:text-indigo-200 shadow-sm animate-fadeIn">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-xl">🎯</span>
+                    <div>
+                      <p className="text-xs sm:text-sm font-bold flex flex-wrap items-center gap-2">
+                        <span>Filtered to Identification / Chassis:</span>
+                        <span className="font-mono text-[11px] bg-indigo-100 dark:bg-indigo-900/60 px-2 py-0.5 rounded text-indigo-800 dark:text-indigo-300 font-semibold border border-indigo-200 dark:border-indigo-700">
+                          {urlRangeStart && urlRangeEnd
+                            ? `${urlRangeStart} → ${urlRangeEnd}`
+                            : (urlIdentification || urlChassis || urlUnitsParam)}
+                        </span>
+                        <span className="text-xs text-indigo-700 dark:text-indigo-300 font-normal">
+                          ({filteredResponses.length} records matching)
+                        </span>
+                      </p>
+                      <p className="text-[11px] text-indigo-600 dark:text-indigo-400">
+                        Showing only responses matching this identification or chassis range. Click "Show All Form Responses" to view complete history.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const nextParams = new URLSearchParams(searchParams);
+                      nextParams.delete("units");
+                      nextParams.delete("rangeStart");
+                      nextParams.delete("rangeEnd");
+                      nextParams.delete("identification");
+                      nextParams.delete("identificationNumber");
+                      nextParams.delete("chassis");
+                      nextParams.delete("chassisNumber");
+                      navigate(`/forms/${id}/analytics?${nextParams.toString()}`);
+                    }}
+                    className="shrink-0 px-3 py-1.5 text-xs font-semibold bg-white dark:bg-gray-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 rounded-lg shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer self-start sm:self-center"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Show All Form Responses</span>
+                  </button>
+                </div>
+              )}
+
               <div className="card p-3 sm:p-6">
                 <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex flex-col">
@@ -14675,7 +14801,7 @@ export default function FormAnalyticsDashboard({
                                         .filter(Boolean);
 
                                       // If no review has been performed yet
-                                      if (!status && !remark && flaggedCategories.length === 0) {
+                                      if (!status && !remark) {
                                         return (
                                           <div
                                             onClick={(e) => {
@@ -15013,20 +15139,16 @@ export default function FormAnalyticsDashboard({
                                       const isSaving = biwSavingResponseId === response.id;
                                       const isEligible = isBiwEligibleResponse(response);
 
-                                      // Extract BIW flagged categories
-                                      const biwFlaggedCategories: string[] = (
-                                        Array.isArray(response.biwReview?.flaggedQuestions) && response.biwReview.flaggedQuestions.length > 0
-                                          ? response.biwReview.flaggedQuestions
-                                          : Array.isArray((response as any).review?.flaggedQuestions) && (response as any).review.flaggedQuestions.length > 0
-                                          ? (response as any).review.flaggedQuestions
-                                          : Array.isArray((response as any).review?.questionContexts) && (response as any).review.questionContexts.length > 0
-                                          ? (response as any).review.questionContexts
-                                          : Array.isArray((response as any).tvsReview?.flaggedQuestions) && (response as any).tvsReview.flaggedQuestions.length > 0
-                                          ? (response as any).tvsReview.flaggedQuestions
-                                          : []
-                                      )
-                                        .map((q: any) => typeof q === "object" ? (q.questionText || q.title || q.text || q.questionId) : String(q))
-                                        .filter((s): s is string => Boolean(s && s.trim()));
+                                      // Extract BIW flagged categories (strictly from biwReview only)
+                                       const biwFlaggedCategories: string[] = (
+                                         Array.isArray(response.biwReview?.flaggedQuestions) && response.biwReview.flaggedQuestions.length > 0
+                                           ? response.biwReview.flaggedQuestions
+                                           : Array.isArray(response.biwReview?.defects) && response.biwReview.defects.length > 0
+                                           ? response.biwReview.defects
+                                           : []
+                                       )
+                                         .map((q: any) => typeof q === "object" ? (q.questionText || q.title || q.text || q.questionId) : String(q))
+                                         .filter((s): s is string => Boolean(s && s.trim()));
 
                                       // ❌ Rework responses do not receive BIW review:
                                       // Only "Direct Ok", "Accepted", and "Rework Accepted" can receive BIW review.
@@ -15172,7 +15294,7 @@ export default function FormAnalyticsDashboard({
                                           )}
 
                                           {/* Eye icon: view modal showing BIW remark/questions/evidence and discussion */}
-                                          {Boolean(currentStatus || response.biwReview?.remark || response.biwReview?.reviewedBy || biwFlaggedCategories.length > 0) && (
+                                          {Boolean(currentStatus || response.biwReview?.remark || response.biwReview?.reviewedBy) && (
                                             <div className="flex flex-col gap-1 border-t border-gray-200 dark:border-gray-700 pt-1.5 mt-0.5">
                                               <button
                                                 type="button"

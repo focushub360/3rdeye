@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, X, Check } from "lucide-react";
+import { Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, X, Check, SlidersHorizontal, ListFilter } from "lucide-react";
 
 interface TableColumnFilterProps {
   columnId: string;
@@ -21,10 +21,15 @@ export default function TableColumnFilter({
   onSortChange,
 }: TableColumnFilterProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [filterMode, setFilterMode] = useState<"list" | "range">("list");
   const [searchTerm, setSearchTerm] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+
+  // Range filter inputs
+  const [rangeStart, setRangeStart] = useState<string>("");
+  const [rangeEnd, setRangeEnd] = useState<string>("");
 
   // Local draft state for lightning fast 0ms UI interaction without parent re-render lag
   const [draftSelectedValues, setDraftSelectedValues] = useState<string[] | null>(selectedValues);
@@ -40,7 +45,7 @@ export default function TableColumnFilter({
     if (isOpen && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       const idealLeft = rect.right + window.scrollX - 270;
-      const safeLeft = Math.max(16, Math.min(idealLeft, window.innerWidth - 290));
+      const safeLeft = Math.max(16, Math.min(idealLeft, window.innerWidth - 300));
       setDropdownPosition({
         top: rect.bottom + window.scrollY + 8,
         left: safeLeft,
@@ -57,7 +62,7 @@ export default function TableColumnFilter({
         !buttonRef.current.contains(event.target as Node)
       ) {
         // Apply draft changes on close if modified
-        if (isOpen && draftSelectedValues !== selectedValues) {
+        if (isOpen && draftSelectedValues !== selectedValues && filterMode === "list") {
           onFilterChange(columnId, draftSelectedValues);
         }
         setIsOpen(false);
@@ -71,9 +76,9 @@ export default function TableColumnFilter({
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isOpen, draftSelectedValues, selectedValues, columnId, onFilterChange]);
+  }, [isOpen, draftSelectedValues, selectedValues, columnId, onFilterChange, filterMode]);
 
-  // Orderly natural sort of options (numeric-aware: 1031 < 1032 < 1103)
+  // Orderly natural sort of options (numeric-aware: 1031 < 1032 < 1103, Sep26-KRT-01 < Sep26-KRT-02)
   const sortedOptions = useMemo(() => {
     return [...options].sort((a, b) => {
       const strA = String(a ?? "");
@@ -83,6 +88,18 @@ export default function TableColumnFilter({
       return strA.localeCompare(strB, undefined, { numeric: true, sensitivity: "base" });
     });
   }, [options]);
+
+  const cleanOptions = useMemo(() => {
+    return sortedOptions.filter((o) => o !== undefined && o !== null && String(o).trim() !== "");
+  }, [sortedOptions]);
+
+  // Initialize range defaults when opened
+  useEffect(() => {
+    if (isOpen && cleanOptions.length > 0) {
+      if (!rangeStart) setRangeStart(cleanOptions[0]);
+      if (!rangeEnd) setRangeEnd(cleanOptions[cleanOptions.length - 1]);
+    }
+  }, [isOpen, cleanOptions]);
 
   const filteredOptions = useMemo(() => {
     if (!searchTerm.trim()) return sortedOptions;
@@ -126,10 +143,8 @@ export default function TableColumnFilter({
 
     if (draftSelectedValues === null) {
       if (searchTerm.trim()) {
-        // User searched for something and clicked a specific result -> select ONLY that option
         newValues = [option];
       } else {
-        // No search: unchecking this one option from the full set
         newValues = options.filter((o) => o !== option);
       }
     } else {
@@ -162,7 +177,6 @@ export default function TableColumnFilter({
   const toggleSelectAll = () => {
     if (searchTerm.trim()) {
       if (isAllFilteredSelected) {
-        // Unselect all matching search items
         if (draftSelectedValues === null) {
           const matchingSet = new Set(filteredOptions);
           const newValues = options.filter((o) => !matchingSet.has(o));
@@ -175,7 +189,6 @@ export default function TableColumnFilter({
           onFilterChange(columnId, newValues);
         }
       } else {
-        // Select all matching search items
         if (draftSelectedValues === null) {
           setDraftSelectedValues(filteredOptions);
           onFilterChange(columnId, filteredOptions);
@@ -201,8 +214,35 @@ export default function TableColumnFilter({
     }
   };
 
+  // Range calculation from sorted clean options
+  const rangeSlice = useMemo(() => {
+    if (!rangeStart && !rangeEnd) return [];
+    if (!rangeStart) return [rangeEnd];
+    if (!rangeEnd) return [rangeStart];
+
+    const idxA = cleanOptions.indexOf(rangeStart);
+    const idxB = cleanOptions.indexOf(rangeEnd);
+
+    if (idxA !== -1 && idxB !== -1) {
+      const minIdx = Math.min(idxA, idxB);
+      const maxIdx = Math.max(idxA, idxB);
+      return cleanOptions.slice(minIdx, maxIdx + 1);
+    }
+    return [rangeStart, rangeEnd];
+  }, [cleanOptions, rangeStart, rangeEnd]);
+
+  const handleApplyRange = () => {
+    if (rangeSlice.length > 0) {
+      onFilterChange(columnId, rangeSlice);
+    }
+    setIsOpen(false);
+  };
+
   const handleApplyDone = () => {
-    // If user typed in search and hasn't explicitly filtered yet, apply the search results!
+    if (filterMode === "range") {
+      handleApplyRange();
+      return;
+    }
     if (searchTerm.trim() && draftSelectedValues === null && filteredOptions.length > 0) {
       setDraftSelectedValues(filteredOptions);
       onFilterChange(columnId, filteredOptions);
@@ -277,7 +317,7 @@ export default function TableColumnFilter({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="fixed w-72 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 z-[9999] overflow-hidden animate-in fade-in zoom-in-95 duration-100"
+          className="fixed w-80 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 z-[9999] overflow-hidden animate-in fade-in zoom-in-95 duration-100"
           style={{
             top: `${dropdownPosition.top}px`,
             left: `${dropdownPosition.left}px`,
@@ -294,134 +334,220 @@ export default function TableColumnFilter({
             </span>
           </div>
 
-          {/* Search Box */}
-          <div className="p-2 border-b border-gray-200 dark:border-gray-700">
-            <div className="relative">
-              <input
-                type="text"
-                placeholder={`Search ${title.toLowerCase()}... (Press Enter)`}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    if (filteredOptions.length > 0) {
-                      onFilterChange(columnId, filteredOptions);
-                    }
-                    setIsOpen(false);
-                  }
-                }}
-                className="w-full pl-8 pr-7 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                autoFocus
-              />
-              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-              {searchTerm && (
-                <button
-                  onClick={() => setSearchTerm("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            {/* Quick action buttons when searching */}
-            {searchTerm.trim() && (
-              <div className="flex items-center justify-between gap-1 mt-1.5 pt-1.5 border-t border-gray-100 dark:border-gray-700/60">
-                <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">
-                  {filteredOptions.length} match{filteredOptions.length === 1 ? "" : "es"}
-                </span>
-                {filteredOptions.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleSelectOnlySearchResults}
-                    className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors"
-                  >
-                    Select Only Results ({filteredOptions.length})
-                  </button>
-                )}
-              </div>
-            )}
+          {/* Mode Switcher Tabs: List Selection vs Range [Start -> End] */}
+          <div className="flex border-b border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-850 p-1 gap-1">
+            <button
+              type="button"
+              onClick={() => setFilterMode("list")}
+              className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+                filterMode === "list"
+                  ? "bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-xs border border-gray-200 dark:border-gray-600"
+                  : "text-gray-500 hover:text-gray-700 dark:text-gray-400"
+              }`}
+            >
+              <ListFilter size={13} />
+              <span>List Mode</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterMode("range")}
+              className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+                filterMode === "range"
+                  ? "bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-xs border border-gray-200 dark:border-gray-600"
+                  : "text-gray-500 hover:text-gray-700 dark:text-gray-400"
+              }`}
+            >
+              <SlidersHorizontal size={13} />
+              <span>Range [Start &rarr; End]</span>
+            </button>
           </div>
 
-          {/* Options List */}
-          <div className="max-h-60 overflow-y-auto p-1.5 scrollbar-thin">
-            <div
-              className="flex items-center justify-between px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700/60 rounded-md cursor-pointer mb-1 border-b border-gray-100 dark:border-gray-700/50"
-              onClick={toggleSelectAll}
-            >
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={isAllFilteredSelected}
-                  ref={(input) => {
-                    if (input) input.indeterminate = isSomeFilteredSelected;
-                  }}
-                  readOnly
-                  className="w-3.5 h-3.5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 pointer-events-none"
-                />
-                <span className="ml-2 text-xs text-gray-700 dark:text-gray-200 font-bold">
-                  {searchTerm.trim() ? "(Select All Results)" : "(Select All)"}
+          {/* Mode 1: Range [Start -> End] View */}
+          {filterMode === "range" ? (
+            <div className="p-3 space-y-3">
+              <div className="p-2.5 rounded-lg bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 text-indigo-900 dark:text-indigo-200 text-xs">
+                Select start and end unit to filter this column across the exact range sequence.
+              </div>
+
+              {/* Start Unit Selector */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide block">
+                  Start Unit:
+                </label>
+                <select
+                  value={rangeStart}
+                  onChange={(e) => setRangeStart(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs font-mono font-semibold rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                >
+                  {cleanOptions.map((opt, idx) => (
+                    <option key={idx} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* End Unit Selector */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide block">
+                  End Unit:
+                </label>
+                <select
+                  value={rangeEnd}
+                  onChange={(e) => setRangeEnd(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs font-mono font-semibold rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                >
+                  {cleanOptions.map((opt, idx) => (
+                    <option key={idx} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Range Preview Card */}
+              <div className="p-2 rounded-lg bg-gray-50 dark:bg-gray-750 border border-gray-200 dark:border-gray-700 text-xs flex items-center justify-between">
+                <span className="font-semibold text-gray-600 dark:text-gray-300">
+                  {rangeSlice.length} record{rangeSlice.length === 1 ? "" : "s"} in range
+                </span>
+                <span className="font-mono text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+                  {rangeStart || "-"} &rarr; {rangeEnd || "-"}
                 </span>
               </div>
-              <span className="text-[10px] text-gray-400 font-medium">
-                {filteredOptions.length}
-              </span>
             </div>
-
-            {filteredOptions.length > 0 ? (
-              <>
-                {displayedOptions.map((option) => {
-                  const selected = isOptionSelected(option);
-                  return (
-                    <div
-                      key={option}
-                      className={`group flex items-center justify-between px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700/60 rounded cursor-pointer transition-colors ${
-                        selected ? "bg-indigo-50/40 dark:bg-indigo-950/20" : ""
-                      }`}
-                      onClick={() => toggleOption(option)}
+          ) : (
+            /* Mode 2: Standard List Filter */
+            <>
+              {/* Search Box */}
+              <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder={`Search ${title.toLowerCase()}... (Press Enter)`}
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (filteredOptions.length > 0) {
+                          onFilterChange(columnId, filteredOptions);
+                        }
+                        setIsOpen(false);
+                      }
+                    }}
+                    className="w-full pl-8 pr-7 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                    autoFocus
+                  />
+                  <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  {searchTerm && (
+                    <button
+                      onClick={() => setSearchTerm("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
                     >
-                      <div className="flex items-center min-w-0 flex-1 mr-2">
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          onChange={() => {}}
-                          className="w-3.5 h-3.5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 pointer-events-none shrink-0"
-                        />
-                        <span
-                          className={`ml-2 text-xs truncate ${
-                            selected
-                              ? "text-gray-900 dark:text-white font-semibold"
-                              : "text-gray-600 dark:text-gray-400"
-                          }`}
-                          title={option}
-                        >
-                          {option === "" ? "(Blanks)" : option}
-                        </span>
-                      </div>
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Quick action buttons when searching */}
+                {searchTerm.trim() && (
+                  <div className="flex items-center justify-between gap-1 mt-1.5 pt-1.5 border-t border-gray-100 dark:border-gray-700/60">
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">
+                      {filteredOptions.length} match{filteredOptions.length === 1 ? "" : "es"}
+                    </span>
+                    {filteredOptions.length > 0 && (
                       <button
                         type="button"
-                        onClick={(e) => handleSelectOnly(option, e)}
-                        className="opacity-0 group-hover:opacity-100 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline px-1 py-0.5 rounded transition-opacity shrink-0"
-                        title={`Select only "${option}"`}
+                        onClick={handleSelectOnlySearchResults}
+                        className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors"
                       >
-                        Only
+                        Select Only Results ({filteredOptions.length})
                       </button>
-                    </div>
-                  );
-                })}
-                {filteredOptions.length > DISPLAY_LIMIT && (
-                  <div className="px-2 py-2 text-center text-[10px] text-gray-400 italic bg-gray-50 dark:bg-gray-800/50 rounded mt-1 border border-gray-100 dark:border-gray-700">
-                    Showing first {DISPLAY_LIMIT} of {filteredOptions.length} matches. Type in search to refine.
+                    )}
                   </div>
                 )}
-              </>
-            ) : (
-              <div className="px-2 py-4 text-center text-xs text-gray-500 dark:text-gray-400">
-                No matching options found
               </div>
-            )}
-          </div>
+
+              {/* Options List */}
+              <div className="max-h-60 overflow-y-auto p-1.5 scrollbar-thin">
+                <div
+                  className="flex items-center justify-between px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700/60 rounded-md cursor-pointer mb-1 border-b border-gray-100 dark:border-gray-700/50"
+                  onClick={toggleSelectAll}
+                >
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={isAllFilteredSelected}
+                      ref={(input) => {
+                        if (input) input.indeterminate = isSomeFilteredSelected;
+                      }}
+                      readOnly
+                      className="w-3.5 h-3.5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 pointer-events-none"
+                    />
+                    <span className="ml-2 text-xs text-gray-700 dark:text-gray-200 font-bold">
+                      {searchTerm.trim() ? "(Select All Results)" : "(Select All)"}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-gray-400 font-medium">
+                    {filteredOptions.length}
+                  </span>
+                </div>
+
+                {filteredOptions.length > 0 ? (
+                  <>
+                    {displayedOptions.map((option) => {
+                      const selected = isOptionSelected(option);
+                      return (
+                        <div
+                          key={option}
+                          className={`group flex items-center justify-between px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700/60 rounded cursor-pointer transition-colors ${
+                            selected ? "bg-indigo-50/40 dark:bg-indigo-950/20" : ""
+                          }`}
+                          onClick={() => toggleOption(option)}
+                        >
+                          <div className="flex items-center min-w-0 flex-1 mr-2">
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => {}}
+                              className="w-3.5 h-3.5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 pointer-events-none shrink-0"
+                            />
+                            <span
+                              className={`ml-2 text-xs truncate ${
+                                selected
+                                  ? "text-gray-900 dark:text-white font-semibold"
+                                  : "text-gray-600 dark:text-gray-400"
+                              }`}
+                              title={option}
+                            >
+                              {option === "" ? "(Blanks)" : option}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => handleSelectOnly(option, e)}
+                            className="opacity-0 group-hover:opacity-100 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline px-1 py-0.5 rounded transition-opacity shrink-0"
+                            title={`Select only "${option}"`}
+                          >
+                            Only
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {filteredOptions.length > DISPLAY_LIMIT && (
+                      <div className="px-2 py-2 text-center text-[10px] text-gray-400 italic bg-gray-50 dark:bg-gray-800/50 rounded mt-1 border border-gray-100 dark:border-gray-700">
+                        Showing first {DISPLAY_LIMIT} of {filteredOptions.length} matches. Type in search to refine.
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="px-2 py-4 text-center text-xs text-gray-500 dark:text-gray-400">
+                    No matching options found
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Actions */}
           <div className="p-2 bg-gray-50 dark:bg-gray-800/80 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
@@ -440,7 +566,7 @@ export default function TableColumnFilter({
               className="px-3 py-1 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors flex items-center gap-1"
             >
               <Check className="w-3.5 h-3.5" />
-              Done
+              {filterMode === "range" ? "Apply Range" : "Done"}
             </button>
           </div>
         </div>

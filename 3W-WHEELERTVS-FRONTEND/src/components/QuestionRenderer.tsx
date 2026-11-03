@@ -1340,6 +1340,9 @@ export default function QuestionRenderer({
               readOnly={readOnly}
               error={!!error}
               isApplied={isApplied}
+              formId={formId}
+              tenantSlug={tenantSlug}
+              availableIdentificationNumbers={previousAnswers}
             />
             {renderLoadingIndicator()}
             {renderNoMatchIndicator()}

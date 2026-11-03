@@ -21,6 +21,7 @@ import {
   getBiwSummary,
   bulkUpdateBiwReview,
   checkChassisExists,
+  getFormIdentificationNumbers,
   bulkImportBiwExcelReviews
 } from '../controllers/responseController.js';
 import { getReviewsForResponse, getBulkReviewsForResponses } from '../controllers/userController.js';
@@ -162,6 +163,8 @@ router.post('/:formId', authenticateOptional, createResponse);
 router.post('/', authenticateOptional, createResponse);
 
 // 7. CHECK CHASSIS EXISTS (PUBLIC)
+router.get('/form/:formId/identification-numbers', getFormIdentificationNumbers);
+router.get('/:tenantSlug/forms/:formId/identification-numbers', getFormIdentificationNumbers);
 router.get('/check-chassis', checkChassisExists);
 router.get('/:tenantSlug/forms/:formId/check-chassis', checkChassisExists);
 

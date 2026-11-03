@@ -1176,8 +1176,18 @@ class ApiClient {
       forceNetwork?: boolean;
       batchId?: string;
       uploadOnly?: boolean;
+      units?: string;
+      identificationNumber?: string;
+      chassisNumber?: string;
+      rangeStart?: string;
+      rangeEnd?: string;
       startDate?: string;
       endDate?: string;
+      units?: string;
+      identificationNumber?: string;
+      chassisNumber?: string;
+      rangeStart?: string;
+      rangeEnd?: string;
     },
   ) {
     const query = new URLSearchParams();
@@ -1190,6 +1200,11 @@ class ApiClient {
     if (options?.uploadOnly) query.set("uploadOnly", "true");
     if (options?.startDate) query.set("startDate", options.startDate);
     if (options?.endDate) query.set("endDate", options.endDate);
+    if (options?.units) query.set("units", options.units);
+    if (options?.identificationNumber) query.set("identificationNumber", options.identificationNumber);
+    if (options?.chassisNumber) query.set("chassisNumber", options.chassisNumber);
+    if (options?.rangeStart) query.set("rangeStart", options.rangeStart);
+    if (options?.rangeEnd) query.set("rangeEnd", options.rangeEnd);
 
     const queryString = query.toString() ? `?${query.toString()}` : "";
     // Analytics requests are now paginated (500 rows/page) instead of
@@ -1854,6 +1869,40 @@ class ApiClient {
     } catch (err) {
       console.warn('[checkChassisExists] Request failed:', err);
       return { exists: false, count: 0, chassisNumber };
+    }
+  }
+
+  async getFormIdentificationNumbers(
+    formId: string,
+    tenantSlug?: string
+  ): Promise<{
+    success: boolean;
+    count: number;
+    data: string[];
+    identificationNumbers: string[];
+  }> {
+    const endpoint = tenantSlug
+      ? `/responses/${tenantSlug}/forms/${formId}/identification-numbers`
+      : `/responses/form/${formId}/identification-numbers`;
+
+    try {
+      const response = await this.request<{
+        success: boolean;
+        count: number;
+        data: string[];
+        identificationNumbers: string[];
+      }>(endpoint, { forceNetwork: true });
+
+      const list = response?.data || response?.identificationNumbers || [];
+      return {
+        success: true,
+        count: list.length,
+        data: list,
+        identificationNumbers: list,
+      };
+    } catch (err) {
+      console.warn('[getFormIdentificationNumbers] Request failed:', err);
+      return { success: false, count: 0, data: [], identificationNumbers: [] };
     }
   }
 
@@ -3603,6 +3652,11 @@ class ApiClient {
       endDate?: string;
       batchId?: string;
       uploadOnly?: boolean;
+      units?: string;
+      identificationNumber?: string;
+      chassisNumber?: string;
+      rangeStart?: string;
+      rangeEnd?: string;
       // Called after each page is fetched, with just that page's rows plus
       // running progress. Lets callers (e.g. the analytics dashboard)
       // render/merge data incrementally instead of waiting for every page
@@ -3635,6 +3689,11 @@ class ApiClient {
       endDate: options?.endDate,
       batchId: options?.batchId,
       uploadOnly: options?.uploadOnly,
+      units: options?.units,
+      identificationNumber: options?.identificationNumber,
+      chassisNumber: options?.chassisNumber,
+      rangeStart: options?.rangeStart,
+      rangeEnd: options?.rangeEnd,
     });
 
     const firstPageResponses = firstResult.responses || [];
@@ -3744,6 +3803,11 @@ class ApiClient {
       endDate?: string;
       batchId?: string;
       uploadOnly?: boolean;
+      units?: string;
+      identificationNumber?: string;
+      chassisNumber?: string;
+      rangeStart?: string;
+      rangeEnd?: string;
       forceNetwork?: boolean;
     },
   ): Promise<any[]> {

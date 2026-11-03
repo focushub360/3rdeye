@@ -2672,6 +2672,156 @@ export const checkChassisExists = async (req, res) => {
  * Used for real-time ranking display during form filling
  */
 
+/**
+ * Get distinct identification numbers / chassis sequence for a form
+ * Sourced directly from response records so range inputs and filters
+ * can slice exact sequences (e.g. Sep26-KRT-01 to Sep26-KRT-04).
+ */
+export const getFormIdentificationNumbers = async (req, res) => {
+  try {
+    const { formId: paramFormId, tenantSlug } = req.params;
+    const { formId: queryFormId } = req.query;
+    const formId = paramFormId || queryFormId;
+
+    if (!formId) {
+      return res.status(400).json({
+        success: false,
+        message: 'formId is required'
+      });
+    }
+
+    let form = await Form.findOne({ id: formId });
+    if (!form && mongoose.Types.ObjectId.isValid(formId)) {
+      form = await Form.findById(formId);
+    }
+    if (!form) {
+      form = await Form.findOne({ _id: formId });
+    }
+    if (!form) {
+      return res.status(404).json({
+        success: false,
+        message: 'Form not found'
+      });
+    }
+
+    const formIds = getThisFormIds(form, formId);
+    const objIds = formIds.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
+    const allFormIds = [...formIds, ...objIds];
+
+    // Fetch responses for this form selecting chassisNumber, answers, and createdAt
+    const responses = await Response.find({
+      $or: [
+        { questionId: { $in: allFormIds } },
+        { formId: { $in: allFormIds } }
+      ]
+    })
+      .select('chassisNumber answers createdAt')
+      .sort({ createdAt: 1 })
+      .lean();
+
+    const idQuestionKeys = new Set();
+    if (form.sections) {
+      form.sections.forEach(s => {
+        (s.questions || []).forEach(q => {
+          const t = (q.text || '').toLowerCase();
+          if (
+            q.type === 'range' ||
+            q.type === 'chassis' ||
+            q.type === 'chassisWithZone' ||
+            q.type === 'chassisWithoutZone' ||
+            q.trackResponseRank ||
+            t.includes('chassis') ||
+            t.includes('identification') ||
+            t.includes('id number') ||
+            t.includes('vin')
+          ) {
+            if (q.id) idQuestionKeys.add(q.id);
+            if (q._id) idQuestionKeys.add(String(q._id));
+          }
+        });
+      });
+    }
+
+    const commonKeys = [
+      'chassis_number', 'chassisNumber', 'chassis', 'Chassis',
+      'id_number', 'idNumber', 'ID number', 'ID NUMBER', 'Id Number',
+      'Identification Number', 'identification_number', 'identificationNumber',
+      'Chassis / VIN', 'Chassis Number', 'VIN', 'vin'
+    ];
+
+    const seen = new Set();
+    const orderedList = [];
+
+    const addClean = (val) => {
+      if (!val && val !== 0) return;
+      let str = '';
+      if (typeof val === 'object') {
+        const candidate = val.chassisNumber || val.value || val.label || val.id;
+        if (candidate) str = String(candidate).trim();
+      } else {
+        str = String(val).trim();
+      }
+      if (
+        str &&
+        str !== '-' &&
+        str !== 'N/A' &&
+        str !== 'undefined' &&
+        str !== 'null' &&
+        str !== 'No response' &&
+        !str.startsWith('data:image') &&
+        !str.startsWith('{')
+      ) {
+        if (!seen.has(str)) {
+          seen.add(str);
+          orderedList.push(str);
+        }
+      }
+    };
+
+    responses.forEach(r => {
+      if (r.chassisNumber) addClean(r.chassisNumber);
+      if (r.answers) {
+        const ansObj = r.answers instanceof Map ? Object.fromEntries(r.answers) : (r.answers || {});
+        for (const [k, v] of Object.entries(ansObj)) {
+          const kLower = k.toLowerCase();
+          if (
+            idQuestionKeys.has(k) ||
+            commonKeys.some(ck => ck.toLowerCase() === kLower) ||
+            kLower.includes('identification') ||
+            kLower.includes('chassis') ||
+            kLower.includes('id number') ||
+            kLower.includes('id_number') ||
+            kLower.includes('vin')
+          ) {
+            addClean(v);
+          }
+        }
+      }
+    });
+
+    if (Array.isArray(form.chassisNumbers)) {
+      form.chassisNumbers.forEach(c => {
+        const str = typeof c === 'string' ? c : (c.chassisNumber || c.name);
+        addClean(str);
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      count: orderedList.length,
+      data: orderedList,
+      identificationNumbers: orderedList
+    });
+  } catch (error) {
+    console.error('Error fetching form identification numbers:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch form identification numbers',
+      error: error.message
+    });
+  }
+};
+
 export const getRank = async (req, res) => {
   try {
     const { formId, questionId, answer } = req.query;
@@ -5127,11 +5277,12 @@ export const getResponsesByForm = async (req, res) => {
             ? message.questionTitles
             : (existingReview.flaggedQuestions || []));
 
-      // Attach review info
-      const reviewInfo = (reviewStatus || chatMsg || flaggedQuestions.length > 0) ? {
+      // Attach review info strictly when a legitimate review or message exists
+      const hasRealReview = Boolean(reviewStatus || chatMsg || (reviewerName && (existingReview.reviewedBy || existingReview.reviewerId)));
+      const reviewInfo = hasRealReview ? {
         status: reviewStatus,
         reviewer: reviewerName || 'Reviewer',
-        flaggedQuestions,
+        flaggedQuestions: reviewStatus ? flaggedQuestions : [],
         message: chatMsg,
         chatStatus: chatStatus,
         messageCreatedAt: message?.createdAt || existingReview.createdAt || null,
