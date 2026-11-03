@@ -2938,12 +2938,30 @@ export const getRank = async (req, res) => {
       trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase()
     ]));
 
-    // ⚡ FAST PATH (Indexed): Search chassisNumber directly (<10ms)
+    // ⚡ FAST PATH: Match either chassisNumber or answers for this question within THIS form
+    const answerConditions = [
+      { chassisNumber: { $in: possibleStrings } }
+    ];
+    if (questionId) {
+      answerConditions.push({ [`answers.${questionId}`]: { $in: possibleStrings } });
+      answerConditions.push({ [`answers._${questionId}`]: { $in: possibleStrings } });
+      answerConditions.push({ [`answers.${questionId}.value`]: { $in: possibleStrings } });
+      answerConditions.push({ [`answers.${questionId}.chassisNumber`]: { $in: possibleStrings } });
+    }
+    if (trackingQId && trackingQId !== questionId) {
+      answerConditions.push({ [`answers.${trackingQId}`]: { $in: possibleStrings } });
+      answerConditions.push({ [`answers._${trackingQId}`]: { $in: possibleStrings } });
+      answerConditions.push({ [`answers.${trackingQId}.value`]: { $in: possibleStrings } });
+      answerConditions.push({ [`answers.${trackingQId}.chassisNumber`]: { $in: possibleStrings } });
+    }
+
     const fastQuery = {
-      chassisNumber: { $in: possibleStrings },
       $or: [
         { questionId: { $in: formIds } },
         { formId: { $in: formIds } }
+      ],
+      $and: [
+        { $or: answerConditions }
       ],
       isSectionSubmit: { $ne: true }
     };
