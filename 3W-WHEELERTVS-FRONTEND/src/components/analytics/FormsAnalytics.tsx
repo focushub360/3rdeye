@@ -509,7 +509,16 @@ export default function FormsAnalytics() {
   } = useForms(!isAnswerTemplateOpen);
 
   useEffect(() => {
-    refetchForms();
+    // Clear any stale local cache for /forms so fresh 15 forms and counts are loaded
+    try {
+      localStorage.removeItem("api_cache:/forms");
+      Object.keys(localStorage).forEach((k) => {
+        if (k.startsWith("api_cache:/forms")) {
+          localStorage.removeItem(k);
+        }
+      });
+    } catch (_) {}
+    refetchForms({ forceNetwork: true });
   }, [user?.tenantId]);
 
   const deleteMutation = useMutation((id: string) => apiClient.deleteForm(id), {

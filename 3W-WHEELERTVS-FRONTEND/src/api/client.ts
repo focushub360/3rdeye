@@ -486,7 +486,7 @@ class ApiClient {
 
         // Only persist lightweight items (e.g. form schemas, user profile, settings) to localStorage.
         // Skip heavy analytics and bulk response payloads to prevent 5MB quota exhaustion and main-thread serialization lag.
-        const isLargePayload = endpoint.includes("analytics=true") || endpoint.includes("/responses") || endpoint.includes("/bulk");
+        const isLargePayload = endpoint.includes("analytics=true") || endpoint.includes("/responses") || endpoint.includes("/bulk") || endpoint === "/forms" || endpoint.startsWith("/forms?");
         if (!isLargePayload) {
           try {
             localStorage.setItem(

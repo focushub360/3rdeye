@@ -705,7 +705,7 @@ export const QualityDashboard: React.FC = () => {
   const fetchSummary = async (forceNetwork = false) => {
     const sortedFormKey = [...selectedFormIds].sort().join(',');
     const cacheKey = `v15_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
-    const cached = getClientCachedData(cacheKey);
+    const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
 
     // ─── 0ms SWR Instant Loading: Render immediately from cache if available ────
     if (cached && !forceNetwork) {
@@ -900,6 +900,7 @@ export const QualityDashboard: React.FC = () => {
 
   const formButtonLabel = useMemo(() => {
     if (selectedFormIds.length === 0) {
+      if (loading && !data) return "All My Forms (Loading...)";
       return `All My Forms (${(data?.summary?.totalChecked || totalAllFormsInspections).toLocaleString()} Responses)`;
     }
     if (selectedFormIds.length === 1) {
@@ -968,7 +969,7 @@ export const QualityDashboard: React.FC = () => {
               <BarChart3 className="w-6 h-6 text-blue-600" />
               Quality & Performance Dashboard
             </h1>
-            <p className="text-sm text-gray-500">Live analytics across {data?.summary?.totalChecked || 0} inspections</p>
+            <p className="text-sm text-gray-500">Live analytics across {loading && !data ? '...' : (data?.summary?.totalChecked || 0).toLocaleString()} inspections</p>
           </div>
         </div>
 
