@@ -509,15 +509,6 @@ export default function FormsAnalytics() {
   } = useForms(!isAnswerTemplateOpen);
 
   useEffect(() => {
-    // Clear any stale local cache for /forms so fresh 15 forms and counts are loaded
-    try {
-      localStorage.removeItem("api_cache:/forms");
-      Object.keys(localStorage).forEach((k) => {
-        if (k.startsWith("api_cache:/forms")) {
-          localStorage.removeItem(k);
-        }
-      });
-    } catch (_) {}
     refetchForms({ forceNetwork: true });
   }, [user?.tenantId]);
 
@@ -1358,16 +1349,6 @@ export default function FormsAnalytics() {
     );
   }
 
-  if (isDataLoading) {
-    return (
-      <div className="p-6">
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-primary-600">Loading analytics...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="p-6 space-y-6">
@@ -1777,26 +1758,48 @@ export default function FormsAnalytics() {
         />
       </div>
 
-      {filteredForms.length === 0 ? (
-        <div className="text-center py-12 bg-white dark:bg-gray-900 rounded-lg border border-neutral-200 dark:border-gray-700">
-          <FileText className="w-12 h-12 text-primary-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-primary-600 mb-2">
-            {searchTerm
-              ? "No service forms found"
-              : "No service forms available"}
-          </h3>
-          <p className="text-primary-500 mb-6">
-            {searchTerm ? "Try adjusting your search criteria" : "You don't have permission to view any forms or no forms have been created yet."}
-          </p>
-          {!searchTerm && (userRole === 'admin' || userRole === 'superadmin' || canCreateServiceForm) && (
-            <button
-              onClick={() => navigate("/forms/create")}
-              className="btn-primary"
-            >
-              <PlusCircle className="w-4 h-4 mr-2" />
-              Create Your First Form            </button>
-          )}
+      {loading && forms.length > 0 && (
+        <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-50/80 border border-blue-200 text-blue-700 text-xs font-semibold rounded-lg animate-pulse shadow-2xs">
+          <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+          Syncing latest forms in background...
         </div>
+      )}
+
+      {filteredForms.length === 0 ? (
+        loading ? (
+          <div className="space-y-4 animate-pulse">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="card p-6 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                <div className="h-5 w-48 bg-gray-200 dark:bg-gray-700 rounded mb-3"></div>
+                <div className="h-3 w-72 bg-gray-100 dark:bg-gray-700/60 rounded mb-4"></div>
+                <div className="flex gap-2">
+                  <div className="h-8 w-20 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
+                  <div className="h-8 w-20 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12 bg-white dark:bg-gray-900 rounded-lg border border-neutral-200 dark:border-gray-700">
+            <FileText className="w-12 h-12 text-primary-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-primary-600 mb-2">
+              {searchTerm
+                ? "No service forms found"
+                : "No service forms available"}
+            </h3>
+            <p className="text-primary-500 mb-6">
+              {searchTerm ? "Try adjusting your search criteria" : "You don't have permission to view any forms or no forms have been created yet."}
+            </p>
+            {!searchTerm && (userRole === 'admin' || userRole === 'superadmin' || canCreateServiceForm) && (
+              <button
+                onClick={() => navigate("/forms/create")}
+                className="btn-primary"
+              >
+                <PlusCircle className="w-4 h-4 mr-2" />
+                Create Your First Form            </button>
+            )}
+          </div>
+        )
       ) : (
         <div className="space-y-6">
           {sortedGroupedForms.map(({ parent, children }) => {

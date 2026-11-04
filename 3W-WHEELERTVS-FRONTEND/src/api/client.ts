@@ -141,26 +141,44 @@ class ApiClient {
     } catch (_) { }
   }
 
+  private getTenantKey(): string {
+    try {
+      const userJson = typeof localStorage !== "undefined" ? localStorage.getItem("cached_user") : null;
+      if (userJson) {
+        const u = JSON.parse(userJson);
+        if (u.tenantId) return String(u.tenantId);
+        if (u.role) return String(u.role);
+      }
+    } catch (_) {}
+    return "global";
+  }
+
   public getCachedData<T>(endpoint: string): T | null {
-    const cacheKey = `api_cache:${endpoint}`;
+    const tenantKey = this.getTenantKey();
+    const cacheKey = `api_cache:${tenantKey}:${endpoint}`;
+    const legacyKey = `api_cache:${endpoint}`;
     
     // Check memory cache first
-    if (this.memoryCache.has(cacheKey)) {
-      const { data, timestamp } = this.memoryCache.get(cacheKey)!;
-      const TTL = 2 * 60 * 1000;
-      if (Date.now() - timestamp < TTL) {
-        return data as T;
+    for (const k of [cacheKey, legacyKey]) {
+      if (this.memoryCache.has(k)) {
+        const { data, timestamp } = this.memoryCache.get(k)!;
+        const TTL = 5 * 60 * 1000;
+        if (Date.now() - timestamp < TTL) {
+          return data as T;
+        }
       }
     }
 
     // Fallback to localStorage
     try {
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        const { data, timestamp } = JSON.parse(cached);
-        const TTL = 2 * 60 * 1000;
-        if (Date.now() - timestamp < TTL) {
-          return data as T;
+      for (const k of [cacheKey, legacyKey]) {
+        const cached = localStorage.getItem(k);
+        if (cached) {
+          const { data, timestamp } = JSON.parse(cached);
+          const TTL = 10 * 60 * 1000;
+          if (Date.now() - timestamp < TTL) {
+            return data as T;
+          }
         }
       }
     } catch (_) { }
@@ -311,7 +329,8 @@ class ApiClient {
   }
 
   public isCacheFresh(endpoint: string, freshnessSeconds = 30): boolean {
-    const cacheKey = `api_cache:${endpoint}`;
+    const tenantKey = this.getTenantKey();
+    const cacheKey = `api_cache:${tenantKey}:${endpoint}`;
     
     // Check memory cache first
     if (this.memoryCache.has(cacheKey)) {
@@ -362,7 +381,8 @@ class ApiClient {
       method === "GET" &&
       !CACHE_BLACKLIST.some((path) => endpoint.includes(path));
 
-    const cacheKey = `api_cache:${endpoint}`;
+    const tenantKey = this.getTenantKey();
+    const cacheKey = `api_cache:${tenantKey}:${endpoint}`;
 
     if (isCacheable && !options.forceNetwork) {
       // Check memory cache first
@@ -486,7 +506,7 @@ class ApiClient {
 
         // Only persist lightweight items (e.g. form schemas, user profile, settings) to localStorage.
         // Skip heavy analytics and bulk response payloads to prevent 5MB quota exhaustion and main-thread serialization lag.
-        const isLargePayload = endpoint.includes("analytics=true") || endpoint.includes("/responses") || endpoint.includes("/bulk") || endpoint === "/forms" || endpoint.startsWith("/forms?");
+        const isLargePayload = endpoint.includes("analytics=true") || endpoint.includes("/responses") || endpoint.includes("/bulk");
         if (!isLargePayload) {
           try {
             localStorage.setItem(

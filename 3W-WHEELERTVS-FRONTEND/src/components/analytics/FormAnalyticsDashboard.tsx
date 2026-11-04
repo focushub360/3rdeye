@@ -2542,9 +2542,45 @@ export default function FormAnalyticsDashboard({
     }
   };
 
-  const [responses, setResponses] = useState<Response[]>([]);
-  const [form, setForm] = useState<Form | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [responses, setResponses] = useState<Response[]>(() => {
+    if (!id) return [];
+    const mem = formAnalyticsMemoryCache.get(id);
+    if (mem?.responses && mem.responses.length > 0) return mem.responses;
+    try {
+      const stored = sessionStorage.getItem(`form_analytics_cache_${id}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed?.responses && parsed.responses.length > 0) {
+          formAnalyticsMemoryCache.set(id, parsed);
+          return parsed.responses;
+        }
+      }
+    } catch (_) {}
+    return [];
+  });
+  const [form, setForm] = useState<Form | null>(() => {
+    if (!id) return null;
+    const mem = formAnalyticsMemoryCache.get(id);
+    if (mem?.form) return mem.form;
+    try {
+      const stored = sessionStorage.getItem(`form_analytics_cache_${id}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed?.form) return parsed.form;
+      }
+    } catch (_) {}
+    return null;
+  });
+  const [loading, setLoading] = useState(() => {
+    if (!id) return true;
+    const mem = formAnalyticsMemoryCache.get(id);
+    if (mem?.form) return false;
+    try {
+      const stored = sessionStorage.getItem(`form_analytics_cache_${id}`);
+      if (stored) return false;
+    } catch (_) {}
+    return true;
+  });
   const [isExporting, setIsExporting] = useState(false);
   const [isBiwExcelModalOpen, setIsBiwExcelModalOpen] = useState(false);
   const [isBiwDropdownOpen, setIsBiwDropdownOpen] = useState(false);
@@ -4763,7 +4799,7 @@ export default function FormAnalyticsDashboard({
         }
       } catch (_) {}
     }
-    if (cached && Date.now() - cached.timestamp < 180000) {
+    if (cached && Date.now() - cached.timestamp < 1800000) {
       setForm(cached.form);
       setResponses(cached.responses);
       setTableResponses(cached.tableResponses);
@@ -4777,9 +4813,14 @@ export default function FormAnalyticsDashboard({
       // Revalidate in background
       fetchData();
     } else {
-      // Reset all form-specific state when switching to a non-cached form
-      setForm(null);
-      setResponses([]);
+      // If we have any cached data even older than 30m, keep it while refetching
+      if (cached?.form) {
+        setForm(cached.form);
+        if (cached.responses?.length) setResponses(cached.responses);
+      } else {
+        setForm(null);
+        setResponses([]);
+      }
       setTableResponses([]);
       setTvsReviews([]);
       setLoadedTabs(new Set());
