@@ -3823,7 +3823,8 @@ class ApiClient {
     return res.responses || [];
   }
 
-  async getBiwSummary(params?: { forceNetwork?: boolean }) {
+  async getBiwSummary(params?: { formId?: string; forceNetwork?: boolean }) {
+    const query = params?.formId ? `?formId=${encodeURIComponent(params.formId)}` : "";
     return this.get<{
       data: Array<{
         name: string;
@@ -3835,8 +3836,18 @@ class ApiClient {
         totalReviewed: number;
         performanceScore: number;
       }>;
+      summary?: {
+        totalSubmitted: number;
+        dispatched: number;
+        accepted: number;
+        rejected: number;
+        rework: number;
+        totalReviewed: number;
+        performanceScore: number;
+        inspectors: number;
+      };
       totalResponses: number;
-    }>("/responses/biw-summary", { forceNetwork: params?.forceNetwork });
+    }>(`/responses/biw-summary${query}`, { forceNetwork: params?.forceNetwork });
   }
 
   async getQualitySummary(params?: {

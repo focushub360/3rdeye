@@ -3785,8 +3785,13 @@ export const getBiwSummary = async (req, res) => {
   try {
     const userRole = req.user?.role || 'admin';
     const userTenantId = req.user?.tenantId;
+    const { formId } = req.query;
 
     let formQuery = {};
+    if (formId) {
+      const isOid = mongoose.Types.ObjectId.isValid(formId);
+      formQuery = isOid ? { $or: [{ id: formId }, { _id: new mongoose.Types.ObjectId(formId) }] } : { id: formId };
+    } else
     if (userRole !== 'superadmin' && userTenantId) {
       const isValid = mongoose.Types.ObjectId.isValid(userTenantId);
       const oid = isValid ? new mongoose.Types.ObjectId(String(userTenantId)) : null;
@@ -3800,7 +3805,10 @@ export const getBiwSummary = async (req, res) => {
     const formIds = forms.flatMap(f => [f.id, f._id ? f._id.toString() : null]).filter(Boolean);
 
     let respQuery = {};
-    if (userRole !== 'superadmin' && userTenantId) {
+    if (formId) {
+      const targetIds = formIds.length > 0 ? formIds : [formId];
+      respQuery = { questionId: { $in: targetIds } };
+    } else if (userRole !== 'superadmin' && userTenantId) {
       const isValid = mongoose.Types.ObjectId.isValid(userTenantId);
       const oid = isValid ? new mongoose.Types.ObjectId(String(userTenantId)) : null;
       const tenantCondition = oid ? { $in: [userTenantId, String(userTenantId), oid] } : userTenantId;
@@ -3869,9 +3877,31 @@ export const getBiwSummary = async (req, res) => {
       return { ...stats, totalReviewed, performanceScore };
     });
 
+    const summary = {
+      totalSubmitted: 0,
+      dispatched: 0,
+      accepted: 0,
+      rejected: 0,
+      rework: 0,
+      totalReviewed: 0,
+      performanceScore: 0,
+      inspectors: result.length,
+      totalResponses: responses.length
+    };
+    result.forEach(s => {
+      summary.totalSubmitted += s.totalSubmitted || 0;
+      summary.dispatched += s.dispatched || 0;
+      summary.accepted += s.accepted || 0;
+      summary.rejected += s.rejected || 0;
+      summary.rework += s.rework || 0;
+      summary.totalReviewed += s.totalReviewed || 0;
+    });
+    summary.performanceScore = summary.totalReviewed > 0 ? Math.round((summary.accepted / summary.totalReviewed) * 100) : 0;
+
     res.json({
       success: true,
       data: result,
+      summary,
       totalResponses: responses.length
     });
 

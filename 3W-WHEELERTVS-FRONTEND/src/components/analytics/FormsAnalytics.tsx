@@ -45,7 +45,7 @@ import {
 } from "lucide-react";
 import ImportHistoryModal from "../history/ImportHistoryModal";
 import { QualitySummaryModal } from "./QualitySummaryModal";
-import { useForms, useResponses, useMutation } from "../../hooks/useApi";
+import { useForms, useMutation } from "../../hooks/useApi";
 import { apiClient } from "../../api/client";
 import { useNotification } from "../../context/NotificationContext";
 import {
@@ -509,13 +509,8 @@ export default function FormsAnalytics() {
   } = useForms(!isAnswerTemplateOpen);
 
   useEffect(() => {
-    refetchForms({ forceNetwork: true });
+    refetchForms();
   }, [user?.tenantId]);
-
-  const {
-    data: responsesData,
-    refetch: refetchResponses,
-  } = useResponses();
 
   const deleteMutation = useMutation((id: string) => apiClient.deleteForm(id), {
     onSuccess: () => {
@@ -1291,7 +1286,7 @@ export default function FormsAnalytics() {
 
   // Removed wasteful bulk getInviteStats loop that blocked the network with 20+ parallel requests
 
-  const isDataLoading = loading || !formsData;
+  const isDataLoading = loading && !formsData;
   const combinedError = error;
 
   const isAuthError = Boolean(
@@ -2717,7 +2712,6 @@ export default function FormsAnalytics() {
         onClose={() => setIsAnswerTemplateOpen(false)}
         onSuccess={() => {
           refetchForms();
-          refetchResponses();
         }}
       />
 

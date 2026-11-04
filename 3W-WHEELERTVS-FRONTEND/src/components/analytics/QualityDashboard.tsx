@@ -143,11 +143,30 @@ const getClientCachedData = (key: string) => {
   return null;
 };
 
+const getLastGoodCachedData = () => {
+  const mem = qualitySummaryClientCache.get('last_good');
+  if (mem && Date.now() - mem.timestamp < 1800000) return mem;
+
+  try {
+    const raw = sessionStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}last_good`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.data && Date.now() - parsed.timestamp < 1800000) {
+        qualitySummaryClientCache.set('last_good', parsed);
+        return parsed;
+      }
+    }
+  } catch (_) {}
+  return null;
+};
+
 const setClientCachedData = (key: string, data: any) => {
   const entry = { data, timestamp: Date.now() };
   qualitySummaryClientCache.set(key, entry);
+  qualitySummaryClientCache.set('last_good', entry);
   try {
     sessionStorage.setItem(`${SWR_STORAGE_KEY_PREFIX}${key}`, JSON.stringify(entry));
+    sessionStorage.setItem(`${SWR_STORAGE_KEY_PREFIX}last_good`, JSON.stringify(entry));
   } catch (_) {}
 };
 
@@ -177,7 +196,15 @@ export const QualityDashboard: React.FC = () => {
 
   // Preserve all available forms and counts across filtered fetches
   const masterFormsSummaryRef = useRef<any[] | null>(null);
-  const [availableFormOptions, setAvailableFormOptions] = useState<Array<{ id: string; title: string; totalChecked?: number }>>([]);
+  const [availableFormOptions, setAvailableFormOptions] = useState<Array<{ id: string; title: string; totalChecked?: number }>>(() => {
+    try {
+      const sortedFormKey = [...initialFormIds].sort().join(',');
+      const cacheKey = `v15_${sortedFormKey}__`;
+      const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
+      if (cached?.data?.formOptions) return cached.data.formOptions;
+    } catch (_) {}
+    return [];
+  });
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
   const [searchInspector, setSearchInspector] = useState<string>('');
@@ -187,7 +214,16 @@ export const QualityDashboard: React.FC = () => {
   const [searchForm, setSearchForm] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<SummaryData | null>(null);
+  const [data, setData] = useState<SummaryData | null>(() => {
+    try {
+      const sortedFormKey = [...initialFormIds].sort().join(',');
+      const cacheKey = `v15_${sortedFormKey}__`;
+      const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
+      return cached ? cached.data : null;
+    } catch (_) {
+      return null;
+    }
+  });
   const [, setLoadTimeMs] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState<number>(0);
 
@@ -1208,7 +1244,15 @@ export const QualityDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* Loading Overlay State */}
+        {/* Background Revalidating Indicator */}
+        {loading && data && (
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50/80 border border-blue-200 text-blue-700 text-xs font-semibold rounded-lg animate-pulse shadow-2xs mb-2">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+            Syncing latest quality metrics in background...
+          </div>
+        )}
+
+        {/* Loading Overlay State (only on first load with 0 cache) */}
         {loading && !data && (
           <div className="flex flex-col items-center justify-center py-20">
             <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-4" />

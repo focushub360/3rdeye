@@ -51,9 +51,11 @@ import { FormWithFollowUpCreator } from "./components/forms/FormWithFollowUpCrea
 import LoginPage from "./components/auth/LoginPage";
 import SignupPage from "./components/auth/SignupPage";
 import DashboardNew from "./components/DashboardNew";
-import FormsAnalytics from "./components/analytics/FormsAnalytics";
-import FormAnalyticsDashboard from "./components/analytics/FormAnalyticsDashboard";
-import { QualityDashboard } from "./components/analytics/QualityDashboard";
+const FormsAnalytics = React.lazy(() => import("./components/analytics/FormsAnalytics"));
+const FormAnalyticsDashboard = React.lazy(() => import("./components/analytics/FormAnalyticsDashboard"));
+const QualityDashboard = React.lazy(() =>
+  import("./components/analytics/QualityDashboard").then((m) => ({ default: m.QualityDashboard }))
+);
 import FormsList from "./components/FormsList";
 import FormResponses from "./components/FormResponses";
 import AllResponses from "./components/AllResponses";

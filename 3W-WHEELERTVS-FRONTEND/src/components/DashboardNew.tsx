@@ -27,6 +27,7 @@ import {
   RotateCcw,
   BarChart2,
   TrendingUp,
+  Filter,
 } from "lucide-react";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import { Doughnut } from "react-chartjs-2";
@@ -622,6 +623,68 @@ export default function DashboardNew() {
   const [expandedForms, setExpandedForms] = useState<Set<string>>(new Set());
 
   // Check user role
+  // Form-wise filter ONLY for Summary Box section
+  const [summaryFormFilter, setSummaryFormFilter] = useState<string>("all");
+  const [formSpecificBiwSummary, setFormSpecificBiwSummary] = useState<any>(null);
+  const [formBiwLoading, setFormBiwLoading] = useState<boolean>(false);
+  const formBiwCache = useRef<Record<string, any>>({});
+
+  // Effect to load form-specific summary when summaryFormFilter changes
+  useEffect(() => {
+    if (summaryFormFilter === "all") {
+      setFormSpecificBiwSummary(null);
+      return;
+    }
+
+    if (formBiwCache.current[summaryFormFilter]) {
+      setFormSpecificBiwSummary(formBiwCache.current[summaryFormFilter]);
+      return;
+    }
+
+    let isMounted = true;
+    setFormBiwLoading(true);
+    apiClient
+      .getBiwSummary({ formId: summaryFormFilter, forceNetwork: true })
+      .then((res: any) => {
+        if (!isMounted) return;
+        const summary = res?.summary || null;
+        if (summary) {
+          formBiwCache.current[summaryFormFilter] = summary;
+          setFormSpecificBiwSummary(summary);
+        } else if (res?.data && Array.isArray(res.data)) {
+          const computed = res.data.reduce(
+            (acc: any, row: any) => {
+              acc.accepted += row.accepted || 0;
+              acc.rejected += row.rejected || 0;
+              acc.rework += row.rework || 0;
+              acc.totalSubmitted += row.totalSubmitted || 0;
+              acc.dispatched += row.dispatched || 0;
+              return acc;
+            },
+            { accepted: 0, rejected: 0, rework: 0, totalSubmitted: 0, dispatched: 0 }
+          );
+          computed.totalReviewed = computed.accepted + computed.rejected + computed.rework;
+          computed.performanceScore =
+            computed.totalReviewed > 0
+              ? Math.round((computed.accepted / computed.totalReviewed) * 100)
+              : 0;
+          computed.totalResponses = res.totalResponses || computed.totalSubmitted;
+          formBiwCache.current[summaryFormFilter] = computed;
+          setFormSpecificBiwSummary(computed);
+        }
+      })
+      .catch((err) => {
+        console.error("Error fetching form-specific BIW summary:", err);
+      })
+      .finally(() => {
+        if (isMounted) setFormBiwLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [summaryFormFilter]);
+
   const isSuperAdmin = user?.role === "superadmin";
   const isInspector = user?.role === "inspector";
 
@@ -1792,6 +1855,86 @@ export default function DashboardNew() {
   };
 
   // Render form cards (your existing code with modifications)
+  // Available forms for tenant for summary box dropdown
+  const availableFormsForTenant = useMemo(() => {
+    if (!formsData?.forms) return [];
+    if (!selectedTenant) return formsData.forms;
+    const targetTenantId = selectedTenant._id?.toString?.() || selectedTenant.id?.toString?.();
+    const targetSlug = selectedTenant.slug;
+    return formsData.forms.filter((form: any) => {
+      if (!form.tenantId && (!form.sharedWithTenants || form.sharedWithTenants.length === 0)) return true;
+      const formTenantId = typeof form.tenantId === "object" ? (form.tenantId?._id || form.tenantId?.id) : form.tenantId;
+      const formTenantIdStr = formTenantId?.toString?.();
+      const sharedWithTenants = Array.isArray(form.sharedWithTenants) ? form.sharedWithTenants : [];
+      const isDirectMatch = Boolean(formTenantIdStr && (formTenantIdStr === targetTenantId || formTenantIdStr === targetSlug));
+      const isSharedMatch = sharedWithTenants.some((t: any) => {
+        const tId = typeof t === "object" ? (t._id || t.id) : t;
+        const tStr = tId?.toString?.();
+        return Boolean(tStr && (tStr === targetTenantId || tStr === targetSlug));
+      });
+      return isDirectMatch || isSharedMatch;
+    });
+  }, [formsData?.forms, selectedTenant]);
+
+  const overallBiwTotals = useMemo(() => {
+    if (!biwReviewTableData || biwReviewTableData.length === 0) {
+      return { accepted: 0, rejected: 0, rework: 0, totalSubmitted: 0, dispatched: 0, totalReviewed: 0, performanceScore: 100 };
+    }
+    const t = biwReviewTableData.reduce(
+      (acc: any, row: any) => {
+        acc.accepted += row.accepted || 0;
+        acc.rejected += row.rejected || 0;
+        acc.rework += row.rework || 0;
+        acc.totalSubmitted += row.totalSubmitted || 0;
+        acc.dispatched += row.dispatched || 0;
+        return acc;
+      },
+      { accepted: 0, rejected: 0, rework: 0, totalSubmitted: 0, dispatched: 0 }
+    );
+    const reviewed = t.accepted + t.rejected + t.rework;
+    const score = reviewed > 0 ? Math.round((t.accepted / reviewed) * 100) : 100;
+    return { ...t, totalReviewed: reviewed, performanceScore: score };
+  }, [biwReviewTableData]);
+
+  const currentSummaryStats = useMemo(() => {
+    if (summaryFormFilter !== "all" && formSpecificBiwSummary) {
+      const selectedForm = availableFormsForTenant.find((f: any) => (f._id || f.id) === summaryFormFilter);
+      const reviewed = formSpecificBiwSummary.totalReviewed || (formSpecificBiwSummary.accepted + formSpecificBiwSummary.rejected + formSpecificBiwSummary.rework);
+      const submitted = formSpecificBiwSummary.totalSubmitted || formSpecificBiwSummary.totalResponses || selectedForm?.responseCount || 0;
+      return {
+        isFiltered: true,
+        formTitle: selectedForm?.title || "Selected Form",
+        totalSubmitted: submitted,
+        totalReviewed: reviewed,
+        accepted: formSpecificBiwSummary.accepted || 0,
+        rejected: formSpecificBiwSummary.rejected || 0,
+        rework: formSpecificBiwSummary.rework || 0,
+        dispatched: formSpecificBiwSummary.dispatched || 0,
+        performanceScore: formSpecificBiwSummary.performanceScore ?? (reviewed > 0 ? Math.round((formSpecificBiwSummary.accepted / reviewed) * 100) : 100),
+        totalForms: 1,
+      };
+    }
+
+    const tenantStat = (selectedTenant && tenantStats[selectedTenant._id]) || {
+      totalForms: availableFormsForTenant.length,
+      totalResponses: overallBiwTotals.totalSubmitted,
+      performanceScore: overallBiwTotals.performanceScore,
+    };
+
+    return {
+      isFiltered: false,
+      formTitle: "All Forms",
+      totalSubmitted: overallBiwTotals.totalSubmitted || tenantStat.totalResponses || 0,
+      totalReviewed: overallBiwTotals.totalReviewed || 0,
+      accepted: overallBiwTotals.accepted || 0,
+      rejected: overallBiwTotals.rejected || 0,
+      rework: overallBiwTotals.rework || 0,
+      dispatched: overallBiwTotals.dispatched || 0,
+      performanceScore: overallBiwTotals.performanceScore || tenantStat.performanceScore || 100,
+      totalForms: availableFormsForTenant.length || tenantStat.totalForms || 0,
+    };
+  }, [summaryFormFilter, formSpecificBiwSummary, availableFormsForTenant, selectedTenant, tenantStats, overallBiwTotals]);
+
   const renderFormCards = () => {
     console.log("Rendering form cards...");
     console.log("Forms loading:", formsLoading);
@@ -2599,74 +2742,221 @@ export default function DashboardNew() {
             )}
           </div>
 
-          {/* Stats Summary - Responsive Grid */}
-          {viewMode === "forms" &&
-            selectedTenant &&
-            !isInspector &&
-            tenantStats[selectedTenant._id] && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
-                <div className="bg-blue-50/50 dark:bg-blue-900/10 rounded-2xl p-4 sm:p-6 border border-blue-100 dark:border-blue-900/20 group hover:bg-blue-50 transition-colors">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="p-2 sm:p-3 bg-blue-100 dark:bg-blue-900/40 rounded-xl group-hover:scale-110 transition-transform">
-                      <FileText className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 dark:text-blue-400" />
-                    </div>
-                    <span className="text-[10px] sm:text-xs font-bold text-blue-600/50 dark:text-blue-400/50 uppercase tracking-widest">
-                      Forms
-                    </span>
+          {/* Stats Summary - Responsive Grid with Form-Wise Filter */}
+          {viewMode === "forms" && selectedTenant && !isInspector && (
+            <div className="mb-8">
+              {/* Header with Form Filter - Affects ONLY this Summary Box Section */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-blue-50 dark:bg-blue-900/30 rounded-xl">
+                    <BarChart2 className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                   </div>
-                  <p className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white">
-                    {tenantStats[selectedTenant._id].totalForms}
-                  </p>
-                  <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1 font-medium">
-                    Active managed forms
-                  </p>
-                </div>
-
-                <div className="bg-emerald-50/50 dark:bg-emerald-900/10 rounded-2xl p-4 sm:p-6 border border-emerald-100 dark:border-emerald-900/20 group hover:bg-emerald-50 transition-colors">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="p-2 sm:p-3 bg-emerald-100 dark:bg-emerald-900/40 rounded-xl group-hover:scale-110 transition-transform">
-                      <Users className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-600 dark:text-emerald-400" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-black text-gray-900 dark:text-white">
+                        Performance Summary
+                      </h3>
+                      {currentSummaryStats.isFiltered ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 uppercase tracking-wider">
+                          Form-Wise View
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                          All Forms
+                        </span>
+                      )}
+                      {formBiwLoading && (
+                        <div className="w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      )}
                     </div>
-                    <span className="text-[10px] sm:text-xs font-bold text-emerald-600/50 dark:text-emerald-400/50 uppercase tracking-widest">
-                      Growth
-                    </span>
-                  </div>
-                  <p className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white">
-                    {tenantStats[selectedTenant._id].totalResponses}
-                  </p>
-                  <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1 font-medium">
-                    Total user submissions
-                  </p>
-                </div>
-
-                <div className="bg-purple-50/50 dark:bg-purple-900/10 rounded-2xl p-4 sm:p-6 border border-purple-100 dark:border-purple-900/20 group hover:bg-purple-50 transition-colors sm:col-span-2 lg:col-span-1">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="p-2 sm:p-3 bg-purple-100 dark:bg-purple-900/40 rounded-xl group-hover:scale-110 transition-transform">
-                      <Smile className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600 dark:text-purple-400" />
-                    </div>
-                    <span className="text-[10px] sm:text-xs font-bold text-purple-600/50 dark:text-purple-400/50 uppercase tracking-widest">
-                      Performance
-                    </span>
-                  </div>
-                  <div className="flex items-baseline gap-2">
-                    <p className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white">
-                      {tenantStats[selectedTenant._id].performanceScore}%
+                    <p className="text-xs text-gray-400 font-medium">
+                      {currentSummaryStats.isFiltered
+                        ? `Filtered to: ${currentSummaryStats.formTitle}`
+                        : "Aggregated performance across all active forms & submissions"}
                     </p>
-                    <div className="flex-1 h-2 bg-purple-100 dark:bg-purple-900/40 rounded-full overflow-hidden ml-4">
-                      <div
-                        className="h-full bg-purple-600 rounded-full"
-                        style={{
-                          width: `${tenantStats[selectedTenant._id].performanceScore}%`,
-                        }}
-                      ></div>
-                    </div>
                   </div>
-                  <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1 font-medium">
-                    Average quality score
-                  </p>
+                </div>
+
+                {/* Form Filter Selector */}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    <Filter className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Filter by Form:</span>
+                  </div>
+                  <select
+                    value={summaryFormFilter}
+                    onChange={(e) => setSummaryFormFilter(e.target.value)}
+                    className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-xs sm:text-sm font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm cursor-pointer max-w-[220px] sm:max-w-xs truncate transition-all"
+                  >
+                    <option value="all">All Forms ({availableFormsForTenant.length})</option>
+                    {availableFormsForTenant.map((form: any) => (
+                      <option key={form._id || form.id} value={form._id || form.id}>
+                        {form.title}
+                      </option>
+                    ))}
+                  </select>
+                  {summaryFormFilter !== "all" && (
+                    <button
+                      onClick={() => setSummaryFormFilter("all")}
+                      className="px-2.5 py-1.5 text-xs font-bold text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                      title="Reset filter to all forms"
+                    >
+                      Reset
+                    </button>
+                  )}
                 </div>
               </div>
-            )}
+
+              {/* Grid of Summary Box Cards */}
+              {(() => {
+                const reviewed = currentSummaryStats.totalReviewed;
+                const pctAccepted = reviewed > 0 ? Math.round((currentSummaryStats.accepted / reviewed) * 100) : 0;
+                const pctRejected = reviewed > 0 ? Math.round((currentSummaryStats.rejected / reviewed) * 100) : 0;
+                const pctRework = reviewed > 0 ? Math.round((currentSummaryStats.rework / reviewed) * 100) : 0;
+
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3 sm:gap-4">
+                    {/* 1. Submissions */}
+                    <div className="bg-blue-50/50 dark:bg-blue-900/10 rounded-2xl p-4 border border-blue-100 dark:border-blue-900/20 group hover:bg-blue-50 transition-colors">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-xl group-hover:scale-110 transition-transform">
+                          <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                        </div>
+                        <span className="text-[10px] font-bold text-blue-600/60 dark:text-blue-400/60 uppercase tracking-widest">
+                          Submissions
+                        </span>
+                      </div>
+                      <p className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white">
+                        {currentSummaryStats.totalSubmitted.toLocaleString()}
+                      </p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 font-medium truncate">
+                        {currentSummaryStats.isFiltered ? currentSummaryStats.formTitle : `${currentSummaryStats.totalForms} active forms`}
+                      </p>
+                    </div>
+
+                    {/* 2. Total Reviewed */}
+                    <div className="bg-indigo-50/50 dark:bg-indigo-900/10 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-900/20 group hover:bg-indigo-50 transition-colors">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="p-2 bg-indigo-100 dark:bg-indigo-900/40 rounded-xl group-hover:scale-110 transition-transform">
+                          <BarChart2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                        </div>
+                        <span className="text-[10px] font-bold text-indigo-600/60 dark:text-indigo-400/60 uppercase tracking-widest">
+                          Reviewed
+                        </span>
+                      </div>
+                      <p className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white">
+                        {currentSummaryStats.totalReviewed.toLocaleString()}
+                      </p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 font-medium truncate">
+                        Total BIW verified
+                      </p>
+                    </div>
+
+                    {/* 3. Accepted */}
+                    <div className="bg-emerald-50/50 dark:bg-emerald-900/10 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-900/20 group hover:bg-emerald-50 transition-colors">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="p-2 bg-emerald-100 dark:bg-emerald-900/40 rounded-xl group-hover:scale-110 transition-transform">
+                          <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        </div>
+                        <span className="text-[10px] font-bold text-emerald-600/60 dark:text-emerald-400/60 uppercase tracking-widest">
+                          Accepted
+                        </span>
+                      </div>
+                      <div className="flex items-baseline gap-1.5">
+                        <p className="text-xl sm:text-2xl font-black text-emerald-700 dark:text-emerald-400">
+                          {currentSummaryStats.accepted.toLocaleString()}
+                        </p>
+                        <span className="text-xs font-bold text-emerald-600/80">({pctAccepted}%)</span>
+                      </div>
+                      <div className="mt-2 h-1 bg-emerald-100 dark:bg-emerald-900/40 rounded-full overflow-hidden">
+                        <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${pctAccepted}%` }} />
+                      </div>
+                    </div>
+
+                    {/* 4. Rejected */}
+                    <div className="bg-red-50/50 dark:bg-red-900/10 rounded-2xl p-4 border border-red-100 dark:border-red-900/20 group hover:bg-red-50 transition-colors">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="p-2 bg-red-100 dark:bg-red-900/40 rounded-xl group-hover:scale-110 transition-transform">
+                          <XCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                        </div>
+                        <span className="text-[10px] font-bold text-red-600/60 dark:text-red-400/60 uppercase tracking-widest">
+                          Rejected
+                        </span>
+                      </div>
+                      <div className="flex items-baseline gap-1.5">
+                        <p className="text-xl sm:text-2xl font-black text-red-700 dark:text-red-400">
+                          {currentSummaryStats.rejected.toLocaleString()}
+                        </p>
+                        <span className="text-xs font-bold text-red-600/80">({pctRejected}%)</span>
+                      </div>
+                      <div className="mt-2 h-1 bg-red-100 dark:bg-red-900/40 rounded-full overflow-hidden">
+                        <div className="h-full bg-red-500 rounded-full" style={{ width: `${pctRejected}%` }} />
+                      </div>
+                    </div>
+
+                    {/* 5. Rework */}
+                    <div className="bg-amber-50/50 dark:bg-amber-900/10 rounded-2xl p-4 border border-amber-100 dark:border-amber-900/20 group hover:bg-amber-50 transition-colors">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="p-2 bg-amber-100 dark:bg-amber-900/40 rounded-xl group-hover:scale-110 transition-transform">
+                          <RotateCcw className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                        </div>
+                        <span className="text-[10px] font-bold text-amber-600/60 dark:text-amber-400/60 uppercase tracking-widest">
+                          Rework
+                        </span>
+                      </div>
+                      <div className="flex items-baseline gap-1.5">
+                        <p className="text-xl sm:text-2xl font-black text-amber-700 dark:text-amber-400">
+                          {currentSummaryStats.rework.toLocaleString()}
+                        </p>
+                        <span className="text-xs font-bold text-amber-600/80">({pctRework}%)</span>
+                      </div>
+                      <div className="mt-2 h-1 bg-amber-100 dark:bg-amber-900/40 rounded-full overflow-hidden">
+                        <div className="h-full bg-amber-500 rounded-full" style={{ width: `${pctRework}%` }} />
+                      </div>
+                    </div>
+
+                    {/* 6. Dispatched */}
+                    <div className="bg-sky-50/50 dark:bg-sky-900/10 rounded-2xl p-4 border border-sky-100 dark:border-sky-900/20 group hover:bg-sky-50 transition-colors">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="p-2 bg-sky-100 dark:bg-sky-900/40 rounded-xl group-hover:scale-110 transition-transform">
+                          <TrendingUp className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                        </div>
+                        <span className="text-[10px] font-bold text-sky-600/60 dark:text-sky-400/60 uppercase tracking-widest">
+                          Dispatched
+                        </span>
+                      </div>
+                      <p className="text-xl sm:text-2xl font-black text-sky-700 dark:text-sky-400">
+                        {currentSummaryStats.dispatched.toLocaleString()}
+                      </p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 font-medium truncate">
+                        Units dispatched
+                      </p>
+                    </div>
+
+                    {/* 7. Performance Score */}
+                    <div className="bg-purple-50/50 dark:bg-purple-900/10 rounded-2xl p-4 border border-purple-100 dark:border-purple-900/20 group hover:bg-purple-50 transition-colors col-span-2 sm:col-span-1">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="p-2 bg-purple-100 dark:bg-purple-900/40 rounded-xl group-hover:scale-110 transition-transform">
+                          <Smile className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                        </div>
+                        <span className="text-[10px] font-bold text-purple-600/60 dark:text-purple-400/60 uppercase tracking-widest">
+                          Quality Score
+                        </span>
+                      </div>
+                      <div className="flex items-baseline gap-1.5">
+                        <p className="text-xl sm:text-2xl font-black text-purple-700 dark:text-purple-300">
+                          {currentSummaryStats.performanceScore}%
+                        </p>
+                      </div>
+                      <div className="mt-2 h-1 bg-purple-100 dark:bg-purple-900/40 rounded-full overflow-hidden">
+                        <div className="h-full bg-purple-600 rounded-full" style={{ width: `${currentSummaryStats.performanceScore}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           {/* Overall BIW Pie Chart - Shown for admins when BIW data is loaded */}
           {!isSuperAdmin && showBiwTable && biwReviewTableData.length > 0 && (
