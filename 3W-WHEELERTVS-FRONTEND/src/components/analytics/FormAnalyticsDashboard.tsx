@@ -4789,10 +4789,10 @@ export default function FormAnalyticsDashboard({
     let cached = formAnalyticsMemoryCache.get(id);
     if (!cached) {
       try {
-        const stored = sessionStorage.getItem(`form_analytics_cache_${id}`);
+        const stored = sessionStorage.getItem(`form_analytics_cache_${id}`) || localStorage.getItem(`form_analytics_cache_${id}`);
         if (stored) {
           const parsed = JSON.parse(stored);
-          if (Date.now() - parsed.timestamp < 600000) {
+          if (Date.now() - parsed.timestamp < 1800000) {
             cached = parsed;
             formAnalyticsMemoryCache.set(id, parsed);
           }
@@ -4848,7 +4848,9 @@ export default function FormAnalyticsDashboard({
           tableResponses: tableResponses.slice(0, 100),
           timestamp: Date.now(),
         };
-        sessionStorage.setItem(`form_analytics_cache_${id}`, JSON.stringify(compactPayload));
+        const json = JSON.stringify(compactPayload);
+        sessionStorage.setItem(`form_analytics_cache_${id}`, json);
+        localStorage.setItem(`form_analytics_cache_${id}`, json);
       } catch (_) {}
     }
   }, [id, form, responses, tableResponses]);
@@ -5142,7 +5144,6 @@ export default function FormAnalyticsDashboard({
       if (!loadedTabs.has("responses") || lastBatchParamRef.current !== batchKey) {
         lastBatchParamRef.current = batchKey;
         fetchResponsesPage(1);
-        fetchFullAnalyticsResponses();
         setLoadedTabs((prev) => new Set(prev).add("responses"));
       }
     }

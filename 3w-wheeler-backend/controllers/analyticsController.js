@@ -1882,6 +1882,15 @@ export const getInspectorSummary = async (req, res) => {
     const { role, _id: userId, tenantId: userTenantId } = req.user;
     const { startDate, endDate, formId, tenantId: queryTenantId } = req.query;
 
+    const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true';
+    const cacheKey = 'insp_summary_' + (userTenantId || 'superadmin') + '_' + (formId || 'all') + '_' + (startDate || '') + '_' + (endDate || '') + '_' + (queryTenantId || '');
+    if (!shouldBypassCache) {
+      const cached = appCache.get(cacheKey);
+      if (cached) {
+        return res.json(cached);
+      }
+    }
+
     let matchFilter = {};
 
     // Helper to get array of [string, ObjectId] for any tenantId
@@ -1947,7 +1956,10 @@ export const getInspectorSummary = async (req, res) => {
 
     // Fetch all relevant responses
     console.log('getInspectorSummary - matchFilter:', JSON.stringify(matchFilter, null, 2));
-    const responses = await Response.find(matchFilter).sort({ createdAt: 1 }).lean();
+    const responses = await Response.find(matchFilter)
+      .sort({ createdAt: 1 })
+      .select('_id questionId formId status answers chassisNumber createdBy submittedBy createdAt biwReview tenantId isDispatched')
+      .lean();
     console.log(`getInspectorSummary - found: ${responses?.length || 0} responses`);
 
     if (!responses || responses.length === 0) {
@@ -2188,13 +2200,15 @@ export const getInspectorSummary = async (req, res) => {
     // Static display order for the main columns
     const allStatuses = ['Direct Ok', 'Rework QC Completed', 'Rework QC Pending', 'Rejected', 'Dispatched'];
 
-    res.json({
+    const responsePayload = {
       success: true,
       data: {
         summary: finalSummary,
         allStatuses
       }
-    });
+    };
+    appCache.set(cacheKey, responsePayload, 180);
+    res.json(responsePayload);
   } catch (error) {
     console.error('getInspectorSummary error:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });

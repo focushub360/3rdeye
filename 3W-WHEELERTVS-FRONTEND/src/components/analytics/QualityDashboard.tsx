@@ -131,7 +131,7 @@ const getClientCachedData = (key: string) => {
   if (mem && Date.now() - mem.timestamp < 600000) return mem;
 
   try {
-    const raw = sessionStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}${key}`);
+    const raw = sessionStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}${key}`) || localStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}${key}`);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.data && Date.now() - parsed.timestamp < 600000) {
@@ -148,7 +148,7 @@ const getLastGoodCachedData = () => {
   if (mem && Date.now() - mem.timestamp < 1800000) return mem;
 
   try {
-    const raw = sessionStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}last_good`);
+    const raw = sessionStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}last_good`) || localStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}last_good`);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.data && Date.now() - parsed.timestamp < 1800000) {
@@ -165,8 +165,11 @@ const setClientCachedData = (key: string, data: any) => {
   qualitySummaryClientCache.set(key, entry);
   qualitySummaryClientCache.set('last_good', entry);
   try {
-    sessionStorage.setItem(`${SWR_STORAGE_KEY_PREFIX}${key}`, JSON.stringify(entry));
-    sessionStorage.setItem(`${SWR_STORAGE_KEY_PREFIX}last_good`, JSON.stringify(entry));
+    const json = JSON.stringify(entry);
+    sessionStorage.setItem(`${SWR_STORAGE_KEY_PREFIX}${key}`, json);
+    sessionStorage.setItem(`${SWR_STORAGE_KEY_PREFIX}last_good`, json);
+    localStorage.setItem(`${SWR_STORAGE_KEY_PREFIX}${key}`, json);
+    localStorage.setItem(`${SWR_STORAGE_KEY_PREFIX}last_good`, json);
   } catch (_) {}
 };
 
