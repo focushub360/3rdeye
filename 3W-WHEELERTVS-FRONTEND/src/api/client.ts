@@ -519,7 +519,16 @@ class ApiClient {
         }
       }
 
-      return data.data as T;
+      if (data.data !== undefined) {
+        if (data.summary !== undefined && typeof data.data === 'object' && data.data !== null) {
+          (data.data as any).summary = data.summary;
+        }
+        if (data.totalResponses !== undefined && typeof data.data === 'object' && data.data !== null) {
+          (data.data as any).totalResponses = data.totalResponses;
+        }
+        return data.data as T;
+      }
+      return data as unknown as T;
     } catch (error) {
       clearTimeout(timeoutId);
       if (error instanceof ApiError) {
@@ -551,9 +560,11 @@ class ApiClient {
   public async get<T>(
     endpoint: string,
     options: RequestInit & { timeout?: number; forceNetwork?: boolean } = {},
-  ): Promise<{ success: boolean; data: T; message?: string }> {
+  ): Promise<{ success: boolean; data: T; summary?: any; totalResponses?: number; message?: string }> {
     const data = await this.request<T>(endpoint, { ...options, method: "GET" });
-    return { success: true, data };
+    const summary = (data as any)?.summary;
+    const totalResponses = (data as any)?.totalResponses;
+    return { success: true, data, summary, totalResponses };
   }
 
   public async post<T>(
@@ -3843,10 +3854,13 @@ class ApiClient {
     return res.responses || [];
   }
 
-  async getBiwSummary(params?: { formId?: string; forceNetwork?: boolean }) {
-    const query = params?.formId ? `?formId=${encodeURIComponent(params.formId)}` : "";
-    return this.get<{
-      data: Array<{
+  async getBiwSummary(params?: { formId?: string; tenantId?: string; forceNetwork?: boolean }) {
+    const query = new URLSearchParams();
+    if (params?.formId) query.set("formId", params.formId);
+    if (params?.tenantId) query.set("tenantId", params.tenantId);
+    const queryString = query.toString() ? `?${query.toString()}` : "";
+    return this.get<
+      Array<{
         name: string;
         totalSubmitted: number;
         dispatched: number;
@@ -3855,19 +3869,8 @@ class ApiClient {
         rework: number;
         totalReviewed: number;
         performanceScore: number;
-      }>;
-      summary?: {
-        totalSubmitted: number;
-        dispatched: number;
-        accepted: number;
-        rejected: number;
-        rework: number;
-        totalReviewed: number;
-        performanceScore: number;
-        inspectors: number;
-      };
-      totalResponses: number;
-    }>(`/responses/biw-summary${query}`, { forceNetwork: params?.forceNetwork });
+      }>
+    >(`/responses/biw-summary${queryString}`, { forceNetwork: params?.forceNetwork });
   }
 
   async getQualitySummary(params?: {

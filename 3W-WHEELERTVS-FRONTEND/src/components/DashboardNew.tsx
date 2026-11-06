@@ -732,26 +732,37 @@ export default function DashboardNew() {
 
   const [showBiwTable, setShowBiwTable] = useState(true);
   const [biwResponses, setBiwResponses] = useState<any[]>([]);
+  const [overallBiwSummary, setOverallBiwSummary] = useState<any>(null);
   const [biwLoading, setBiwLoading] = useState(false);
   const [biwPage, setBiwPage] = useState(1);
   const [biwPageSize, setBiwPageSize] = useState(10);
 
-  // Replace the existing useEffect for fetching BIW data
+  // Fetch BIW summary data for dashboard
   useEffect(() => {
-    if (!showBiwTable) return;
+    if (!showBiwTable || !user) return;
 
     const fetchBiwSummary = async () => {
       setBiwLoading(true);
       try {
-        // Use the new dedicated endpoint
-        const response = (await apiClient.getBiwSummary({ forceNetwork: true })) as any;
+        const tenantId = selectedTenant?._id || selectedTenant?.id;
+        const response = (await apiClient.getBiwSummary({
+          tenantId: tenantId ? String(tenantId) : undefined,
+          forceNetwork: false,
+        })) as any;
         console.log('[BIW] Summary response:', response);
 
         const data = Array.isArray(response)
           ? response
-          : (Array.isArray(response?.data) ? response.data : []);
-        console.log(`[BIW] Total users: ${data.length}`);
+          : (Array.isArray(response?.data)
+              ? response.data
+              : (Array.isArray(response?.data?.inspectors) ? response.data.inspectors : []));
+
+        const summary = response?.summary || response?.data?.summary || null;
+        console.log(`[BIW] Total users: ${data.length}`, summary);
         setBiwResponses(data);
+        if (summary) {
+          setOverallBiwSummary(summary);
+        }
       } catch (error) {
         console.error("Error fetching BIW summary:", error);
         setBiwResponses([]);
@@ -761,7 +772,7 @@ export default function DashboardNew() {
     };
 
     fetchBiwSummary();
-  }, [showBiwTable]);
+  }, [showBiwTable, user, selectedTenant?._id, selectedTenant?.id]);
 
   // Simplify biwReviewTableData - data is already grouped from backend
   const biwReviewTableData = useMemo(() => {
@@ -1917,23 +1928,34 @@ export default function DashboardNew() {
 
     const tenantStat = (selectedTenant && tenantStats[selectedTenant._id]) || {
       totalForms: availableFormsForTenant.length,
-      totalResponses: overallBiwTotals.totalSubmitted,
-      performanceScore: overallBiwTotals.performanceScore,
+      totalResponses: overallBiwSummary?.totalSubmitted || overallBiwTotals.totalSubmitted || 0,
+      performanceScore: overallBiwSummary?.performanceScore || overallBiwTotals.performanceScore || 100,
     };
+
+    // Use overallBiwSummary if available from backend, falling back to overallBiwTotals
+    const biwAgg = (overallBiwSummary && overallBiwSummary.totalReviewed !== undefined)
+      ? overallBiwSummary
+      : overallBiwTotals;
+
+    const accepted = biwAgg.accepted || 0;
+    const rejected = biwAgg.rejected || 0;
+    const rework = biwAgg.rework || 0;
+    const reviewed = biwAgg.totalReviewed ?? (accepted + rejected + rework);
+    const score = biwAgg.performanceScore ?? (reviewed > 0 ? Math.round((accepted / reviewed) * 100) : 100);
 
     return {
       isFiltered: false,
       formTitle: "All Forms",
-      totalSubmitted: overallBiwTotals.totalSubmitted || tenantStat.totalResponses || 0,
-      totalReviewed: overallBiwTotals.totalReviewed || 0,
-      accepted: overallBiwTotals.accepted || 0,
-      rejected: overallBiwTotals.rejected || 0,
-      rework: overallBiwTotals.rework || 0,
-      dispatched: overallBiwTotals.dispatched || 0,
-      performanceScore: overallBiwTotals.performanceScore || tenantStat.performanceScore || 100,
+      totalSubmitted: tenantStat.totalResponses || biwAgg.totalSubmitted || 0,
+      totalReviewed: reviewed,
+      accepted,
+      rejected,
+      rework,
+      dispatched: biwAgg.dispatched || 0,
+      performanceScore: score,
       totalForms: availableFormsForTenant.length || tenantStat.totalForms || 0,
     };
-  }, [summaryFormFilter, formSpecificBiwSummary, availableFormsForTenant, selectedTenant, tenantStats, overallBiwTotals]);
+  }, [summaryFormFilter, formSpecificBiwSummary, availableFormsForTenant, selectedTenant, tenantStats, overallBiwTotals, overallBiwSummary]);
 
   const renderFormCards = () => {
     console.log("Rendering form cards...");
@@ -2765,7 +2787,7 @@ export default function DashboardNew() {
                           All Forms
                         </span>
                       )}
-                      {formBiwLoading && (
+                      {(formBiwLoading || biwLoading) && (
                         <div className="w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                       )}
                     </div>
