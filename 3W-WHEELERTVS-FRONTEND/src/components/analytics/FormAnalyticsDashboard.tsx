@@ -2683,6 +2683,17 @@ export default function FormAnalyticsDashboard({
     return "dashboard";
   });
 
+  const handleTabSwitch = useCallback((newTab: "dashboard" | "responses") => {
+    setAnalyticsView(newTab);
+    setActiveTab(newTab);
+    const params = new URLSearchParams(location.search);
+    params.set("tab", newTab);
+    navigate({
+      pathname: location.pathname,
+      search: `?${params.toString()}`
+    }, { replace: true });
+  }, [location.pathname, location.search, navigate]);
+
   useEffect(() => {
     if (initialTab && ["responses", "dashboard"].includes(initialTab)) {
       setAnalyticsView(initialTab);
@@ -3647,25 +3658,13 @@ export default function FormAnalyticsDashboard({
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const tabParam = searchParams.get("tab");
-    if (tabParam && ["question", "section", "table", "responses", "dashboard", "comparison", "overall"].includes(tabParam)) {
-      if (hasTabPermission(tabParam)) {
+    if (tabParam && ["responses", "dashboard"].includes(tabParam)) {
+      if (hasTabPermission(tabParam) && tabParam !== analyticsView) {
         setAnalyticsView(tabParam as any);
+        setActiveTab(tabParam as any);
       }
     }
-  }, [location.search, form]);
-
-  // Sync URL parameter with tab changes
-  useEffect(() => {
-    const searchParams = new URLSearchParams(location.search);
-    if (searchParams.get("tab") !== analyticsView) {
-      searchParams.set("tab", analyticsView);
-      const searchStr = searchParams.toString();
-      navigate({
-        pathname: location.pathname,
-        search: searchStr ? `?${searchStr}` : ""
-      }, { replace: true });
-    }
-  }, [analyticsView, navigate, location.pathname, location.search]);
+  }, [location.search, form, analyticsView]);
 
   // Set initial tab based on permissions after form loads
   useEffect(() => {
@@ -5144,6 +5143,9 @@ export default function FormAnalyticsDashboard({
       if (!loadedTabs.has("responses") || lastBatchParamRef.current !== batchKey) {
         lastBatchParamRef.current = batchKey;
         fetchResponsesPage(1);
+        if (responses.length === 0) {
+          fetchFullAnalyticsResponses();
+        }
         setLoadedTabs((prev) => new Set(prev).add("responses"));
       }
     }
@@ -12863,7 +12865,7 @@ export default function FormAnalyticsDashboard({
             <>
               {hasTabPermission("dashboard") && (
                 <button
-                  onClick={() => setAnalyticsView("dashboard")}
+                  onClick={() => handleTabSwitch("dashboard")}
                   className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "dashboard"
                     ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
                     : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
@@ -12889,7 +12891,7 @@ export default function FormAnalyticsDashboard({
 
             {hasTabPermission("responses") && (
               <button
-                onClick={() => setAnalyticsView("responses")}
+                onClick={() => handleTabSwitch("responses")}
                 className={`px-3 py-2.5 font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 whitespace-nowrap text-sm ${analyticsView === "responses"
                   ? "text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400"
                   : "text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200"
