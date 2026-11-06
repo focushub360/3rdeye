@@ -5036,13 +5036,7 @@ export const getResponsesByForm = async (req, res) => {
     const isAnalytics = req.query.analytics === 'true';
 
     let responsesQuery = Response.find(query);
-    const shouldIncludeAnswers = req.query.includeAnswers === 'true';
-    if (isAnalytics && !shouldIncludeAnswers) {
-      // High-performance projection: omits heavy answers map (95% size reduction, 40x speedup)
-      responsesQuery = responsesQuery.select(
-        '_id id questionId formId status submissionMetadata responseRanks chassisNumber batchId notes score parentResponseId submitterContact inviteId createdAt timestamp submittedBy createdBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt review'
-      );
-    } else if (isAnalytics && shouldIncludeAnswers) {
+    if (isAnalytics) {
       responsesQuery = responsesQuery.select(
         '_id id questionId formId status answers submissionMetadata responseRanks chassisNumber batchId notes score parentResponseId submitterContact inviteId createdAt timestamp submittedBy createdBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt review'
       );
@@ -5071,6 +5065,27 @@ export const getResponsesByForm = async (req, res) => {
       responses = responsesRaw.map(r => {
         if (r.answers instanceof Map) {
           r.answers = Object.fromEntries(r.answers);
+        }
+        if (r.answers && typeof r.answers === 'object') {
+          // Keep lightweight answer data (status, values, remarks) while stripping heavy base64 images
+          const cleanAns = {};
+          for (const [k, v] of Object.entries(r.answers)) {
+            if (typeof v === 'string') {
+              if (v.startsWith('data:image') || v.length > 500) {
+                continue;
+              }
+              cleanAns[k] = v;
+            } else if (v && typeof v === 'object') {
+              const objCopy = { ...v };
+              if (typeof objCopy.evidenceUrl === 'string' && objCopy.evidenceUrl.startsWith('data:image')) {
+                objCopy.evidenceUrl = '';
+              }
+              cleanAns[k] = objCopy;
+            } else {
+              cleanAns[k] = v;
+            }
+          }
+          r.answers = cleanAns;
         }
         return r;
       });

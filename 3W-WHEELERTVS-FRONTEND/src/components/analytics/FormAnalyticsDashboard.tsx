@@ -2815,7 +2815,7 @@ export default function FormAnalyticsDashboard({
         }
       }
     }
-    // Priority 2: Question title/text explicitly mentioning Chassis or VIN (exclude defect inspection questions)
+    // Priority 2: Question title/text explicitly mentioning Chassis, VIN, or ID Number (exclude defect inspection questions)
     for (const section of form.sections) {
       if (section.questions) {
         for (const q of section.questions) {
@@ -2825,7 +2825,10 @@ export default function FormAnalyticsDashboard({
               t.includes("chassis no") ||
               t.includes("chassis_number") ||
               t.includes("vin") ||
-              t.trim() === "chassis") &&
+              t.trim() === "chassis" ||
+              t.includes("id number") ||
+              t.includes("identification number") ||
+              t.includes("id no")) &&
             q.type !== "zone-in" &&
             q.type !== "zone-out"
           ) {
@@ -5554,12 +5557,12 @@ export default function FormAnalyticsDashboard({
     if (rawStatus === "Rework Accepted" || rawStatus === "Rework Completed") return "Rework Accepted";
     if (rawStatus === "Direct Ok") return "Direct Ok";
     if (rawStatus === "Accepted") {
-      if (isRework || (rank && rank > 1)) return "Rework Accepted";
+      if (isRework) return "Rework 1";
       return "Direct Ok";
     }
     if (rawStatus.startsWith("Rework")) return rawStatus;
 
-    // 3. Fallback based on answers and chronological attempt rank
+    // 2. Fallback based on answers
     if (isRejected) return "Rejected";
     if (isRework) {
       if (trackingQId && rank && rank > 1) return `Rework ${rank - 1}`;
@@ -5567,11 +5570,9 @@ export default function FormAnalyticsDashboard({
       return "Rework";
     }
     if (isAccepted) {
-      if (!trackingQId || rank === 1) return "Direct Ok";
-      if (rank && rank > 1) return "Rework Accepted";
-      return "Accepted";
+      return "Direct Ok";
     }
-    return (rank && rank > 1) ? "Rework Accepted" : "Direct Ok";
+    return "Direct Ok";
   };
 
   // Calculate sequential status (Direct Ok, Rework 1, Rework 2, etc.)
@@ -5664,7 +5665,7 @@ export default function FormAnalyticsDashboard({
         const rank = (chassisQuestionId && r.responseRanks?.[chassisQuestionId]) || (index + 1);
         const rawStatus = (r.status || "").trim();
 
-        let calculatedStatus = (rank && rank > 1) || hasBeenReworked ? "Rework Accepted" : "Direct Ok";
+        let calculatedStatus = hasBeenReworked ? "Rework Accepted" : "Direct Ok";
 
         if (rawStatus === "Rejected") {
           calculatedStatus = "Rejected";
@@ -5673,7 +5674,11 @@ export default function FormAnalyticsDashboard({
         } else if (rawStatus === "Direct Ok") {
           calculatedStatus = "Direct Ok";
         } else if (rawStatus === "Accepted") {
-          if (isRework || hasBeenReworked || (rank && rank > 1)) {
+          if (isRework) {
+            reworkCount++;
+            hasBeenReworked = true;
+            calculatedStatus = !groupId.startsWith("untracked-") ? `Rework ${reworkCount}` : "Rework 1";
+          } else if (hasBeenReworked) {
             calculatedStatus = "Rework Accepted";
           } else {
             calculatedStatus = "Direct Ok";
@@ -5692,9 +5697,7 @@ export default function FormAnalyticsDashboard({
             calculatedStatus = "Rework 1";
           }
         } else if (isAccepted) {
-          if (rank === 1 || (index === 0 && !hasBeenReworked)) {
-            calculatedStatus = "Direct Ok";
-          } else if ((rank && rank > 1) || hasBeenReworked) {
+          if (hasBeenReworked) {
             calculatedStatus = "Rework Accepted";
           } else {
             calculatedStatus = "Direct Ok";
@@ -8263,7 +8266,7 @@ export default function FormAnalyticsDashboard({
     const totalNo = inspectionStats.rejected;
     const totalNA = inspectionStats.reworked;
     const totalDispatched = inspectionStats.dispatched;
-    const totalBiwReviewed = inspectionStats.biwReviewed || 0;
+    const totalBiwReviewed = inspectionStats.rawBiwReviewed || 0;
 
     const total = directOk + reworkCompleted + totalNo + totalNA + (inspectionStats.pending || 0);
 
