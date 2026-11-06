@@ -1757,11 +1757,17 @@ const computeDailyReworkVolumeStats = (
 
     const dayStats = dailyMap.get(dateKey)!;
 
-    // ✅ Response-level rework detection — check if ANY answer in the response
-    // indicates a rework status. If so, count this response as 1 rework,
-    // matching the logic used by computeDailyPerformanceStats.
+    // ✅ Response-level rework detection — check top-level status, BIW review, or answers
     let hasRework = false;
-    if (response.answers) {
+    const rawSt = String(response.status || "").toLowerCase();
+    if (rawSt.startsWith("rework")) {
+      hasRework = true;
+    }
+    const biwSt = String(response.biwReview?.status || "").toLowerCase();
+    if (biwSt === "reworked" || biwSt === "rework") {
+      hasRework = true;
+    }
+    if (!hasRework && response.answers) {
       for (const answer of Object.values(response.answers)) {
         if (answer === null || answer === undefined || answer === "") continue;
 
