@@ -305,8 +305,54 @@ export default function RangeQuestion({
   const [startVal, setStartVal] = useState<string>(initialParsed.start);
   const [endVal, setEndVal] = useState<string>(initialParsed.end);
 
+  // Response tab identification numbers state
+  const [idNumbers, setIdNumbers] = useState<string[]>(
+    availableIdentificationNumbers || []
+  );
+  const [loadingIds, setLoadingIds] = useState<boolean>(false);
+
   const isUserClearedRef = useRef<boolean>(false);
   const hasUserEditedRef = useRef<boolean>(!!initialParsed.start || !!initialParsed.end);
+
+  const triggerChange = (newStart: string, newEnd: string) => {
+    if (readOnly) return;
+    setStartVal(newStart);
+    setEndVal(newEnd);
+
+    if (!newStart && !newEnd) {
+      onChange("");
+      return;
+    }
+
+    const s = newStart.trim();
+    const e = newEnd.trim();
+    let computedList: string[] = [];
+    let high = e || s;
+    let low = s || e;
+
+    const idxA = idNumbers.indexOf(s);
+    const idxB = idNumbers.indexOf(e);
+    if (idxA !== -1 && idxB !== -1 && idxB >= idxA) {
+      computedList = idNumbers.slice(idxA, idxB + 1);
+      low = s;
+      high = e;
+    } else {
+      const computed = calculateChassisRange(s, e);
+      computedList = computed.list;
+      if (computed.isValid) {
+        low = computed.lowVal || s;
+        high = computed.highVal || e || s;
+      }
+    }
+
+    const payload = JSON.stringify({
+      start: low,
+      end: high,
+      range: computedList,
+      count: computedList.length,
+    });
+    onChange(payload);
+  };
 
   // Pre-fill static default value into start and end if empty and not cleared by user
   useEffect(() => {
@@ -327,12 +373,6 @@ export default function RangeQuestion({
       }
     }
   }, [resolvedFormTitle, idNumbers.length, question.text]);
-
-  // Response tab identification numbers state
-  const [idNumbers, setIdNumbers] = useState<string[]>(
-    availableIdentificationNumbers || []
-  );
-  const [loadingIds, setLoadingIds] = useState<boolean>(false);
 
   // Live suggestions popup state
   const [showStartSuggestions, setShowStartSuggestions] = useState<boolean>(false);
@@ -480,46 +520,6 @@ export default function RangeQuestion({
       fromResponseTab: false,
     };
   }, [startVal, endVal, idNumbers]);
-
-  const triggerChange = (newStart: string, newEnd: string) => {
-    if (readOnly) return;
-    setStartVal(newStart);
-    setEndVal(newEnd);
-
-    if (!newStart && !newEnd) {
-      onChange("");
-      return;
-    }
-
-    const s = newStart.trim();
-    const e = newEnd.trim();
-    let computedList: string[] = [];
-    let high = e || s;
-    let low = s || e;
-
-    const idxA = idNumbers.indexOf(s);
-    const idxB = idNumbers.indexOf(e);
-    if (idxA !== -1 && idxB !== -1 && idxB >= idxA) {
-      computedList = idNumbers.slice(idxA, idxB + 1);
-      low = s;
-      high = e;
-    } else {
-      const computed = calculateChassisRange(s, e);
-      computedList = computed.list;
-      if (computed.isValid) {
-        low = computed.lowVal || s;
-        high = computed.highVal || e || s;
-      }
-    }
-
-    const payload = JSON.stringify({
-      start: low,
-      end: high,
-      range: computedList,
-      count: computedList.length,
-    });
-    onChange(payload);
-  };
 
   // Helper to smartly expand suffix to full unit if user enters only suffix or number
   const smartExpandInput = (inputVal: string, counterpartVal?: string): string => {
