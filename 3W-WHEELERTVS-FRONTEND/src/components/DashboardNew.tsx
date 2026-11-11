@@ -736,6 +736,14 @@ export default function DashboardNew() {
   const [biwLoading, setBiwLoading] = useState(false);
   const [biwPage, setBiwPage] = useState(1);
   const [biwPageSize, setBiwPageSize] = useState(10);
+  const [biwStartDate, setBiwStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().split("T")[0];
+  });
+  const [biwEndDate, setBiwEndDate] = useState(() => {
+    return new Date().toISOString().split("T")[0];
+  });
 
   // Fetch BIW summary data for dashboard
   useEffect(() => {
@@ -747,8 +755,8 @@ export default function DashboardNew() {
         const tenantId = selectedTenant?._id || selectedTenant?.id;
         const response = (await apiClient.getBiwSummary({
           tenantId: tenantId ? String(tenantId) : undefined,
-          startDate: summaryStartDate || undefined,
-          endDate: summaryEndDate || undefined,
+          startDate: biwStartDate || undefined,
+          endDate: biwEndDate || undefined,
           forceNetwork: true,
         })) as any;
         console.log('[BIW] Summary response:', response);
@@ -774,7 +782,7 @@ export default function DashboardNew() {
     };
 
     fetchBiwSummary();
-  }, [showBiwTable, user, selectedTenant?._id, selectedTenant?.id, summaryStartDate, summaryEndDate]);
+  }, [showBiwTable, user, selectedTenant?._id, selectedTenant?.id, biwStartDate, biwEndDate]);
 
   // Simplify biwReviewTableData - data is already grouped from backend
   const biwReviewTableData = useMemo(() => {
@@ -914,7 +922,7 @@ export default function DashboardNew() {
 
     return (
       <div className="mt-12 pt-8 border-t border-gray-100 dark:border-gray-700">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
           <div className="flex items-center gap-4">
             <div className="w-2 h-8 bg-purple-600 rounded-full shadow-sm shadow-purple-500/20"></div>
             <div>
@@ -922,9 +930,9 @@ export default function DashboardNew() {
                 <h3 className="text-xl font-black text-gray-900 dark:text-white leading-none mb-1">
                   BIW Review Table
                 </h3>
-                {(summaryStartDate || summaryEndDate) ? (
+                {(biwStartDate || biwEndDate) ? (
                   <span className="text-[10px] font-black text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/40 px-2.5 py-1 rounded-full uppercase tracking-wider">
-                    {summaryStartDate ? summaryStartDate : 'Start'} → {summaryEndDate ? summaryEndDate : 'Today'}
+                    {biwStartDate ? biwStartDate : 'Start'} → {biwEndDate ? biwEndDate : 'Today'}
                   </span>
                 ) : (
                   <span className="text-[10px] font-black text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2.5 py-1 rounded-full uppercase tracking-wider">
@@ -935,6 +943,125 @@ export default function DashboardNew() {
               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
                 Performance based on BIW review checkmarks (all forms)
               </p>
+            </div>
+          </div>
+
+          {/* Date Filters - Responsive */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 flex-wrap">
+            {/* Quick Presets */}
+            <div className="flex items-center bg-gray-100 dark:bg-gray-700/60 p-1 rounded-2xl gap-1 text-[11px] font-bold">
+              <button
+                type="button"
+                onClick={() => {
+                  const today = new Date().toISOString().split("T")[0];
+                  setBiwStartDate(today);
+                  setBiwEndDate(today);
+                  setBiwPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl transition-all ${
+                  biwStartDate === new Date().toISOString().split("T")[0] && biwEndDate === new Date().toISOString().split("T")[0]
+                    ? "bg-white dark:bg-gray-800 text-purple-600 shadow-sm font-black"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const today = new Date().toISOString().split("T")[0];
+                  const d = new Date();
+                  d.setDate(d.getDate() - 7);
+                  setBiwStartDate(d.toISOString().split("T")[0]);
+                  setBiwEndDate(today);
+                  setBiwPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl transition-all ${
+                  biwStartDate && biwEndDate && (new Date(biwEndDate).getTime() - new Date(biwStartDate).getTime()) === 7 * 86400000
+                    ? "bg-white dark:bg-gray-800 text-purple-600 shadow-sm font-black"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                7 Days
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const today = new Date().toISOString().split("T")[0];
+                  const d = new Date();
+                  d.setDate(d.getDate() - 30);
+                  setBiwStartDate(d.toISOString().split("T")[0]);
+                  setBiwEndDate(today);
+                  setBiwPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl transition-all ${
+                  biwStartDate && biwEndDate && (new Date(biwEndDate).getTime() - new Date(biwStartDate).getTime()) === 30 * 86400000
+                    ? "bg-white dark:bg-gray-800 text-purple-600 shadow-sm font-black"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                30 Days
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setBiwStartDate("");
+                  setBiwEndDate("");
+                  setBiwPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl transition-all ${
+                  !biwStartDate && !biwEndDate
+                    ? "bg-white dark:bg-gray-800 text-purple-600 shadow-sm font-black"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                All Time
+              </button>
+            </div>
+
+            {/* Custom Range Inputs */}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center bg-white dark:bg-gray-800 rounded-2xl px-3 py-1.5 border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-4 focus-within:ring-purple-500/10 transition-all">
+                <span className="text-[10px] font-black text-gray-400 mr-2 uppercase tracking-wider">
+                  From
+                </span>
+                <input
+                  type="date"
+                  value={biwStartDate}
+                  onChange={(e) => {
+                    setBiwStartDate(e.target.value);
+                    setBiwPage(1);
+                  }}
+                  className="bg-transparent text-xs font-bold text-gray-700 dark:text-gray-200 focus:outline-none"
+                />
+              </div>
+              <div className="flex items-center bg-white dark:bg-gray-800 rounded-2xl px-3 py-1.5 border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-4 focus-within:ring-purple-500/10 transition-all">
+                <span className="text-[10px] font-black text-gray-400 mr-2 uppercase tracking-wider">
+                  To
+                </span>
+                <input
+                  type="date"
+                  value={biwEndDate}
+                  onChange={(e) => {
+                    setBiwEndDate(e.target.value);
+                    setBiwPage(1);
+                  }}
+                  className="bg-transparent text-xs font-bold text-gray-700 dark:text-gray-200 focus:outline-none"
+                />
+              </div>
+              {(biwStartDate || biwEndDate) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBiwStartDate("");
+                    setBiwEndDate("");
+                    setBiwPage(1);
+                  }}
+                  className="px-3 py-1.5 text-xs font-black text-rose-600 hover:text-rose-700 bg-rose-50 dark:bg-rose-900/20 rounded-xl transition-colors uppercase tracking-widest"
+                >
+                  Clear
+                </button>
+              )}
             </div>
           </div>
         </div>

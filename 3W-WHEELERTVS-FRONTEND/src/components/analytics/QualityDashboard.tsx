@@ -242,9 +242,17 @@ export const QualityDashboard: React.FC = () => {
   // Master available forms memo
   const allAvailableForms = useMemo(() => {
     if (data?.formOptions && data.formOptions.length > 0) return data.formOptions;
+    if (data?.formsSummary && data.formsSummary.length > 0) {
+      return data.formsSummary.map((f: any) => ({
+        id: f.id || f._id,
+        _id: f._id || f.id,
+        title: f.title || 'Untitled Form',
+        totalChecked: f.totalChecked || 0
+      }));
+    }
     if (availableFormOptions.length > 0) return availableFormOptions;
     return [];
-  }, [availableFormOptions, data?.formOptions]);
+  }, [availableFormOptions, data?.formOptions, data?.formsSummary]);
 
   // Master cache map to preserve known form stats and eliminate 0 units flicker
   const formsCacheMapRef = useRef<Map<string, any>>(new Map());
@@ -778,10 +786,44 @@ export const QualityDashboard: React.FC = () => {
       const endTime = performance.now();
       setLoadTimeMs(Math.round(endTime - startTime));
       
-      // Safely unwrap response whether client.ts returns payload directly or wrapped in { success, data }
-      const actualData = (res?.data?.summary) ? res.data : (res?.summary && res?.formsSummary ? res : (res?.data || res));
+      // Safely unwrap response whether client.ts returns payload directly or nested in data
+      let actualData = res;
+      if (actualData?.data?.summary) {
+        actualData = actualData.data;
+      } else if (actualData?.data?.data?.summary) {
+        actualData = actualData.data.data;
+      } else if (actualData?.data && !actualData?.summary) {
+        actualData = actualData.data;
+        if (actualData?.data && !actualData?.summary) {
+          actualData = actualData.data;
+        }
+      }
 
       if (actualData && actualData.summary) {
+        // Mutually enrich formOptions and formsSummary if either was omitted
+        if ((!actualData.formOptions || actualData.formOptions.length === 0) && actualData.formsSummary?.length > 0) {
+          actualData.formOptions = actualData.formsSummary.map((f: any) => ({
+            id: f.id || f._id,
+            _id: f._id || f.id,
+            title: f.title || 'Untitled Form',
+            totalChecked: f.totalChecked || 0
+          }));
+        }
+        if ((!actualData.formsSummary || actualData.formsSummary.length === 0) && actualData.formOptions?.length > 0) {
+          actualData.formsSummary = actualData.formOptions.map((f: any) => ({
+            id: f.id || f._id,
+            _id: f._id || f.id,
+            title: f.title || 'Untitled Form',
+            totalChecked: f.totalChecked || 0,
+            acceptCount: f.totalChecked || 0,
+            defectCount: 0,
+            acceptRate: 100,
+            defectRate: 0,
+            totalInspectors: 0,
+            inspectors: []
+          }));
+        }
+
         setClientCachedData(cacheKey, actualData);
         setData(actualData);
         if (actualData.formOptions && actualData.formOptions.length > 0) {
