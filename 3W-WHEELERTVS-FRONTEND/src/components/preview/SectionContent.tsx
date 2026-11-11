@@ -87,6 +87,7 @@ export default function SectionContent({
               readOnly={readOnly}
               isFollowUp={!!q.showWhen}
               formId={formId}
+              formTitle={formTitle}
               formTenantId={formTenantId}
               tenantSlug={tenantSlug}
               suggestedAnswers={suggestedAnswers}
@@ -137,6 +138,7 @@ export default function SectionContent({
                       readOnly={readOnly}
                       isFollowUp={!!q.showWhen}
                       formId={formId}
+                      formTitle={formTitle}
                       formTenantId={formTenantId}
                       tenantSlug={tenantSlug}
                       suggestedAnswers={suggestedAnswers}

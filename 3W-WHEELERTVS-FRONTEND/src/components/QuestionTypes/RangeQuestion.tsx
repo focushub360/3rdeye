@@ -28,6 +28,7 @@ interface RangeQuestionProps {
   error?: boolean;
   isApplied?: boolean;
   formId?: string;
+  formTitle?: string;
   tenantSlug?: string;
   availableIdentificationNumbers?: string[];
 }
@@ -189,6 +190,52 @@ export const calculateChassisRange = (
   };
 };
 
+// Compute a default static value for range fields (e.g. from existing IDs, form title, or prefix)
+export const getDefaultStaticRangeValue = (
+  idNumbers: string[] = [],
+  formTitle: string = "",
+  questionText: string = ""
+): { start: string; end: string } => {
+  if (idNumbers && idNumbers.length > 0) {
+    const lastUnit = idNumbers[idNumbers.length - 1];
+    const splLast = splitPrefixAndNumber(lastUnit);
+    if (splLast) {
+      const nextNum = splLast.num + 1;
+      const padLen = splLast.padLen;
+      const nextUnit = `${splLast.prefix}${String(nextNum).padStart(padLen, "0")}${splLast.suffix || ""}`;
+      return { start: nextUnit, end: nextUnit };
+    }
+    const commonPref = findLongestCommonPrefix(idNumbers);
+    if (commonPref) {
+      const defaultUnit = `${commonPref}01`;
+      return { start: defaultUnit, end: defaultUnit };
+    }
+    return { start: idNumbers[0], end: idNumbers[0] };
+  }
+
+  let prefix = "";
+  if (formTitle && formTitle.trim()) {
+    const cleanTitle = formTitle.trim().replace(/[^\w\s-]/g, "");
+    if (cleanTitle.length <= 15) {
+      prefix = `${cleanTitle}-`;
+    } else {
+      const words = cleanTitle.split(/\s+/).filter(Boolean);
+      if (words.length > 1) {
+        prefix = `${words.slice(0, 2).join("-")}-`;
+      } else {
+        prefix = `${cleanTitle.slice(0, 10)}-`;
+      }
+    }
+  } else if (questionText && questionText.trim()) {
+    prefix = `${questionText.trim()}-`;
+  } else {
+    prefix = "ID-";
+  }
+
+  const defaultUnit = `${prefix}01`;
+  return { start: defaultUnit, end: defaultUnit };
+};
+
 export default function RangeQuestion({
   question,
   value,
@@ -197,6 +244,7 @@ export default function RangeQuestion({
   error = false,
   isApplied = false,
   formId,
+  formTitle,
   tenantSlug,
   availableIdentificationNumbers,
 }: RangeQuestionProps) {
@@ -237,9 +285,48 @@ export default function RangeQuestion({
   const startLabel = question.minLabel || "Start Identification Number";
   const endLabel = question.maxLabel || "End Identification Number";
 
+  const [resolvedFormTitle, setResolvedFormTitle] = useState<string>(formTitle || "");
+
+  // Resolve form title if not passed
+  useEffect(() => {
+    if (formTitle) {
+      setResolvedFormTitle(formTitle);
+      return;
+    }
+    if (resolvedFormId && !resolvedFormTitle) {
+      apiClient.getForm(resolvedFormId).then((res: any) => {
+        const title = res?.data?.title || res?.title || "";
+        if (title) setResolvedFormTitle(title);
+      }).catch(() => {});
+    }
+  }, [formTitle, resolvedFormId]);
+
   const initialParsed = useMemo(() => parseRangeValue(value), [value]);
   const [startVal, setStartVal] = useState<string>(initialParsed.start);
   const [endVal, setEndVal] = useState<string>(initialParsed.end);
+
+  const isUserClearedRef = useRef<boolean>(false);
+  const hasUserEditedRef = useRef<boolean>(!!initialParsed.start || !!initialParsed.end);
+
+  // Pre-fill static default value into start and end if empty and not cleared by user
+  useEffect(() => {
+    if (initialParsed.start || initialParsed.end || isUserClearedRef.current || hasUserEditedRef.current) {
+      return;
+    }
+
+    if (!startVal && !endVal) {
+      const defaultStatic = getDefaultStaticRangeValue(
+        idNumbers,
+        resolvedFormTitle,
+        question.text || (question as any).question || ""
+      );
+      if (defaultStatic.start) {
+        setStartVal(defaultStatic.start);
+        setEndVal(defaultStatic.end);
+        triggerChange(defaultStatic.start, defaultStatic.end);
+      }
+    }
+  }, [resolvedFormTitle, idNumbers.length, question.text]);
 
   // Response tab identification numbers state
   const [idNumbers, setIdNumbers] = useState<string[]>(
@@ -289,6 +376,18 @@ export default function RangeQuestion({
         (Array.isArray(res) ? res : []);
       if (Array.isArray(list) && list.length > 0) {
         setIdNumbers(list);
+        if (!hasUserEditedRef.current && !isUserClearedRef.current) {
+          const defaultStatic = getDefaultStaticRangeValue(
+            list,
+            resolvedFormTitle,
+            question.text || (question as any).question || ""
+          );
+          if (defaultStatic.start) {
+            setStartVal(defaultStatic.start);
+            setEndVal(defaultStatic.end);
+            triggerChange(defaultStatic.start, defaultStatic.end);
+          }
+        }
       }
     } catch (err) {
       console.warn("Failed to fetch form response identification numbers:", err);
@@ -463,6 +562,7 @@ export default function RangeQuestion({
   };
 
   const handleStartInputChange = (val: string) => {
+    hasUserEditedRef.current = true;
     // Check if pasted a range string like "Muffler-01 - Muffler-04" or "Muffler-01 to Muffler-04"
     const rangeMatch = val.match(/^(.+?)(?:\s+(?:-|to|–|—)\s+|\s*\.\.\s*)(.+)$/i);
     if (rangeMatch) {
@@ -479,6 +579,7 @@ export default function RangeQuestion({
   };
 
   const handleEndInputChange = (val: string) => {
+    hasUserEditedRef.current = true;
     setEndVal(val);
     setShowEndSuggestions(true);
     triggerChange(startVal, val);
@@ -496,6 +597,8 @@ export default function RangeQuestion({
 
   const handleReset = () => {
     if (readOnly) return;
+    isUserClearedRef.current = true;
+    hasUserEditedRef.current = true;
     triggerChange("", "");
   };
 

@@ -60,6 +60,7 @@ interface QuestionRendererProps {
   error?: string;
   trackingError?: string;
   formId?: string;
+  formTitle?: string;
   tenantSlug?: string;
   suggestedAnswers?: any[] | Record<string, any> | null;
   lastSuggestionSource?: string | null;
@@ -225,6 +226,7 @@ export default function QuestionRenderer({
   readOnly = false,
   isFollowUp = false,
   formId,
+  formTitle,
   tenantSlug,
   suggestedAnswers,
   lastSuggestionSource,
@@ -1362,6 +1364,7 @@ export default function QuestionRenderer({
               error={!!error}
               isApplied={isApplied}
               formId={formId}
+              formTitle={formTitle}
               tenantSlug={tenantSlug}
               availableIdentificationNumbers={previousAnswers}
             />
