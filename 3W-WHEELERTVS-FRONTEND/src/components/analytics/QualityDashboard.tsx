@@ -124,17 +124,25 @@ const qualitySummaryClientCache = new Map<string, {
   timestamp: number;
 }>();
 
-const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_';
+const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v17_';
+
+const isValidSummaryData = (item: any): boolean => {
+  const d = item?.data || item;
+  if (!d || !d.summary) return false;
+  const fo = d.formOptions;
+  const fs = d.formsSummary;
+  return (Array.isArray(fo) && fo.length > 0) || (Array.isArray(fs) && fs.length > 0);
+};
 
 const getClientCachedData = (key: string) => {
   const mem = qualitySummaryClientCache.get(key);
-  if (mem && Date.now() - mem.timestamp < 600000) return mem;
+  if (mem && isValidSummaryData(mem) && Date.now() - mem.timestamp < 600000) return mem;
 
   try {
     const raw = sessionStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}${key}`) || localStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}${key}`);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.data && Date.now() - parsed.timestamp < 600000) {
+      if (parsed && isValidSummaryData(parsed) && Date.now() - parsed.timestamp < 600000) {
         qualitySummaryClientCache.set(key, parsed);
         return parsed;
       }
@@ -145,13 +153,13 @@ const getClientCachedData = (key: string) => {
 
 const getLastGoodCachedData = () => {
   const mem = qualitySummaryClientCache.get('last_good');
-  if (mem && Date.now() - mem.timestamp < 1800000) return mem;
+  if (mem && isValidSummaryData(mem) && Date.now() - mem.timestamp < 1800000) return mem;
 
   try {
     const raw = sessionStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}last_good`) || localStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}last_good`);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.data && Date.now() - parsed.timestamp < 1800000) {
+      if (parsed && isValidSummaryData(parsed) && Date.now() - parsed.timestamp < 1800000) {
         qualitySummaryClientCache.set('last_good', parsed);
         return parsed;
       }
@@ -161,6 +169,7 @@ const getLastGoodCachedData = () => {
 };
 
 const setClientCachedData = (key: string, data: any) => {
+  if (!isValidSummaryData(data)) return;
   const entry = { data, timestamp: Date.now() };
   qualitySummaryClientCache.set(key, entry);
   qualitySummaryClientCache.set('last_good', entry);
@@ -202,7 +211,7 @@ export const QualityDashboard: React.FC = () => {
   const [availableFormOptions, setAvailableFormOptions] = useState<Array<{ id: string; title: string; totalChecked?: number }>>(() => {
     try {
       const sortedFormKey = [...initialFormIds].sort().join(',');
-      const cacheKey = `v16_${sortedFormKey}__`;
+      const cacheKey = `v17_${sortedFormKey}__`;
       const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
       if (cached?.data?.formOptions) return cached.data.formOptions;
     } catch (_) {}
@@ -220,7 +229,7 @@ export const QualityDashboard: React.FC = () => {
   const [data, setData] = useState<SummaryData | null>(() => {
     try {
       const sortedFormKey = [...initialFormIds].sort().join(',');
-      const cacheKey = `v16_${sortedFormKey}__`;
+      const cacheKey = `v17_${sortedFormKey}__`;
       const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
       return cached ? cached.data : null;
     } catch (_) {
@@ -707,38 +716,42 @@ export const QualityDashboard: React.FC = () => {
 
   const fetchSummary = async (forceNetwork = false) => {
     const sortedFormKey = [...selectedFormIds].sort().join(',');
-    const cacheKey = `v16_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
+    const cacheKey = `v17_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
     const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
 
-    // ─── 0ms SWR Instant Loading: Render immediately from cache if available ────
-    if (cached && !forceNetwork) {
+    // ─── 0ms SWR Instant Loading: Render immediately from cache ONLY IF VALID ────
+    if (cached && isValidSummaryData(cached) && !forceNetwork) {
       setData(cached.data);
       setLoading(false);
       setLoadTimeMs(0);
 
-      // Populate available form options from cached data
+      // Populate available form options and master summary from cached data
       if (cached.data.formOptions && cached.data.formOptions.length > 0) {
         setAvailableFormOptions(cached.data.formOptions);
       }
-
-      // Revalidate in background if older than 10s to keep numbers perfectly fresh
-      if (Date.now() - cached.timestamp > 10000) {
-        apiClient.getQualitySummary({
-          formIds: selectedFormIds.length > 0 ? selectedFormIds : undefined,
-          startDate,
-          endDate,
-          forceNetwork: false
-        }).then(res => {
-          const actualData = (res?.data?.summary) ? res.data : (res?.summary && res?.formsSummary ? res : (res?.data || res));
-          if (actualData && actualData.summary) {
-            setClientCachedData(cacheKey, actualData);
-            setData(actualData);
-            if (actualData.formOptions && actualData.formOptions.length > 0) {
-              setAvailableFormOptions(actualData.formOptions);
-            }
-          }
-        }).catch(() => {});
+      if (cached.data.formsSummary && cached.data.formsSummary.length > 0) {
+        masterFormsSummaryRef.current = cached.data.formsSummary;
       }
+
+      // Revalidate in background with forceNetwork: true
+      apiClient.getQualitySummary({
+        formIds: selectedFormIds.length > 0 ? selectedFormIds : undefined,
+        startDate,
+        endDate,
+        forceNetwork: true
+      }).then(res => {
+        const actualData = (res?.data?.summary) ? res.data : (res?.summary && res?.formsSummary ? res : (res?.data || res));
+        if (actualData && isValidSummaryData(actualData)) {
+          setClientCachedData(cacheKey, actualData);
+          setData(actualData);
+          if (actualData.formOptions && actualData.formOptions.length > 0) {
+            setAvailableFormOptions(actualData.formOptions);
+          }
+          if (actualData.formsSummary && actualData.formsSummary.length > 0) {
+            masterFormsSummaryRef.current = actualData.formsSummary;
+          }
+        }
+      }).catch(() => {});
       return;
     }
 
@@ -758,7 +771,7 @@ export const QualityDashboard: React.FC = () => {
         formIds: selectedFormIds.length > 0 ? selectedFormIds : undefined,
         startDate,
         endDate,
-        forceNetwork
+        forceNetwork: true
       });
       
       clearInterval(timerInterval);
@@ -774,9 +787,7 @@ export const QualityDashboard: React.FC = () => {
         if (actualData.formOptions && actualData.formOptions.length > 0) {
           setAvailableFormOptions(actualData.formOptions);
         }
-        if (selectedFormIds.length === 0 && actualData.formsSummary && actualData.formsSummary.length > 0) {
-          masterFormsSummaryRef.current = actualData.formsSummary;
-        } else if (!masterFormsSummaryRef.current && actualData.formsSummary && actualData.formsSummary.some((f: any) => (f.totalChecked || 0) > 0)) {
+        if (actualData.formsSummary && actualData.formsSummary.length > 0) {
           masterFormsSummaryRef.current = actualData.formsSummary;
         }
       } else {
@@ -791,8 +802,27 @@ export const QualityDashboard: React.FC = () => {
     }
   };
 
+  // Clean up any stale legacy caches on mount
   useEffect(() => {
-    fetchSummary(false);
+    try {
+      const prefixes = ['quality_summary_swr_', 'quality_summary_v15_', 'quality_summary_v16_', 'v15_', 'v16_'];
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && prefixes.some(p => k.startsWith(p)) && !k.startsWith(SWR_STORAGE_KEY_PREFIX)) {
+          localStorage.removeItem(k);
+        }
+      }
+      for (let i = sessionStorage.length - 1; i >= 0; i--) {
+        const k = sessionStorage.key(i);
+        if (k && prefixes.some(p => k.startsWith(p)) && !k.startsWith(SWR_STORAGE_KEY_PREFIX)) {
+          sessionStorage.removeItem(k);
+        }
+      }
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
+    fetchSummary(true);
   }, [selectedFormIds, startDate, endDate]);
 
   useEffect(() => {
