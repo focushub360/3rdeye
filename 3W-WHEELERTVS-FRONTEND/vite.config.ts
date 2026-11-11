@@ -4,12 +4,12 @@ import react from "@vitejs/plugin-react";
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  build: { sourcemap: true },
-  plugins: [react()],
+    plugins: [react()],
   optimizeDeps: {
     exclude: ["lucide-react", "exceljs"],
   },
   build: {
+    sourcemap: true,
     // Suppress chunk size warnings (we're splitting deliberately)
     chunkSizeWarningLimit: 600,
     rollupOptions: {

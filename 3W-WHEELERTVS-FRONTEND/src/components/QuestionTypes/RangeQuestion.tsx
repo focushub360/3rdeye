@@ -36,10 +36,9 @@ interface RangeQuestionProps {
 export const parseRangeValue = (val: any): { start: string; end: string } => {
   if (!val && val !== 0) return { start: "", end: "" };
   if (typeof val === "object" && val !== null) {
-    return {
-      start: val.start !== undefined ? String(val.start) : "",
-      end: val.end !== undefined ? String(val.end) : "",
-    };
+    const s = val.start !== undefined ? String(val.start) : "";
+    const e = val.end !== undefined ? String(val.end) : s;
+    return { start: s, end: e };
   }
   if (typeof val === "string") {
     const trimmed = val.trim();
@@ -47,16 +46,15 @@ export const parseRangeValue = (val: any): { start: string; end: string } => {
       try {
         const parsed = JSON.parse(trimmed);
         if (parsed && (parsed.start !== undefined || parsed.end !== undefined)) {
-          return {
-            start: parsed.start !== undefined ? String(parsed.start) : "",
-            end: parsed.end !== undefined ? String(parsed.end) : "",
-          };
+          const s = parsed.start !== undefined ? String(parsed.start) : "";
+          const e = parsed.end !== undefined ? String(parsed.end) : s;
+          return { start: s, end: e };
         }
       } catch {}
     }
-    if (trimmed.includes(" - ")) {
-      const [s, e] = trimmed.split(" - ");
-      return { start: s?.trim() || "", end: e?.trim() || "" };
+    const rangeMatch = trimmed.match(/^(.+?)(?:\s+(?:-|to|–|—)\s+|\s*\.\.\s*)(.+)$/i);
+    if (rangeMatch) {
+      return { start: rangeMatch[1].trim(), end: rangeMatch[2].trim() };
     }
     return { start: trimmed, end: trimmed };
   }
@@ -64,31 +62,27 @@ export const parseRangeValue = (val: any): { start: string; end: string } => {
   return { start: s, end: s };
 };
 
-// Split alphanumeric string into prefix and terminal number
+// Split alphanumeric string into prefix, number, and optional suffix
 export const splitPrefixAndNumber = (
   str: string
-): { prefix: string; num: number; padLen: number; rawNumStr: string } | null => {
+): { prefix: string; num: number; padLen: number; rawNumStr: string; suffix?: string } | null => {
   if (!str) return null;
   const s = String(str).trim();
 
-  // 1. Matches prefix ending in non-digit and terminal digits: e.g. "Oct 05-VPM-01" -> prefix: "Oct 05-VPM-", num: 1
-  const m = s.match(/^(.*[^\d])(\d+)$/);
-  if (m) {
+  // Matches optional prefix (anything ending with non-digit), digits, and optional suffix (non-digits at end)
+  // e.g. "Oct 05-VPM-01" -> prefix: "Oct 05-VPM-", num: 1, padLen: 2, rawNumStr: "01", suffix: ""
+  // e.g. "Muffler-01"    -> prefix: "Muffler-",     num: 1, padLen: 2, rawNumStr: "01", suffix: ""
+  // e.g. "04"            -> prefix: "",             num: 4, padLen: 2, rawNumStr: "04", suffix: ""
+  // e.g. "2392N"         -> prefix: "",             num: 2392, padLen: 4, rawNumStr: "2392", suffix: "N"
+  // e.g. "CH-2392N"      -> prefix: "CH-",          num: 2392, padLen: 4, rawNumStr: "2392", suffix: "N"
+  const m = s.match(/^(.*[^\d])?(\d+)([^\d]*)$/);
+  if (m && m[2] !== undefined) {
     return {
-      prefix: m[1],
+      prefix: m[1] || "",
       num: parseInt(m[2], 10),
       padLen: m[2].length,
       rawNumStr: m[2],
-    };
-  }
-
-  // 2. Pure digits: e.g. "604001"
-  if (/^\d+$/.test(s)) {
-    return {
-      prefix: "",
-      num: parseInt(s, 10),
-      padLen: s.length,
-      rawNumStr: s,
+      suffix: m[3] || "",
     };
   }
 
@@ -133,40 +127,54 @@ export const calculateChassisRange = (
   const startParsed = splitPrefixAndNumber(start);
   const endParsed = splitPrefixAndNumber(end);
 
-  // If both have numbers and matching prefix (or both pure numbers)
-  if (startParsed && endParsed && startParsed.prefix === endParsed.prefix) {
-    const prefix = startParsed.prefix;
-    const n1 = startParsed.num;
-    const n2 = endParsed.num;
-    const padLen = Math.max(startParsed.padLen, endParsed.padLen);
+  // If both have numbers and matching or inheritable prefix & suffix
+  if (startParsed && endParsed) {
+    const effectivePrefix = startParsed.prefix || endParsed.prefix || "";
+    const effectiveSuffix = startParsed.suffix || endParsed.suffix || "";
 
-    if (n2 < n1) {
+    const prefixMatches =
+      startParsed.prefix === endParsed.prefix ||
+      !startParsed.prefix ||
+      !endParsed.prefix;
+
+    const suffixMatches =
+      startParsed.suffix === endParsed.suffix ||
+      !startParsed.suffix ||
+      !endParsed.suffix;
+
+    if (prefixMatches && suffixMatches) {
+      const n1 = startParsed.num;
+      const n2 = endParsed.num;
+      const padLen = Math.max(startParsed.padLen, endParsed.padLen);
+
+      if (n2 < n1) {
+        return {
+          list: [],
+          count: 0,
+          isValid: false,
+          errorMsg: `End identification unit (${end}) must be after or equal to start unit (${start}).`,
+          highVal: end,
+          lowVal: start,
+        };
+      }
+
+      const total = n2 - n1 + 1;
+      const count = Math.min(total, maxLimit);
+      const list: string[] = [];
+
+      for (let i = 0; i < count; i++) {
+        const val = String(n1 + i).padStart(padLen, "0");
+        list.push(`${effectivePrefix}${val}${effectiveSuffix}`);
+      }
+
       return {
-        list: [],
-        count: 0,
-        isValid: false,
-        errorMsg: `End identification unit (${end}) must be after or equal to start unit (${start}).`,
-        highVal: end,
-        lowVal: start,
+        list,
+        count: total,
+        isValid: true,
+        highVal: `${effectivePrefix}${String(n2).padStart(padLen, "0")}${effectiveSuffix}`,
+        lowVal: `${effectivePrefix}${String(n1).padStart(padLen, "0")}${effectiveSuffix}`,
       };
     }
-
-    const total = n2 - n1 + 1;
-    const count = Math.min(total, maxLimit);
-    const list: string[] = [];
-
-    for (let i = 0; i < count; i++) {
-      const val = String(n1 + i).padStart(padLen, "0");
-      list.push(`${prefix}${val}`);
-    }
-
-    return {
-      list,
-      count: total,
-      isValid: true,
-      highVal: `${prefix}${String(n2).padStart(padLen, "0")}`,
-      lowVal: `${prefix}${String(n1).padStart(padLen, "0")}`,
-    };
   }
 
   // Fallback string compare
@@ -387,36 +395,61 @@ export default function RangeQuestion({
     const s = newStart.trim();
     const e = newEnd.trim();
     let computedList: string[] = [];
+    let high = e || s;
+    let low = s || e;
 
     const idxA = idNumbers.indexOf(s);
     const idxB = idNumbers.indexOf(e);
     if (idxA !== -1 && idxB !== -1 && idxB >= idxA) {
       computedList = idNumbers.slice(idxA, idxB + 1);
+      low = s;
+      high = e;
     } else {
-      computedList = calculateChassisRange(s, e).list;
+      const computed = calculateChassisRange(s, e);
+      computedList = computed.list;
+      if (computed.isValid) {
+        low = computed.lowVal || s;
+        high = computed.highVal || e || s;
+      }
     }
 
     const payload = JSON.stringify({
-      start: s,
-      end: e,
+      start: low,
+      end: high,
       range: computedList,
       count: computedList.length,
     });
     onChange(payload);
   };
 
-  // Helper to smartly expand suffix to full unit if user enters only suffix
-  const smartExpandInput = (inputVal: string): string => {
+  // Helper to smartly expand suffix to full unit if user enters only suffix or number
+  const smartExpandInput = (inputVal: string, counterpartVal?: string): string => {
     const val = inputVal.trim();
     if (!val) return "";
     // If it's already an exact match in idNumbers, keep it
     if (idNumbers.includes(val)) return val;
-    // If commonPrefix exists and val matches a suffix (e.g. user typed "01" or "1")
+
+    // 1. Inherit prefix and/or suffix from counterpart (e.g. user typed "04" into End when Start is "Muffler-01")
+    if (counterpartVal) {
+      const other = splitPrefixAndNumber(counterpartVal);
+      const current = splitPrefixAndNumber(val);
+      if (other && current) {
+        const needsPrefix = !current.prefix && !!other.prefix;
+        const needsSuffix = !current.suffix && !!other.suffix;
+        if (needsPrefix || needsSuffix) {
+          const padLen = Math.max(current.padLen, other.padLen);
+          const paddedNum = String(current.num).padStart(padLen, "0");
+          const pref = current.prefix || other.prefix || "";
+          const suf = current.suffix || other.suffix || "";
+          return `${pref}${paddedNum}${suf}`;
+        }
+      }
+    }
+
+    // 2. If commonPrefix exists and val matches a suffix in idNumbers
     if (commonPrefix) {
-      // 1. Direct prefix + val match
       const candidate1 = `${commonPrefix}${val}`;
       if (idNumbers.includes(candidate1)) return candidate1;
-      // 2. Number zero-padded match
       if (/^\d+$/.test(val)) {
         const num = parseInt(val, 10);
         const match = idNumbers.find((id) => {
@@ -430,6 +463,16 @@ export default function RangeQuestion({
   };
 
   const handleStartInputChange = (val: string) => {
+    // Check if pasted a range string like "Muffler-01 - Muffler-04" or "Muffler-01 to Muffler-04"
+    const rangeMatch = val.match(/^(.+?)(?:\s+(?:-|to|–|—)\s+|\s*\.\.\s*)(.+)$/i);
+    if (rangeMatch) {
+      const s = rangeMatch[1].trim();
+      const e = rangeMatch[2].trim();
+      setStartVal(s);
+      setEndVal(e);
+      triggerChange(s, e);
+      return;
+    }
     setStartVal(val);
     setShowStartSuggestions(true);
     triggerChange(val, endVal);
@@ -473,7 +516,7 @@ export default function RangeQuestion({
     const spl = splitPrefixAndNumber(startVal);
     if (spl) {
       const nextNum = spl.num + offset;
-      const nextEnd = `${spl.prefix}${String(nextNum).padStart(spl.padLen, "0")}`;
+      const nextEnd = `${spl.prefix}${String(nextNum).padStart(spl.padLen, "0")}${spl.suffix || ""}`;
       triggerChange(startVal, nextEnd);
     }
   };
@@ -665,8 +708,9 @@ export default function RangeQuestion({
               value={startVal}
               onChange={(e) => handleStartInputChange(e.target.value)}
               onBlur={() => {
-                const expanded = smartExpandInput(startVal);
+                const expanded = smartExpandInput(startVal, endVal);
                 if (expanded !== startVal) {
+                  setStartVal(expanded);
                   triggerChange(expanded, endVal);
                 }
               }}
@@ -764,15 +808,26 @@ export default function RangeQuestion({
               value={endVal}
               onChange={(e) => handleEndInputChange(e.target.value)}
               onBlur={() => {
-                const expanded = smartExpandInput(endVal);
+                const expanded = smartExpandInput(endVal, startVal);
                 if (expanded !== endVal) {
+                  setEndVal(expanded);
                   triggerChange(startVal, expanded);
                 }
               }}
               onFocus={() => setShowEndSuggestions(true)}
               disabled={readOnly}
               placeholder={
-                idNumbers.length > 1
+                startVal
+                  ? (() => {
+                      const spl = splitPrefixAndNumber(startVal);
+                      if (spl) {
+                        const numSample = String(spl.num + 3).padStart(spl.padLen, "0");
+                        const nextSample = `${spl.prefix}${numSample}${spl.suffix || ""}`;
+                        return `e.g. ${numSample} or ${nextSample}`;
+                      }
+                      return "End Unit (e.g. 04 or full ID)";
+                    })()
+                  : idNumbers.length > 1
                   ? `e.g., ${idNumbers[idNumbers.length - 1]}`
                   : "End Unit (e.g. 04 or full ID)"
               }
@@ -878,13 +933,31 @@ export default function RangeQuestion({
       )}
 
       {/* Live Preview Chips when valid and filled */}
-      {rangeInfo.isValid && startVal && endVal && (
+      {rangeInfo.isValid && (startVal || endVal) && (
         <div className="mt-3.5 pt-3 border-t border-gray-100 dark:border-gray-800 animate-in fade-in duration-150">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
               <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />
               <span>
-                {rangeInfo.count} responses in range: {rangeInfo.lowVal} &rarr; {rangeInfo.highVal}
+                {rangeInfo.count === 1 ? (
+                  <>
+                    Fixed Single Unit:{" "}
+                    <span className="font-mono font-bold text-gray-900 dark:text-gray-100">
+                      {rangeInfo.lowVal}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    {rangeInfo.count} responses in range:{" "}
+                    <span className="font-mono font-bold text-gray-900 dark:text-gray-100">
+                      {rangeInfo.lowVal}
+                    </span>{" "}
+                    &rarr;{" "}
+                    <span className="font-mono font-bold text-gray-900 dark:text-gray-100">
+                      {rangeInfo.highVal}
+                    </span>
+                  </>
+                )}
                 {rangeInfo.fromResponseTab && (
                   <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300">
                     Response Tab Sequence Fit
