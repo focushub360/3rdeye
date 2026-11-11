@@ -3785,7 +3785,7 @@ export const getBiwSummary = async (req, res) => {
   try {
     const userRole = req.user?.role || 'admin';
     const userTenantId = req.user?.tenantId;
-    const { formId, tenantId } = req.query;
+    const { formId, tenantId, startDate, endDate } = req.query;
 
     const effectiveTenantId = (userRole === 'superadmin' && tenantId)
       ? tenantId
@@ -3824,6 +3824,44 @@ export const getBiwSummary = async (req, res) => {
       };
     } else if (formIds.length > 0) {
       respQuery.questionId = { $in: formIds };
+    }
+
+    // Add date filtering if startDate or endDate provided
+    if (startDate || endDate) {
+      const dateFilterQuery = {};
+      if (startDate) {
+        const sDate = new Date(startDate);
+        sDate.setUTCHours(0, 0, 0, 0);
+        const sDateBuffer = new Date(sDate.getTime() - 6 * 3600 * 1000);
+        dateFilterQuery.$gte = sDateBuffer;
+      }
+      if (endDate) {
+        const eDate = new Date(endDate);
+        eDate.setUTCHours(23, 59, 59, 999);
+        const eDateBuffer = new Date(eDate.getTime() + 12 * 3600 * 1000);
+        dateFilterQuery.$lte = eDateBuffer;
+      }
+
+      const dateClause = {
+        $or: [
+          { createdAt: dateFilterQuery },
+          { submittedAt: dateFilterQuery }
+        ]
+      };
+
+      if (respQuery.$or) {
+        respQuery = {
+          $and: [
+            { $or: respQuery.$or },
+            dateClause
+          ]
+        };
+      } else {
+        respQuery = {
+          ...respQuery,
+          ...dateClause
+        };
+      }
     }
 
     // High-performance MongoDB aggregation pipeline - executes on DB engine in <1.5s

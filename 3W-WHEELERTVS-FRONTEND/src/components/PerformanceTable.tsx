@@ -11,8 +11,12 @@ import { Users, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Loader2 } fro
 
 const PerformanceTable = ({
   useInternalTrackingEndpoint = false,
+  startDate,
+  endDate,
 }: {
   useInternalTrackingEndpoint?: boolean;
+  startDate?: string;
+  endDate?: string;
 }) => {
   const { user } = useAuth();
   const [performanceTableData, setPerformanceTableData] = useState<any[]>([]);
@@ -27,6 +31,12 @@ const PerformanceTable = ({
   const [perfEndDate, setPerfEndDate] = useState(() => {
     return new Date().toISOString().split("T")[0];
   });
+
+  useEffect(() => {
+    if (startDate !== undefined) setPerfStartDate(startDate);
+    if (endDate !== undefined) setPerfEndDate(endDate);
+    setPerformancePage(1);
+  }, [startDate, endDate]);
   const [perfInspectorSummary, setPerfInspectorSummary] = useState<any[]>([]);
   const [activeUserNames, setActiveUserNames] = useState<Set<string>>(
     new Set(),

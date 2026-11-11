@@ -3854,10 +3854,12 @@ class ApiClient {
     return res.responses || [];
   }
 
-  async getBiwSummary(params?: { formId?: string; tenantId?: string; forceNetwork?: boolean }) {
+  async getBiwSummary(params?: { formId?: string; tenantId?: string; startDate?: string; endDate?: string; forceNetwork?: boolean }) {
     const query = new URLSearchParams();
     if (params?.formId) query.set("formId", params.formId);
     if (params?.tenantId) query.set("tenantId", params.tenantId);
+    if (params?.startDate) query.set("startDate", params.startDate);
+    if (params?.endDate) query.set("endDate", params.endDate);
     const queryString = query.toString() ? `?${query.toString()}` : "";
     return this.get<
       Array<{

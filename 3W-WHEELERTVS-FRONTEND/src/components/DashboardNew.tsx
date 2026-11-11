@@ -747,7 +747,9 @@ export default function DashboardNew() {
         const tenantId = selectedTenant?._id || selectedTenant?.id;
         const response = (await apiClient.getBiwSummary({
           tenantId: tenantId ? String(tenantId) : undefined,
-          forceNetwork: false,
+          startDate: summaryStartDate || undefined,
+          endDate: summaryEndDate || undefined,
+          forceNetwork: true,
         })) as any;
         console.log('[BIW] Summary response:', response);
 
@@ -772,7 +774,7 @@ export default function DashboardNew() {
     };
 
     fetchBiwSummary();
-  }, [showBiwTable, user, selectedTenant?._id, selectedTenant?.id]);
+  }, [showBiwTable, user, selectedTenant?._id, selectedTenant?.id, summaryStartDate, summaryEndDate]);
 
   // Simplify biwReviewTableData - data is already grouped from backend
   const biwReviewTableData = useMemo(() => {
@@ -912,15 +914,28 @@ export default function DashboardNew() {
 
     return (
       <div className="mt-12 pt-8 border-t border-gray-100 dark:border-gray-700">
-        <div className="flex items-center gap-4 mb-6">
-          <div className="w-2 h-8 bg-purple-600 rounded-full shadow-sm shadow-purple-500/20"></div>
-          <div>
-            <h3 className="text-xl font-black text-gray-900 dark:text-white leading-none mb-1">
-              BIW Review Table
-            </h3>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-              Performance based on BIW review checkmarks (all forms)
-            </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-4">
+            <div className="w-2 h-8 bg-purple-600 rounded-full shadow-sm shadow-purple-500/20"></div>
+            <div>
+              <div className="flex items-center gap-3">
+                <h3 className="text-xl font-black text-gray-900 dark:text-white leading-none mb-1">
+                  BIW Review Table
+                </h3>
+                {(summaryStartDate || summaryEndDate) ? (
+                  <span className="text-[10px] font-black text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/40 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                    {summaryStartDate ? summaryStartDate : 'Start'} → {summaryEndDate ? summaryEndDate : 'Today'}
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-black text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                    All Time
+                  </span>
+                )}
+              </div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                Performance based on BIW review checkmarks (all forms)
+              </p>
+            </div>
           </div>
         </div>
 
@@ -2261,47 +2276,122 @@ export default function DashboardNew() {
           </div>
 
           {/* Date Filters - Responsive */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <div className="flex items-center bg-white dark:bg-gray-800 rounded-2xl px-4 py-2 border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-4 focus-within:ring-blue-500/10 transition-all">
-              <span className="text-[10px] font-black text-gray-400 mr-3 uppercase tracking-wider">
-                From
-              </span>
-              <input
-                type="date"
-                value={summaryStartDate}
-                onChange={(e) => {
-                  setSummaryStartDate(e.target.value);
-                  setSummaryPage(1);
-                }}
-                className="bg-transparent text-sm font-bold text-gray-700 dark:text-gray-200 focus:outline-none w-full"
-              />
-            </div>
-            <div className="flex items-center bg-white dark:bg-gray-800 rounded-2xl px-4 py-2 border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-4 focus-within:ring-blue-500/10 transition-all">
-              <span className="text-[10px] font-black text-gray-400 mr-3 uppercase tracking-wider">
-                To
-              </span>
-              <input
-                type="date"
-                value={summaryEndDate}
-                onChange={(e) => {
-                  setSummaryEndDate(e.target.value);
-                  setSummaryPage(1);
-                }}
-                className="bg-transparent text-sm font-bold text-gray-700 dark:text-gray-200 focus:outline-none w-full"
-              />
-            </div>
-            {(summaryStartDate || summaryEndDate) && (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 flex-wrap">
+            {/* Quick Presets */}
+            <div className="flex items-center bg-gray-100 dark:bg-gray-700/60 p-1 rounded-2xl gap-1 text-[11px] font-bold">
               <button
+                type="button"
+                onClick={() => {
+                  const today = new Date().toISOString().split("T")[0];
+                  setSummaryStartDate(today);
+                  setSummaryEndDate(today);
+                  setSummaryPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl transition-all ${
+                  summaryStartDate === new Date().toISOString().split("T")[0] && summaryEndDate === new Date().toISOString().split("T")[0]
+                    ? "bg-white dark:bg-gray-800 text-blue-600 shadow-sm font-black"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const today = new Date().toISOString().split("T")[0];
+                  const d = new Date();
+                  d.setDate(d.getDate() - 7);
+                  setSummaryStartDate(d.toISOString().split("T")[0]);
+                  setSummaryEndDate(today);
+                  setSummaryPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl transition-all ${
+                  summaryStartDate && summaryEndDate && (new Date(summaryEndDate).getTime() - new Date(summaryStartDate).getTime()) === 7 * 86400000
+                    ? "bg-white dark:bg-gray-800 text-blue-600 shadow-sm font-black"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                7 Days
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const today = new Date().toISOString().split("T")[0];
+                  const d = new Date();
+                  d.setDate(d.getDate() - 30);
+                  setSummaryStartDate(d.toISOString().split("T")[0]);
+                  setSummaryEndDate(today);
+                  setSummaryPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl transition-all ${
+                  summaryStartDate && summaryEndDate && (new Date(summaryEndDate).getTime() - new Date(summaryStartDate).getTime()) === 30 * 86400000
+                    ? "bg-white dark:bg-gray-800 text-blue-600 shadow-sm font-black"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                30 Days
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   setSummaryStartDate("");
                   setSummaryEndDate("");
                   setSummaryPage(1);
                 }}
-                className="px-4 py-2 text-xs font-black text-rose-600 hover:text-rose-700 bg-rose-50 dark:bg-rose-900/20 rounded-xl transition-colors uppercase tracking-widest"
+                className={`px-3 py-1.5 rounded-xl transition-all ${
+                  !summaryStartDate && !summaryEndDate
+                    ? "bg-white dark:bg-gray-800 text-blue-600 shadow-sm font-black"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                }`}
               >
-                Clear
+                All Time
               </button>
-            )}
+            </div>
+
+            {/* Custom Range Inputs */}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center bg-white dark:bg-gray-800 rounded-2xl px-3 py-1.5 border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-4 focus-within:ring-blue-500/10 transition-all">
+                <span className="text-[10px] font-black text-gray-400 mr-2 uppercase tracking-wider">
+                  From
+                </span>
+                <input
+                  type="date"
+                  value={summaryStartDate}
+                  onChange={(e) => {
+                    setSummaryStartDate(e.target.value);
+                    setSummaryPage(1);
+                  }}
+                  className="bg-transparent text-xs font-bold text-gray-700 dark:text-gray-200 focus:outline-none"
+                />
+              </div>
+              <div className="flex items-center bg-white dark:bg-gray-800 rounded-2xl px-3 py-1.5 border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-4 focus-within:ring-blue-500/10 transition-all">
+                <span className="text-[10px] font-black text-gray-400 mr-2 uppercase tracking-wider">
+                  To
+                </span>
+                <input
+                  type="date"
+                  value={summaryEndDate}
+                  onChange={(e) => {
+                    setSummaryEndDate(e.target.value);
+                    setSummaryPage(1);
+                  }}
+                  className="bg-transparent text-xs font-bold text-gray-700 dark:text-gray-200 focus:outline-none"
+                />
+              </div>
+              {(summaryStartDate || summaryEndDate) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSummaryStartDate("");
+                    setSummaryEndDate("");
+                    setSummaryPage(1);
+                  }}
+                  className="px-3 py-1.5 text-xs font-black text-rose-600 hover:text-rose-700 bg-rose-50 dark:bg-rose-900/20 rounded-xl transition-colors uppercase tracking-widest"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -3020,7 +3110,7 @@ export default function DashboardNew() {
         {renderBiwReviewTable()}
 
         {/* Performance Table - Visible for admins and superadmins */}
-        <PerformanceTable />
+        <PerformanceTable startDate={summaryStartDate} endDate={summaryEndDate} />
       </div>
 
       <AttendancePunchModal
