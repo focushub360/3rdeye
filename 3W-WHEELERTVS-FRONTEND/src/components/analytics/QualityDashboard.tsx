@@ -202,7 +202,7 @@ export const QualityDashboard: React.FC = () => {
   const [availableFormOptions, setAvailableFormOptions] = useState<Array<{ id: string; title: string; totalChecked?: number }>>(() => {
     try {
       const sortedFormKey = [...initialFormIds].sort().join(',');
-      const cacheKey = `v15_${sortedFormKey}__`;
+      const cacheKey = `v16_${sortedFormKey}__`;
       const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
       if (cached?.data?.formOptions) return cached.data.formOptions;
     } catch (_) {}
@@ -220,7 +220,7 @@ export const QualityDashboard: React.FC = () => {
   const [data, setData] = useState<SummaryData | null>(() => {
     try {
       const sortedFormKey = [...initialFormIds].sort().join(',');
-      const cacheKey = `v15_${sortedFormKey}__`;
+      const cacheKey = `v16_${sortedFormKey}__`;
       const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
       return cached ? cached.data : null;
     } catch (_) {
@@ -707,7 +707,7 @@ export const QualityDashboard: React.FC = () => {
 
   const fetchSummary = async (forceNetwork = false) => {
     const sortedFormKey = [...selectedFormIds].sort().join(',');
-    const cacheKey = `v15_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
+    const cacheKey = `v16_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
     const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
 
     // ─── 0ms SWR Instant Loading: Render immediately from cache if available ────
@@ -729,10 +729,13 @@ export const QualityDashboard: React.FC = () => {
           endDate,
           forceNetwork: false
         }).then(res => {
-          const actualData = (res && res.summary) ? res : (res && res.data) ? res.data : null;
+          const actualData = (res?.data?.summary) ? res.data : (res?.summary && res?.formsSummary ? res : (res?.data || res));
           if (actualData && actualData.summary) {
             setClientCachedData(cacheKey, actualData);
             setData(actualData);
+            if (actualData.formOptions && actualData.formOptions.length > 0) {
+              setAvailableFormOptions(actualData.formOptions);
+            }
           }
         }).catch(() => {});
       }
@@ -763,7 +766,7 @@ export const QualityDashboard: React.FC = () => {
       setLoadTimeMs(Math.round(endTime - startTime));
       
       // Safely unwrap response whether client.ts returns payload directly or wrapped in { success, data }
-      const actualData = (res && res.summary) ? res : (res && res.data) ? res.data : null;
+      const actualData = (res?.data?.summary) ? res.data : (res?.summary && res?.formsSummary ? res : (res?.data || res));
 
       if (actualData && actualData.summary) {
         setClientCachedData(cacheKey, actualData);

@@ -1369,31 +1369,31 @@ const computeDailyPerformanceStats = (
 
   if (startDate) {
     start = new Date(startDate);
-  } else {
-    // Default to start of current month if no start date provided
+  }
+
+  if (endDate) {
+    end = new Date(endDate);
+  }
+
+  if (responses.length > 0 && !startDate && !endDate) {
+    const timestamps = responses
+      .map((r) => new Date(getResponseTimestamp(r) || 0).getTime())
+      .filter((ts) => !isNaN(ts) && ts > 0);
+    if (timestamps.length > 0) {
+      start = new Date(Math.min(...timestamps));
+      end = new Date(Math.max(...timestamps));
+    }
+  }
+
+  if (!start) {
     start = new Date();
     start.setDate(1);
     start.setHours(0, 0, 0, 0);
   }
 
-  if (endDate) {
-    end = new Date(endDate);
-  } else {
-    // Default to today if no end date provided
+  if (!end) {
     end = new Date();
     end.setHours(23, 59, 59, 999);
-  }
-
-  if (responses.length > 0 && !startDate && !endDate) {
-    const timestamps = responses.map((r) =>
-      new Date(getResponseTimestamp(r) || 0).getTime(),
-    );
-    const minTS = Math.min(...timestamps);
-    const maxTS = Math.max(...timestamps);
-
-    // Expand range to include responses if they are outside current month
-    if (minTS < start.getTime()) start = new Date(minTS);
-    if (maxTS > end.getTime()) end = new Date(maxTS);
   }
 
   if (start && end) {
@@ -1465,31 +1465,31 @@ const computeMonthlyPerformanceStats = (
 
   if (startDate) {
     start = new Date(startDate);
-  } else {
-    // Default to start of current month if no start date provided
+  }
+
+  if (endDate) {
+    end = new Date(endDate);
+  }
+
+  if (responses.length > 0 && !startDate && !endDate) {
+    const timestamps = responses
+      .map((r) => new Date(getResponseTimestamp(r) || 0).getTime())
+      .filter((ts) => !isNaN(ts) && ts > 0);
+    if (timestamps.length > 0) {
+      start = new Date(Math.min(...timestamps));
+      end = new Date(Math.max(...timestamps));
+    }
+  }
+
+  if (!start) {
     start = new Date();
     start.setDate(1);
     start.setHours(0, 0, 0, 0);
   }
 
-  if (endDate) {
-    end = new Date(endDate);
-  } else {
-    // Default to today if no end date provided
+  if (!end) {
     end = new Date();
     end.setHours(23, 59, 59, 999);
-  }
-
-  if (responses.length > 0 && !startDate && !endDate) {
-    const timestamps = responses.map((r) =>
-      new Date(getResponseTimestamp(r) || 0).getTime(),
-    );
-    const minTS = Math.min(...timestamps);
-    const maxTS = Math.max(...timestamps);
-
-    // Expand range to include responses if they are outside current month
-    if (minTS < start.getTime()) start = new Date(minTS);
-    if (maxTS > end.getTime()) end = new Date(maxTS);
   }
 
   if (start && end) {
@@ -1710,27 +1710,31 @@ const computeDailyReworkVolumeStats = (
 
   if (startDate) {
     start = new Date(startDate);
-  } else {
+  }
+
+  if (endDate) {
+    end = new Date(endDate);
+  }
+
+  if (responses.length > 0 && !startDate && !endDate) {
+    const timestamps = responses
+      .map((r) => new Date(getResponseTimestamp(r) || 0).getTime())
+      .filter((ts) => !isNaN(ts) && ts > 0);
+    if (timestamps.length > 0) {
+      start = new Date(Math.min(...timestamps));
+      end = new Date(Math.max(...timestamps));
+    }
+  }
+
+  if (!start) {
     start = new Date();
     start.setDate(1);
     start.setHours(0, 0, 0, 0);
   }
 
-  if (endDate) {
-    end = new Date(endDate);
-  } else {
+  if (!end) {
     end = new Date();
     end.setHours(23, 59, 59, 999);
-  }
-
-  if (responses.length > 0 && !startDate && !endDate) {
-    const timestamps = responses.map((r) =>
-      new Date(getResponseTimestamp(r) || 0).getTime(),
-    );
-    const minTS = Math.min(...timestamps);
-    const maxTS = Math.max(...timestamps);
-    if (start && minTS < start.getTime()) start = new Date(minTS);
-    if (end && maxTS > end.getTime()) end = new Date(maxTS);
   }
 
   if (start && end) {
@@ -3862,18 +3866,8 @@ export default function FormAnalyticsDashboard({
   useEffect(() => {
     if (hasUserAppliedDateFilter) return; // user is in control now, don't override
 
-    if (analyticsView === "dashboard") {
-      const end = new Date();
-      const start = new Date();
-      start.setDate(start.getDate() - 29); // last 30 days, inclusive of today
-      setDateFilter({
-        type: "range",
-        startDate: start.toISOString().split("T")[0],
-        endDate: end.toISOString().split("T")[0],
-      });
-    } else {
-      setDateFilter({ type: "all", startDate: "", endDate: "" });
-    }
+    // Default to 'all' so historical response data and trends are not clipped
+    setDateFilter({ type: "all", startDate: "", endDate: "" });
   }, [analyticsView, hasUserAppliedDateFilter]);
 
 

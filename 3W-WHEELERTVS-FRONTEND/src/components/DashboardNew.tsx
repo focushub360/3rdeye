@@ -1450,6 +1450,7 @@ export default function DashboardNew() {
       const currentTenantIdStr = selectedTenant._id?.toString?.() || selectedTenant.id?.toString?.() || selectedTenant.slug;
 
       const tenantForms = formsData.forms.filter((form: any) => {
+        if (form.isActive === false || form.isDeleted || form.deleted) return false;
         if (!form.tenantId && (!form.sharedWithTenants || form.sharedWithTenants.length === 0)) return true;
         const formTenantId = typeof form.tenantId === "object" ? (form.tenantId?._id || form.tenantId?.id) : form.tenantId;
         const formTenantIdStr = formTenantId?.toString?.();
@@ -1483,6 +1484,7 @@ export default function DashboardNew() {
       tenants.forEach((tenant) => {
         const tenantIdStr = tenant._id?.toString?.() || tenant.id?.toString?.() || tenant.slug;
         const tForms = formsData.forms.filter((form: any) => {
+          if (form.isActive === false || form.isDeleted || form.deleted) return false;
           const formTenantId = typeof form.tenantId === "object" ? (form.tenantId?._id || form.tenantId?.id) : form.tenantId;
           const formTenantIdStr = formTenantId?.toString?.();
           const sharedWithTenants = Array.isArray(form.sharedWithTenants) ? form.sharedWithTenants : [];
@@ -1567,6 +1569,7 @@ export default function DashboardNew() {
       const targetSlug = selectedTenant.slug;
 
       const tenantForms = formsData.forms.filter((form: any) => {
+        if (form.isActive === false || form.isDeleted || form.deleted) return false;
         const formTenantId =
           typeof form.tenantId === "object"
             ? (form.tenantId?._id || form.tenantId?.id)
