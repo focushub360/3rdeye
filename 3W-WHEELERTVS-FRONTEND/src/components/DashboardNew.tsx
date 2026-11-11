@@ -745,6 +745,13 @@ export default function DashboardNew() {
     return new Date().toISOString().split("T")[0];
   });
 
+  // Keep BIW table date range synchronized with Inspection Summary
+  useEffect(() => {
+    setBiwStartDate(summaryStartDate);
+    setBiwEndDate(summaryEndDate);
+    setBiwPage(1);
+  }, [summaryStartDate, summaryEndDate]);
+
   // Fetch BIW summary data for dashboard
   useEffect(() => {
     if (!showBiwTable || !user) return;
@@ -761,11 +768,10 @@ export default function DashboardNew() {
         })) as any;
         console.log('[BIW] Summary response:', response);
 
-        const data = Array.isArray(response)
-          ? response
-          : (Array.isArray(response?.data)
-              ? response.data
-              : (Array.isArray(response?.data?.inspectors) ? response.data.inspectors : []));
+        const raw = response?.data?.data !== undefined ? response.data.data : (response?.data !== undefined ? response.data : response);
+        const data = Array.isArray(raw)
+          ? raw
+          : (Array.isArray(raw?.inspectors) ? raw.inspectors : (Array.isArray(response) ? response : []));
 
         const summary = response?.summary || response?.data?.summary || null;
         console.log(`[BIW] Total users: ${data.length}`, summary);
@@ -956,7 +962,10 @@ export default function DashboardNew() {
                   const today = new Date().toISOString().split("T")[0];
                   setBiwStartDate(today);
                   setBiwEndDate(today);
+                  setSummaryStartDate(today);
+                  setSummaryEndDate(today);
                   setBiwPage(1);
+                  setSummaryPage(1);
                 }}
                 className={`px-3 py-1.5 rounded-xl transition-all ${
                   biwStartDate === new Date().toISOString().split("T")[0] && biwEndDate === new Date().toISOString().split("T")[0]
@@ -972,9 +981,13 @@ export default function DashboardNew() {
                   const today = new Date().toISOString().split("T")[0];
                   const d = new Date();
                   d.setDate(d.getDate() - 7);
-                  setBiwStartDate(d.toISOString().split("T")[0]);
+                  const s = d.toISOString().split("T")[0];
+                  setBiwStartDate(s);
                   setBiwEndDate(today);
+                  setSummaryStartDate(s);
+                  setSummaryEndDate(today);
                   setBiwPage(1);
+                  setSummaryPage(1);
                 }}
                 className={`px-3 py-1.5 rounded-xl transition-all ${
                   biwStartDate && biwEndDate && (new Date(biwEndDate).getTime() - new Date(biwStartDate).getTime()) === 7 * 86400000
@@ -990,9 +1003,13 @@ export default function DashboardNew() {
                   const today = new Date().toISOString().split("T")[0];
                   const d = new Date();
                   d.setDate(d.getDate() - 30);
-                  setBiwStartDate(d.toISOString().split("T")[0]);
+                  const s = d.toISOString().split("T")[0];
+                  setBiwStartDate(s);
                   setBiwEndDate(today);
+                  setSummaryStartDate(s);
+                  setSummaryEndDate(today);
                   setBiwPage(1);
+                  setSummaryPage(1);
                 }}
                 className={`px-3 py-1.5 rounded-xl transition-all ${
                   biwStartDate && biwEndDate && (new Date(biwEndDate).getTime() - new Date(biwStartDate).getTime()) === 30 * 86400000
@@ -1007,7 +1024,10 @@ export default function DashboardNew() {
                 onClick={() => {
                   setBiwStartDate("");
                   setBiwEndDate("");
+                  setSummaryStartDate("");
+                  setSummaryEndDate("");
                   setBiwPage(1);
+                  setSummaryPage(1);
                 }}
                 className={`px-3 py-1.5 rounded-xl transition-all ${
                   !biwStartDate && !biwEndDate
@@ -1030,7 +1050,9 @@ export default function DashboardNew() {
                   value={biwStartDate}
                   onChange={(e) => {
                     setBiwStartDate(e.target.value);
+                    setSummaryStartDate(e.target.value);
                     setBiwPage(1);
+                    setSummaryPage(1);
                   }}
                   className="bg-transparent text-xs font-bold text-gray-700 dark:text-gray-200 focus:outline-none"
                 />
@@ -1044,7 +1066,9 @@ export default function DashboardNew() {
                   value={biwEndDate}
                   onChange={(e) => {
                     setBiwEndDate(e.target.value);
+                    setSummaryEndDate(e.target.value);
                     setBiwPage(1);
+                    setSummaryPage(1);
                   }}
                   className="bg-transparent text-xs font-bold text-gray-700 dark:text-gray-200 focus:outline-none"
                 />
@@ -1055,7 +1079,10 @@ export default function DashboardNew() {
                   onClick={() => {
                     setBiwStartDate("");
                     setBiwEndDate("");
+                    setSummaryStartDate("");
+                    setSummaryEndDate("");
                     setBiwPage(1);
+                    setSummaryPage(1);
                   }}
                   className="px-3 py-1.5 text-xs font-black text-rose-600 hover:text-rose-700 bg-rose-50 dark:bg-rose-900/20 rounded-xl transition-colors uppercase tracking-widest"
                 >
