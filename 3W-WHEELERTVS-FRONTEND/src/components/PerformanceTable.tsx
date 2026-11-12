@@ -28,29 +28,33 @@ const PerformanceTable = ({
   const [performanceTableData, setPerformanceTableData] = useState<any[]>([]);
   const [performanceTableLoading, setPerformanceTableLoading] = useState(false);
 
-  // ✅ DEFAULT TO LAST 7 DAYS (not 30 days)
+  // ✅ Default to last 30 days
   const [perfStartDate, setPerfStartDate] = useState(() => {
+    if (startDate) return startDate.includes("T") ? startDate.split("T")[0] : startDate;
     const d = new Date();
-    d.setDate(d.getDate() - 7);  // ← Changed from 30 to 7
+    d.setDate(d.getDate() - 30);
     return d.toISOString().split("T")[0];
   });
   const [perfEndDate, setPerfEndDate] = useState(() => {
+    if (endDate) return endDate.includes("T") ? endDate.split("T")[0] : endDate;
     return new Date().toISOString().split("T")[0];
   });
 
   useEffect(() => {
-    if (startDate !== undefined) {
-      setPerfStartDate(startDate || "");
-    } else if (formId || (formIds && formIds.length > 0)) {
-      setPerfStartDate("");
+    if (startDate) {
+      setPerfStartDate(startDate.includes("T") ? startDate.split("T")[0] : startDate);
+    } else {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      setPerfStartDate(d.toISOString().split("T")[0]);
     }
-    if (endDate !== undefined) {
-      setPerfEndDate(endDate || "");
-    } else if (formId || (formIds && formIds.length > 0)) {
-      setPerfEndDate("");
+    if (endDate) {
+      setPerfEndDate(endDate.includes("T") ? endDate.split("T")[0] : endDate);
+    } else {
+      setPerfEndDate(new Date().toISOString().split("T")[0]);
     }
     setPerformancePage(1);
-  }, [startDate, endDate, formId, formIds]);
+  }, [startDate, endDate]);
   const [perfInspectorSummary, setPerfInspectorSummary] = useState<any[]>([]);
   const [activeUserNames, setActiveUserNames] = useState<Set<string>>(
     new Set(),
@@ -68,7 +72,7 @@ const PerformanceTable = ({
   // ✅ Cache key for performance data
   const getCacheKey = useCallback(() => {
     const fKey = formIds ? formIds.slice().sort().join('-') : (formId || 'all');
-    return `performance_table_${fKey}_${perfStartDate}_${perfEndDate}_${performancePage}_${performancePageSize}`;
+    return `perf_v4_${fKey}_${perfStartDate}_${perfEndDate}_${performancePage}_${performancePageSize}`;
   }, [formId, formIds, perfStartDate, perfEndDate, performancePage, performancePageSize]);
 
   // ✅ Load performance data with caching and timeout
@@ -500,33 +504,6 @@ const PerformanceTable = ({
     );
   }
 
-  if (performanceTableData.length === 0) {
-    return (
-      <div className="mt-12 border-t border-gray-100 dark:border-gray-600 pt-8">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-1.5 h-6 bg-purple-600 rounded-full"></div>
-          <h3 className="text-lg font-bold text-gray-800 dark:text-white">
-            {title || "Performance Table"}
-          </h3>
-        </div>
-        <div className="text-center py-8 text-gray-500 text-sm bg-gray-50 dark:bg-gray-900/20 rounded-2xl border border-gray-100 dark:border-gray-700">
-          No performance data available for the selected date range.
-          <button
-            onClick={() => {
-              try {
-                sessionStorage.removeItem(getCacheKey());
-              } catch (e) {}
-              loadPerformanceData();
-            }}
-            className="block mx-auto mt-3 px-4 py-2 text-xs font-bold text-purple-600 hover:text-purple-700 bg-purple-50 rounded-xl transition-colors cursor-pointer"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="mt-12 border-t border-gray-100 dark:border-gray-600 pt-8">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-6">
@@ -590,6 +567,26 @@ const PerformanceTable = ({
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        {performanceTableData.length === 0 ? (
+          <div className="text-center py-12 text-gray-500 text-sm bg-gray-50/60 dark:bg-gray-900/20 m-4 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700">
+            <Users className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+            <p className="font-semibold text-gray-700 dark:text-gray-300">
+              No performance records found for {perfStartDate || "selected range"} to {perfEndDate || "today"}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">Adjust the From / To date range above to view historical data</p>
+            <button
+              onClick={() => {
+                try {
+                  sessionStorage.clear();
+                } catch (e) {}
+                loadPerformanceData();
+              }}
+              className="mt-3 px-4 py-2 text-xs font-bold text-purple-600 hover:text-purple-700 bg-purple-50 rounded-xl transition-colors cursor-pointer border border-purple-200"
+            >
+              Retry
+            </button>
+          </div>
+        ) : (
         <div className="max-h-[600px] overflow-y-auto">
           <table className="w-full text-[11px] text-left border-collapse">
             <thead className="bg-gray-50/90 dark:bg-gray-700/90 sticky top-0 z-10 text-gray-700 dark:text-gray-300 uppercase tracking-wider">
@@ -1044,7 +1041,8 @@ const PerformanceTable = ({
             </tbody>
           </table>
         </div>
-        {totalPerformancePages > 1 && (
+        )}
+        {performanceTableData.length > 0 && totalPerformancePages > 1 && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-gray-50/30 dark:bg-gray-900/30 border-t border-gray-100 dark:border-gray-700">
             <div className="flex items-center gap-3">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
