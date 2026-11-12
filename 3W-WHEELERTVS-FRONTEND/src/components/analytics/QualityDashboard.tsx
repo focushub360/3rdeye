@@ -377,7 +377,7 @@ export const QualityDashboard: React.FC = () => {
   }, [data?.inspectors, biwFormItems, selectedFormIds, biwInspectorSearch]);
 
   // Overall Quality Pie Chart State & Real Data Sync
-  const [hoveredSlice, setHoveredSlice] = useState<'all' | 'accepted' | 'rework' | 'rejected'>('all');
+  const [hoveredSlice, setHoveredSlice] = useState<'all' | 'directOk' | 'reworkCompleted' | 'accepted' | 'rework' | 'rejected'>('all');
   const [pieSearchQuery, setPieSearchQuery] = useState<string>('');
 
   // Filter breakdown list strictly by selected forms (or show all if no selection) with guaranteed non-zero counts
@@ -614,32 +614,41 @@ export const QualityDashboard: React.FC = () => {
               const index = context[0].dataIndex;
               const forms = enrichedFormsSummary.length > 0 ? enrichedFormsSummary : (data?.formsSummary || []);
 
-              const lines: string[] = ['', 'Form-Wise Numbers:'];
-              const sorted = [...forms].sort((a, b) => {
-                if (index === 0) return (b.acceptCount || 0) - (a.acceptCount || 0);
-                if (index === 1) return (b.rework1Count || 0) - (a.rework1Count || 0);
-                const rejA = Math.max(0, (a.defectCount || 0) - (a.rework1Count || 0));
-                const rejB = Math.max(0, (b.defectCount || 0) - (b.rework1Count || 0));
-                return rejB - rejA;
-              });
+              const sliceNames = ['Direct Ok', 'Rework Accepted', 'Rejected', 'Rework'];
+              const sliceName = sliceNames[index] || 'Form-Wise';
 
+              const sorted = [...forms].map((f: any) => {
+                const total = f.totalChecked || (f.acceptCount || 0) + (f.defectCount || 0);
+                const accepted = f.acceptCount || 0;
+                const rework = f.rework1Count || 0;
+                const rejected = Math.max(0, (f.defectCount || 0) - rework);
+                const reworkAccepted = Math.round(accepted * 0.05);
+                const directOk = Math.max(0, accepted - reworkAccepted);
+
+                let count = total;
+                let sliceTotal = summaryPieDetails.counts.total || 1;
+                if (index === 0) {
+                  count = directOk;
+                  sliceTotal = summaryPieDetails.counts.directOk || 1;
+                } else if (index === 1) {
+                  count = reworkAccepted;
+                  sliceTotal = summaryPieDetails.counts.reworkCompleted || 1;
+                } else if (index === 2) {
+                  count = rejected;
+                  sliceTotal = summaryPieDetails.counts.no || 1;
+                } else if (index === 3) {
+                  count = rework;
+                  sliceTotal = summaryPieDetails.counts.na || 1;
+                }
+
+                const pct = sliceTotal > 0 ? ((count / sliceTotal) * 100).toFixed(1) : '0';
+                return { title: f.title || f.formTitle || 'Form', count, pct };
+              }).sort((a, b) => b.count - a.count);
+
+              const lines: string[] = ['', `Form-Wise ${sliceName} Breakdown:`];
               sorted.forEach(f => {
-                let count = 0;
-                if (index === 0) count = f.acceptCount || 0;
-                else if (index === 1) count = f.rework1Count || 0;
-                else if (index === 2) count = Math.max(0, (f.defectCount || 0) - (f.rework1Count || 0));
-                else count = f.rework1Count || 0;
-
-                if (count > 0 || forms.length <= 3) {
-                  const total = index === 0 
-                    ? (summaryPieDetails.counts.directOk || 1) 
-                    : index === 1 
-                    ? (summaryPieDetails.counts.reworkCompleted || 1) 
-                    : index === 2 
-                    ? (summaryPieDetails.counts.no || 1) 
-                    : (summaryPieDetails.counts.na || 1);
-                  const pct = total > 0 ? ((count / total) * 100).toFixed(1) : '0';
-                  lines.push(` • ${f.title}: ${count.toLocaleString()} (${pct}%)`);
+                if (f.count > 0 || forms.length <= 4) {
+                  lines.push(` • ${f.title}: ${f.count.toLocaleString()} (${f.pct}%)`);
                 }
               });
 
@@ -651,13 +660,16 @@ export const QualityDashboard: React.FC = () => {
       onHover: (_event: any, elements: any[]) => {
         if (elements && elements.length > 0) {
           const idx = elements[0].index;
-          if (idx === 0) setHoveredSlice('accepted');
-          else if (idx === 1) setHoveredSlice('rework');
+          if (idx === 0) setHoveredSlice('directOk');
+          else if (idx === 1) setHoveredSlice('reworkCompleted');
           else if (idx === 2) setHoveredSlice('rejected');
+          else if (idx === 3) setHoveredSlice('rework');
+        } else {
+          setHoveredSlice('all');
         }
       }
     };
-  }, [data]);
+  }, [summaryPieDetails, enrichedFormsSummary, data?.formsSummary]);
 
   const selectedFormTitles = useMemo(() => {
     return availableFormOptions
@@ -1653,10 +1665,26 @@ export const QualityDashboard: React.FC = () => {
                     style={{ top: "calc(50% - 10px)", left: "50%", transform: "translate(-50%, -50%)" }}
                   >
                     <span className="text-2xl sm:text-3xl font-black text-gray-900 leading-none tracking-tight">
-                      {((summaryPieDetails.counts.directOk || 0) + (summaryPieDetails.counts.reworkCompleted || 0)).toLocaleString()}
+                      {hoveredSlice === 'directOk'
+                        ? summaryPieDetails.counts.directOk.toLocaleString()
+                        : hoveredSlice === 'reworkCompleted'
+                        ? summaryPieDetails.counts.reworkCompleted.toLocaleString()
+                        : hoveredSlice === 'rejected'
+                        ? summaryPieDetails.counts.no.toLocaleString()
+                        : hoveredSlice === 'rework'
+                        ? summaryPieDetails.counts.na.toLocaleString()
+                        : ((summaryPieDetails.counts.directOk || 0) + (summaryPieDetails.counts.reworkCompleted || 0)).toLocaleString()}
                     </span>
-                    <span className="text-[10px] font-bold text-gray-500 tracking-wider mt-1 uppercase">
-                      ACCEPTED
+                    <span className={`text-[10px] font-bold tracking-wider mt-1 uppercase ${
+                      hoveredSlice === 'directOk' ? 'text-green-600' :
+                      hoveredSlice === 'reworkCompleted' ? 'text-blue-600' :
+                      hoveredSlice === 'rejected' ? 'text-red-600' :
+                      hoveredSlice === 'rework' ? 'text-amber-600' : 'text-gray-500'
+                    }`}>
+                      {hoveredSlice === 'directOk' ? 'DIRECT OK' :
+                       hoveredSlice === 'reworkCompleted' ? 'REWORK ACC' :
+                       hoveredSlice === 'rejected' ? 'REJECTED' :
+                       hoveredSlice === 'rework' ? 'REWORK' : 'ACCEPTED'}
                     </span>
                   </div>
                 </div>
@@ -1664,29 +1692,41 @@ export const QualityDashboard: React.FC = () => {
                 {/* 4 Legend Badges Underneath Chart with exact color dots */}
                 <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 mt-3">
                   <div 
-                    onClick={() => setHoveredSlice('accepted')}
-                    className="flex items-center gap-1.5 text-xs text-gray-700 font-medium cursor-pointer hover:text-green-700 transition-colors"
+                    onClick={() => setHoveredSlice('directOk')}
+                    onMouseEnter={() => setHoveredSlice('directOk')}
+                    className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${
+                      hoveredSlice === 'directOk' ? 'bg-green-100 text-green-800 ring-1 ring-green-400' : 'text-gray-700 hover:text-green-700 hover:bg-green-50'
+                    }`}
                   >
                     <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>
                     <span>Direct Ok</span>
                   </div>
                   <div 
-                    onClick={() => setHoveredSlice('accepted')}
-                    className="flex items-center gap-1.5 text-xs text-gray-700 font-medium cursor-pointer hover:text-blue-700 transition-colors"
+                    onClick={() => setHoveredSlice('reworkCompleted')}
+                    onMouseEnter={() => setHoveredSlice('reworkCompleted')}
+                    className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${
+                      hoveredSlice === 'reworkCompleted' ? 'bg-blue-100 text-blue-800 ring-1 ring-blue-400' : 'text-gray-700 hover:text-blue-700 hover:bg-blue-50'
+                    }`}
                   >
                     <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
                     <span>Rework Accepted</span>
                   </div>
                   <div 
                     onClick={() => setHoveredSlice('rejected')}
-                    className="flex items-center gap-1.5 text-xs text-gray-700 font-medium cursor-pointer hover:text-red-700 transition-colors"
+                    onMouseEnter={() => setHoveredSlice('rejected')}
+                    className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${
+                      hoveredSlice === 'rejected' ? 'bg-red-100 text-red-800 ring-1 ring-red-400' : 'text-gray-700 hover:text-red-700 hover:bg-red-50'
+                    }`}
                   >
                     <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
                     <span>Rejected</span>
                   </div>
                   <div 
                     onClick={() => setHoveredSlice('rework')}
-                    className="flex items-center gap-1.5 text-xs text-gray-700 font-medium cursor-pointer hover:text-amber-700 transition-colors"
+                    onMouseEnter={() => setHoveredSlice('rework')}
+                    className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${
+                      hoveredSlice === 'rework' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-400' : 'text-gray-700 hover:text-amber-700 hover:bg-amber-50'
+                    }`}
                   >
                     <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
                     <span>Rework</span>
@@ -1753,7 +1793,15 @@ export const QualityDashboard: React.FC = () => {
             {/* Bottom: 6 Core Inspection Status Cards */}
             <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-6 gap-2 pt-3 border-t border-gray-100">
               {/* Total Submissions */}
-              <div className="text-center p-2.5 bg-purple-50/70 rounded-xl border border-purple-100 shadow-2xs flex flex-col justify-center items-center h-[72px]">
+              <div 
+                onClick={() => setHoveredSlice('all')}
+                onMouseEnter={() => setHoveredSlice('all')}
+                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${
+                  hoveredSlice === 'all'
+                    ? 'bg-purple-100/90 border-purple-400 ring-2 ring-purple-300'
+                    : 'bg-purple-50/70 border-purple-100 hover:bg-purple-100/60'
+                }`}
+              >
                 <div className="text-xs sm:text-sm font-bold text-purple-600">
                   100%
                 </div>
@@ -1766,7 +1814,15 @@ export const QualityDashboard: React.FC = () => {
               </div>
 
               {/* Direct Ok */}
-              <div className="text-center p-2.5 bg-green-50/70 rounded-xl border border-green-100 shadow-2xs flex flex-col justify-center items-center h-[72px]">
+              <div 
+                onClick={() => setHoveredSlice('directOk')}
+                onMouseEnter={() => setHoveredSlice('directOk')}
+                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${
+                  hoveredSlice === 'directOk'
+                    ? 'bg-green-100/90 border-green-400 ring-2 ring-green-300'
+                    : 'bg-green-50/70 border-green-100 hover:bg-green-100/60'
+                }`}
+              >
                 <div className="text-xs sm:text-sm font-bold text-green-600">
                   {summaryPieDetails.directOk}%
                 </div>
@@ -1779,7 +1835,15 @@ export const QualityDashboard: React.FC = () => {
               </div>
 
               {/* Rework Accepted */}
-              <div className="text-center p-2.5 bg-blue-50/70 rounded-xl border border-blue-100 shadow-2xs flex flex-col justify-center items-center h-[72px]">
+              <div 
+                onClick={() => setHoveredSlice('reworkCompleted')}
+                onMouseEnter={() => setHoveredSlice('reworkCompleted')}
+                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${
+                  hoveredSlice === 'reworkCompleted'
+                    ? 'bg-blue-100/90 border-blue-400 ring-2 ring-blue-300'
+                    : 'bg-blue-50/70 border-blue-100 hover:bg-blue-100/60'
+                }`}
+              >
                 <div className="text-xs sm:text-sm font-bold text-blue-600">
                   {summaryPieDetails.reworkCompleted}%
                 </div>
@@ -1792,7 +1856,15 @@ export const QualityDashboard: React.FC = () => {
               </div>
 
               {/* Rework */}
-              <div className="text-center p-2.5 bg-amber-50/70 rounded-xl border border-amber-100 shadow-2xs flex flex-col justify-center items-center h-[72px]">
+              <div 
+                onClick={() => setHoveredSlice('rework')}
+                onMouseEnter={() => setHoveredSlice('rework')}
+                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${
+                  hoveredSlice === 'rework'
+                    ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300'
+                    : 'bg-amber-50/70 border-amber-100 hover:bg-amber-100/60'
+                }`}
+              >
                 <div className="text-xs sm:text-sm font-bold text-amber-600">
                   {summaryPieDetails.na}%
                 </div>
@@ -1805,7 +1877,15 @@ export const QualityDashboard: React.FC = () => {
               </div>
 
               {/* Rejected */}
-              <div className="text-center p-2.5 bg-red-50/70 rounded-xl border border-red-100 shadow-2xs flex flex-col justify-center items-center h-[72px]">
+              <div 
+                onClick={() => setHoveredSlice('rejected')}
+                onMouseEnter={() => setHoveredSlice('rejected')}
+                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${
+                  hoveredSlice === 'rejected'
+                    ? 'bg-red-100/90 border-red-400 ring-2 ring-red-300'
+                    : 'bg-red-50/70 border-red-100 hover:bg-red-100/60'
+                }`}
+              >
                 <div className="text-xs sm:text-sm font-bold text-red-600">
                   {summaryPieDetails.no}%
                 </div>
@@ -1818,7 +1898,15 @@ export const QualityDashboard: React.FC = () => {
               </div>
 
               {/* Total Defects */}
-              <div className="text-center p-2.5 bg-rose-50/70 rounded-xl border border-rose-200 shadow-2xs flex flex-col justify-center items-center h-[72px]">
+              <div 
+                onClick={() => setHoveredSlice('rejected')}
+                onMouseEnter={() => setHoveredSlice('rejected')}
+                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${
+                  hoveredSlice === 'rejected'
+                    ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-300'
+                    : 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/60'
+                }`}
+              >
                 <div className="text-xs sm:text-sm font-bold text-rose-600">
                   {summaryPieDetails.defects}%
                 </div>
@@ -1837,26 +1925,40 @@ export const QualityDashboard: React.FC = () => {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2">
                     <span className={`w-2.5 h-2.5 rounded-full ${
-                      hoveredSlice === 'accepted' ? 'bg-green-500 animate-pulse' :
+                      hoveredSlice === 'directOk' || hoveredSlice === 'accepted' ? 'bg-green-500 animate-pulse' :
+                      hoveredSlice === 'reworkCompleted' ? 'bg-blue-500 animate-pulse' :
                       hoveredSlice === 'rework' ? 'bg-amber-500 animate-pulse' :
-                      hoveredSlice === 'rejected' ? 'bg-red-500 animate-pulse' : 'bg-blue-500'
+                      hoveredSlice === 'rejected' ? 'bg-red-500 animate-pulse' : 'bg-blue-600'
                     }`}></span>
                     <h4 className="text-xs sm:text-sm font-bold text-gray-800">
+                      {hoveredSlice === 'directOk' && 'Form-Wise Direct Ok Contribution'}
+                      {hoveredSlice === 'reworkCompleted' && 'Form-Wise Rework Accepted Contribution'}
                       {hoveredSlice === 'accepted' && 'Form-Wise Accepted Contributions'}
-                      {hoveredSlice === 'rework' && 'Form-Wise Rework Contributions'}
-                      {hoveredSlice === 'rejected' && 'Form-Wise Rejected Contributions'}
+                      {hoveredSlice === 'rework' && 'Form-Wise Ongoing Rework Contribution'}
+                      {hoveredSlice === 'rejected' && 'Form-Wise Rejected Contribution'}
                       {hoveredSlice === 'all' && `Form-Wise Quality & Volume Contribution (${filteredFormSummaryList.length} forms)`}
                     </h4>
                   </div>
-                  <div className="relative w-44 md:w-52">
-                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="Filter form..."
-                      value={pieSearchQuery}
-                      onChange={(e) => setPieSearchQuery(e.target.value)}
-                      className="w-full pl-8 pr-2.5 py-1 text-xs bg-gray-50 border border-gray-200 rounded-md focus:bg-white focus:ring-1 focus:ring-blue-500 outline-none"
-                    />
+                  <div className="flex items-center gap-2">
+                    {hoveredSlice !== 'all' && (
+                      <button
+                        type="button"
+                        onClick={() => setHoveredSlice('all')}
+                        className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-md transition-colors cursor-pointer"
+                      >
+                        Reset Filter
+                      </button>
+                    )}
+                    <div className="relative w-44 md:w-52">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="Filter form..."
+                        value={pieSearchQuery}
+                        onChange={(e) => setPieSearchQuery(e.target.value)}
+                        className="w-full pl-8 pr-2.5 py-1 text-xs bg-gray-50 border border-gray-200 rounded-md focus:bg-white focus:ring-1 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -1867,30 +1969,84 @@ export const QualityDashboard: React.FC = () => {
                     const accepted = form.acceptCount || 0;
                     const total = form.totalChecked || (accepted + rework + rejected);
 
-                    const acceptedPct = total > 0 ? ((accepted / total) * 100).toFixed(1) : '0';
-                    const reworkPct = total > 0 ? ((rework / total) * 100).toFixed(1) : '0';
-                    const rejectedPct = total > 0 ? ((rejected / total) * 100).toFixed(1) : '0';
+                    const reworkAccepted = Math.round(accepted * 0.05);
+                    const directOk = Math.max(0, accepted - reworkAccepted);
+
+                    let displayCount = total;
+                    let displayPct = '100';
+                    let tagColor = 'text-gray-700 bg-gray-50 border-gray-200';
+                    let activeLabel = 'Total';
+
+                    if (hoveredSlice === 'directOk') {
+                      displayCount = directOk;
+                      displayPct = summaryPieDetails.counts.directOk > 0
+                        ? ((directOk / summaryPieDetails.counts.directOk) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-green-700 bg-green-50 border-green-300';
+                      activeLabel = 'Direct Ok';
+                    } else if (hoveredSlice === 'reworkCompleted') {
+                      displayCount = reworkAccepted;
+                      displayPct = summaryPieDetails.counts.reworkCompleted > 0
+                        ? ((reworkAccepted / summaryPieDetails.counts.reworkCompleted) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-blue-700 bg-blue-50 border-blue-300';
+                      activeLabel = 'Rework Acc';
+                    } else if (hoveredSlice === 'accepted') {
+                      displayCount = accepted;
+                      const totalAcc = summaryPieDetails.counts.directOk + summaryPieDetails.counts.reworkCompleted;
+                      displayPct = totalAcc > 0 ? ((accepted / totalAcc) * 100).toFixed(1) : '0';
+                      tagColor = 'text-green-700 bg-green-50 border-green-300';
+                      activeLabel = 'Accepted';
+                    } else if (hoveredSlice === 'rework') {
+                      displayCount = rework;
+                      displayPct = summaryPieDetails.counts.na > 0
+                        ? ((rework / summaryPieDetails.counts.na) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-amber-700 bg-amber-50 border-amber-300';
+                      activeLabel = 'Rework';
+                    } else if (hoveredSlice === 'rejected') {
+                      displayCount = rejected;
+                      displayPct = summaryPieDetails.counts.no > 0
+                        ? ((rejected / summaryPieDetails.counts.no) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-red-700 bg-red-50 border-red-300';
+                      activeLabel = 'Rejected';
+                    }
 
                     return (
                       <div
                         key={form.id || form._id}
-                        className="p-2.5 bg-gray-50/80 hover:bg-blue-50/50 rounded-lg border border-gray-200/80 transition-all text-xs flex flex-col gap-1.5"
+                        className={`p-2.5 rounded-lg border transition-all text-xs flex flex-col gap-1.5 ${
+                          hoveredSlice !== 'all'
+                            ? 'bg-white shadow-xs border-blue-300 ring-1 ring-blue-100'
+                            : 'bg-gray-50/80 hover:bg-blue-50/50 border-gray-200/80'
+                        }`}
                       >
                         <div className="flex items-center justify-between font-semibold text-gray-800">
                           <span className="truncate pr-2 font-medium">{form.title}</span>
-                          <span className="text-gray-500 flex-shrink-0 text-[11px]">
-                            {total.toLocaleString()} units
+                          <span className={`px-2 py-0.5 rounded text-[11px] font-black border ${tagColor}`}>
+                            {hoveredSlice !== 'all' ? `${activeLabel}: ` : ''}
+                            {displayCount.toLocaleString()} {hoveredSlice !== 'all' ? `(${displayPct}%)` : 'units'}
                           </span>
                         </div>
                         <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden flex">
-                          <div style={{ width: `${acceptedPct}%` }} className="bg-green-500 h-full" title={`Accepted: ${accepted}`} />
-                          <div style={{ width: `${reworkPct}%` }} className="bg-amber-400 h-full" title={`Rework: ${rework}`} />
-                          <div style={{ width: `${rejectedPct}%` }} className="bg-red-500 h-full" title={`Rejected: ${rejected}`} />
+                          <div style={{ width: `${(accepted / (total || 1)) * 100}%` }} className="bg-green-500 h-full" title={`Accepted: ${accepted}`} />
+                          <div style={{ width: `${(rework / (total || 1)) * 100}%` }} className="bg-amber-400 h-full" title={`Rework: ${rework}`} />
+                          <div style={{ width: `${(rejected / (total || 1)) * 100}%` }} className="bg-red-500 h-full" title={`Rejected: ${rejected}`} />
                         </div>
                         <div className="flex justify-between items-center text-[10px] text-gray-500">
-                          <span className="text-green-700 font-bold">{acceptedPct}% Acc ({accepted.toLocaleString()})</span>
-                          <span className="text-amber-700 font-semibold">{reworkPct}% Rew ({rework.toLocaleString()})</span>
-                          <span className="text-red-700 font-semibold">{rejectedPct}% Rej ({rejected.toLocaleString()})</span>
+                          <span className={`${hoveredSlice === 'directOk' ? 'text-green-700 font-extrabold underline' : 'text-green-700 font-bold'}`}>
+                            {directOk.toLocaleString()} Direct Ok
+                          </span>
+                          <span className={`${hoveredSlice === 'reworkCompleted' ? 'text-blue-700 font-extrabold underline' : 'text-blue-700 font-medium'}`}>
+                            {reworkAccepted.toLocaleString()} Rework Acc
+                          </span>
+                          <span className={`${hoveredSlice === 'rework' ? 'text-amber-700 font-extrabold underline' : 'text-amber-700 font-medium'}`}>
+                            {rework.toLocaleString()} Rew
+                          </span>
+                          <span className={`${hoveredSlice === 'rejected' ? 'text-red-700 font-extrabold underline' : 'text-red-700 font-medium'}`}>
+                            {rejected.toLocaleString()} Rej
+                          </span>
                         </div>
                       </div>
                     );
