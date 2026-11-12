@@ -3358,7 +3358,7 @@ export const getQualitySummary = async (req, res) => {
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
     const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
-    const cacheKey = `quality_summary_v18_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v19_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers?.['cache-control'] === 'no-cache';
     if (!shouldBypassCache) {
       const cached = appCache.get(cacheKey);
@@ -3549,6 +3549,79 @@ export const getQualitySummary = async (req, res) => {
                       0
                     ]
                   }
+                },
+                reworkAcceptedCount: {
+                  $sum: {
+                    $cond: [
+                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                rejectedCount: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $eq: ['$biwReview.status', 'Rejected'] },
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'reject' } }
+                        ]
+                      },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                dispatchedCount: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $eq: ['$isDispatched', true] },
+                          { $and: [{ $ne: ['$dispatchedAt', null] }, { $gt: ['$dispatchedAt', ''] }] }
+                        ]
+                      },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                biwAcceptCount: {
+                  $sum: {
+                    $cond: [
+                      { $eq: ['$biwReview.status', 'Accepted'] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                biwRejectCount: {
+                  $sum: {
+                    $cond: [
+                      { $eq: ['$biwReview.status', 'Rejected'] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                biwDefectCount: {
+                  $sum: {
+                    $cond: [
+                      { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                biwReviewedCount: {
+                  $sum: {
+                    $cond: [
+                      { $in: ['$biwReview.status', ['Accepted', 'Rejected', 'Reworked']] },
+                      1,
+                      0
+                    ]
+                  }
                 }
               }
             }
@@ -3581,6 +3654,29 @@ export const getQualitySummary = async (req, res) => {
                     ]
                   }
                 },
+                reworkAcceptedCount: {
+                  $sum: {
+                    $cond: [
+                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                rejectedCount: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $eq: ['$biwReview.status', 'Rejected'] },
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'reject' } }
+                        ]
+                      },
+                      1,
+                      0
+                    ]
+                  }
+                },
                 biwAcceptCount: {
                   $sum: {
                     $cond: [
@@ -3590,10 +3686,42 @@ export const getQualitySummary = async (req, res) => {
                     ]
                   }
                 },
+                biwRejectCount: {
+                  $sum: {
+                    $cond: [
+                      { $eq: ['$biwReview.status', 'Rejected'] },
+                      1,
+                      0
+                    ]
+                  }
+                },
                 biwDefectCount: {
                   $sum: {
                     $cond: [
                       { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                biwReviewedCount: {
+                  $sum: {
+                    $cond: [
+                      { $in: ['$biwReview.status', ['Accepted', 'Rejected', 'Reworked']] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                dispatchedCount: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $eq: ['$isDispatched', true] },
+                          { $and: [{ $ne: ['$dispatchedAt', null] }, { $gt: ['$dispatchedAt', ''] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -3635,6 +3763,29 @@ export const getQualitySummary = async (req, res) => {
                     ]
                   }
                 },
+                reworkAcceptedCount: {
+                  $sum: {
+                    $cond: [
+                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                rejectedCount: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $eq: ['$biwReview.status', 'Rejected'] },
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'reject' } }
+                        ]
+                      },
+                      1,
+                      0
+                    ]
+                  }
+                },
                 biwAcceptCount: {
                   $sum: {
                     $cond: [
@@ -3644,10 +3795,42 @@ export const getQualitySummary = async (req, res) => {
                     ]
                   }
                 },
+                biwRejectCount: {
+                  $sum: {
+                    $cond: [
+                      { $eq: ['$biwReview.status', 'Rejected'] },
+                      1,
+                      0
+                    ]
+                  }
+                },
                 biwDefectCount: {
                   $sum: {
                     $cond: [
                       { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                biwReviewedCount: {
+                  $sum: {
+                    $cond: [
+                      { $in: ['$biwReview.status', ['Accepted', 'Rejected', 'Reworked']] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                dispatchedCount: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $eq: ['$isDispatched', true] },
+                          { $and: [{ $ne: ['$dispatchedAt', null] }, { $gt: ['$dispatchedAt', ''] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -3740,6 +3923,30 @@ export const getQualitySummary = async (req, res) => {
     const totalRework1 = summary.rework1Count || 0;
     let overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
     let overallDefectRate = Math.max(0, Math.round((100 - overallAcceptRate) * 100) / 100);
+
+    const totalDispatched = summary.dispatchedCount || 0;
+    const pendingDispatch = Math.max(0, totalChecked - totalDispatched);
+    const totalBiwReviewed = summary.biwReviewedCount || 0;
+    const pendingBiw = Math.max(0, totalChecked - totalBiwReviewed);
+    const reworkAcceptedCount = summary.reworkAcceptedCount || 0;
+    const rejectedCount = summary.rejectedCount !== undefined ? summary.rejectedCount : Math.max(0, totalDefects - totalRework1);
+    const directOkCount = Math.max(0, totalAccepted - reworkAcceptedCount);
+
+    summary.totalChecked = totalChecked;
+    summary.totalAccepted = totalAccepted;
+    summary.totalDefects = totalDefects;
+    summary.totalRework1 = totalRework1;
+    summary.totalDispatched = totalDispatched;
+    summary.pendingDispatch = pendingDispatch;
+    summary.totalBiwReviewed = totalBiwReviewed;
+    summary.pendingBiw = pendingBiw;
+    summary.reworkAcceptedCount = reworkAcceptedCount;
+    summary.rejectedCount = rejectedCount;
+    summary.directOkCount = directOkCount;
+    summary.overallAcceptRate = overallAcceptRate;
+    summary.overallDefectRate = overallDefectRate;
+    summary.dispatchedRate = totalChecked > 0 ? Math.round((totalDispatched / totalChecked) * 10000) / 100 : 0;
+    summary.biwReviewedRate = totalChecked > 0 ? Math.round((totalBiwReviewed / totalChecked) * 10000) / 100 : 0;
 
     // Defect breakdown extraction from top defect responses
     const defectTypeMap = {};
@@ -3873,8 +4080,13 @@ export const getQualitySummary = async (req, res) => {
       let tChecked = 0;
       let dCount = 0;
       let r1Count = 0;
+      let rwAccepted = 0;
+      let rejCount = 0;
       let bAccept = 0;
+      let bReject = 0;
       let bDefect = 0;
+      let bReviewed = 0;
+      let dDispatched = 0;
       const inspectorSet = new Set();
       let lastDate = null;
 
@@ -3884,8 +4096,13 @@ export const getQualitySummary = async (req, res) => {
           tChecked += m.totalChecked || 0;
           dCount += m.defectCount || 0;
           r1Count += m.rework1Count || 0;
+          rwAccepted += m.reworkAcceptedCount || 0;
+          rejCount += m.rejectedCount || 0;
           bAccept += m.biwAcceptCount || 0;
+          bReject += m.biwRejectCount || 0;
           bDefect += m.biwDefectCount || 0;
+          bReviewed += m.biwReviewedCount || 0;
+          dDispatched += m.dispatchedCount || 0;
           if (Array.isArray(m.inspectors)) {
             m.inspectors.forEach(insp => { if (insp) inspectorSet.add(insp); });
           }
@@ -3909,8 +4126,9 @@ export const getQualitySummary = async (req, res) => {
       const aRate = tChecked > 0 ? Math.round((aCount / tChecked) * 10000) / 100 : 0;
       const dRate = Math.max(0, Math.round((100 - aRate) * 100) / 100);
 
-      const biwTotal = bAccept + bDefect;
+      const biwTotal = bReviewed > 0 ? bReviewed : (bAccept + bDefect);
       const biwRate = biwTotal > 0 ? Math.round((bAccept / biwTotal) * 10000) / 100 : (tChecked > 0 ? 100 : 0);
+      const directOk = Math.max(0, aCount - rwAccepted);
 
       return {
         id: f.id || f._id.toString(),
@@ -3920,8 +4138,16 @@ export const getQualitySummary = async (req, res) => {
         acceptCount: aCount,
         defectCount: dCount,
         rework1Count: r1Count,
+        reworkAcceptedCount: rwAccepted,
+        rejectedCount: rejCount > 0 ? rejCount : Math.max(0, dCount - r1Count),
+        directOkCount: directOk,
+        dispatchedCount: dDispatched,
+        pendingDispatchCount: Math.max(0, tChecked - dDispatched),
         biwAcceptCount: bAccept,
+        biwRejectCount: bReject,
         biwDefectCount: bDefect,
+        biwReviewedCount: biwTotal,
+        pendingBiwCount: Math.max(0, tChecked - biwTotal),
         biwAcceptRate: biwRate,
         acceptRate: aRate,
         defectRate: dRate,
@@ -3962,8 +4188,13 @@ export const getQualitySummary = async (req, res) => {
           totalChecked: 0,
           defectCount: 0,
           rework1Count: 0,
+          reworkAcceptedCount: 0,
+          rejectedCount: 0,
           biwAcceptCount: 0,
+          biwRejectCount: 0,
           biwDefectCount: 0,
+          biwReviewedCount: 0,
+          dispatchedCount: 0,
           forms: {}
         };
       }
@@ -3971,8 +4202,13 @@ export const getQualitySummary = async (req, res) => {
       inspectorAggMap[inspName].totalChecked += item.totalChecked || 0;
       inspectorAggMap[inspName].defectCount += item.defectCount || 0;
       inspectorAggMap[inspName].rework1Count += item.rework1Count || 0;
+      inspectorAggMap[inspName].reworkAcceptedCount += item.reworkAcceptedCount || 0;
+      inspectorAggMap[inspName].rejectedCount += item.rejectedCount || 0;
       inspectorAggMap[inspName].biwAcceptCount += item.biwAcceptCount || 0;
+      inspectorAggMap[inspName].biwRejectCount += item.biwRejectCount || 0;
       inspectorAggMap[inspName].biwDefectCount += item.biwDefectCount || 0;
+      inspectorAggMap[inspName].biwReviewedCount += item.biwReviewedCount || 0;
+      inspectorAggMap[inspName].dispatchedCount += item.dispatchedCount || 0;
 
       if (formKey) {
         if (!inspectorAggMap[inspName].forms[fTitle]) {
@@ -4014,7 +4250,7 @@ export const getQualitySummary = async (req, res) => {
         partiallyMetCount++;
       }
 
-      const biwTotal = insp.biwAcceptCount + insp.biwDefectCount;
+      const biwTotal = insp.biwReviewedCount || (insp.biwAcceptCount + insp.biwDefectCount);
       const biwAcceptRate = biwTotal > 0 ? Math.round((insp.biwAcceptCount / biwTotal) * 100) : 0;
       const biwDefectRate = Math.max(0, 100 - biwAcceptRate);
 
@@ -4026,10 +4262,19 @@ export const getQualitySummary = async (req, res) => {
       return {
         name: insp.name,
         totalChecked: tChecked,
+        totalSubmitted: tChecked,
+        dispatched: insp.dispatchedCount || 0,
+        dispatchedCount: insp.dispatchedCount || 0,
+        totalReviewed: biwTotal,
+        accepted: insp.biwAcceptCount || 0,
+        rejected: insp.biwRejectCount || 0,
+        rework: insp.biwDefectCount || 0,
         acceptCount: aCount,
         defectCount: dCount,
         rework1Count: insp.rework1Count,
+        reworkAcceptedCount: insp.reworkAcceptedCount,
         biwAcceptCount: insp.biwAcceptCount,
+        biwRejectCount: insp.biwRejectCount,
         biwDefectCount: insp.biwDefectCount,
         acceptRate,
         defectRate,
@@ -4038,6 +4283,7 @@ export const getQualitySummary = async (req, res) => {
         arrow,
         biwAcceptRate,
         biwDefectRate,
+        performanceScore: biwTotal > 0 ? Math.round((insp.biwAcceptCount / biwTotal) * 100) : acceptRate,
         topDefects,
         forms: insp.forms
       };

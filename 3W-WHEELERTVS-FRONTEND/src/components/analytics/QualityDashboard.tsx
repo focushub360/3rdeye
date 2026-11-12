@@ -126,7 +126,7 @@ const qualitySummaryClientCache = new Map<string, {
   timestamp: number;
 }>();
 
-const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v17_';
+const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v19_';
 
 const isValidSummaryData = (item: any): boolean => {
   const d = item?.data || item;
@@ -414,6 +414,14 @@ export const QualityDashboard: React.FC = () => {
     const overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
     const overallDefectRate = totalChecked > 0 ? Math.round((totalDefects / totalChecked) * 10000) / 100 : 0;
 
+    const totalDispatched = matchedForms.reduce((sum: number, f: any) => sum + (f.dispatchedCount || 0), 0);
+    const pendingDispatch = Math.max(0, totalChecked - totalDispatched);
+    const totalBiwReviewed = matchedForms.reduce((sum: number, f: any) => sum + (f.biwReviewedCount !== undefined ? f.biwReviewedCount : ((f.biwAcceptCount || 0) + (f.biwDefectCount || 0))), 0);
+    const pendingBiw = Math.max(0, totalChecked - totalBiwReviewed);
+    const reworkAcceptedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.reworkAcceptedCount || 0), 0);
+    const rejectedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.rejectedCount !== undefined ? f.rejectedCount : Math.max(0, (f.defectCount || 0) - (f.rework1Count || 0))), 0);
+    const directOkCount = matchedForms.reduce((sum: number, f: any) => sum + (f.directOkCount !== undefined ? f.directOkCount : Math.max(0, (f.acceptCount || 0) - (f.reworkAcceptedCount || 0))), 0);
+
     const inspectorSet = new Set<string>();
     matchedForms.forEach((f: any) => {
       (f.inspectors || []).forEach((name: string) => { if (name) inspectorSet.add(name.toLowerCase().trim()); });
@@ -427,6 +435,13 @@ export const QualityDashboard: React.FC = () => {
       totalAccepted: totalAccepted || data.summary.totalAccepted,
       totalDefects: totalDefects !== undefined ? totalDefects : data.summary.totalDefects,
       totalRework1: totalRework1 !== undefined ? totalRework1 : data.summary.totalRework1,
+      totalDispatched: totalDispatched || data.summary.totalDispatched,
+      pendingDispatch: pendingDispatch !== undefined ? pendingDispatch : data.summary.pendingDispatch,
+      totalBiwReviewed: totalBiwReviewed || data.summary.totalBiwReviewed,
+      pendingBiw: pendingBiw !== undefined ? pendingBiw : data.summary.pendingBiw,
+      reworkAcceptedCount: reworkAcceptedCount !== undefined ? reworkAcceptedCount : data.summary.reworkAcceptedCount,
+      rejectedCount: rejectedCount !== undefined ? rejectedCount : data.summary.rejectedCount,
+      directOkCount: directOkCount !== undefined ? directOkCount : data.summary.directOkCount,
       overallAcceptRate: overallAcceptRate || data.summary.overallAcceptRate,
       overallDefectRate: overallDefectRate !== undefined ? overallDefectRate : data.summary.overallDefectRate,
       totalInspectors: inspectorSet.size || relevantInspectors.length || data.summary.totalInspectors,
@@ -481,18 +496,30 @@ export const QualityDashboard: React.FC = () => {
     const totalAccepted = activeSummary.totalAccepted || 0;
     const totalDefects = activeSummary.totalDefects || 0;
     const totalRework = activeSummary.totalRework1 || 0;
-    const totalRejected = Math.max(0, totalDefects - totalRework);
-
-    const rawDirectRatio = data?.rawResponses && data.rawResponses.length > 0
-      ? data.rawResponses.filter(r => String(r.status || '').toLowerCase().includes('rework accepted') || String(r.status || '').toLowerCase().includes('rework completed')).length / (data.rawResponses.length || 1)
-      : 0.05;
-
-    const reworkCompleted = Math.round(totalAccepted * (rawDirectRatio || 0.05));
-    const directOk = Math.max(0, totalAccepted - reworkCompleted);
+    const totalRejected = activeSummary.rejectedCount !== undefined
+      ? activeSummary.rejectedCount
+      : Math.max(0, totalDefects - totalRework);
 
     const formsList = activeSelectedForms;
-    const totalBiwReviewed = formsList.reduce((s, f) => s + (f.biwAcceptCount || 0) + (f.biwDefectCount || 0), 0);
-    const totalDispatched = Math.round(directOk * 0.82);
+
+    // Real Rework Accepted and Direct Ok
+    const reworkCompleted = activeSummary.reworkAcceptedCount !== undefined
+      ? activeSummary.reworkAcceptedCount
+      : formsList.reduce((sum, f) => sum + (f.reworkAcceptedCount || 0), 0);
+
+    const directOk = activeSummary.directOkCount !== undefined
+      ? activeSummary.directOkCount
+      : Math.max(0, totalAccepted - reworkCompleted);
+
+    // Real BIW reviewed
+    const totalBiwReviewed = activeSummary.totalBiwReviewed !== undefined
+      ? activeSummary.totalBiwReviewed
+      : formsList.reduce((s, f) => s + (f.biwReviewedCount !== undefined ? f.biwReviewedCount : ((f.biwAcceptCount || 0) + (f.biwDefectCount || 0))), 0);
+
+    // Real Dispatched
+    const totalDispatched = activeSummary.totalDispatched !== undefined
+      ? activeSummary.totalDispatched
+      : formsList.reduce((sum, f) => sum + (f.dispatchedCount || 0), 0);
 
     if (total === 0) {
       return {
@@ -625,9 +652,9 @@ export const QualityDashboard: React.FC = () => {
                 const total = f.totalChecked || (f.acceptCount || 0) + (f.defectCount || 0);
                 const accepted = f.acceptCount || 0;
                 const rework = f.rework1Count || 0;
-                const rejected = Math.max(0, (f.defectCount || 0) - rework);
-                const reworkAccepted = Math.round(accepted * 0.05);
-                const directOk = Math.max(0, accepted - reworkAccepted);
+                const rejected = f.rejectedCount !== undefined ? f.rejectedCount : Math.max(0, (f.defectCount || 0) - rework);
+                const reworkAccepted = f.reworkAcceptedCount || 0;
+                const directOk = f.directOkCount !== undefined ? f.directOkCount : Math.max(0, accepted - reworkAccepted);
 
                 let count = total;
                 let sliceTotal = summaryPieDetails.counts.total || 1;
@@ -1969,12 +1996,12 @@ export const QualityDashboard: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
                   {filteredFormSummaryList.map((form) => {
                     const rework = form.rework1Count || 0;
-                    const rejected = Math.max(0, (form.defectCount || 0) - rework);
+                    const rejected = form.rejectedCount !== undefined ? form.rejectedCount : Math.max(0, (form.defectCount || 0) - rework);
                     const accepted = form.acceptCount || 0;
                     const total = form.totalChecked || (accepted + rework + rejected);
 
-                    const reworkAccepted = Math.round(accepted * 0.05);
-                    const directOk = Math.max(0, accepted - reworkAccepted);
+                    const reworkAccepted = form.reworkAcceptedCount || 0;
+                    const directOk = form.directOkCount !== undefined ? form.directOkCount : Math.max(0, accepted - reworkAccepted);
 
                     let displayCount = total;
                     let displayPct = '100';

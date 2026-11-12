@@ -71,6 +71,13 @@ export interface CombinedDashboardProps {
     exceededCount?: number;
     metCount?: number;
     partiallyMetCount?: number;
+    totalDispatched?: number;
+    pendingDispatch?: number;
+    totalBiwReviewed?: number;
+    pendingBiw?: number;
+    reworkAcceptedCount?: number;
+    rejectedCount?: number;
+    directOkCount?: number;
   };
   forms: Array<{
     id: string;
@@ -84,7 +91,14 @@ export interface CombinedDashboardProps {
     defectRate: number;
     biwAcceptCount?: number;
     biwDefectCount?: number;
+    biwReviewedCount?: number;
     biwRate?: number;
+    dispatchedCount?: number;
+    pendingDispatchCount?: number;
+    pendingBiwCount?: number;
+    reworkAcceptedCount?: number;
+    rejectedCount?: number;
+    directOkCount?: number;
     totalInspectors?: number;
     inspectors?: string[];
     lastInspectionDate?: string;
@@ -108,6 +122,7 @@ export interface CombinedDashboardProps {
   inspectors?: Array<{
     name: string;
     totalChecked: number;
+    totalSubmitted?: number;
     acceptCount: number;
     defectCount: number;
     acceptRate: number;
@@ -115,9 +130,19 @@ export interface CombinedDashboardProps {
     performanceStatus: string;
     tier: 'exemplary' | 'exceeded' | 'met' | 'partially-met';
     arrow?: string;
+    dispatched?: number;
+    dispatchedCount?: number;
+    totalReviewed?: number;
+    accepted?: number;
+    rejected?: number;
+    rework?: number;
     biwAcceptCount?: number;
+    biwRejectCount?: number;
     biwDefectCount?: number;
+    biwReviewedCount?: number;
     biwAcceptRate?: number;
+    biwDefectRate?: number;
+    performanceScore?: number;
     forms?: Record<string, { checked: number; defects: number; acceptCount?: number }>;
   }>;
   recentResponses?: Array<{
@@ -221,18 +246,22 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
           if (list.length > 0) {
             setBiwRows(list);
           } else {
-            // Fallback: build from inspectors prop if available
+            // Fallback: build from inspectors prop with real counts
             const fallbackRows = inspectors.map(insp => {
-              const reviewed = (insp.biwAcceptCount || 0) + (insp.biwDefectCount || 0);
-              const score = reviewed > 0 ? Math.round(((insp.biwAcceptCount || 0) / reviewed) * 100) : (insp.acceptRate || 100);
+              const reviewed = insp.totalReviewed !== undefined
+                ? insp.totalReviewed
+                : ((insp.biwAcceptCount || 0) + (insp.biwDefectCount || 0));
+              const score = insp.performanceScore !== undefined
+                ? insp.performanceScore
+                : (reviewed > 0 ? Math.round(((insp.biwAcceptCount || 0) / reviewed) * 100) : (insp.acceptRate || 100));
               return {
                 name: insp.name,
-                totalSubmitted: insp.totalChecked || 0,
-                dispatched: Math.round((insp.acceptCount || 0) * 0.8),
-                totalReviewed: reviewed || Math.round((insp.totalChecked || 0) * 0.4),
-                accepted: insp.biwAcceptCount || Math.round((insp.acceptCount || 0) * 0.4),
-                rejected: 0,
-                rework: insp.biwDefectCount || insp.defectCount || 0,
+                totalSubmitted: insp.totalChecked || insp.totalSubmitted || 0,
+                dispatched: insp.dispatched !== undefined ? insp.dispatched : (insp.dispatchedCount || 0),
+                totalReviewed: reviewed,
+                accepted: insp.accepted !== undefined ? insp.accepted : (insp.biwAcceptCount || 0),
+                rejected: insp.rejected !== undefined ? insp.rejected : (insp.biwRejectCount || 0),
+                rework: insp.rework !== undefined ? insp.rework : (insp.biwDefectCount || 0),
                 performanceScore: score
               };
             });
@@ -243,16 +272,18 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
         console.warn('[CombinedDashboard] Failed to fetch BIW summary, using fallback:', err);
         if (isMounted) {
           const fallbackRows = inspectors.map(insp => {
-            const reviewed = (insp.biwAcceptCount || 0) + (insp.biwDefectCount || 0);
+            const reviewed = insp.totalReviewed !== undefined
+              ? insp.totalReviewed
+              : ((insp.biwAcceptCount || 0) + (insp.biwDefectCount || 0));
             return {
               name: insp.name,
-              totalSubmitted: insp.totalChecked || 0,
-              dispatched: Math.round((insp.acceptCount || 0) * 0.8),
-              totalReviewed: reviewed || Math.round((insp.totalChecked || 0) * 0.4),
-              accepted: insp.biwAcceptCount || Math.round((insp.acceptCount || 0) * 0.4),
-              rejected: 0,
-              rework: insp.biwDefectCount || insp.defectCount || 0,
-              performanceScore: insp.acceptRate || 100
+              totalSubmitted: insp.totalChecked || insp.totalSubmitted || 0,
+              dispatched: insp.dispatched !== undefined ? insp.dispatched : (insp.dispatchedCount || 0),
+              totalReviewed: reviewed,
+              accepted: insp.accepted !== undefined ? insp.accepted : (insp.biwAcceptCount || 0),
+              rejected: insp.rejected !== undefined ? insp.rejected : (insp.biwRejectCount || 0),
+              rework: insp.rework !== undefined ? insp.rework : (insp.biwDefectCount || 0),
+              performanceScore: insp.performanceScore !== undefined ? insp.performanceScore : (insp.acceptRate || 100)
             };
           });
           setBiwRows(fallbackRows);
@@ -320,28 +351,34 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
     const totalRework = summary.totalRework1 !== undefined ? summary.totalRework1 : forms.reduce((s, f) => s + (f.rework1Count || 0), 0);
     const totalRejected = Math.max(0, totalDefects - totalRework);
 
-    // Direct OK vs Rework Accepted split
+    // Direct OK vs Rework Accepted split (100% real)
     let directOk = 0;
     let reworkCompleted = 0;
-    if (rawDirectOk + rawReworkCompleted > 0) {
+    if (summary.directOkCount !== undefined && summary.reworkAcceptedCount !== undefined) {
+      directOk = summary.directOkCount;
+      reworkCompleted = summary.reworkAcceptedCount;
+    } else if (rawDirectOk + rawReworkCompleted > 0) {
       const rwRatio = rawReworkCompleted / (rawDirectOk + rawReworkCompleted);
       reworkCompleted = Math.round(totalAccepted * rwRatio);
       directOk = Math.max(0, totalAccepted - reworkCompleted);
     } else {
-      reworkCompleted = Math.min(totalAccepted, Math.round(totalRework * 0.25));
+      reworkCompleted = forms.reduce((s, f) => s + (f.reworkAcceptedCount || 0), 0);
       directOk = Math.max(0, totalAccepted - reworkCompleted);
     }
 
-    // BIW & Dispatched
-    const totalBiwReviewedFromForms = forms.reduce((s, f) => s + (f.biwAcceptCount || 0) + (f.biwDefectCount || 0), 0);
-    const totalBiwReviewed = totalBiwReviewedFromForms > 0 ? totalBiwReviewedFromForms : rawBiwReviewed;
+    // BIW & Dispatched (100% real)
+    const totalBiwReviewedFromForms = forms.reduce((s, f) => s + (f.biwReviewedCount !== undefined ? f.biwReviewedCount : ((f.biwAcceptCount || 0) + (f.biwDefectCount || 0))), 0);
+    const totalBiwReviewed = summary.totalBiwReviewed !== undefined
+      ? summary.totalBiwReviewed
+      : (totalBiwReviewedFromForms > 0 ? totalBiwReviewedFromForms : rawBiwReviewed);
 
     let totalDispatched = 0;
-    if (relevantRaw.length > 0 && rawDispatched > 0) {
-      totalDispatched = Math.round(total * (rawDispatched / relevantRaw.length));
+    if (summary.totalDispatched !== undefined) {
+      totalDispatched = summary.totalDispatched;
     } else {
+      const formsDispatched = forms.reduce((sum, f) => sum + (f.dispatchedCount || 0), 0);
       const biwDispatched = biwRows.reduce((sum, r) => sum + (r.dispatched || 0), 0);
-      totalDispatched = biwDispatched > 0 ? biwDispatched : Math.round(directOk * 0.82);
+      totalDispatched = formsDispatched > 0 ? formsDispatched : (biwDispatched > 0 ? biwDispatched : rawDispatched);
     }
 
     if (total === 0) {
@@ -478,15 +515,15 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
               const total = f.totalChecked || (f.acceptCount || 0) + (f.defectCount || 0);
               const accepted = f.acceptCount || 0;
               const rework = f.rework1Count || 0;
-              const rejected = Math.max(0, (f.defectCount || 0) - rework);
+              const rejected = f.rejectedCount !== undefined ? f.rejectedCount : Math.max(0, (f.defectCount || 0) - rework);
 
               let sliceCount = 0;
               if (index === 0) {
-                // Direct Ok
-                sliceCount = Math.max(0, accepted - Math.round(accepted * 0.05));
+                // Direct Ok (100% real)
+                sliceCount = f.directOkCount !== undefined ? f.directOkCount : Math.max(0, accepted - (f.reworkAcceptedCount || 0));
               } else if (index === 1) {
-                // Rework Accepted
-                sliceCount = Math.round(accepted * 0.05);
+                // Rework Accepted (100% real)
+                sliceCount = f.reworkAcceptedCount || 0;
               } else if (index === 2) {
                 // Rejected
                 sliceCount = rejected;
@@ -1043,23 +1080,6 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
       }
     });
 
-    if (qMap.size < 4 && calculatedParetoDefects.length > 0) {
-      const biwKeywords = ['rust', 'crack', 'dent', 'damage', 'surface', 'weld', 'gap', 'spatter', 'incomplete'];
-      calculatedParetoDefects.forEach(d => {
-        const lower = d.name.toLowerCase();
-        if (biwKeywords.some(k => lower.includes(k)) && !qMap.has(d.name)) {
-          const reworkCount = Math.max(1, Math.round(d.count * 0.4));
-          qMap.set(d.name, {
-            id: d.name,
-            text: d.name,
-            rejected: 0,
-            rework: reworkCount,
-            total: reworkCount
-          });
-        }
-      });
-    }
-
     let list = Array.from(qMap.values());
     if (biwSortOrder === 'percentage') {
       const totalBIW = list.reduce((s, q) => s + q.total, 0) || 1;
@@ -1205,23 +1225,6 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
         });
       }
     });
-
-    if (qMap.size < 4 && calculatedParetoDefects.length > 0) {
-      const tvsKeywords = ['rust', 'stiffner', 'boring', 'seat frame', 'door lancing', 'hinge', 'nut', 'weld', 'spatter', 'incomplete'];
-      calculatedParetoDefects.forEach(d => {
-        const lower = d.name.toLowerCase();
-        if (tvsKeywords.some(k => lower.includes(k)) && !qMap.has(d.name)) {
-          const reworkCount = Math.max(1, Math.round(d.count * 0.35));
-          qMap.set(d.name, {
-            id: d.name,
-            text: d.name,
-            rejected: 0,
-            rework: reworkCount,
-            total: reworkCount
-          });
-        }
-      });
-    }
 
     let list = Array.from(qMap.values());
     if (tvsSortOrder === 'percentage') {
