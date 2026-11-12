@@ -380,26 +380,30 @@ export const QualityDashboard: React.FC = () => {
   const [hoveredSlice, setHoveredSlice] = useState<'all' | 'directOk' | 'reworkCompleted' | 'accepted' | 'rework' | 'rejected'>('all');
   const [pieSearchQuery, setPieSearchQuery] = useState<string>('');
 
+  // Forms strictly scoped to active selection (or all if nothing selected)
+  const activeSelectedForms = useMemo(() => {
+    const base = (enrichedFormsSummary && enrichedFormsSummary.length > 0)
+      ? enrichedFormsSummary
+      : (data?.formsSummary || []);
+    if (!base || base.length === 0) return [];
+    if (selectedFormIds.length === 0) return base;
+    return base.filter((f: any) => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id)));
+  }, [enrichedFormsSummary, selectedFormIds, data?.formsSummary]);
+
   // Filter breakdown list strictly by selected forms (or show all if no selection) with guaranteed non-zero counts
   const filteredFormSummaryList = useMemo(() => {
-    if (!enrichedFormsSummary || enrichedFormsSummary.length === 0) return [];
-    let list = enrichedFormsSummary;
-    if (selectedFormIds.length > 0) {
-      list = list.filter((f: any) => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id)));
-    }
-    if (!pieSearchQuery.trim()) return list;
+    if (!activeSelectedForms || activeSelectedForms.length === 0) return [];
+    if (!pieSearchQuery.trim()) return activeSelectedForms;
     const q = (pieSearchQuery || '').toLowerCase().trim();
-    return list.filter((f: any) => String(f.title || '').toLowerCase().includes(q));
-  }, [enrichedFormsSummary, selectedFormIds, pieSearchQuery]);
+    return activeSelectedForms.filter((f: any) => String(f.title || '').toLowerCase().includes(q));
+  }, [activeSelectedForms, pieSearchQuery]);
 
   // Dynamically compute active summary for selected combination of forms with 0ms instant reactivity
   const activeSummary = useMemo(() => {
     if (!data?.summary) return null;
     if (selectedFormIds.length === 0) return data.summary;
 
-    const matchedForms = enrichedFormsSummary.filter(
-      (f: any) => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id))
-    );
+    const matchedForms = activeSelectedForms;
 
     if (matchedForms.length === 0) return data.summary;
 
@@ -486,7 +490,7 @@ export const QualityDashboard: React.FC = () => {
     const reworkCompleted = Math.round(totalAccepted * (rawDirectRatio || 0.05));
     const directOk = Math.max(0, totalAccepted - reworkCompleted);
 
-    const formsList = enrichedFormsSummary.length > 0 ? enrichedFormsSummary : (data?.formsSummary || []);
+    const formsList = activeSelectedForms;
     const totalBiwReviewed = formsList.reduce((s, f) => s + (f.biwAcceptCount || 0) + (f.biwDefectCount || 0), 0);
     const totalDispatched = Math.round(directOk * 0.82);
 
@@ -554,7 +558,7 @@ export const QualityDashboard: React.FC = () => {
         total,
       },
     };
-  }, [activeSummary, data?.rawResponses, enrichedFormsSummary, data?.formsSummary]);
+  }, [activeSummary, data?.rawResponses, activeSelectedForms]);
 
   const pieChartData = useMemo(() => {
     return {
@@ -612,7 +616,7 @@ export const QualityDashboard: React.FC = () => {
             afterBody: (context: any) => {
               if (!context || !context[0]) return [];
               const index = context[0].dataIndex;
-              const forms = enrichedFormsSummary.length > 0 ? enrichedFormsSummary : (data?.formsSummary || []);
+              const forms = activeSelectedForms;
 
               const sliceNames = ['Direct Ok', 'Rework Accepted', 'Rejected', 'Rework'];
               const sliceName = sliceNames[index] || 'Form-Wise';
@@ -669,7 +673,7 @@ export const QualityDashboard: React.FC = () => {
         }
       }
     };
-  }, [summaryPieDetails, enrichedFormsSummary, data?.formsSummary]);
+  }, [summaryPieDetails, activeSelectedForms, selectedFormIds]);
 
   const selectedFormTitles = useMemo(() => {
     return availableFormOptions
@@ -778,7 +782,7 @@ export const QualityDashboard: React.FC = () => {
           afterBody: (context: any) => {
             if (!context || !context[0]) return [];
             const isAccepted = context[0].dataIndex === 0;
-            const activeForms = enrichedFormsSummary.length > 0 ? enrichedFormsSummary : (data?.formsSummary || []);
+            const activeForms = activeSelectedForms;
             const total = isAccepted ? biwOverallSummary.totalAccept : biwOverallSummary.totalDefect;
             const lines: string[] = ['', 'Form-Wise Numbers:'];
             activeForms.forEach((f: any) => {
@@ -793,7 +797,7 @@ export const QualityDashboard: React.FC = () => {
         }
       }
     }
-  }), [biwOverallSummary, enrichedFormsSummary, data?.formsSummary]);
+  }), [biwOverallSummary, activeSelectedForms, selectedFormIds]);
 
   const centerTextPlugin = useMemo(
     () => ({
@@ -1936,7 +1940,7 @@ export const QualityDashboard: React.FC = () => {
                       {hoveredSlice === 'accepted' && 'Form-Wise Accepted Contributions'}
                       {hoveredSlice === 'rework' && 'Form-Wise Ongoing Rework Contribution'}
                       {hoveredSlice === 'rejected' && 'Form-Wise Rejected Contribution'}
-                      {hoveredSlice === 'all' && `Form-Wise Quality & Volume Contribution (${filteredFormSummaryList.length} forms)`}
+                      {hoveredSlice === 'all' && `Form-Wise Quality & Volume Contribution (${filteredFormSummaryList.length} ${selectedFormIds.length > 0 ? 'selected ' : ''}forms)`}
                     </h4>
                   </div>
                   <div className="flex items-center gap-2">
