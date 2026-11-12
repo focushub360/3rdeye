@@ -40,6 +40,7 @@ import {
   ArcElement
 } from 'chart.js';
 import { Bar, Doughnut } from 'react-chartjs-2';
+import ChartDataLabels from 'chartjs-plugin-datalabels';
 import PerformanceTable from '../PerformanceTable';
 import { apiClient } from '../../api/client';
 
@@ -53,7 +54,8 @@ ChartJS.register(
   Tooltip,
   Legend,
   Filler,
-  ArcElement
+  ArcElement,
+  ChartDataLabels
 );
 
 export interface CombinedDashboardProps {
@@ -582,6 +584,7 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
+      datalabels: { display: false },
       legend: {
         position: 'top' as const,
         labels: {
@@ -680,6 +683,7 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
     maintainAspectRatio: false,
     cutout: '72%',
     plugins: {
+      datalabels: { display: false },
       legend: {
         position: 'bottom' as const,
         labels: { boxWidth: 10, font: { size: 10, weight: 'bold' } }
@@ -896,25 +900,41 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
   }, [processedQuestions]);
 
   const mainDefectChartData = useMemo(() => ({
-    labels: topProcessedQuestions.map(q => q.text.length > 25 ? q.text.substring(0, 25) + '...' : q.text),
+    labels: topProcessedQuestions.map(q => q.text.length > 28 ? q.text.substring(0, 28) + '...' : q.text),
     datasets: [
       {
         label: 'Rejected',
         data: topProcessedQuestions.map(q => q.rejected),
-        backgroundColor: 'rgba(153, 27, 27, 0.85)', // Dark Red
+        backgroundColor: 'rgba(153, 27, 27, 0.9)', // Dark Red
         borderColor: 'rgb(127, 29, 29)',
         borderWidth: 1,
-        barPercentage: topProcessedQuestions.length <= 2 ? 0.3 : 0.7,
+        maxBarThickness: 55,
+        barPercentage: topProcessedQuestions.length <= 2 ? 0.35 : 0.7,
         categoryPercentage: 0.8,
+        datalabels: {
+          display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+          color: '#ffffff',
+          font: { weight: 'bold' as const, size: 12 },
+          formatter: (value: number) => (value > 0 ? value : ''),
+          textAlign: 'center' as const,
+        },
       },
       {
         label: 'Rework',
         data: topProcessedQuestions.map(q => q.rework),
-        backgroundColor: 'rgba(55, 65, 81, 0.85)', // Dark Gray
+        backgroundColor: 'rgba(55, 65, 81, 0.9)', // Dark Gray
         borderColor: 'rgb(31, 41, 55)',
         borderWidth: 1,
-        barPercentage: topProcessedQuestions.length <= 2 ? 0.3 : 0.7,
+        maxBarThickness: 55,
+        barPercentage: topProcessedQuestions.length <= 2 ? 0.35 : 0.7,
         categoryPercentage: 0.8,
+        datalabels: {
+          display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+          color: '#ffffff',
+          font: { weight: 'bold' as const, size: 12 },
+          formatter: (value: number) => (value > 0 ? value : ''),
+          textAlign: 'center' as const,
+        },
       }
     ]
   }), [topProcessedQuestions]);
@@ -927,8 +947,8 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
       legend: {
         position: 'bottom',
         labels: {
-          color: '#374151',
-          font: { size: 11, weight: 'bold' },
+          color: '#1f2937',
+          font: { size: 12, weight: 'bold' },
           padding: 16,
           usePointStyle: true,
         },
@@ -937,32 +957,59 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
         backgroundColor: 'rgba(0, 0, 0, 0.85)',
         padding: 12,
         cornerRadius: 8,
-      }
+      },
+      datalabels: {
+        display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+        color: '#ffffff',
+        font: { weight: 'bold', size: 12 },
+        formatter: (value: number) => (value > 0 ? value : ''),
+        textAlign: 'center',
+      },
     },
     scales: {
-      x: {
-        stacked: true,
-        ticks: {
-          color: '#0f172a',
-          font: { size: 10, weight: '600' },
-          maxRotation: chartOrientation === 'v' ? 55 : 0,
-          minRotation: chartOrientation === 'v' ? 40 : 0,
-          autoSkip: false,
-        },
-        grid: { display: false }
-      },
-      y: {
+      x: chartOrientation === 'h' ? {
         stacked: true,
         beginAtZero: true,
         ticks: {
           stepSize: 1,
-          color: '#6b7280',
-          font: { size: 10 }
+          color: '#374151',
+          font: { size: 11, weight: '600' }
+        },
+        grid: { color: 'rgba(0, 0, 0, 0.04)' }
+      } : {
+        stacked: true,
+        ticks: {
+          color: '#111827',
+          font: { size: topProcessedQuestions.length <= 6 ? 12 : 11, weight: 'bold' },
+          maxRotation: chartOrientation === 'v' ? (topProcessedQuestions.length <= 6 ? 0 : 45) : 0,
+          minRotation: 0,
+          autoSkip: false,
+          padding: 8,
+        },
+        grid: { display: false }
+      },
+      y: chartOrientation === 'h' ? {
+        stacked: true,
+        ticks: {
+          color: '#111827',
+          font: { size: 12, weight: 'bold' },
+          autoSkip: false,
+          padding: 8,
+        },
+        grid: { display: false }
+      } : {
+        stacked: true,
+        beginAtZero: true,
+        ticks: {
+          stepSize: 1,
+          color: '#374151',
+          font: { size: 11, weight: '600' },
+          padding: 8,
         },
         grid: { color: 'rgba(0, 0, 0, 0.04)' }
       }
     }
-  }), [chartOrientation]);
+  }), [chartOrientation, topProcessedQuestions.length]);
 
   // ─── BIW Defect Distribution Memos ─────────────────────────────────────
   const biwProcessedQuestions = useMemo(() => {
@@ -1024,7 +1071,7 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
   }, [rawResponses, recentResponses, calculatedParetoDefects, biwSortOrder]);
 
   const biwDefectChartData = useMemo(() => ({
-    labels: biwProcessedQuestions.map(q => q.text.length > 25 ? q.text.substring(0, 25) + '...' : q.text),
+    labels: biwProcessedQuestions.map(q => q.text.length > 28 ? q.text.substring(0, 28) + '...' : q.text),
     datasets: [
       {
         label: 'Rejected (BIW)',
@@ -1032,8 +1079,16 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
         backgroundColor: 'rgba(220, 38, 38, 0.9)', // Crimson Red
         borderColor: 'rgb(185, 28, 28)',
         borderWidth: 1,
-        barPercentage: biwProcessedQuestions.length <= 2 ? 0.3 : 0.7,
+        maxBarThickness: 55,
+        barPercentage: biwProcessedQuestions.length <= 2 ? 0.35 : 0.7,
         categoryPercentage: 0.8,
+        datalabels: {
+          display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+          color: '#ffffff',
+          font: { weight: 'bold' as const, size: 12 },
+          formatter: (value: number) => (value > 0 ? value : ''),
+          textAlign: 'center' as const,
+        },
       },
       {
         label: 'Rework (BIW)',
@@ -1041,8 +1096,16 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
         backgroundColor: 'rgba(71, 85, 105, 0.9)', // Slate Gray
         borderColor: 'rgb(51, 65, 85)',
         borderWidth: 1,
-        barPercentage: biwProcessedQuestions.length <= 2 ? 0.3 : 0.7,
+        maxBarThickness: 55,
+        barPercentage: biwProcessedQuestions.length <= 2 ? 0.35 : 0.7,
         categoryPercentage: 0.8,
+        datalabels: {
+          display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+          color: '#ffffff',
+          font: { weight: 'bold' as const, size: 12 },
+          formatter: (value: number) => (value > 0 ? value : ''),
+          textAlign: 'center' as const,
+        },
       }
     ]
   }), [biwProcessedQuestions]);
@@ -1055,8 +1118,8 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
       legend: {
         position: 'bottom',
         labels: {
-          color: '#374151',
-          font: { size: 11, weight: 'bold' },
+          color: '#1f2937',
+          font: { size: 12, weight: 'bold' },
           padding: 16,
           usePointStyle: true,
         },
@@ -1065,32 +1128,59 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
         backgroundColor: 'rgba(0, 0, 0, 0.85)',
         padding: 12,
         cornerRadius: 8,
-      }
+      },
+      datalabels: {
+        display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+        color: '#ffffff',
+        font: { weight: 'bold', size: 12 },
+        formatter: (value: number) => (value > 0 ? value : ''),
+        textAlign: 'center',
+      },
     },
     scales: {
-      x: {
-        stacked: true,
-        ticks: {
-          color: '#0f172a',
-          font: { size: 10, weight: '600' },
-          maxRotation: biwOrientation === 'v' ? 45 : 0,
-          minRotation: 0,
-          autoSkip: false,
-        },
-        grid: { display: false }
-      },
-      y: {
+      x: biwOrientation === 'h' ? {
         stacked: true,
         beginAtZero: true,
         ticks: {
           stepSize: 1,
-          color: '#6b7280',
-          font: { size: 10 }
+          color: '#374151',
+          font: { size: 11, weight: '600' }
+        },
+        grid: { color: 'rgba(0, 0, 0, 0.04)' }
+      } : {
+        stacked: true,
+        ticks: {
+          color: '#111827',
+          font: { size: biwProcessedQuestions.length <= 6 ? 12 : 11, weight: 'bold' },
+          maxRotation: biwOrientation === 'v' ? (biwProcessedQuestions.length <= 6 ? 0 : 45) : 0,
+          minRotation: 0,
+          autoSkip: false,
+          padding: 8,
+        },
+        grid: { display: false }
+      },
+      y: biwOrientation === 'h' ? {
+        stacked: true,
+        ticks: {
+          color: '#111827',
+          font: { size: 12, weight: 'bold' },
+          autoSkip: false,
+          padding: 8,
+        },
+        grid: { display: false }
+      } : {
+        stacked: true,
+        beginAtZero: true,
+        ticks: {
+          stepSize: 1,
+          color: '#374151',
+          font: { size: 11, weight: '600' },
+          padding: 8,
         },
         grid: { color: 'rgba(0, 0, 0, 0.04)' }
       }
     }
-  }), [biwOrientation]);
+  }), [biwOrientation, biwProcessedQuestions.length]);
 
   // ─── TVS Defect Distribution Memos ─────────────────────────────────────
   const tvsProcessedQuestions = useMemo(() => {
@@ -1144,7 +1234,7 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
   }, [rawResponses, recentResponses, calculatedParetoDefects, tvsSortOrder]);
 
   const tvsDefectChartData = useMemo(() => ({
-    labels: tvsProcessedQuestions.map(q => q.text.length > 25 ? q.text.substring(0, 25) + '...' : q.text),
+    labels: tvsProcessedQuestions.map(q => q.text.length > 28 ? q.text.substring(0, 28) + '...' : q.text),
     datasets: [
       {
         label: 'Rejected (TVS Review)',
@@ -1152,8 +1242,16 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
         backgroundColor: 'rgba(220, 38, 38, 0.9)',
         borderColor: 'rgb(185, 28, 28)',
         borderWidth: 1,
-        barPercentage: tvsProcessedQuestions.length <= 2 ? 0.3 : 0.7,
+        maxBarThickness: 55,
+        barPercentage: tvsProcessedQuestions.length <= 2 ? 0.35 : 0.7,
         categoryPercentage: 0.8,
+        datalabels: {
+          display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+          color: '#ffffff',
+          font: { weight: 'bold' as const, size: 12 },
+          formatter: (value: number) => (value > 0 ? value : ''),
+          textAlign: 'center' as const,
+        },
       },
       {
         label: 'Rework (TVS Review)',
@@ -1161,8 +1259,16 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
         backgroundColor: 'rgba(71, 85, 105, 0.9)',
         borderColor: 'rgb(51, 65, 85)',
         borderWidth: 1,
-        barPercentage: tvsProcessedQuestions.length <= 2 ? 0.3 : 0.7,
+        maxBarThickness: 55,
+        barPercentage: tvsProcessedQuestions.length <= 2 ? 0.35 : 0.7,
         categoryPercentage: 0.8,
+        datalabels: {
+          display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+          color: '#ffffff',
+          font: { weight: 'bold' as const, size: 12 },
+          formatter: (value: number) => (value > 0 ? value : ''),
+          textAlign: 'center' as const,
+        },
       }
     ]
   }), [tvsProcessedQuestions]);
@@ -1175,8 +1281,8 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
       legend: {
         position: 'bottom',
         labels: {
-          color: '#374151',
-          font: { size: 11, weight: 'bold' },
+          color: '#1f2937',
+          font: { size: 12, weight: 'bold' },
           padding: 16,
           usePointStyle: true,
         },
@@ -1185,32 +1291,59 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
         backgroundColor: 'rgba(0, 0, 0, 0.85)',
         padding: 12,
         cornerRadius: 8,
-      }
+      },
+      datalabels: {
+        display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+        color: '#ffffff',
+        font: { weight: 'bold', size: 12 },
+        formatter: (value: number) => (value > 0 ? value : ''),
+        textAlign: 'center',
+      },
     },
     scales: {
-      x: {
-        stacked: true,
-        ticks: {
-          color: '#0f172a',
-          font: { size: 10, weight: '600' },
-          maxRotation: tvsOrientation === 'v' ? 45 : 0,
-          minRotation: 0,
-          autoSkip: false,
-        },
-        grid: { display: false }
-      },
-      y: {
+      x: tvsOrientation === 'h' ? {
         stacked: true,
         beginAtZero: true,
         ticks: {
           stepSize: 1,
-          color: '#6b7280',
-          font: { size: 10 }
+          color: '#374151',
+          font: { size: 11, weight: '600' }
+        },
+        grid: { color: 'rgba(0, 0, 0, 0.04)' }
+      } : {
+        stacked: true,
+        ticks: {
+          color: '#111827',
+          font: { size: tvsProcessedQuestions.length <= 6 ? 12 : 11, weight: 'bold' },
+          maxRotation: tvsOrientation === 'v' ? (tvsProcessedQuestions.length <= 6 ? 0 : 45) : 0,
+          minRotation: 0,
+          autoSkip: false,
+          padding: 8,
+        },
+        grid: { display: false }
+      },
+      y: tvsOrientation === 'h' ? {
+        stacked: true,
+        ticks: {
+          color: '#111827',
+          font: { size: 12, weight: 'bold' },
+          autoSkip: false,
+          padding: 8,
+        },
+        grid: { display: false }
+      } : {
+        stacked: true,
+        beginAtZero: true,
+        ticks: {
+          stepSize: 1,
+          color: '#374151',
+          font: { size: 11, weight: '600' },
+          padding: 8,
         },
         grid: { color: 'rgba(0, 0, 0, 0.04)' }
       }
     }
-  }), [tvsOrientation]);
+  }), [tvsOrientation, tvsProcessedQuestions.length]);
 
   // ─── Performance Trend Memos ───────────────────────────────────────────
   const performanceTrendStats = useMemo(() => {
@@ -1251,8 +1384,18 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
         backgroundColor: 'rgba(55, 65, 81, 0.85)', // Dark Gray
         borderColor: 'rgb(31, 41, 55)',
         borderWidth: 1,
+        maxBarThickness: 32,
         barPercentage: 0.6,
         categoryPercentage: 0.8,
+        datalabels: {
+          display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+          color: '#1f2937',
+          font: { weight: 'bold' as const, size: 9 },
+          align: 'top' as const,
+          anchor: 'end' as const,
+          offset: 2,
+          formatter: (val: number) => (val > 0 ? val : '')
+        }
       },
       {
         type: 'bar' as const,
@@ -1261,8 +1404,18 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
         backgroundColor: 'rgba(153, 27, 27, 0.85)', // Dark Red
         borderColor: 'rgb(127, 29, 29)',
         borderWidth: 1,
+        maxBarThickness: 32,
         barPercentage: 0.6,
         categoryPercentage: 0.8,
+        datalabels: {
+          display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+          color: '#991b1b',
+          font: { weight: 'bold' as const, size: 9 },
+          align: 'top' as const,
+          anchor: 'end' as const,
+          offset: 2,
+          formatter: (val: number) => (val > 0 ? val : '')
+        }
       }
     ]
   }), [performanceTrendStats]);
@@ -1274,7 +1427,7 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
       legend: {
         position: 'bottom',
         labels: {
-          color: '#374151',
+          color: '#1f2937',
           font: { size: 11, weight: 'bold' },
           padding: 16,
           usePointStyle: true,
@@ -1284,17 +1437,26 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
         backgroundColor: 'rgba(0, 0, 0, 0.85)',
         padding: 12,
         cornerRadius: 8,
+      },
+      datalabels: {
+        display: (context: any) => (context.dataset.data[context.dataIndex] || 0) > 0,
+        color: (context: any) => context.datasetIndex === 0 ? '#1f2937' : '#991b1b',
+        font: { size: 9, weight: 'bold' },
+        align: 'top',
+        anchor: 'end',
+        offset: 2,
+        formatter: (val: number) => (val > 0 ? val : '')
       }
     },
     scales: {
       x: {
         grid: { display: false },
-        ticks: { font: { size: 10, weight: '600' }, color: '#6b7280' }
+        ticks: { font: { size: 10, weight: 'bold' }, color: '#1f2937' }
       },
       y: {
         beginAtZero: true,
         grid: { color: 'rgba(0, 0, 0, 0.04)' },
-        ticks: { font: { size: 10 }, color: '#6b7280', stepSize: 1 }
+        ticks: { font: { size: 10, weight: '600' }, color: '#374151', stepSize: 1 }
       }
     }
   }), []);
