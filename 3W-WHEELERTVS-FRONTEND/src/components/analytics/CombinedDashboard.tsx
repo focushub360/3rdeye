@@ -997,7 +997,7 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
     });
 
     if (qMap.size < 4 && calculatedParetoDefects.length > 0) {
-      const biwKeywords = ['rust', 'crack', 'dent', 'damage', 'surface', 'weld', 'gap'];
+      const biwKeywords = ['rust', 'crack', 'dent', 'damage', 'surface', 'weld', 'gap', 'spatter', 'incomplete'];
       calculatedParetoDefects.forEach(d => {
         const lower = d.name.toLowerCase();
         if (biwKeywords.some(k => lower.includes(k)) && !qMap.has(d.name)) {
@@ -1117,11 +1117,11 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
     });
 
     if (qMap.size < 4 && calculatedParetoDefects.length > 0) {
-      const tvsKeywords = ['rust', 'stiffner', 'boring', 'seat frame', 'door lancing', 'hinge', 'nut', 'weld'];
+      const tvsKeywords = ['rust', 'stiffner', 'boring', 'seat frame', 'door lancing', 'hinge', 'nut', 'weld', 'spatter', 'incomplete'];
       calculatedParetoDefects.forEach(d => {
         const lower = d.name.toLowerCase();
         if (tvsKeywords.some(k => lower.includes(k)) && !qMap.has(d.name)) {
-          const reworkCount = Math.max(1, Math.round(d.count * 0.25));
+          const reworkCount = Math.max(1, Math.round(d.count * 0.35));
           qMap.set(d.name, {
             id: d.name,
             text: d.name,

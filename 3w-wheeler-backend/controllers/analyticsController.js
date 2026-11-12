@@ -3358,7 +3358,7 @@ export const getQualitySummary = async (req, res) => {
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
     const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
-    const cacheKey = `quality_summary_v15_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v18_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers?.['cache-control'] === 'no-cache';
     if (!shouldBypassCache) {
       const cached = appCache.get(cacheKey);
@@ -3709,7 +3709,8 @@ export const getQualitySummary = async (req, res) => {
                 questionId: 1,
                 formId: 1,
                 isDispatched: 1,
-                chassisNumber: 1
+                chassisNumber: 1,
+                answers: 1
               }
             }
           ],
@@ -3799,6 +3800,60 @@ export const getQualitySummary = async (req, res) => {
       }
     });
 
+    // Fallback: If defectResponses matched 0 defects (common when imported responses have root status 'pending'),
+    // scan up to 300 responses for the target forms and extract defects directly from answers.
+    if (Object.keys(defectTypeMap).length === 0) {
+      try {
+        const fallbackResponses = await Response.find({
+          questionId: { $in: formKeys },
+          isSectionSubmit: { $ne: true }
+        })
+          .sort({ createdAt: -1 })
+          .limit(300)
+          .select('answers submittedBy questionId')
+          .lean();
+
+        fallbackResponses.forEach(dr => {
+          if (!dr.answers) return;
+          const fTitle = formTitleMap[dr.questionId] || 'Selected Form';
+          const rawName = (dr.submittedBy || 'Unknown Submitter').trim();
+          if (!inspectorDefectMap[rawName]) inspectorDefectMap[rawName] = {};
+
+          const answersObj = dr.answers instanceof Map ? Object.fromEntries(dr.answers) : dr.answers;
+          for (const [key, val] of Object.entries(answersObj)) {
+            if (!val || key === 'chassis_number' || key === 'chassis') continue;
+            let isDef = false;
+            if (typeof val === 'object' && val.status) {
+              const st = String(val.status).trim().toLowerCase();
+              if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok'].includes(st)) isDef = true;
+            } else if (typeof val === 'string') {
+              const vLow = val.trim().toLowerCase();
+              if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok'].includes(vLow)) isDef = true;
+            }
+
+            if (isDef) {
+              const qTitle = questionTitleMap[key] || key;
+              defectTypeMap[qTitle] = (defectTypeMap[qTitle] || 0) + 1;
+              inspectorDefectMap[rawName][qTitle] = (inspectorDefectMap[rawName][qTitle] || 0) + 1;
+              if (!defectFormMap[qTitle]) defectFormMap[qTitle] = {};
+              defectFormMap[qTitle][fTitle] = (defectFormMap[qTitle][fTitle] || 0) + 1;
+            }
+          }
+        });
+      } catch (err) {
+        console.warn('[Quality Summary] Fallback defect extraction error:', err.message);
+      }
+    }
+
+    const computedDefectTotal = Object.values(defectTypeMap).reduce((a, b) => a + b, 0);
+    if (totalDefects === 0 && computedDefectTotal > 0) {
+      totalDefects = computedDefectTotal;
+      totalAccepted = Math.max(0, totalChecked - totalDefects);
+      overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
+      overallDefectRate = Math.max(0, Math.round((100 - overallAcceptRate) * 100) / 100);
+      summary.defectCount = totalDefects;
+    }
+
     const defectBreakdown = Object.entries(defectTypeMap)
       .sort((a, b) => b[1] - a[1])
       .map(([name, count]) => ({
@@ -3841,6 +3896,14 @@ export const getQualitySummary = async (req, res) => {
           }
         }
       });
+
+      if (dCount === 0) {
+        const formDefectSum = Object.values(defectFormMap).reduce((sum, fMap) => sum + (fMap[f.title] || 0), 0);
+        if (formDefectSum > 0) {
+          dCount = formDefectSum;
+          r1Count = formDefectSum;
+        }
+      }
 
       const aCount = Math.max(0, tChecked - dCount);
       const aRate = tChecked > 0 ? Math.round((aCount / tChecked) * 10000) / 100 : 0;
@@ -4105,7 +4168,33 @@ export const getQualitySummary = async (req, res) => {
     const rawResponsesList = (agg.recentResponses || []).map(r => {
       const fTitle = formTitleMap[r.questionId] || formTitleMap[r.formId] || 'Unknown Form';
       const rawSt = (r.status || '').trim();
-      let dynamicStatus = rawSt === 'Accepted' || rawSt === 'Direct Ok' || rawSt === 'Rework Accepted' ? rawSt : (rawSt.startsWith('Rework') || rawSt === 'Rejected' ? rawSt : 'Direct Ok');
+
+      const respDefects = [];
+      if (r.answers && typeof r.answers === 'object') {
+        const aObj = r.answers instanceof Map ? Object.fromEntries(r.answers) : r.answers;
+        for (const [key, val] of Object.entries(aObj)) {
+          if (!val || key === 'chassis_number' || key === 'chassis') continue;
+          let isDef = false;
+          if (typeof val === 'object' && val.status) {
+            const st = String(val.status).trim().toLowerCase();
+            if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok'].includes(st)) isDef = true;
+          } else if (typeof val === 'string') {
+            const vLow = val.trim().toLowerCase();
+            if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok'].includes(vLow)) isDef = true;
+          }
+          if (isDef) {
+            const qTitle = questionTitleMap[key] || key;
+            respDefects.push(qTitle);
+          }
+        }
+      }
+
+      let dynamicStatus = rawSt;
+      if (!dynamicStatus || dynamicStatus === 'pending') {
+        dynamicStatus = respDefects.length > 0 ? 'Rework 1' : 'Direct Ok';
+      } else if (dynamicStatus !== 'Accepted' && dynamicStatus !== 'Direct Ok' && dynamicStatus !== 'Rework Accepted') {
+        dynamicStatus = dynamicStatus.startsWith('Rework') || dynamicStatus === 'Rejected' ? dynamicStatus : (respDefects.length > 0 ? 'Rework 1' : 'Direct Ok');
+      }
 
       const uniqueChassis = extractUniqueChassis(r);
       const rootChassis = r.chassisNumber && r.chassisNumber !== 'none' && r.chassisNumber !== 'N/A' && r.chassisNumber !== '-' ? String(r.chassisNumber).trim() : '';
@@ -4129,7 +4218,7 @@ export const getQualitySummary = async (req, res) => {
         formTitle: fTitle,
         isDispatched: Boolean(r.isDispatched),
         answers: r.answers || {},
-        defects: []
+        defects: respDefects
       };
     });
 

@@ -213,7 +213,7 @@ export const QualityDashboard: React.FC = () => {
   const [availableFormOptions, setAvailableFormOptions] = useState<Array<{ id: string; title: string; totalChecked?: number }>>(() => {
     try {
       const sortedFormKey = [...initialFormIds].sort().join(',');
-      const cacheKey = `v17_${sortedFormKey}__`;
+      const cacheKey = `v18_${sortedFormKey}__`;
       const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
       if (cached?.data?.formOptions) return cached.data.formOptions;
     } catch (_) {}
@@ -231,7 +231,7 @@ export const QualityDashboard: React.FC = () => {
   const [data, setData] = useState<SummaryData | null>(() => {
     try {
       const sortedFormKey = [...initialFormIds].sort().join(',');
-      const cacheKey = `v17_${sortedFormKey}__`;
+      const cacheKey = `v18_${sortedFormKey}__`;
       const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
       return cached ? cached.data : null;
     } catch (_) {
@@ -864,7 +864,7 @@ export const QualityDashboard: React.FC = () => {
 
   const fetchSummary = async (forceNetwork = false) => {
     const sortedFormKey = [...selectedFormIds].sort().join(',');
-    const cacheKey = `v17_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
+    const cacheKey = `v18_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
     const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
 
     // ─── 0ms SWR Instant Loading: Render immediately from cache ONLY IF VALID ────
