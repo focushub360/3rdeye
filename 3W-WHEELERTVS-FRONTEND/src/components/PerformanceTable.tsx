@@ -39,10 +39,18 @@ const PerformanceTable = ({
   });
 
   useEffect(() => {
-    if (startDate !== undefined) setPerfStartDate(startDate);
-    if (endDate !== undefined) setPerfEndDate(endDate);
+    if (startDate !== undefined) {
+      setPerfStartDate(startDate || "");
+    } else if (formId || (formIds && formIds.length > 0)) {
+      setPerfStartDate("");
+    }
+    if (endDate !== undefined) {
+      setPerfEndDate(endDate || "");
+    } else if (formId || (formIds && formIds.length > 0)) {
+      setPerfEndDate("");
+    }
     setPerformancePage(1);
-  }, [startDate, endDate]);
+  }, [startDate, endDate, formId, formIds]);
   const [perfInspectorSummary, setPerfInspectorSummary] = useState<any[]>([]);
   const [activeUserNames, setActiveUserNames] = useState<Set<string>>(
     new Set(),
