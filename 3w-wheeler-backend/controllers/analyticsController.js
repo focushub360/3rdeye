@@ -3735,11 +3735,11 @@ export const getQualitySummary = async (req, res) => {
 
     const summary = agg.summary?.[0] || { totalChecked: 0, defectCount: 0, rework1Count: 0 };
     const totalChecked = summary.totalChecked || 0;
-    const totalDefects = summary.defectCount || 0;
-    const totalAccepted = Math.max(0, totalChecked - totalDefects);
+    let totalDefects = summary.defectCount || 0;
+    let totalAccepted = Math.max(0, totalChecked - totalDefects);
     const totalRework1 = summary.rework1Count || 0;
-    const overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
-    const overallDefectRate = Math.max(0, Math.round((100 - overallAcceptRate) * 100) / 100);
+    let overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
+    let overallDefectRate = Math.max(0, Math.round((100 - overallAcceptRate) * 100) / 100);
 
     // Defect breakdown extraction from top defect responses
     const defectTypeMap = {};
