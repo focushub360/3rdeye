@@ -13,10 +13,16 @@ const PerformanceTable = ({
   useInternalTrackingEndpoint = false,
   startDate,
   endDate,
+  formId,
+  formIds,
+  title,
 }: {
   useInternalTrackingEndpoint?: boolean;
   startDate?: string;
   endDate?: string;
+  formId?: string;
+  formIds?: string[];
+  title?: string;
 }) => {
   const { user } = useAuth();
   const [performanceTableData, setPerformanceTableData] = useState<any[]>([]);
@@ -53,8 +59,9 @@ const PerformanceTable = ({
 
   // ✅ Cache key for performance data
   const getCacheKey = useCallback(() => {
-    return `performance_table_${perfStartDate}_${perfEndDate}_${performancePage}_${performancePageSize}`;
-  }, [perfStartDate, perfEndDate, performancePage, performancePageSize]);
+    const fKey = formIds ? formIds.slice().sort().join('-') : (formId || 'all');
+    return `performance_table_${fKey}_${perfStartDate}_${perfEndDate}_${performancePage}_${performancePageSize}`;
+  }, [formId, formIds, perfStartDate, perfEndDate, performancePage, performancePageSize]);
 
   // ✅ Load performance data with caching and timeout
   const loadPerformanceData = useCallback(async () => {
@@ -101,6 +108,8 @@ const PerformanceTable = ({
         tableResponse = await apiClient.getPerformanceTable({
           startDate: perfStartDate,
           endDate: perfEndDate,
+          formId,
+          formIds,
         });
       }
 
@@ -165,6 +174,8 @@ const PerformanceTable = ({
     useInternalTrackingEndpoint,
     performancePage,
     performancePageSize,
+    formId,
+    formIds,
     getCacheKey
   ]);
 
@@ -420,7 +431,7 @@ const PerformanceTable = ({
           <div className="w-1.5 h-6 bg-purple-600 rounded-full"></div>
           <div>
             <h3 className="text-lg font-bold text-gray-800 dark:text-white leading-none mb-1">
-              Performance Table
+              {title || "Performance Table"}
             </h3>
             <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
               Per-user performance data
@@ -467,7 +478,7 @@ const PerformanceTable = ({
         <div className="flex items-center gap-3 mb-6">
           <div className="w-1.5 h-6 bg-purple-600 rounded-full"></div>
           <h3 className="text-lg font-bold text-gray-800 dark:text-white">
-            Performance Table
+            {title || "Performance Table"}
           </h3>
         </div>
         <div className="text-center py-8 text-gray-500 text-sm bg-gray-50 dark:bg-gray-900/20 rounded-2xl border border-gray-100 dark:border-gray-700">
@@ -493,7 +504,7 @@ const PerformanceTable = ({
           <div className="w-1.5 h-6 bg-purple-600 rounded-full"></div>
           <div>
             <h3 className="text-lg font-bold text-gray-800 dark:text-white leading-none mb-1">
-              Performance Table
+              {title || "Performance Table"}
             </h3>
             <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
               Per-user performance data

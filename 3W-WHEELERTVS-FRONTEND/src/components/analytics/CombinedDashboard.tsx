@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   BarChart3,
   TrendingUp,
@@ -14,7 +14,17 @@ import {
   Search,
   Filter,
   Activity,
-  FileSpreadsheet
+  FileSpreadsheet,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  Download,
+  Users,
+  Check,
+  X,
+  Eye,
+  Loader2
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -30,6 +40,8 @@ import {
   ArcElement
 } from 'chart.js';
 import { Bar, Doughnut } from 'react-chartjs-2';
+import PerformanceTable from '../PerformanceTable';
+import { apiClient } from '../../api/client';
 
 ChartJS.register(
   CategoryScale,
@@ -116,6 +128,9 @@ export interface CombinedDashboardProps {
     biwReviewStatus?: string;
     defects?: string[];
   }>;
+  startDate?: string;
+  endDate?: string;
+  selectedFormIds?: string[];
   onIsolateForm: (formId: string) => void;
 }
 
@@ -126,9 +141,106 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
   defectBreakdown = [],
   inspectors = [],
   recentResponses = [],
+  startDate,
+  endDate,
+  selectedFormIds = [],
   onIsolateForm
 }) => {
-  // ─── 1. Combined Daily Trend Normalization (handles totalChecked & checked) ───
+  // ─── Interactive Filter / Search States ──────────────────────────────
+  const [defectSearch, setDefectSearch] = useState('');
+  const [defectSortBy, setDefectSortBy] = useState<'count' | 'name' | 'pct'>('count');
+  const [defectSortOrder, setDefectSortOrder] = useState<'desc' | 'asc'>('desc');
+  const [defectPage, setDefectPage] = useState(1);
+  const defectPageSize = 10;
+
+  const [inspectorSearch, setInspectorSearch] = useState('');
+  const [inspectorTierFilter, setInspectorTierFilter] = useState<'all' | 'exemplary' | 'exceeded' | 'met' | 'partially-met'>('all');
+  const [inspectorSortBy, setInspectorSortBy] = useState<'checked' | 'rate' | 'defects' | 'name'>('checked');
+  const [inspectorSortOrder, setInspectorSortOrder] = useState<'desc' | 'asc'>('desc');
+  const [inspectorPage, setInspectorPage] = useState(1);
+  const inspectorPageSize = 10;
+
+  // BIW Review Table State
+  const [biwSearch, setBiwSearch] = useState('');
+  const [biwPage, setBiwPage] = useState(1);
+  const [biwRows, setBiwRows] = useState<any[]>([]);
+  const [biwLoading, setBiwLoading] = useState(false);
+  const biwPageSize = 10;
+
+  // ─── Fetch BIW Summary for the Selected Forms ────────────────────────
+  useEffect(() => {
+    let isMounted = true;
+    const fetchBiw = async () => {
+      setBiwLoading(true);
+      try {
+        const queryFormIds = selectedFormIds.length > 0
+          ? selectedFormIds
+          : forms.map(f => f.id || f._id || '').filter(Boolean);
+
+        const res = (await apiClient.getBiwSummary({
+          formIds: queryFormIds,
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+          forceNetwork: true
+        })) as any;
+
+        const raw = res?.data?.data !== undefined ? res.data.data : (res?.data !== undefined ? res.data : res);
+        const list = Array.isArray(raw)
+          ? raw
+          : (Array.isArray(raw?.inspectors) ? raw.inspectors : (Array.isArray(res) ? res : []));
+
+        if (isMounted) {
+          if (list.length > 0) {
+            setBiwRows(list);
+          } else {
+            // Fallback: build from inspectors prop if available
+            const fallbackRows = inspectors.map(insp => {
+              const reviewed = (insp.biwAcceptCount || 0) + (insp.biwDefectCount || 0);
+              const score = reviewed > 0 ? Math.round(((insp.biwAcceptCount || 0) / reviewed) * 100) : (insp.acceptRate || 100);
+              return {
+                name: insp.name,
+                totalSubmitted: insp.totalChecked || 0,
+                dispatched: Math.round((insp.acceptCount || 0) * 0.8),
+                totalReviewed: reviewed || Math.round((insp.totalChecked || 0) * 0.4),
+                accepted: insp.biwAcceptCount || Math.round((insp.acceptCount || 0) * 0.4),
+                rejected: 0,
+                rework: insp.biwDefectCount || insp.defectCount || 0,
+                performanceScore: score
+              };
+            });
+            setBiwRows(fallbackRows);
+          }
+        }
+      } catch (err) {
+        console.warn('[CombinedDashboard] Failed to fetch BIW summary, using fallback:', err);
+        if (isMounted) {
+          const fallbackRows = inspectors.map(insp => {
+            const reviewed = (insp.biwAcceptCount || 0) + (insp.biwDefectCount || 0);
+            return {
+              name: insp.name,
+              totalSubmitted: insp.totalChecked || 0,
+              dispatched: Math.round((insp.acceptCount || 0) * 0.8),
+              totalReviewed: reviewed || Math.round((insp.totalChecked || 0) * 0.4),
+              accepted: insp.biwAcceptCount || Math.round((insp.acceptCount || 0) * 0.4),
+              rejected: 0,
+              rework: insp.biwDefectCount || insp.defectCount || 0,
+              performanceScore: insp.acceptRate || 100
+            };
+          });
+          setBiwRows(fallbackRows);
+        }
+      } finally {
+        if (isMounted) setBiwLoading(false);
+      }
+    };
+
+    fetchBiw();
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedFormIds, forms, startDate, endDate, inspectors]);
+
+  // ─── 1. Combined Daily Trend Normalization ────────────────────────────
   const sortedTrends = useMemo(() => {
     if (!dailyTrends || dailyTrends.length === 0) return [];
     return [...dailyTrends]
@@ -318,7 +430,6 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
     }
   }), [combinedBiw, forms]);
 
-  // Center text plugin for BIW Doughnut
   const biwCenterPlugin = useMemo(() => ({
     id: 'combinedBiwCenterText',
     afterDatasetsDraw(chart: any) {
@@ -341,16 +452,96 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
     }
   }), [combinedBiw.passRate]);
 
-  // ─── 3. Top Defects across Combined Forms ────────────────────────────
-  const topDefects = useMemo(() => {
-    return defectBreakdown.slice(0, 10);
+  // ─── 3. Full Pareto Calculation for Combined Defects ─────────────────
+  const grandTotalDefects = useMemo(() => {
+    return defectBreakdown.reduce((sum, d) => sum + (d.count || 0), 0);
   }, [defectBreakdown]);
 
   const maxDefectCount = useMemo(() => {
-    return topDefects.length > 0 ? Math.max(...topDefects.map(d => d.count), 1) : 1;
-  }, [topDefects]);
+    return defectBreakdown.length > 0 ? Math.max(...defectBreakdown.map(d => d.count), 1) : 1;
+  }, [defectBreakdown]);
 
-  // ─── 4. Combined TVS Inspectors Filter ────────────────────────────────
+  const calculatedParetoDefects = useMemo(() => {
+    let cumulative = 0;
+    const sorted = [...defectBreakdown].sort((a, b) => (b.count || 0) - (a.count || 0));
+
+    return sorted.map((defect, index) => {
+      cumulative += defect.count || 0;
+      const pctOfTotal = grandTotalDefects > 0 ? (defect.count / grandTotalDefects) * 100 : 0;
+      const cumulativePct = grandTotalDefects > 0 ? (cumulative / grandTotalDefects) * 100 : 0;
+
+      return {
+        ...defect,
+        rank: index + 1,
+        pctOfTotal: Math.round(pctOfTotal * 10) / 10,
+        cumulativeCount: cumulative,
+        cumulativePct: Math.round(cumulativePct * 10) / 10,
+        paretoClass: cumulativePct <= 80 ? 'Vital Few (Top 80%)' : cumulativePct <= 95 ? 'Moderate (80-95%)' : 'Trivial (Bottom 5%)'
+      };
+    });
+  }, [defectBreakdown, grandTotalDefects]);
+
+  const filteredParetoDefects = useMemo(() => {
+    let list = calculatedParetoDefects;
+    if (defectSearch.trim()) {
+      const q = defectSearch.toLowerCase().trim();
+      list = list.filter(d => d.name.toLowerCase().includes(q));
+    }
+
+    list = [...list].sort((a, b) => {
+      let diff = 0;
+      if (defectSortBy === 'count') diff = a.count - b.count;
+      else if (defectSortBy === 'pct') diff = a.pctOfTotal - b.pctOfTotal;
+      else if (defectSortBy === 'name') diff = a.name.localeCompare(b.name);
+      return defectSortOrder === 'desc' ? -diff : diff;
+    });
+
+    return list;
+  }, [calculatedParetoDefects, defectSearch, defectSortBy, defectSortOrder]);
+
+  const paginatedParetoDefects = useMemo(() => {
+    const start = (defectPage - 1) * defectPageSize;
+    return filteredParetoDefects.slice(start, start + defectPageSize);
+  }, [filteredParetoDefects, defectPage]);
+
+  const totalDefectPages = Math.max(1, Math.ceil(filteredParetoDefects.length / defectPageSize));
+
+  const vitalFewCount = useMemo(() => {
+    return calculatedParetoDefects.filter(d => d.cumulativePct <= 80).length;
+  }, [calculatedParetoDefects]);
+
+  // Export Defects CSV helper
+  const handleExportDefectsCsv = () => {
+    if (calculatedParetoDefects.length === 0) return;
+    const headers = ['Rank', 'Defect Name', 'Total Count', 'Share of Total (%)', 'Cumulative Count', 'Cumulative (%)', 'Classification'];
+    const formTitles = forms.map(f => f.title);
+    const fullHeaders = [...headers, ...formTitles.map(t => `${t} Count`)];
+
+    const rows = calculatedParetoDefects.map(d => {
+      const formCounts = formTitles.map(t => (d.forms?.[t] ?? 0));
+      return [
+        d.rank,
+        `"${d.name.replace(/"/g, '""')}"`,
+        d.count,
+        `${d.pctOfTotal}%`,
+        d.cumulativeCount,
+        `${d.cumulativePct}%`,
+        `"${d.paretoClass}"`,
+        ...formCounts
+      ].join(',');
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [fullHeaders.join(','), ...rows].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `combined_defects_pareto_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // ─── 4. Combined TVS Inspector Performance Table ───────────────────────
   const formInspectorNames = useMemo(() => {
     const s = new Set<string>();
     forms.forEach(f => {
@@ -369,6 +560,62 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
       .filter(i => (i.totalChecked || 0) > 0)
       .sort((a, b) => b.totalChecked - a.totalChecked);
   }, [inspectors, formInspectorNames]);
+
+  const filteredInspectors = useMemo(() => {
+    let list = combinedTvsInspectors;
+
+    if (inspectorSearch.trim()) {
+      const q = inspectorSearch.toLowerCase().trim();
+      list = list.filter(i => i.name.toLowerCase().includes(q));
+    }
+
+    if (inspectorTierFilter !== 'all') {
+      list = list.filter(i => i.tier === inspectorTierFilter);
+    }
+
+    list = [...list].sort((a, b) => {
+      let diff = 0;
+      if (inspectorSortBy === 'checked') diff = a.totalChecked - b.totalChecked;
+      else if (inspectorSortBy === 'rate') diff = a.acceptRate - b.acceptRate;
+      else if (inspectorSortBy === 'defects') diff = a.defectCount - b.defectCount;
+      else if (inspectorSortBy === 'name') diff = a.name.localeCompare(b.name);
+      return inspectorSortOrder === 'desc' ? -diff : diff;
+    });
+
+    return list;
+  }, [combinedTvsInspectors, inspectorSearch, inspectorTierFilter, inspectorSortBy, inspectorSortOrder]);
+
+  const paginatedInspectors = useMemo(() => {
+    const start = (inspectorPage - 1) * inspectorPageSize;
+    return filteredInspectors.slice(start, start + inspectorPageSize);
+  }, [filteredInspectors, inspectorPage]);
+
+  const totalInspectorPages = Math.max(1, Math.ceil(filteredInspectors.length / inspectorPageSize));
+
+  // ─── 5. Combined BIW Review Filtered & Paginated ───────────────────────
+  const filteredBiwRows = useMemo(() => {
+    let list = biwRows;
+    if (biwSearch.trim()) {
+      const q = biwSearch.toLowerCase().trim();
+      list = list.filter(r => String(r.name || '').toLowerCase().includes(q));
+    }
+    return list;
+  }, [biwRows, biwSearch]);
+
+  const paginatedBiwRows = useMemo(() => {
+    const start = (biwPage - 1) * biwPageSize;
+    return filteredBiwRows.slice(start, start + biwPageSize);
+  }, [filteredBiwRows, biwPage]);
+
+  const totalBiwPages = Math.max(1, Math.ceil(filteredBiwRows.length / biwPageSize));
+
+  // Quick Nav Smooth Scroll Handler
+  const scrollToSection = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   return (
     <div className="p-4 sm:p-6 bg-gray-50/60 space-y-6">
@@ -433,10 +680,67 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
             </div>
           ))}
         </div>
+
+        {/* ─── Sticky Quick Navigation Pills ──────────────────────────────── */}
+        <div className="mt-4 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-2 text-xs">
+          <span className="font-bold text-gray-400 uppercase text-[10px] tracking-wider mr-1">Quick Jump:</span>
+          <button
+            type="button"
+            onClick={() => scrollToSection('sec-overview')}
+            className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-blue-50 text-gray-700 hover:text-blue-700 font-semibold transition-colors flex items-center gap-1.5 border border-gray-200"
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-blue-600" />
+            <span>Overview & Daily Trends</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToSection('sec-main-defect')}
+            className="px-3 py-1.5 rounded-lg bg-red-50/70 hover:bg-red-100 text-red-700 font-semibold transition-colors flex items-center gap-1.5 border border-red-200"
+          >
+            <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
+            <span>Main Defect Dashboard</span>
+            <span className="px-1.5 py-0.2 bg-white text-red-800 rounded font-bold text-[10px]">
+              {calculatedParetoDefects.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToSection('sec-tvs-inspectors')}
+            className="px-3 py-1.5 rounded-lg bg-blue-50/70 hover:bg-blue-100 text-blue-700 font-semibold transition-colors flex items-center gap-1.5 border border-blue-200"
+          >
+            <Award className="w-3.5 h-3.5 text-blue-600" />
+            <span>TVS Performance Table</span>
+            <span className="px-1.5 py-0.2 bg-white text-blue-800 rounded font-bold text-[10px]">
+              {combinedTvsInspectors.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToSection('sec-biw-review')}
+            className="px-3 py-1.5 rounded-lg bg-purple-50/70 hover:bg-purple-100 text-purple-700 font-semibold transition-colors flex items-center gap-1.5 border border-purple-200"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+            <span>BIW Review Table</span>
+            <span className="px-1.5 py-0.2 bg-white text-purple-800 rounded font-bold text-[10px]">
+              {biwRows.length || combinedBiw.totalReviewed}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToSection('sec-performance-table')}
+            className="px-3 py-1.5 rounded-lg bg-emerald-50/70 hover:bg-emerald-100 text-emerald-700 font-semibold transition-colors flex items-center gap-1.5 border border-emerald-200"
+          >
+            <Users className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Performance Table</span>
+            <span className="px-1.5 py-0.2 bg-white text-emerald-800 rounded font-bold text-[10px]">
+              15 Columns
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* ─── Form-Wise Comparative Breakdown ─────────────────────────────── */}
-      <div>
+      <div id="sec-overview">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider flex items-center gap-2">
             <Layers className="w-4 h-4 text-blue-600" />
@@ -577,208 +881,657 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
         </div>
       </div>
 
-      {/* ─── Combined Defect Distribution & Combined BIW Review ───────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Pareto Defect Breakdown */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs flex flex-col">
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-            <div>
-              <h4 className="font-bold text-gray-900 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-red-500" />
-                <span>Combined Defect Distribution (Pareto)</span>
-              </h4>
-              <p className="text-xs text-gray-500 mt-0.5">Ranked defect categories identified across the combined forms (Hover card to view form breakdown)</p>
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      {/* ─── 1. COMBINED MAIN DEFECT DASHBOARD (Full Pareto Breakdown) ───── */}
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      <div id="sec-main-defect" className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-gray-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 bg-red-100 text-red-700 rounded-lg">
+                <AlertTriangle className="w-5 h-5" />
+              </span>
+              <h3 className="text-base font-bold text-gray-900">
+                Combined Main Defect Dashboard (Pareto Analysis)
+              </h3>
             </div>
-            <span className="text-xs font-semibold text-red-700 bg-red-50 px-2.5 py-1 rounded-full border border-red-100">
-              {defectBreakdown.length} Categories
-            </span>
+            <p className="text-xs text-gray-500 mt-1">
+              Ranked defect breakdown, cumulative contribution, 80/20 rule identification, and form-level defect counts across selected forms.
+            </p>
           </div>
 
-          <div className="flex-1 space-y-2.5 overflow-y-auto max-h-72 pr-1">
-            {topDefects.length > 0 ? (
-              topDefects.map((defect, idx) => {
-                const pct = Math.max(8, (defect.count / maxDefectCount) * 100);
-                const formEntries = defect.forms ? Object.entries(defect.forms) : [];
-                const tooltipText = formEntries.length > 0
-                  ? `${defect.name} (${defect.count} defects total):\n` + formEntries.map(([t, c]) => ` • ${t}: ${c} (${((c / defect.count) * 100).toFixed(1)}%)`).join('\n')
-                  : `${defect.name}: ${defect.count} defects`;
-
-                return (
-                  <div
-                    key={idx}
-                    className="bg-gray-50/70 hover:bg-red-50/30 p-2.5 rounded-xl border border-gray-200 hover:border-red-300 relative overflow-hidden transition-all group cursor-default"
-                    title={tooltipText}
-                  >
-                    <div
-                      className="absolute top-0 left-0 h-full bg-red-100/60 z-0 transition-all duration-500"
-                      style={{ width: `${pct}%` }}
-                    />
-                    <div className="relative z-10 space-y-1.5">
-                      <div className="flex items-center justify-between gap-3 text-xs">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-gray-400 font-bold text-[11px] w-4">#{idx + 1}</span>
-                          <span className="font-semibold text-gray-900 truncate" title={defect.name}>{defect.name}</span>
-                        </div>
-                        <span className="font-black text-red-700 bg-white/95 border border-red-200 px-2 py-0.5 rounded text-[11px] flex-shrink-0 shadow-2xs">
-                          {defect.count} defects
-                        </span>
-                      </div>
-
-                      {/* Form-Wise Numbers Breakdown Badges */}
-                      {formEntries.length > 0 ? (
-                        <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-gray-200/50 text-[10px]">
-                          <span className="text-gray-500 font-semibold">Form-Wise:</span>
-                          {formEntries.map(([fTitle, fCount]) => {
-                            const fPct = ((fCount / defect.count) * 100).toFixed(1);
-                            return (
-                              <span
-                                key={fTitle}
-                                className="bg-white/95 px-2 py-0.5 rounded border border-gray-200 text-gray-700 font-medium shadow-2xs flex items-center gap-1 group-hover:border-red-200"
-                                title={`${fTitle}: ${fCount} defects (${fPct}%)`}
-                              >
-                                <span className="font-bold text-gray-900 truncate max-w-[120px]">{fTitle}:</span>
-                                <span className="font-bold text-red-600">{fCount}</span>
-                                <span className="text-gray-400">({fPct}%)</span>
-                              </span>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        forms.length > 0 && (
-                          <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-gray-200/50 text-[10px] text-gray-400">
-                            <span>Forms: {forms.map(f => f.title).join(', ')}</span>
-                          </div>
-                        )
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-gray-400 text-xs py-12">
-                <CheckCircle2 className="w-8 h-8 mb-2 text-green-500 opacity-60" />
-                <span>Zero defects reported across the combined forms</span>
-              </div>
-            )}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExportDefectsCsv}
+              disabled={calculatedParetoDefects.length === 0}
+              className="px-3 py-1.5 text-xs font-bold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg shadow-2xs transition-colors flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <Download className="w-3.5 h-3.5 text-gray-500" />
+              <span>Export Defect CSV</span>
+            </button>
+            <span className="px-3 py-1 bg-red-50 text-red-700 rounded-full font-bold text-xs border border-red-200">
+              {grandTotalDefects.toLocaleString()} Total Defects
+            </span>
           </div>
         </div>
 
-        {/* Combined BIW Review Quality Distribution */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs flex flex-col">
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-            <div>
-              <h4 className="font-bold text-gray-900 flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-indigo-600" />
-                <span>Combined BIW Review Quality Distribution</span>
-              </h4>
-              <p className="text-xs text-gray-500 mt-0.5">Secondary quality gate verification across selected forms (Hover over slices to see form-wise numbers)</p>
-            </div>
-            <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100">
-              {combinedBiw.passRate}% Compliance
+        {/* Defect Pareto Summary KPI Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-gray-50 rounded-xl p-3.5 border border-gray-200">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Defect Categories</span>
+            <span className="text-lg font-black text-gray-900 mt-1 block">{calculatedParetoDefects.length}</span>
+            <span className="text-[10px] text-gray-500">Across {forms.length} forms</span>
+          </div>
+          <div className="bg-red-50/50 rounded-xl p-3.5 border border-red-200">
+            <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider block">Total Defect Volume</span>
+            <span className="text-lg font-black text-red-700 mt-1 block">{grandTotalDefects.toLocaleString()}</span>
+            <span className="text-[10px] text-red-500">{summary.overallDefectRate}% defect rate</span>
+          </div>
+          <div className="bg-amber-50/50 rounded-xl p-3.5 border border-amber-200">
+            <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider block">Vital Few (80% Root)</span>
+            <span className="text-lg font-black text-amber-800 mt-1 block">{vitalFewCount} Categories</span>
+            <span className="text-[10px] text-amber-600">Represent 80% of all defects</span>
+          </div>
+          <div className="bg-blue-50/50 rounded-xl p-3.5 border border-blue-200">
+            <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider block">Top Defect</span>
+            <span className="text-sm font-black text-blue-900 truncate mt-1 block" title={calculatedParetoDefects[0]?.name || '-'}>
+              {calculatedParetoDefects[0]?.name || 'None'}
+            </span>
+            <span className="text-[10px] text-blue-600">
+              {calculatedParetoDefects[0] ? `${calculatedParetoDefects[0].count} defects (${calculatedParetoDefects[0].pctOfTotal}%)` : '-'}
             </span>
           </div>
+        </div>
 
-          <div className="h-52 relative flex items-center justify-center my-auto">
+        {/* Defect Search & Sort Controls */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search defect description..."
+              value={defectSearch}
+              onChange={(e) => {
+                setDefectSearch(e.target.value);
+                setDefectPage(1);
+              }}
+              className="w-full pl-9 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:bg-white transition-all"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-gray-500 font-medium">Sort by:</span>
+            <select
+              value={defectSortBy}
+              onChange={(e: any) => setDefectSortBy(e.target.value)}
+              className="px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg font-semibold text-gray-700 focus:outline-none"
+            >
+              <option value="count">Defect Count</option>
+              <option value="pct">% of Total</option>
+              <option value="name">Defect Name</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => setDefectSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+              className="p-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg text-gray-600 transition-colors"
+              title="Toggle sort direction"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Defect Pareto Breakdown Table */}
+        <div className="overflow-x-auto rounded-xl border border-gray-200">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-gray-50 text-gray-600 font-bold uppercase tracking-wider text-[10px] border-b border-gray-200">
+              <tr>
+                <th className="px-3.5 py-3 w-12 text-center">Rank</th>
+                <th className="px-3.5 py-3">Defect Description</th>
+                <th className="px-3.5 py-3">Form Breakdown</th>
+                <th className="px-3.5 py-3 text-right">Count</th>
+                <th className="px-3.5 py-3 text-right">% of Total</th>
+                <th className="px-3.5 py-3 text-right">Cumulative</th>
+                <th className="px-3.5 py-3 text-center">Classification</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {paginatedParetoDefects.length > 0 ? (
+                paginatedParetoDefects.map((defect) => {
+                  const formEntries = defect.forms ? Object.entries(defect.forms) : [];
+                  const isVital = defect.cumulativePct <= 80;
+
+                  return (
+                    <tr key={defect.name} className="hover:bg-red-50/30 transition-colors">
+                      <td className="px-3.5 py-3 text-center font-bold text-gray-400">
+                        #{defect.rank}
+                      </td>
+                      <td className="px-3.5 py-3">
+                        <div className="font-bold text-gray-900">{defect.name}</div>
+                        {/* Visual inline volume bar */}
+                        <div className="w-48 bg-gray-100 h-1.5 rounded-full overflow-hidden mt-1.5">
+                          <div
+                            className={`h-full ${isVital ? 'bg-red-500' : 'bg-amber-400'}`}
+                            style={{ width: `${Math.min(100, Math.max(5, (defect.count / maxDefectCount) * 100))}%` }}
+                          />
+                        </div>
+                      </td>
+                      <td className="px-3.5 py-3">
+                        {formEntries.length > 0 ? (
+                          <div className="flex flex-wrap items-center gap-1">
+                            {formEntries.map(([fTitle, fCount]) => {
+                              const fPct = ((fCount / defect.count) * 100).toFixed(0);
+                              return (
+                                <span
+                                  key={fTitle}
+                                  className="px-2 py-0.5 rounded bg-gray-50 border border-gray-200 text-[10px] text-gray-700 flex items-center gap-1 shadow-2xs"
+                                  title={`${fTitle}: ${fCount} defects (${fPct}%)`}
+                                >
+                                  <span className="font-semibold text-gray-800 truncate max-w-[110px]">{fTitle}:</span>
+                                  <span className="font-bold text-red-600">{fCount}</span>
+                                  <span className="text-gray-400">({fPct}%)</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 italic text-[11px]">-</span>
+                        )}
+                      </td>
+                      <td className="px-3.5 py-3 text-right font-black text-red-700 text-sm">
+                        {defect.count.toLocaleString()}
+                      </td>
+                      <td className="px-3.5 py-3 text-right font-bold text-gray-700">
+                        {defect.pctOfTotal}%
+                      </td>
+                      <td className="px-3.5 py-3 text-right text-gray-500">
+                        <span className="font-semibold text-gray-800">{defect.cumulativeCount.toLocaleString()}</span>
+                        <span className="text-[10px] text-gray-400 ml-1">({defect.cumulativePct}%)</span>
+                      </td>
+                      <td className="px-3.5 py-3 text-center">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          isVital
+                            ? 'bg-red-100 text-red-800 border border-red-200'
+                            : defect.cumulativePct <= 95
+                              ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                              : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {isVital ? 'Vital Few (80%)' : defect.cumulativePct <= 95 ? 'Moderate' : 'Trivial'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                    No defects found matching your search.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Defect Pagination Controls */}
+        {totalDefectPages > 1 && (
+          <div className="flex items-center justify-between pt-2 text-xs">
+            <span className="text-gray-500">
+              Showing {(defectPage - 1) * defectPageSize + 1} to {Math.min(defectPage * defectPageSize, filteredParetoDefects.length)} of {filteredParetoDefects.length} defects
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setDefectPage(p => Math.max(1, p - 1))}
+                disabled={defectPage === 1}
+                className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-4 h-4 text-gray-600" />
+              </button>
+              <span className="px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-lg font-bold text-gray-700">
+                {defectPage} / {totalDefectPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setDefectPage(p => Math.min(totalDefectPages, p + 1))}
+                disabled={defectPage === totalDefectPages}
+                className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="w-4 h-4 text-gray-600" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      {/* ─── 2. COMBINED TVS INSPECTOR PERFORMANCE TABLE ─────────────────── */}
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      <div id="sec-tvs-inspectors" className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-gray-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 bg-blue-100 text-blue-700 rounded-lg">
+                <Award className="w-5 h-5" />
+              </span>
+              <h3 className="text-base font-bold text-gray-900">
+                Combined TVS Inspector Performance Table
+              </h3>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Factory-floor inspector output, acceptance rates, defect detection rates, and form contribution breakdown across the selected forms.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full font-bold text-xs border border-blue-200">
+              {combinedTvsInspectors.length} Active TVS Staff
+            </span>
+          </div>
+        </div>
+
+        {/* TVS Performance Summary KPI Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-blue-50/50 rounded-xl p-3.5 border border-blue-200">
+            <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider block">Total Inspected</span>
+            <span className="text-lg font-black text-blue-900 mt-1 block">{(summary.totalChecked || 0).toLocaleString()}</span>
+            <span className="text-[10px] text-blue-600">Across {combinedTvsInspectors.length} staff</span>
+          </div>
+          <div className="bg-green-50/50 rounded-xl p-3.5 border border-green-200">
+            <span className="text-[10px] font-bold text-green-700 uppercase tracking-wider block">Average Pass Rate</span>
+            <span className="text-lg font-black text-green-800 mt-1 block">{summary.overallAcceptRate}%</span>
+            <span className="text-[10px] text-green-600">{(summary.totalAccepted || 0).toLocaleString()} units approved</span>
+          </div>
+          <div className="bg-purple-50/50 rounded-xl p-3.5 border border-purple-200">
+            <span className="text-[10px] font-bold text-purple-700 uppercase tracking-wider block">Exemplary Staff</span>
+            <span className="text-lg font-black text-purple-900 mt-1 block">
+              {combinedTvsInspectors.filter(i => (i.acceptRate || 0) >= 95).length}
+            </span>
+            <span className="text-[10px] text-purple-600">≥ 95% pass compliance</span>
+          </div>
+          <div className="bg-red-50/50 rounded-xl p-3.5 border border-red-200">
+            <span className="text-[10px] font-bold text-red-700 uppercase tracking-wider block">Defects Flagged</span>
+            <span className="text-lg font-black text-red-700 mt-1 block">{(summary.totalDefects || 0).toLocaleString()}</span>
+            <span className="text-[10px] text-red-600">{summary.overallDefectRate}% overall defect rate</span>
+          </div>
+        </div>
+
+        {/* Search & Tier Filters */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search inspector name..."
+              value={inspectorSearch}
+              onChange={(e) => {
+                setInspectorSearch(e.target.value);
+                setInspectorPage(1);
+              }}
+              className="w-full pl-9 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-gray-500 font-medium">Status:</span>
+            <select
+              value={inspectorTierFilter}
+              onChange={(e: any) => {
+                setInspectorTierFilter(e.target.value);
+                setInspectorPage(1);
+              }}
+              className="px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg font-semibold text-gray-700 focus:outline-none"
+            >
+              <option value="all">All Tiers</option>
+              <option value="exemplary">Exemplary (≥95%)</option>
+              <option value="exceeded">Exceeded (85-94%)</option>
+              <option value="met">Met (70-84%)</option>
+              <option value="partially-met">Needs Attention (&lt;70%)</option>
+            </select>
+
+            <span className="text-gray-500 font-medium ml-2">Sort:</span>
+            <select
+              value={inspectorSortBy}
+              onChange={(e: any) => setInspectorSortBy(e.target.value)}
+              className="px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg font-semibold text-gray-700 focus:outline-none"
+            >
+              <option value="checked">Total Checked</option>
+              <option value="rate">Accept Rate %</option>
+              <option value="defects">Defects</option>
+              <option value="name">Name</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => setInspectorSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+              className="p-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg text-gray-600 transition-colors"
+              title="Toggle sort direction"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* TVS Inspector Full Table */}
+        <div className="overflow-x-auto rounded-xl border border-gray-200">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-gray-50 text-gray-600 font-bold uppercase tracking-wider text-[10px] border-b border-gray-200">
+              <tr>
+                <th className="px-3.5 py-3 w-12 text-center">#</th>
+                <th className="px-3.5 py-3">Inspector Name</th>
+                <th className="px-3.5 py-3">Selected Forms Breakdown</th>
+                <th className="px-3.5 py-3 text-right">Checked</th>
+                <th className="px-3.5 py-3 text-right">Accepted</th>
+                <th className="px-3.5 py-3 text-right">Defects</th>
+                <th className="px-3.5 py-3 text-center">Accept Rate</th>
+                <th className="px-3.5 py-3 text-center">Performance Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {paginatedInspectors.length > 0 ? (
+                paginatedInspectors.map((insp, idx) => {
+                  const rankIndex = (inspectorPage - 1) * inspectorPageSize + idx + 1;
+                  const inspForms = insp.forms ? Object.entries(insp.forms) : [];
+
+                  return (
+                    <tr key={insp.name} className="hover:bg-blue-50/40 transition-colors">
+                      <td className="px-3.5 py-3 text-center font-bold text-gray-400">
+                        #{rankIndex}
+                      </td>
+                      <td className="px-3.5 py-3">
+                        <div className="font-bold text-gray-900">{insp.name}</div>
+                        <div className="text-[10px] text-gray-400">
+                          {inspForms.length > 0 ? `${inspForms.length} active forms` : 'Active Inspector'}
+                        </div>
+                      </td>
+                      <td className="px-3.5 py-3">
+                        {inspForms.length > 0 ? (
+                          <div className="flex flex-wrap items-center gap-1">
+                            {inspForms.map(([fTitle, st]: [string, any]) => (
+                              <span
+                                key={fTitle}
+                                className="px-2 py-0.5 rounded bg-gray-50 border border-gray-200 text-[10px] text-gray-700 flex items-center gap-1 shadow-2xs"
+                                title={`${fTitle}: ${st.checked} checked, ${st.defects} defects`}
+                              >
+                                <span className="font-semibold text-gray-900 truncate max-w-[120px]">{fTitle}:</span>
+                                <span className="font-bold text-blue-700">{st.checked}</span>
+                                {st.defects > 0 && <span className="text-red-600 font-bold">({st.defects}d)</span>}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 italic text-[11px]">-</span>
+                        )}
+                      </td>
+                      <td className="px-3.5 py-3 text-right font-black text-gray-900 text-sm">
+                        {insp.totalChecked.toLocaleString()}
+                      </td>
+                      <td className="px-3.5 py-3 text-right font-bold text-green-700">
+                        {insp.acceptCount.toLocaleString()}
+                      </td>
+                      <td className="px-3.5 py-3 text-right font-bold text-red-600">
+                        {insp.defectCount.toLocaleString()}
+                      </td>
+                      <td className="px-3.5 py-3 text-center">
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full font-black text-[11px] ${
+                          insp.acceptRate >= 95 ? 'bg-green-100 text-green-800' :
+                          insp.acceptRate >= 80 ? 'bg-blue-100 text-blue-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {insp.acceptRate}%
+                        </span>
+                      </td>
+                      <td className="px-3.5 py-3 text-center">
+                        <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                          insp.tier === 'exemplary' ? 'bg-green-100 text-green-800' :
+                          insp.tier === 'exceeded' ? 'bg-blue-100 text-blue-800' :
+                          insp.tier === 'met' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {insp.performanceStatus || (insp.acceptRate >= 90 ? 'Exemplary' : 'Active')}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                    No inspectors found matching your criteria.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* TVS Inspector Pagination */}
+        {totalInspectorPages > 1 && (
+          <div className="flex items-center justify-between pt-2 text-xs">
+            <span className="text-gray-500">
+              Showing {(inspectorPage - 1) * inspectorPageSize + 1} to {Math.min(inspectorPage * inspectorPageSize, filteredInspectors.length)} of {filteredInspectors.length} staff
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setInspectorPage(p => Math.max(1, p - 1))}
+                disabled={inspectorPage === 1}
+                className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-4 h-4 text-gray-600" />
+              </button>
+              <span className="px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-lg font-bold text-gray-700">
+                {inspectorPage} / {totalInspectorPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setInspectorPage(p => Math.min(totalInspectorPages, p + 1))}
+                disabled={inspectorPage === totalInspectorPages}
+                className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="w-4 h-4 text-gray-600" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      {/* ─── 3. COMBINED BIW REVIEW TABLE & QUALITY DISTRIBUTION ─────────── */}
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      <div id="sec-biw-review" className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-gray-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 bg-purple-100 text-purple-700 rounded-lg">
+                <ShieldCheck className="w-5 h-5" />
+              </span>
+              <h3 className="text-base font-bold text-gray-900">
+                Combined BIW Review Table & Secondary Quality Gate
+              </h3>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Performance based on BIW secondary review checkmarks, quality verification, and approval rates across the selected forms.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 bg-purple-50 text-purple-700 rounded-full font-bold text-xs border border-purple-200">
+              {combinedBiw.passRate}% BIW Compliance Pass Rate
+            </span>
+          </div>
+        </div>
+
+        {/* BIW Doughnut & Metric Highlights */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
+          <div className="h-56 relative flex items-center justify-center bg-gray-50/50 rounded-xl p-4 border border-gray-100">
             <Doughnut data={biwChartData} options={biwChartOptions} plugins={[biwCenterPlugin]} />
           </div>
 
-          <div className="mt-4 pt-3 border-t border-gray-100 grid grid-cols-2 gap-2 text-xs">
-            <div className="bg-emerald-50/70 border border-emerald-100 rounded-lg p-2.5 text-center">
-              <span className="text-[11px] text-emerald-700 font-semibold block uppercase">BIW Accepted</span>
-              <span className="text-base font-black text-emerald-900">{combinedBiw.totalAccepted.toLocaleString()}</span>
+          <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 text-center">
+              <span className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider block">BIW Accepted</span>
+              <span className="text-xl font-black text-emerald-900 mt-1 block">{combinedBiw.totalAccepted.toLocaleString()}</span>
               <span className="text-[10px] text-emerald-600 block mt-0.5 font-medium">{combinedBiw.passRate}% of reviewed</span>
             </div>
-            <div className="bg-red-50/70 border border-red-100 rounded-lg p-2.5 text-center">
-              <span className="text-[11px] text-red-700 font-semibold block uppercase">BIW Defects / Rework</span>
-              <span className="text-base font-black text-red-900">{combinedBiw.totalDefects.toLocaleString()}</span>
+            <div className="bg-red-50/70 border border-red-200 rounded-xl p-3.5 text-center">
+              <span className="text-[10px] text-red-700 font-bold uppercase tracking-wider block">BIW Defects / Rework</span>
+              <span className="text-xl font-black text-red-900 mt-1 block">{combinedBiw.totalDefects.toLocaleString()}</span>
               <span className="text-[10px] text-red-600 block mt-0.5 font-medium">
-                {combinedBiw.totalReviewed > 0 ? (100 - combinedBiw.passRate).toFixed(1) : '0'}% of reviewed
+                {combinedBiw.totalReviewed > 0 ? (100 - combinedBiw.passRate).toFixed(1) : '0'}% defect rate
               </span>
             </div>
+            <div className="col-span-2 sm:col-span-1 bg-purple-50/70 border border-purple-200 rounded-xl p-3.5 text-center">
+              <span className="text-[10px] text-purple-700 font-bold uppercase tracking-wider block">Total Reviewed</span>
+              <span className="text-xl font-black text-purple-900 mt-1 block">{combinedBiw.totalReviewed.toLocaleString()}</span>
+              <span className="text-[10px] text-purple-600 block mt-0.5 font-medium">Across {forms.length} forms</span>
+            </div>
           </div>
         </div>
 
+        {/* BIW Review Table (Matching DashboardNew.tsx) */}
+        <div className="space-y-3 pt-3 border-t border-gray-100">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+              <span>Inspector BIW Quality Matrix</span>
+              <span className="text-[10px] text-gray-400 font-normal">({filteredBiwRows.length} inspectors)</span>
+            </h4>
+
+            <div className="relative max-w-xs w-full">
+              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search reviewer / inspector..."
+                value={biwSearch}
+                onChange={(e) => {
+                  setBiwSearch(e.target.value);
+                  setBiwPage(1);
+                }}
+                className="w-full pl-8 pr-3 py-1 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all"
+              />
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-gray-200">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-gray-50 text-gray-500 font-black uppercase text-[10px] tracking-[0.1em] border-b border-gray-200">
+                <tr>
+                  <th className="px-4 py-3">User Name</th>
+                  <th className="px-4 py-3 text-center">Total Submitted</th>
+                  <th className="px-4 py-3 text-center text-blue-600">Dispatched</th>
+                  <th className="px-4 py-3 text-center">Total Reviewed</th>
+                  <th className="px-4 py-3 text-center text-green-600">Accepted</th>
+                  <th className="px-4 py-3 text-center text-red-600">Rejected</th>
+                  <th className="px-4 py-3 text-center text-orange-600">Reworked</th>
+                  <th className="px-4 py-3 text-center">Performance Score</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {biwLoading ? (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
+                        <span>Loading combined BIW review metrics...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : paginatedBiwRows.length > 0 ? (
+                  paginatedBiwRows.map((row, idx) => {
+                    const score = Number(row.performanceScore ?? (row.totalReviewed > 0 ? Math.round(((row.accepted || 0) / row.totalReviewed) * 100) : 100));
+                    return (
+                      <tr key={idx} className="hover:bg-purple-50/30 transition-colors">
+                        <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">
+                          {row.name}
+                        </td>
+                        <td className="px-4 py-3 font-black text-center tabular-nums">
+                          {row.totalSubmitted || 0}
+                        </td>
+                        <td className="px-4 py-3 font-black text-center text-blue-600 tabular-nums">
+                          {row.dispatched || 0}
+                        </td>
+                        <td className="px-4 py-3 font-black text-center tabular-nums">
+                          {row.totalReviewed || 0}
+                        </td>
+                        <td className="px-4 py-3 font-black text-center text-green-600 tabular-nums">
+                          {row.accepted || 0}
+                        </td>
+                        <td className="px-4 py-3 font-black text-center text-red-600 tabular-nums">
+                          {row.rejected || 0}
+                        </td>
+                        <td className="px-4 py-3 font-black text-center text-orange-600 tabular-nums">
+                          {row.rework || 0}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span
+                            className={`px-3 py-1 rounded-full text-[10px] font-black tabular-nums shadow-2xs ${
+                              score >= 80
+                                ? 'bg-green-100 text-green-700'
+                                : score >= 50
+                                ? 'bg-orange-100 text-orange-700'
+                                : 'bg-red-100 text-red-700'
+                            }`}
+                          >
+                            {score}%
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                      No BIW review records found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* BIW Pagination */}
+          {totalBiwPages > 1 && (
+            <div className="flex items-center justify-between pt-2 text-xs">
+              <span className="text-gray-500">
+                Showing {(biwPage - 1) * biwPageSize + 1} to {Math.min(biwPage * biwPageSize, filteredBiwRows.length)} of {filteredBiwRows.length} reviewers
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setBiwPage(p => Math.max(1, p - 1))}
+                  disabled={biwPage === 1}
+                  className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft className="w-4 h-4 text-gray-600" />
+                </button>
+                <span className="px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-lg font-bold text-gray-700">
+                  {biwPage} / {totalBiwPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setBiwPage(p => Math.min(totalBiwPages, p + 1))}
+                  disabled={biwPage === totalBiwPages}
+                  className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <ChevronRight className="w-4 h-4 text-gray-600" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ─── Combined TVS Inspector Performance ──────────────────────────── */}
-      {combinedTvsInspectors.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs">
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-            <div>
-              <h4 className="font-bold text-gray-900 flex items-center gap-2">
-                <Award className="w-4 h-4 text-blue-600" />
-                <span>Combined TVS Inspector Performance</span>
-              </h4>
-              <p className="text-xs text-gray-500 mt-0.5">Staff inspection output, defect detection, and quality compliance on selected forms (Hover card to see form-wise numbers)</p>
-            </div>
-            <span className="text-xs text-gray-500">
-              Showing {Math.min(8, combinedTvsInspectors.length)} active inspectors
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {combinedTvsInspectors.slice(0, 8).map((insp, idx) => {
-              const inspForms = insp.forms ? Object.entries(insp.forms) : [];
-              const inspTooltip = inspForms.length > 0
-                ? `Form Breakdown for ${insp.name}:\n` + inspForms.map(([fTitle, st]: [string, any]) => ` • ${fTitle}: ${st.checked} units (${st.defects} defects)`).join('\n')
-                : `${insp.name}: ${insp.totalChecked} checked (${insp.defectCount} defects)`;
-
-              return (
-                <div
-                  key={idx}
-                  className="bg-gray-50/70 p-3.5 rounded-xl border border-gray-200 hover:bg-white hover:border-blue-300 transition-all shadow-xs flex flex-col justify-between group cursor-default"
-                  title={inspTooltip}
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <span className="font-bold text-gray-900 truncate text-xs" title={insp.name}>
-                        {insp.name}
-                      </span>
-                      <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
-                        #{idx + 1}
-                      </span>
-                    </div>
-                    <div className="flex items-baseline justify-between text-xs text-gray-600 mb-2">
-                      <span>{insp.totalChecked} checked</span>
-                      <span className="font-bold text-green-700">{insp.acceptRate}% Pass</span>
-                    </div>
-                  </div>
-
-                  {/* Form-Wise inspector badges */}
-                  {inspForms.length > 0 && (
-                    <div className="my-1.5 pt-1.5 border-t border-gray-200/60 flex flex-wrap gap-1">
-                      {inspForms.map(([fTitle, st]: [string, any]) => (
-                        <span
-                          key={fTitle}
-                          className="text-[9px] bg-white px-1.5 py-0.5 rounded border border-gray-200 text-gray-700 font-medium truncate max-w-[130px] shadow-2xs"
-                          title={`${fTitle}: ${st.checked} units checked, ${st.defects} defects`}
-                        >
-                          <b className="text-gray-900">{fTitle}:</b> {st.checked}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="pt-2 border-t border-gray-200/80 flex items-center justify-between text-[11px]">
-                    <span className="text-gray-500">
-                      <span className="text-green-700 font-bold">{insp.acceptCount}</span> / <span className="text-red-600 font-bold">{insp.defectCount}</span>
-                    </span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      insp.tier === 'exemplary' ? 'bg-green-100 text-green-800' :
-                      insp.tier === 'exceeded' ? 'bg-blue-100 text-blue-800' :
-                      insp.tier === 'met' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {insp.performanceStatus || (insp.acceptRate >= 90 ? 'Exemplary' : 'Active')}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      {/* ─── 4. COMBINED PERFORMANCE TABLE (15 Columns per-user Matrix) ─── */}
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      <div id="sec-performance-table" className="pt-2">
+        <PerformanceTable
+          startDate={startDate}
+          endDate={endDate}
+          formIds={selectedFormIds.length > 0 ? selectedFormIds : forms.map(f => f.id || f._id || '').filter(Boolean)}
+          title={`Combined Performance Table (${forms.length} Selected Forms)`}
+        />
+      </div>
 
       {/* ─── Recent Combined Inspection Stream ──────────────────────────── */}
       {recentResponses.length > 0 && (

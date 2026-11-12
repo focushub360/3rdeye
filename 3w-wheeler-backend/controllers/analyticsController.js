@@ -2310,7 +2310,11 @@ const setCachedPerformanceTable = (key, payload) => {
 
 export const getPerformanceTable = async (req, res) => {
   try {
-    const { startDate, endDate, formId, tenantId: queryTenantId } = req.query;
+    const { startDate, endDate, formId, formIds: queryFormIds, tenantId: queryTenantId } = req.query;
+    const rawFormIds = queryFormIds || formId;
+    const formIdList = rawFormIds
+      ? (Array.isArray(rawFormIds) ? rawFormIds : String(rawFormIds).split(',')).map(s => s.trim()).filter(Boolean)
+      : [];
     const { role, tenantId: userTenantId, _id: userId } = req.user;
 
     // ── Pagination params ────────────────────────────────────────────────
@@ -2357,7 +2361,7 @@ export const getPerformanceTable = async (req, res) => {
       tenantKey: userTenantId?.toString() || 'superadmin',
       startDate: startDate || null,
       endDate: endDate || null,
-      formId: formId || null,
+      formId: formIdList.length > 0 ? formIdList.slice().sort().join(',') : null,
       queryTenantId: queryTenantId || null,
       page,
       limit
@@ -2383,26 +2387,23 @@ export const getPerformanceTable = async (req, res) => {
       usersQuery = { tenantId: new mongoose.Types.ObjectId(queryTenantId) };
     }
 
-    // `users` and the form lookup are independent of each other - the form
-    // lookup only feeds the *response* query below, not the users query -
-    // so fetch both concurrently instead of one after another.
     let formIdVariants = null;
+    let formDocs = [];
     let formDoc = null;
-    let formTenantId = null;
     let sharedWithTenants = [];
     let chassisTenantAssignments = [];
 
-    const formLookupPromise = formId
-      ? Form.findOne({
+    const formLookupPromise = formIdList.length > 0
+      ? Form.find({
         $or: [
-          { id: formId },
-          ...(mongoose.Types.ObjectId.isValid(formId) ? [{ _id: formId }] : []),
+          { id: { $in: formIdList } },
+          ...(formIdList.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => ({ _id: id }))),
         ],
       })
         .select('id _id tenantId sharedWithTenants chassisTenantAssignments sections')
         .maxTimeMS(30000)
         .lean()
-      : Promise.resolve(null);
+      : Promise.resolve([]);
 
     let [users, formLookupResult] = await Promise.all([
       User.find(usersQuery)
@@ -2415,16 +2416,20 @@ export const getPerformanceTable = async (req, res) => {
 
     console.log(`[Performance Table] Found ${users.length} users from current tenant(s)`);
 
-    if (formId) {
-      formDoc = formLookupResult;
-      if (formDoc) {
-        formTenantId = formDoc.tenantId?.toString();
-        sharedWithTenants = (formDoc.sharedWithTenants || []).map(id => id.toString());
-        chassisTenantAssignments = formDoc.chassisTenantAssignments || [];
-        formIdVariants = [formDoc.id, formDoc._id?.toString()].filter(Boolean);
-      } else {
-        formIdVariants = [formId];
-      }
+    if (formIdList.length > 0) {
+      formDocs = formLookupResult || [];
+      formDoc = formDocs[0] || null;
+      formIdVariants = [];
+      formDocs.forEach(f => {
+        if (f.id) formIdVariants.push(f.id);
+        if (f._id) formIdVariants.push(f._id.toString());
+        (f.sharedWithTenants || []).forEach(id => sharedWithTenants.push(id.toString()));
+        if (f.chassisTenantAssignments) chassisTenantAssignments.push(...f.chassisTenantAssignments);
+      });
+      // Fallback: if not found in db directly, still use the passed ids
+      formIdList.forEach(id => {
+        if (!formIdVariants.includes(id)) formIdVariants.push(id);
+      });
     }
 
     // Build response query
@@ -2432,11 +2437,9 @@ export const getPerformanceTable = async (req, res) => {
       createdAt: { $gte: start, $lte: end }
     };
 
-    if (formId) {
+    if (formIdVariants && formIdVariants.length > 0) {
       responseBaseFilter.questionId = { $in: formIdVariants };
-    }
-
-    if (!formId) {
+    } else {
       Object.assign(responseBaseFilter, tenantFilter);
     }
 

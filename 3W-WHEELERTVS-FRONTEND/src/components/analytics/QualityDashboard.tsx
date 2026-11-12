@@ -22,6 +22,7 @@ import {
   ChevronDown,
   X,
   Filter,
+  Users,
   PieChart as PieChartIcon
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -32,6 +33,7 @@ import { apiClient } from '../../api/client';
 import { OverallResponsesTable } from './OverallResponsesTable';
 import FormAnalyticsDashboard from './FormAnalyticsDashboard';
 import { CombinedDashboard } from './CombinedDashboard';
+import PerformanceTable from '../PerformanceTable';
 
 ChartJS.register(ArcElement, ChartTooltip, ChartLegend);
 
@@ -195,7 +197,7 @@ export const QualityDashboard: React.FC = () => {
     return [];
   }, []);
 
-  const [activeTab, setActiveTab] = useState<'tvs' | 'biw' | 'daily' | 'data' | 'overall' | 'form-dashboard' | 'form-responses' | 'combined-dashboard'>(() => {
+  const [activeTab, setActiveTab] = useState<'tvs' | 'biw' | 'daily' | 'data' | 'overall' | 'form-dashboard' | 'form-responses' | 'combined-dashboard' | 'performance-table'>(() => {
     if (initialFormIds.length === 1) return 'form-dashboard';
     if (initialFormIds.length > 1) return 'combined-dashboard';
     return 'data';
@@ -1801,6 +1803,13 @@ export const QualityDashboard: React.FC = () => {
                 <List className="w-4 h-4 mr-2" />
                 Overall Responses
               </button>
+              <button
+                onClick={() => setActiveTab('performance-table')}
+                className={`flex-1 py-3 px-4 text-sm font-semibold flex items-center justify-center transition-colors whitespace-nowrap ${activeTab === 'performance-table' ? 'bg-white text-blue-700 border-b-2 border-blue-600 font-bold' : 'text-gray-600 hover:bg-gray-100'}`}
+              >
+                <Users className="w-4 h-4 mr-2" />
+                Performance Table
+              </button>
             </div>
 
             {/* Content Area */}
@@ -1838,10 +1847,25 @@ export const QualityDashboard: React.FC = () => {
                     defectBreakdown={data.defectBreakdown}
                     inspectors={data.inspectors}
                     recentResponses={data.recentResponses || data.rawResponses}
+                    startDate={startDate}
+                    endDate={endDate}
+                    selectedFormIds={selectedFormIds}
                     onIsolateForm={(formId) => {
                       updateSelectedForms([formId]);
                       setActiveTab('form-dashboard');
                     }}
+                  />
+                </div>
+              )}
+
+              {/* DEDICATED PERFORMANCE TABLE TAB */}
+              {activeTab === 'performance-table' && (
+                <div className="p-4 bg-gray-50/50 min-h-[600px]">
+                  <PerformanceTable
+                    startDate={startDate}
+                    endDate={endDate}
+                    formIds={selectedFormIds.length > 0 ? selectedFormIds : undefined}
+                    title={selectedFormIds.length > 1 ? `Combined Performance Table (${selectedFormIds.length} Forms)` : undefined}
                   />
                 </div>
               )}

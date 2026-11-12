@@ -1589,6 +1589,7 @@ class ApiClient {
     startDate?: string;
     endDate?: string;
     formId?: string;
+    formIds?: string[] | string;
     tenantId?: string;
     page?: number;
     limit?: number;
@@ -1598,7 +1599,12 @@ class ApiClient {
       const searchParams = new URLSearchParams();
       if (params.startDate) searchParams.append("startDate", params.startDate);
       if (params.endDate) searchParams.append("endDate", params.endDate);
-      if (params.formId) searchParams.append("formId", params.formId);
+      if (params.formIds) {
+        const idsStr = Array.isArray(params.formIds) ? params.formIds.join(",") : params.formIds;
+        searchParams.append("formIds", idsStr);
+      } else if (params.formId) {
+        searchParams.append("formId", params.formId);
+      }
       if (params.tenantId) searchParams.append("tenantId", params.tenantId);
       searchParams.append("page", String(params.page || 1));
       searchParams.append("limit", String(params.limit || 50));
@@ -3854,9 +3860,13 @@ class ApiClient {
     return res.responses || [];
   }
 
-  async getBiwSummary(params?: { formId?: string; tenantId?: string; startDate?: string; endDate?: string; forceNetwork?: boolean }) {
+  async getBiwSummary(params?: { formId?: string; formIds?: string[] | string; tenantId?: string; startDate?: string; endDate?: string; forceNetwork?: boolean }) {
     const query = new URLSearchParams();
     if (params?.formId) query.set("formId", params.formId);
+    if (params?.formIds) {
+      const idsStr = Array.isArray(params.formIds) ? params.formIds.join(",") : params.formIds;
+      query.set("formIds", idsStr);
+    }
     if (params?.tenantId) query.set("tenantId", params.tenantId);
     if (params?.startDate) query.set("startDate", params.startDate);
     if (params?.endDate) query.set("endDate", params.endDate);

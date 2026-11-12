@@ -3785,16 +3785,25 @@ export const getBiwSummary = async (req, res) => {
   try {
     const userRole = req.user?.role || 'admin';
     const userTenantId = req.user?.tenantId;
-    const { formId, tenantId, startDate, endDate } = req.query;
+    const { formId, formIds: queryFormIds, tenantId, startDate, endDate } = req.query;
+    const rawFormIds = queryFormIds || formId;
+    const formIdList = rawFormIds
+      ? (Array.isArray(rawFormIds) ? rawFormIds : String(rawFormIds).split(',')).map(s => s.trim()).filter(Boolean)
+      : [];
 
     const effectiveTenantId = (userRole === 'superadmin' && tenantId)
       ? tenantId
       : (userTenantId || tenantId);
 
     let formQuery = {};
-    if (formId) {
-      const isOid = mongoose.Types.ObjectId.isValid(formId);
-      formQuery = isOid ? { $or: [{ id: formId }, { _id: new mongoose.Types.ObjectId(formId) }] } : { id: formId };
+    if (formIdList.length > 0) {
+      const validOids = formIdList.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
+      formQuery = {
+        $or: [
+          { id: { $in: formIdList } },
+          ...(validOids.length > 0 ? [{ _id: { $in: validOids } }] : [])
+        ]
+      };
     } else if (effectiveTenantId) {
       const isValid = mongoose.Types.ObjectId.isValid(effectiveTenantId);
       const oid = isValid ? new mongoose.Types.ObjectId(String(effectiveTenantId)) : null;
@@ -3805,12 +3814,14 @@ export const getBiwSummary = async (req, res) => {
     }
 
     const forms = await Form.find(formQuery).select('id _id').lean();
-    const formIds = forms.flatMap(f => [f.id, f._id ? f._id.toString() : null]).filter(Boolean);
+    const resolvedFormIds = forms.flatMap(f => [f.id, f._id ? f._id.toString() : null]).filter(Boolean);
+    formIdList.forEach(id => {
+      if (!resolvedFormIds.includes(id)) resolvedFormIds.push(id);
+    });
 
     let respQuery = {};
-    if (formId) {
-      const targetIds = formIds.length > 0 ? formIds : [formId];
-      respQuery = { questionId: { $in: targetIds } };
+    if (formIdList.length > 0) {
+      respQuery = { questionId: { $in: resolvedFormIds } };
     } else if (effectiveTenantId) {
       const isValid = mongoose.Types.ObjectId.isValid(effectiveTenantId);
       const oid = isValid ? new mongoose.Types.ObjectId(String(effectiveTenantId)) : null;
@@ -3819,11 +3830,11 @@ export const getBiwSummary = async (req, res) => {
       respQuery = {
         $or: [
           { tenantId: tenantCondition },
-          ...(formIds.length > 0 ? [{ questionId: { $in: formIds } }] : [])
+          ...(resolvedFormIds.length > 0 ? [{ questionId: { $in: resolvedFormIds } }] : [])
         ]
       };
-    } else if (formIds.length > 0) {
-      respQuery.questionId = { $in: formIds };
+    } else if (resolvedFormIds.length > 0) {
+      respQuery.questionId = { $in: resolvedFormIds };
     }
 
     // Add date filtering if startDate or endDate provided
