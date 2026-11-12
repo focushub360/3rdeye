@@ -89,11 +89,17 @@ const PerformanceTable = ({
         const parsed = JSON.parse(cachedData);
         const cacheAge = Date.now() - (parsed.timestamp || 0);
         if (cacheAge < 60000) {
-          console.log('[PerformanceTable] Using cached data');
-          setPerformanceTableData(parsed.data || []);
-          setPerfInspectorSummary(parsed.inspectorSummary || []);
-          setActiveUserNames(new Set(parsed.activeUserNames || []));
-          return;
+          let cachedList = parsed.data || [];
+          if (cachedList && !Array.isArray(cachedList) && Array.isArray((cachedList as any).data)) {
+            cachedList = (cachedList as any).data;
+          }
+          if (Array.isArray(cachedList) && cachedList.length > 0) {
+            console.log('[PerformanceTable] Using cached data:', cachedList.length);
+            setPerformanceTableData(cachedList);
+            setPerfInspectorSummary(parsed.inspectorSummary || []);
+            setActiveUserNames(new Set(parsed.activeUserNames || []));
+            return;
+          }
         }
       } catch (e) {
         // Cache parse error, continue to fetch
@@ -104,7 +110,7 @@ const PerformanceTable = ({
 
     try {
       // ✅ Build the API call with date parameters
-      let tableResponse;
+      let tableResponse: any;
 
       if (useInternalTrackingEndpoint) {
         // Internal tracking endpoint
@@ -121,22 +127,32 @@ const PerformanceTable = ({
         });
       }
 
-      //  Extract the data from the response
-      // The response from apiClient.getPerformanceTable returns { success: true, data: [...] }
-      // But apiClient.get() might return a different structure
-      const tableData = useInternalTrackingEndpoint
-        ? tableResponse.data
-        : (tableResponse.success ? tableResponse.data : []);
+      // Extract the data from the response safely handling all wrapper shapes
+      let tableData: any[] = [];
+      const resRaw = tableResponse?.data;
+      if (Array.isArray(resRaw)) {
+        tableData = resRaw;
+      } else if (resRaw && Array.isArray((resRaw as any).data)) {
+        tableData = (resRaw as any).data;
+      } else if (Array.isArray(tableResponse)) {
+        tableData = tableResponse;
+      } else if (tableResponse && Array.isArray((tableResponse as any).data)) {
+        tableData = (tableResponse as any).data;
+      }
 
       console.log('[PerformanceTable] Table data:', tableData.length);
 
-      //  Set the table data
-      setPerformanceTableData(tableData || []);
+      // Set the table data
+      setPerformanceTableData(tableData);
 
-      //  Also fetch inspector summary and users in parallel
+      // Also fetch inspector summary and users in parallel
+      const inspQuery = formIds
+        ? `&formIds=${Array.isArray(formIds) ? formIds.join(',') : formIds}`
+        : (formId ? `&formId=${formId}` : '');
+
       const [summaryResponse] = await Promise.all([
         user.role === "admin" || user.role === "superadmin"
-          ? apiClient.get(`/analytics/inspector-summary?startDate=${perfStartDate}&endDate=${perfEndDate}`)
+          ? apiClient.get(`/analytics/inspector-summary?startDate=${perfStartDate}&endDate=${perfEndDate}${inspQuery}`)
             .catch(() => ({ data: { summary: [] } }))
           : Promise.resolve({ data: { summary: [] } }),
       ]);
@@ -144,9 +160,9 @@ const PerformanceTable = ({
       const summaryData = summaryResponse?.data?.summary || [];
       setPerfInspectorSummary(summaryData);
 
-      //  Cache the result
+      // Cache the result
       sessionStorage.setItem(cacheKey, JSON.stringify({
-        data: tableData || [],
+        data: tableData,
         inspectorSummary: summaryData,
         activeUserNames: [],
         timestamp: Date.now()
@@ -160,7 +176,11 @@ const PerformanceTable = ({
       if (cachedData) {
         try {
           const parsed = JSON.parse(cachedData);
-          setPerformanceTableData(parsed.data || []);
+          let rawParsed = parsed.data || [];
+          if (rawParsed && !Array.isArray(rawParsed) && Array.isArray((rawParsed as any).data)) {
+            rawParsed = (rawParsed as any).data;
+          }
+          setPerformanceTableData(Array.isArray(rawParsed) ? rawParsed : []);
           setPerfInspectorSummary(parsed.inspectorSummary || []);
           setActiveUserNames(new Set(parsed.activeUserNames || []));
         } catch (e) {
@@ -493,10 +513,12 @@ const PerformanceTable = ({
           No performance data available for the selected date range.
           <button
             onClick={() => {
-              setShowPerformanceTable(false);
-              setTimeout(() => setShowPerformanceTable(true), 100);
+              try {
+                sessionStorage.removeItem(getCacheKey());
+              } catch (e) {}
+              loadPerformanceData();
             }}
-            className="block mx-auto mt-3 px-4 py-2 text-xs font-bold text-purple-600 hover:text-purple-700 bg-purple-50 rounded-xl transition-colors"
+            className="block mx-auto mt-3 px-4 py-2 text-xs font-bold text-purple-600 hover:text-purple-700 bg-purple-50 rounded-xl transition-colors cursor-pointer"
           >
             Retry
           </button>

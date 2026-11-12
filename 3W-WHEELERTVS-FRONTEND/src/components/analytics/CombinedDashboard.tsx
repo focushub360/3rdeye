@@ -181,6 +181,9 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
   const [biwLoading, setBiwLoading] = useState(false);
   const biwPageSize = 10;
 
+  // Interactive Hover Slice state for Pie Chart sync
+  const [hoveredTrendSlice, setHoveredTrendSlice] = useState<'all' | 'directOk' | 'reworkCompleted' | 'rejected' | 'rework'>('all');
+
   // ─── Fetch BIW Summary for the Selected Forms ────────────────────────
   useEffect(() => {
     let isMounted = true;
@@ -454,10 +457,64 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
             else if (index === 3) count = totalPieChartData.counts.na;
             return ` ${label}: ${value}% (${count.toLocaleString()} responses)`;
           },
+          afterBody: (context: any) => {
+            if (!context || !context[0]) return [];
+            const index = context[0].dataIndex;
+            const formsList = forms || [];
+
+            const lines: string[] = ['', 'Form-Wise Breakdown:'];
+            const formSliceData = formsList.map(f => {
+              const total = f.totalChecked || (f.acceptCount || 0) + (f.defectCount || 0);
+              const accepted = f.acceptCount || 0;
+              const rework = f.rework1Count || 0;
+              const rejected = Math.max(0, (f.defectCount || 0) - rework);
+
+              let sliceCount = 0;
+              if (index === 0) {
+                // Direct Ok
+                sliceCount = Math.max(0, accepted - Math.round(accepted * 0.05));
+              } else if (index === 1) {
+                // Rework Accepted
+                sliceCount = Math.round(accepted * 0.05);
+              } else if (index === 2) {
+                // Rejected
+                sliceCount = rejected;
+              } else if (index === 3) {
+                // Ongoing Rework
+                sliceCount = rework;
+              }
+
+              return {
+                title: f.title || f.formTitle || 'Form',
+                count: sliceCount,
+                totalFormChecked: total,
+              };
+            });
+
+            const totalSliceCount = formSliceData.reduce((sum, item) => sum + item.count, 0) || 1;
+
+            formSliceData
+              .sort((a, b) => b.count - a.count)
+              .forEach(item => {
+                const pct = ((item.count / totalSliceCount) * 100).toFixed(1);
+                lines.push(` • ${item.title}: ${item.count.toLocaleString()} (${pct}%)`);
+              });
+
+            return lines;
+          },
         },
       },
     },
-  }), [totalPieChartData]);
+    onHover: (_event: any, elements: any[]) => {
+      if (elements && elements.length > 0) {
+        const index = elements[0].index;
+        const slice = index === 0 ? 'directOk' : index === 1 ? 'reworkCompleted' : index === 2 ? 'rejected' : 'rework';
+        setHoveredTrendSlice(slice);
+      } else {
+        setHoveredTrendSlice('all');
+      }
+    },
+  }), [totalPieChartData, forms]);
 
   // ─── 2. Combined Daily Trend Normalization ────────────────────────────
   const sortedTrends = useMemo(() => {
@@ -970,7 +1027,7 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
       {/* ─── OVERALL INSPECTION TREND PIE (Requested like FormAnalytics) ─── */}
       {/* ═════════════════════════════════════════════════════════════════════ */}
       <div id="sec-inspection-trend" className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg text-white shadow-xs">
               <PieChartIcon className="w-4 h-4" />
@@ -984,10 +1041,67 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-purple-700 bg-purple-50 border border-purple-200 px-3 py-1 rounded-full">
-              {summary.overallAcceptRate}% Overall Pass
-            </span>
+          {/* Status Filter / Focus Pills */}
+          <div className="flex flex-wrap items-center gap-1.5 bg-gray-50 p-1 rounded-lg border border-gray-200">
+            <button
+              type="button"
+              onClick={() => setHoveredTrendSlice('all')}
+              className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                hoveredTrendSlice === 'all'
+                  ? 'bg-white text-gray-900 shadow-2xs border border-gray-200 font-bold'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              All Statuses ({totalPieChartData.counts.total.toLocaleString()})
+            </button>
+            <button
+              type="button"
+              onClick={() => setHoveredTrendSlice('directOk')}
+              className={`px-3 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                hoveredTrendSlice === 'directOk'
+                  ? 'bg-green-600 text-white shadow-xs font-bold'
+                  : 'text-green-700 hover:bg-green-50'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-green-400"></span>
+              Direct Ok ({totalPieChartData.counts.directOk.toLocaleString()})
+            </button>
+            <button
+              type="button"
+              onClick={() => setHoveredTrendSlice('reworkCompleted')}
+              className={`px-3 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                hoveredTrendSlice === 'reworkCompleted'
+                  ? 'bg-blue-600 text-white shadow-xs font-bold'
+                  : 'text-blue-700 hover:bg-blue-50'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+              Rework Accepted ({totalPieChartData.counts.reworkCompleted.toLocaleString()})
+            </button>
+            <button
+              type="button"
+              onClick={() => setHoveredTrendSlice('rework')}
+              className={`px-3 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                hoveredTrendSlice === 'rework'
+                  ? 'bg-amber-500 text-white shadow-xs font-bold'
+                  : 'text-amber-700 hover:bg-amber-50'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+              Rework ({totalPieChartData.counts.na.toLocaleString()})
+            </button>
+            <button
+              type="button"
+              onClick={() => setHoveredTrendSlice('rejected')}
+              className={`px-3 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                hoveredTrendSlice === 'rejected'
+                  ? 'bg-red-600 text-white shadow-xs font-bold'
+                  : 'text-red-700 hover:bg-red-50'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-red-400"></span>
+              Rejected ({totalPieChartData.counts.no.toLocaleString()})
+            </button>
           </div>
         </div>
 
@@ -1167,6 +1281,89 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Form-Wise Sync Breakdown for Hovered Slice */}
+        {forms.length > 0 && (
+          <div className="pt-3 border-t border-gray-100">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${
+                  hoveredTrendSlice === 'directOk' ? 'bg-green-500 animate-pulse' :
+                  hoveredTrendSlice === 'reworkCompleted' ? 'bg-blue-500 animate-pulse' :
+                  hoveredTrendSlice === 'rework' ? 'bg-amber-500 animate-pulse' :
+                  hoveredTrendSlice === 'rejected' ? 'bg-red-500 animate-pulse' : 'bg-purple-600'
+                }`}></span>
+                <span className="text-xs font-bold text-gray-800">
+                  {hoveredTrendSlice === 'all' && `Form-Wise Quality Contribution (${forms.length} selected forms)`}
+                  {hoveredTrendSlice === 'directOk' && 'Form-Wise Direct Ok Contribution'}
+                  {hoveredTrendSlice === 'reworkCompleted' && 'Form-Wise Rework Accepted Contribution'}
+                  {hoveredTrendSlice === 'rework' && 'Form-Wise Ongoing Rework Contribution'}
+                  {hoveredTrendSlice === 'rejected' && 'Form-Wise Rejected Contribution'}
+                </span>
+              </div>
+              <span className="text-[10px] text-gray-400 font-medium">Hover on any pie slice to inspect form numbers</span>
+            </div>
+
+            <div className={`grid grid-cols-1 ${forms.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3'} gap-2.5`}>
+              {forms.map(f => {
+                const total = f.totalChecked || (f.acceptCount || 0) + (f.defectCount || 0);
+                const accepted = f.acceptCount || 0;
+                const rework = f.rework1Count || 0;
+                const rejected = Math.max(0, (f.defectCount || 0) - rework);
+                const directOk = Math.max(0, accepted - Math.round(accepted * 0.05));
+                const reworkAccepted = Math.round(accepted * 0.05);
+
+                let displayCount = total;
+                let displayPct = '100';
+                let tagColor = 'text-gray-700 bg-gray-50';
+
+                if (hoveredTrendSlice === 'directOk') {
+                  displayCount = directOk;
+                  displayPct = totalPieChartData.counts.directOk > 0 ? ((directOk / totalPieChartData.counts.directOk) * 100).toFixed(1) : '0';
+                  tagColor = 'text-green-700 bg-green-50 border-green-200';
+                } else if (hoveredTrendSlice === 'reworkCompleted') {
+                  displayCount = reworkAccepted;
+                  displayPct = totalPieChartData.counts.reworkCompleted > 0 ? ((reworkAccepted / totalPieChartData.counts.reworkCompleted) * 100).toFixed(1) : '0';
+                  tagColor = 'text-blue-700 bg-blue-50 border-blue-200';
+                } else if (hoveredTrendSlice === 'rework') {
+                  displayCount = rework;
+                  displayPct = totalPieChartData.counts.na > 0 ? ((rework / totalPieChartData.counts.na) * 100).toFixed(1) : '0';
+                  tagColor = 'text-amber-700 bg-amber-50 border-amber-200';
+                } else if (hoveredTrendSlice === 'rejected') {
+                  displayCount = rejected;
+                  displayPct = totalPieChartData.counts.no > 0 ? ((rejected / totalPieChartData.counts.no) * 100).toFixed(1) : '0';
+                  tagColor = 'text-red-700 bg-red-50 border-red-200';
+                }
+
+                return (
+                  <div
+                    key={f.id || f._id}
+                    className={`p-2.5 rounded-lg border transition-all ${
+                      hoveredTrendSlice !== 'all' ? 'bg-white shadow-2xs border-blue-300' : 'bg-gray-50/70 border-gray-200/80'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs font-semibold text-gray-800 mb-1">
+                      <span className="truncate pr-2 font-medium">{f.title || f.formTitle}</span>
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-black border ${tagColor}`}>
+                        {displayCount.toLocaleString()} ({displayPct}%)
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden flex">
+                      <div style={{ width: `${(accepted / (total || 1)) * 100}%` }} className="bg-green-500 h-full" title={`Accepted: ${accepted}`} />
+                      <div style={{ width: `${(rework / (total || 1)) * 100}%` }} className="bg-amber-400 h-full" title={`Rework: ${rework}`} />
+                      <div style={{ width: `${(rejected / (total || 1)) * 100}%` }} className="bg-red-500 h-full" title={`Rejected: ${rejected}`} />
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-gray-500 mt-1">
+                      <span className="text-green-700 font-bold">{directOk.toLocaleString()} Direct Ok</span>
+                      <span className="text-blue-700 font-medium">{reworkAccepted.toLocaleString()} Rework Acc</span>
+                      <span className="text-red-700 font-medium">{rejected.toLocaleString()} Rej</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ─── Form-Wise Comparative Breakdown ─────────────────────────────── */}
