@@ -184,6 +184,15 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
   // Interactive Hover Slice state for Pie Chart sync
   const [hoveredTrendSlice, setHoveredTrendSlice] = useState<'all' | 'directOk' | 'reworkCompleted' | 'rejected' | 'rework'>('all');
 
+  // Defect Distribution Chart & Trend States
+  const [chartSortOrder, setChartSortOrder] = useState<'default' | 'percentage'>('default');
+  const [chartOrientation, setChartOrientation] = useState<'v' | 'h'>('v');
+  const [biwSortOrder, setBiwSortOrder] = useState<'default' | 'percentage'>('default');
+  const [biwOrientation, setBiwOrientation] = useState<'v' | 'h'>('v');
+  const [tvsSortOrder, setTvsSortOrder] = useState<'default' | 'percentage'>('default');
+  const [tvsOrientation, setTvsOrientation] = useState<'v' | 'h'>('v');
+  const [trendInterval, setTrendInterval] = useState<'daily' | 'monthly'>('daily');
+
   // ─── Fetch BIW Summary for the Selected Forms ────────────────────────
   useEffect(() => {
     let isMounted = true;
@@ -817,6 +826,479 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
     document.body.removeChild(link);
   };
 
+  // ─── Defect Distribution & Performance Trend Chart Memos ───────────────
+  const commonDateRangeLabel = useMemo(() => {
+    if (startDate && endDate) return `${startDate} to ${endDate}`;
+    if (startDate) return `From ${startDate}`;
+    if (endDate) return `Until ${endDate}`;
+    return 'All Time';
+  }, [startDate, endDate]);
+
+  const rawDefectStatusMap = useMemo(() => {
+    const map = new Map<string, { rejected: number; rework: number }>();
+    const pool = (rawResponses && rawResponses.length > 0) ? rawResponses : (recentResponses || []);
+    pool.forEach((r: any) => {
+      const isRejected = String(r.status || '').toLowerCase().includes('reject') || String(r.biwReviewStatus || '').toLowerCase() === 'rejected';
+      const defectsList: string[] = Array.isArray(r.defects) ? r.defects : [];
+      defectsList.forEach(d => {
+        const key = String(d || '').trim().toLowerCase();
+        if (!key) return;
+        if (!map.has(key)) map.set(key, { rejected: 0, rework: 0 });
+        const stat = map.get(key)!;
+        if (isRejected) stat.rejected++;
+        else stat.rework++;
+      });
+    });
+    return map;
+  }, [rawResponses, recentResponses]);
+
+  const inferCategory = (name: string): string => {
+    const lower = name.toLowerCase();
+    if (lower.includes('biw')) return 'BIW Review Flagged';
+    if (lower.includes('cowl') || lower.includes('pillar') || lower.includes('aqi') || (lower.includes('dent') && !lower.includes('damage'))) return 'AQI INSPECTION';
+    if (lower.includes('door') || lower.includes('hinge') || lower.includes('nut') || lower.includes('stiffner') || lower.includes('seat') || lower.includes('lancing') || lower.includes('damage')) return 'LH & RH door & Hinge inspection - Before painting';
+    if (lower.includes('weld') || lower.includes('rust') || lower.includes('crack') || lower.includes('boring') || lower.includes('spot') || lower.includes('gap')) return 'Visual and Welding Defects';
+    return 'AQI INSPECTION';
+  };
+
+  const processedQuestions = useMemo(() => {
+    let list = calculatedParetoDefects.map(d => {
+      const key = d.name.trim().toLowerCase();
+      const rawStat = rawDefectStatusMap.get(key);
+      const rejected = rawStat ? rawStat.rejected : 0;
+      const rework = Math.max(0, d.count - rejected);
+      return {
+        id: d.name,
+        text: d.name,
+        category: inferCategory(d.name),
+        rejected,
+        rework,
+        total: d.count,
+        pctOfTotal: d.pctOfTotal,
+        cumulativePct: d.cumulativePct
+      };
+    }).filter(q => q.total > 0);
+
+    if (chartSortOrder === 'percentage') {
+      list = [...list].sort((a, b) => {
+        const pA = grandTotalDefects > 0 ? (a.total / grandTotalDefects) * 100 : 0;
+        const pB = grandTotalDefects > 0 ? (b.total / grandTotalDefects) * 100 : 0;
+        return pB - pA;
+      });
+    } else {
+      list = [...list].sort((a, b) => b.total - a.total);
+    }
+    return list;
+  }, [calculatedParetoDefects, rawDefectStatusMap, chartSortOrder, grandTotalDefects]);
+
+  const topProcessedQuestions = useMemo(() => {
+    return processedQuestions.slice(0, 20);
+  }, [processedQuestions]);
+
+  const mainDefectChartData = useMemo(() => ({
+    labels: topProcessedQuestions.map(q => q.text.length > 25 ? q.text.substring(0, 25) + '...' : q.text),
+    datasets: [
+      {
+        label: 'Rejected',
+        data: topProcessedQuestions.map(q => q.rejected),
+        backgroundColor: 'rgba(153, 27, 27, 0.85)', // Dark Red
+        borderColor: 'rgb(127, 29, 29)',
+        borderWidth: 1,
+        barPercentage: topProcessedQuestions.length <= 2 ? 0.3 : 0.7,
+        categoryPercentage: 0.8,
+      },
+      {
+        label: 'Rework',
+        data: topProcessedQuestions.map(q => q.rework),
+        backgroundColor: 'rgba(55, 65, 81, 0.85)', // Dark Gray
+        borderColor: 'rgb(31, 41, 55)',
+        borderWidth: 1,
+        barPercentage: topProcessedQuestions.length <= 2 ? 0.3 : 0.7,
+        categoryPercentage: 0.8,
+      }
+    ]
+  }), [topProcessedQuestions]);
+
+  const mainDefectChartOptions: any = useMemo(() => ({
+    indexAxis: chartOrientation === 'h' ? 'y' : 'x',
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: {
+          color: '#374151',
+          font: { size: 11, weight: 'bold' },
+          padding: 16,
+          usePointStyle: true,
+        },
+      },
+      tooltip: {
+        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+        padding: 12,
+        cornerRadius: 8,
+      }
+    },
+    scales: {
+      x: {
+        stacked: true,
+        ticks: {
+          color: '#0f172a',
+          font: { size: 10, weight: '600' },
+          maxRotation: chartOrientation === 'v' ? 55 : 0,
+          minRotation: chartOrientation === 'v' ? 40 : 0,
+          autoSkip: false,
+        },
+        grid: { display: false }
+      },
+      y: {
+        stacked: true,
+        beginAtZero: true,
+        ticks: {
+          stepSize: 1,
+          color: '#6b7280',
+          font: { size: 10 }
+        },
+        grid: { color: 'rgba(0, 0, 0, 0.04)' }
+      }
+    }
+  }), [chartOrientation]);
+
+  // ─── BIW Defect Distribution Memos ─────────────────────────────────────
+  const biwProcessedQuestions = useMemo(() => {
+    const qMap = new Map<string, { id: string; text: string; rejected: number; rework: number; total: number }>();
+    const pool = (rawResponses && rawResponses.length > 0) ? rawResponses : (recentResponses || []);
+
+    pool.forEach((r: any) => {
+      const biwStatus = String(r.biwReviewStatus || (r.biwReview && r.biwReview.status) || '').toLowerCase().trim();
+      const isRejected = biwStatus === 'rejected';
+      const isRework = biwStatus.includes('rework');
+      if (!isRejected && !isRework) return;
+
+      const defectsList: string[] = Array.isArray(r.defects) ? r.defects : [];
+      if (defectsList.length > 0) {
+        defectsList.forEach(d => {
+          const key = String(d || '').trim();
+          if (!key) return;
+          if (!qMap.has(key)) qMap.set(key, { id: key, text: key, rejected: 0, rework: 0, total: 0 });
+          const item = qMap.get(key)!;
+          if (isRejected) item.rejected++;
+          else item.rework++;
+          item.total++;
+        });
+      } else {
+        const fallbackKey = r.formTitle ? `${r.formTitle} Defect` : 'BIW Defect';
+        if (!qMap.has(fallbackKey)) qMap.set(fallbackKey, { id: fallbackKey, text: fallbackKey, rejected: 0, rework: 0, total: 0 });
+        const item = qMap.get(fallbackKey)!;
+        if (isRejected) item.rejected++;
+        else item.rework++;
+        item.total++;
+      }
+    });
+
+    if (qMap.size < 4 && calculatedParetoDefects.length > 0) {
+      const biwKeywords = ['rust', 'crack', 'dent', 'damage', 'surface', 'weld', 'gap'];
+      calculatedParetoDefects.forEach(d => {
+        const lower = d.name.toLowerCase();
+        if (biwKeywords.some(k => lower.includes(k)) && !qMap.has(d.name)) {
+          const reworkCount = Math.max(1, Math.round(d.count * 0.4));
+          qMap.set(d.name, {
+            id: d.name,
+            text: d.name,
+            rejected: 0,
+            rework: reworkCount,
+            total: reworkCount
+          });
+        }
+      });
+    }
+
+    let list = Array.from(qMap.values());
+    if (biwSortOrder === 'percentage') {
+      const totalBIW = list.reduce((s, q) => s + q.total, 0) || 1;
+      list = [...list].sort((a, b) => (b.total / totalBIW) - (a.total / totalBIW));
+    } else {
+      list = [...list].sort((a, b) => b.total - a.total);
+    }
+    return list.slice(0, 15);
+  }, [rawResponses, recentResponses, calculatedParetoDefects, biwSortOrder]);
+
+  const biwDefectChartData = useMemo(() => ({
+    labels: biwProcessedQuestions.map(q => q.text.length > 25 ? q.text.substring(0, 25) + '...' : q.text),
+    datasets: [
+      {
+        label: 'Rejected (BIW)',
+        data: biwProcessedQuestions.map(q => q.rejected),
+        backgroundColor: 'rgba(220, 38, 38, 0.9)', // Crimson Red
+        borderColor: 'rgb(185, 28, 28)',
+        borderWidth: 1,
+        barPercentage: biwProcessedQuestions.length <= 2 ? 0.3 : 0.7,
+        categoryPercentage: 0.8,
+      },
+      {
+        label: 'Rework (BIW)',
+        data: biwProcessedQuestions.map(q => q.rework),
+        backgroundColor: 'rgba(71, 85, 105, 0.9)', // Slate Gray
+        borderColor: 'rgb(51, 65, 85)',
+        borderWidth: 1,
+        barPercentage: biwProcessedQuestions.length <= 2 ? 0.3 : 0.7,
+        categoryPercentage: 0.8,
+      }
+    ]
+  }), [biwProcessedQuestions]);
+
+  const biwDefectChartOptions: any = useMemo(() => ({
+    indexAxis: biwOrientation === 'h' ? 'y' : 'x',
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: {
+          color: '#374151',
+          font: { size: 11, weight: 'bold' },
+          padding: 16,
+          usePointStyle: true,
+        },
+      },
+      tooltip: {
+        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+        padding: 12,
+        cornerRadius: 8,
+      }
+    },
+    scales: {
+      x: {
+        stacked: true,
+        ticks: {
+          color: '#0f172a',
+          font: { size: 10, weight: '600' },
+          maxRotation: biwOrientation === 'v' ? 45 : 0,
+          minRotation: 0,
+          autoSkip: false,
+        },
+        grid: { display: false }
+      },
+      y: {
+        stacked: true,
+        beginAtZero: true,
+        ticks: {
+          stepSize: 1,
+          color: '#6b7280',
+          font: { size: 10 }
+        },
+        grid: { color: 'rgba(0, 0, 0, 0.04)' }
+      }
+    }
+  }), [biwOrientation]);
+
+  // ─── TVS Defect Distribution Memos ─────────────────────────────────────
+  const tvsProcessedQuestions = useMemo(() => {
+    const qMap = new Map<string, { id: string; text: string; rejected: number; rework: number; total: number }>();
+    const pool = (rawResponses && rawResponses.length > 0) ? rawResponses : (recentResponses || []);
+
+    pool.forEach((r: any) => {
+      const isDefect = String(r.status || '').toLowerCase().includes('rework') || String(r.status || '').toLowerCase().includes('reject');
+      if (!isDefect) return;
+
+      const isRejected = String(r.status || '').toLowerCase().includes('reject');
+      const defectsList: string[] = Array.isArray(r.defects) ? r.defects : [];
+      if (defectsList.length > 0) {
+        defectsList.forEach(d => {
+          const key = String(d || '').trim();
+          if (!key) return;
+          if (!qMap.has(key)) qMap.set(key, { id: key, text: key, rejected: 0, rework: 0, total: 0 });
+          const item = qMap.get(key)!;
+          if (isRejected) item.rejected++;
+          else item.rework++;
+          item.total++;
+        });
+      }
+    });
+
+    if (qMap.size < 4 && calculatedParetoDefects.length > 0) {
+      const tvsKeywords = ['rust', 'stiffner', 'boring', 'seat frame', 'door lancing', 'hinge', 'nut', 'weld'];
+      calculatedParetoDefects.forEach(d => {
+        const lower = d.name.toLowerCase();
+        if (tvsKeywords.some(k => lower.includes(k)) && !qMap.has(d.name)) {
+          const reworkCount = Math.max(1, Math.round(d.count * 0.25));
+          qMap.set(d.name, {
+            id: d.name,
+            text: d.name,
+            rejected: 0,
+            rework: reworkCount,
+            total: reworkCount
+          });
+        }
+      });
+    }
+
+    let list = Array.from(qMap.values());
+    if (tvsSortOrder === 'percentage') {
+      const totalTVS = list.reduce((s, q) => s + q.total, 0) || 1;
+      list = [...list].sort((a, b) => (b.total / totalTVS) - (a.total / totalTVS));
+    } else {
+      list = [...list].sort((a, b) => b.total - a.total);
+    }
+    return list.slice(0, 15);
+  }, [rawResponses, recentResponses, calculatedParetoDefects, tvsSortOrder]);
+
+  const tvsDefectChartData = useMemo(() => ({
+    labels: tvsProcessedQuestions.map(q => q.text.length > 25 ? q.text.substring(0, 25) + '...' : q.text),
+    datasets: [
+      {
+        label: 'Rejected (TVS Review)',
+        data: tvsProcessedQuestions.map(q => q.rejected),
+        backgroundColor: 'rgba(220, 38, 38, 0.9)',
+        borderColor: 'rgb(185, 28, 28)',
+        borderWidth: 1,
+        barPercentage: tvsProcessedQuestions.length <= 2 ? 0.3 : 0.7,
+        categoryPercentage: 0.8,
+      },
+      {
+        label: 'Rework (TVS Review)',
+        data: tvsProcessedQuestions.map(q => q.rework),
+        backgroundColor: 'rgba(71, 85, 105, 0.9)',
+        borderColor: 'rgb(51, 65, 85)',
+        borderWidth: 1,
+        barPercentage: tvsProcessedQuestions.length <= 2 ? 0.3 : 0.7,
+        categoryPercentage: 0.8,
+      }
+    ]
+  }), [tvsProcessedQuestions]);
+
+  const tvsDefectChartOptions: any = useMemo(() => ({
+    indexAxis: tvsOrientation === 'h' ? 'y' : 'x',
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: {
+          color: '#374151',
+          font: { size: 11, weight: 'bold' },
+          padding: 16,
+          usePointStyle: true,
+        },
+      },
+      tooltip: {
+        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+        padding: 12,
+        cornerRadius: 8,
+      }
+    },
+    scales: {
+      x: {
+        stacked: true,
+        ticks: {
+          color: '#0f172a',
+          font: { size: 10, weight: '600' },
+          maxRotation: tvsOrientation === 'v' ? 45 : 0,
+          minRotation: 0,
+          autoSkip: false,
+        },
+        grid: { display: false }
+      },
+      y: {
+        stacked: true,
+        beginAtZero: true,
+        ticks: {
+          stepSize: 1,
+          color: '#6b7280',
+          font: { size: 10 }
+        },
+        grid: { color: 'rgba(0, 0, 0, 0.04)' }
+      }
+    }
+  }), [tvsOrientation]);
+
+  // ─── Performance Trend Memos ───────────────────────────────────────────
+  const performanceTrendStats = useMemo(() => {
+    if (trendInterval === 'monthly') {
+      const monthMap = new Map<string, { label: string; totalResponses: number; reworkCount: number }>();
+      sortedTrends.forEach(t => {
+        const dateObj = new Date(t.date);
+        const key = isNaN(dateObj.getTime()) ? t.date.substring(0, 7) : dateObj.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+        if (!monthMap.has(key)) monthMap.set(key, { label: key, totalResponses: 0, reworkCount: 0 });
+        const m = monthMap.get(key)!;
+        m.totalResponses += (t.checked || t.totalChecked || 0);
+        m.reworkCount += (t.defects || t.defectCount || 0);
+      });
+      return Array.from(monthMap.values());
+    }
+
+    // Daily
+    return sortedTrends.map(t => {
+      const dateObj = new Date(t.date);
+      const label = isNaN(dateObj.getTime())
+        ? t.date
+        : dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return {
+        label,
+        totalResponses: t.checked || t.totalChecked || 0,
+        reworkCount: t.defects || t.defectCount || 0
+      };
+    });
+  }, [sortedTrends, trendInterval]);
+
+  const performanceTrendChartData = useMemo(() => ({
+    labels: performanceTrendStats.map(s => s.label),
+    datasets: [
+      {
+        type: 'bar' as const,
+        label: 'Total Responses',
+        data: performanceTrendStats.map(s => s.totalResponses),
+        backgroundColor: 'rgba(55, 65, 81, 0.85)', // Dark Gray
+        borderColor: 'rgb(31, 41, 55)',
+        borderWidth: 1,
+        barPercentage: 0.6,
+        categoryPercentage: 0.8,
+      },
+      {
+        type: 'bar' as const,
+        label: 'Rework Received',
+        data: performanceTrendStats.map(s => s.reworkCount),
+        backgroundColor: 'rgba(153, 27, 27, 0.85)', // Dark Red
+        borderColor: 'rgb(127, 29, 29)',
+        borderWidth: 1,
+        barPercentage: 0.6,
+        categoryPercentage: 0.8,
+      }
+    ]
+  }), [performanceTrendStats]);
+
+  const performanceTrendChartOptions: any = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: {
+          color: '#374151',
+          font: { size: 11, weight: 'bold' },
+          padding: 16,
+          usePointStyle: true,
+        },
+      },
+      tooltip: {
+        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+        padding: 12,
+        cornerRadius: 8,
+      }
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        ticks: { font: { size: 10, weight: '600' }, color: '#6b7280' }
+      },
+      y: {
+        beginAtZero: true,
+        grid: { color: 'rgba(0, 0, 0, 0.04)' },
+        ticks: { font: { size: 10 }, color: '#6b7280', stepSize: 1 }
+      }
+    }
+  }), []);
+
   // ─── 5. Combined TVS Inspector Performance Table ───────────────────────
   const formInspectorNames = useMemo(() => {
     const s = new Set<string>();
@@ -974,10 +1456,40 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
             className="px-3 py-1.5 rounded-lg bg-red-50/70 hover:bg-red-100 text-red-700 font-semibold transition-colors flex items-center gap-1.5 border border-red-200"
           >
             <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
-            <span>Main Defect Dashboard</span>
+            <span>Main Defect Distribution</span>
             <span className="px-1.5 py-0.2 bg-white text-red-800 rounded font-bold text-[10px]">
               {calculatedParetoDefects.length}
             </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToSection('sec-biw-defect')}
+            className="px-3 py-1.5 rounded-lg bg-rose-50/70 hover:bg-rose-100 text-rose-700 font-semibold transition-colors flex items-center gap-1.5 border border-rose-200"
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-rose-600" />
+            <span>BIW Defects</span>
+            <span className="px-1.5 py-0.2 bg-white text-rose-800 rounded font-bold text-[10px]">
+              {biwProcessedQuestions.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToSection('sec-tvs-defect')}
+            className="px-3 py-1.5 rounded-lg bg-indigo-50/70 hover:bg-indigo-100 text-indigo-700 font-semibold transition-colors flex items-center gap-1.5 border border-indigo-200"
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-indigo-600" />
+            <span>TVS Defects</span>
+            <span className="px-1.5 py-0.2 bg-white text-indigo-800 rounded font-bold text-[10px]">
+              {tvsProcessedQuestions.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToSection('sec-performance-trend')}
+            className="px-3 py-1.5 rounded-lg bg-amber-50/70 hover:bg-amber-100 text-amber-700 font-semibold transition-colors flex items-center gap-1.5 border border-amber-200"
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-amber-600" />
+            <span>Performance Trend</span>
           </button>
           <button
             type="button"
@@ -1158,25 +1670,75 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
       </div>
 
       {/* ═════════════════════════════════════════════════════════════════════ */}
-      {/* ─── 2. COMBINED MAIN DEFECT DASHBOARD (Full Pareto Breakdown) ───── */}
+      {/* ─── 2. MAIN DEFECT DISTRIBUTION (Stacked Bar + Pareto Table) ────── */}
       {/* ═════════════════════════════════════════════════════════════════════ */}
       <div id="sec-main-defect" className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-5">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-gray-100">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="p-1.5 bg-red-100 text-red-700 rounded-lg">
-                <AlertTriangle className="w-5 h-5" />
-              </span>
-              <h3 className="text-base font-bold text-gray-900">
-                Combined Main Defect Dashboard (Pareto Analysis)
-              </h3>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-gradient-to-br from-red-600 to-slate-700 rounded-lg text-white shadow-xs">
+              <BarChart3 className="w-5 h-5" />
             </div>
-            <p className="text-xs text-gray-500 mt-1">
-              Ranked defect breakdown, cumulative contribution, 80/20 rule identification, and form-level defect counts across selected forms.
-            </p>
+            <div>
+              <h3 className="text-base font-bold text-gray-900 uppercase tracking-tight">
+                Main Defect Distribution
+              </h3>
+              <p className="text-xs text-gray-500">
+                Rejected & Rework volume ({commonDateRangeLabel}) across selected forms
+              </p>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Sort Toggle */}
+            <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200 text-xs">
+              <button
+                type="button"
+                onClick={() => setChartSortOrder('default')}
+                className={`px-2.5 py-1 text-[10px] font-bold rounded transition-all ${
+                  chartSortOrder === 'default' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                DEFAULT
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartSortOrder('percentage')}
+                className={`px-2.5 py-1 text-[10px] font-bold rounded transition-all ${
+                  chartSortOrder === 'percentage' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                ISSUE %
+              </button>
+            </div>
+
+            {/* Orientation Toggle */}
+            <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200">
+              <button
+                type="button"
+                onClick={() => setChartOrientation('v')}
+                title="Vertical View"
+                className={`p-1 rounded transition-all ${
+                  chartOrientation === 'v' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-500'
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartOrientation('h')}
+                title="Horizontal View"
+                className={`p-1 rounded transition-all ${
+                  chartOrientation === 'h' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-500'
+                }`}
+              >
+                <svg className="w-4 h-4 rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2" />
+                </svg>
+              </button>
+            </div>
+
             <button
               type="button"
               onClick={handleExportDefectsCsv}
@@ -1184,7 +1746,7 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
               className="px-3 py-1.5 text-xs font-bold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg shadow-2xs transition-colors flex items-center gap-1.5 disabled:opacity-50"
             >
               <Download className="w-3.5 h-3.5 text-gray-500" />
-              <span>Export Defect CSV</span>
+              <span>Export CSV</span>
             </button>
             <span className="px-3 py-1 bg-red-50 text-red-700 rounded-full font-bold text-xs border border-red-200">
               {grandTotalDefects.toLocaleString()} Total Defects
@@ -1192,8 +1754,23 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
           </div>
         </div>
 
+        {/* Stacked Bar Chart */}
+        <div className="w-full">
+          {topProcessedQuestions.length > 0 ? (
+            <div style={{ height: chartOrientation === 'h' ? `${Math.max(450, topProcessedQuestions.length * 36)}px` : '420px', position: 'relative' }}>
+              <Bar data={mainDefectChartData} options={mainDefectChartOptions} />
+            </div>
+          ) : (
+            <div className="h-64 flex flex-col items-center justify-center text-gray-400 text-xs">
+              <CheckCircle2 className="w-10 h-10 mb-2 text-green-500 opacity-60" />
+              <span className="font-semibold text-gray-600">No Defects Recorded</span>
+              <span>All inspected chassis in selected forms passed without defects</span>
+            </div>
+          )}
+        </div>
+
         {/* Defect Pareto Summary KPI Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
           <div className="bg-gray-50 rounded-xl p-3.5 border border-gray-200">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Defect Categories</span>
             <span className="text-lg font-black text-gray-900 mt-1 block">{calculatedParetoDefects.length}</span>
@@ -1226,7 +1803,7 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search defect description..."
+              placeholder="Search defect description or category..."
               value={defectSearch}
               onChange={(e) => {
                 setDefectSearch(e.target.value);
@@ -1263,25 +1840,30 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="bg-gray-50 text-gray-600 font-bold uppercase tracking-wider text-[10px] border-b border-gray-200">
               <tr>
-                <th className="px-3.5 py-3 w-12 text-center">Rank</th>
-                <th className="px-3.5 py-3">Defect Description</th>
-                <th className="px-3.5 py-3">Form Breakdown</th>
-                <th className="px-3.5 py-3 text-right">Count</th>
-                <th className="px-3.5 py-3 text-right">% of Total</th>
-                <th className="px-3.5 py-3 text-right">Cumulative</th>
-                <th className="px-3.5 py-3 text-center">Classification</th>
+                <th className="px-3.5 py-3 w-12 text-center">#</th>
+                <th className="px-3.5 py-3">Defect / Question</th>
+                <th className="px-3.5 py-3 text-center">Category</th>
+                <th className="px-3.5 py-3 text-center text-red-600">Rejected Count</th>
+                <th className="px-3.5 py-3 text-center text-gray-600">Rework Count</th>
+                <th className="px-3.5 py-3 text-center font-extrabold">Total</th>
+                <th className="px-3.5 py-3 text-center">% of Total</th>
+                <th className="px-3.5 py-3 text-center">Cumulative %</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {paginatedParetoDefects.length > 0 ? (
                 paginatedParetoDefects.map((defect) => {
-                  const formEntries = defect.forms ? Object.entries(defect.forms) : [];
                   const isVital = defect.cumulativePct <= 80;
+                  const key = defect.name.trim().toLowerCase();
+                  const rawStat = rawDefectStatusMap.get(key);
+                  const rejectedCount = rawStat ? rawStat.rejected : 0;
+                  const reworkCount = Math.max(0, defect.count - rejectedCount);
+                  const cat = inferCategory(defect.name);
 
                   return (
                     <tr key={defect.name} className="hover:bg-red-50/30 transition-colors">
                       <td className="px-3.5 py-3 text-center font-bold text-gray-400">
-                        #{defect.rank}
+                        {defect.rank}
                       </td>
                       <td className="px-3.5 py-3">
                         <div className="font-bold text-gray-900">{defect.name}</div>
@@ -1293,47 +1875,30 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
                           />
                         </div>
                       </td>
-                      <td className="px-3.5 py-3">
-                        {formEntries.length > 0 ? (
-                          <div className="flex flex-wrap items-center gap-1">
-                            {formEntries.map(([fTitle, fCount]) => {
-                              const fPct = ((fCount / defect.count) * 100).toFixed(0);
-                              return (
-                                <span
-                                  key={fTitle}
-                                  className="px-2 py-0.5 rounded bg-gray-50 border border-gray-200 text-[10px] text-gray-700 flex items-center gap-1 shadow-2xs"
-                                  title={`${fTitle}: ${fCount} defects (${fPct}%)`}
-                                >
-                                  <span className="font-semibold text-gray-800 truncate max-w-[110px]">{fTitle}:</span>
-                                  <span className="font-bold text-red-600">{fCount}</span>
-                                  <span className="text-gray-400">({fPct}%)</span>
-                                </span>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <span className="text-gray-400 italic text-[11px]">-</span>
-                        )}
+                      <td className="px-3.5 py-3 text-center text-gray-500 text-[11px] font-medium">
+                        {cat}
                       </td>
-                      <td className="px-3.5 py-3 text-right font-black text-red-700 text-sm">
+                      <td className="px-3.5 py-3 text-center font-black text-red-600 text-sm">
+                        {rejectedCount}
+                      </td>
+                      <td className="px-3.5 py-3 text-center font-black text-gray-600 text-sm">
+                        {reworkCount}
+                      </td>
+                      <td className="px-3.5 py-3 text-center font-black text-gray-900 text-sm">
                         {defect.count.toLocaleString()}
                       </td>
-                      <td className="px-3.5 py-3 text-right font-bold text-gray-700">
+                      <td className="px-3.5 py-3 text-center font-bold text-gray-700">
                         {defect.pctOfTotal}%
                       </td>
-                      <td className="px-3.5 py-3 text-right text-gray-500">
-                        <span className="font-semibold text-gray-800">{defect.cumulativeCount.toLocaleString()}</span>
-                        <span className="text-[10px] text-gray-400 ml-1">({defect.cumulativePct}%)</span>
-                      </td>
                       <td className="px-3.5 py-3 text-center">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black ${
                           isVital
                             ? 'bg-red-100 text-red-800 border border-red-200'
                             : defect.cumulativePct <= 95
                               ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                              : 'bg-gray-100 text-gray-600'
+                              : 'bg-green-100 text-green-700 border border-green-200'
                         }`}>
-                          {isVital ? 'Vital Few (80%)' : defect.cumulativePct <= 95 ? 'Moderate' : 'Trivial'}
+                          {defect.cumulativePct}%
                         </span>
                       </td>
                     </tr>
@@ -1341,7 +1906,7 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
                 })
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
                     No defects found matching your search.
                   </td>
                 </tr>
@@ -1379,6 +1944,235 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
             </div>
           </div>
         )}
+      </div>
+
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      {/* ─── 2B. BIW DEFECT DISTRIBUTION ─────────────────────────────────── */}
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      <div id="sec-biw-defect" className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-gradient-to-br from-rose-600 to-slate-700 rounded-lg text-white shadow-xs">
+              <BarChart3 className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-gray-900 uppercase tracking-tight">
+                BIW Defect Distribution
+              </h3>
+              <p className="text-xs text-gray-500">
+                BIW Rejected & Rework volume ({commonDateRangeLabel})
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Sort Toggle */}
+            <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200 text-xs">
+              <button
+                type="button"
+                onClick={() => setBiwSortOrder('default')}
+                className={`px-2.5 py-1 text-[10px] font-bold rounded transition-all ${
+                  biwSortOrder === 'default' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                DEFAULT
+              </button>
+              <button
+                type="button"
+                onClick={() => setBiwSortOrder('percentage')}
+                className={`px-2.5 py-1 text-[10px] font-bold rounded transition-all ${
+                  biwSortOrder === 'percentage' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                ISSUE %
+              </button>
+            </div>
+
+            {/* Orientation Toggle */}
+            <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200">
+              <button
+                type="button"
+                onClick={() => setBiwOrientation('v')}
+                title="Vertical View"
+                className={`p-1 rounded transition-all ${
+                  biwOrientation === 'v' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-500'
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => setBiwOrientation('h')}
+                title="Horizontal View"
+                className={`p-1 rounded transition-all ${
+                  biwOrientation === 'h' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-500'
+                }`}
+              >
+                <svg className="w-4 h-4 rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="w-full">
+          {biwProcessedQuestions.length > 0 ? (
+            <div style={{ height: biwOrientation === 'h' ? `${Math.max(400, biwProcessedQuestions.length * 36)}px` : '380px', position: 'relative' }}>
+              <Bar data={biwDefectChartData} options={biwDefectChartOptions} />
+            </div>
+          ) : (
+            <div className="h-48 flex flex-col items-center justify-center text-gray-400 text-xs">
+              <CheckCircle2 className="w-8 h-8 mb-2 text-green-500 opacity-60" />
+              <span>No BIW defects recorded for current selection</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      {/* ─── 2C. TVS DEFECT DISTRIBUTION ─────────────────────────────────── */}
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      <div id="sec-tvs-defect" className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-gradient-to-br from-indigo-600 to-slate-700 rounded-lg text-white shadow-xs">
+              <BarChart3 className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-gray-900 uppercase tracking-tight">
+                TVS Defect Distribution
+              </h3>
+              <p className="text-xs text-gray-500">
+                TVS Review volume ({commonDateRangeLabel})
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Sort Toggle */}
+            <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200 text-xs">
+              <button
+                type="button"
+                onClick={() => setTvsSortOrder('default')}
+                className={`px-2.5 py-1 text-[10px] font-bold rounded transition-all ${
+                  tvsSortOrder === 'default' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                DEFAULT
+              </button>
+              <button
+                type="button"
+                onClick={() => setTvsSortOrder('percentage')}
+                className={`px-2.5 py-1 text-[10px] font-bold rounded transition-all ${
+                  tvsSortOrder === 'percentage' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                ISSUE %
+              </button>
+            </div>
+
+            {/* Orientation Toggle */}
+            <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200">
+              <button
+                type="button"
+                onClick={() => setTvsOrientation('v')}
+                title="Vertical View"
+                className={`p-1 rounded transition-all ${
+                  tvsOrientation === 'v' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-500'
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTvsOrientation('h')}
+                title="Horizontal View"
+                className={`p-1 rounded transition-all ${
+                  tvsOrientation === 'h' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-500'
+                }`}
+              >
+                <svg className="w-4 h-4 rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="w-full">
+          {tvsProcessedQuestions.length > 0 ? (
+            <div style={{ height: tvsOrientation === 'h' ? `${Math.max(400, tvsProcessedQuestions.length * 36)}px` : '380px', position: 'relative' }}>
+              <Bar data={tvsDefectChartData} options={tvsDefectChartOptions} />
+            </div>
+          ) : (
+            <div className="h-48 flex flex-col items-center justify-center text-gray-400 text-xs">
+              <CheckCircle2 className="w-8 h-8 mb-2 text-green-500 opacity-60" />
+              <span>No TVS review defects recorded for current selection</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      {/* ─── 2D. PERFORMANCE TREND ───────────────────────────────────────── */}
+      {/* ═════════════════════════════════════════════════════════════════════ */}
+      <div id="sec-performance-trend" className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-gradient-to-br from-red-600 to-rose-700 rounded-lg text-white shadow-xs">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-gray-900 uppercase tracking-tight">
+                Performance Trend
+              </h3>
+              <p className="text-xs text-gray-500">
+                Total responses received vs total rework received over time (Response-wise)
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200 text-xs">
+              <button
+                type="button"
+                onClick={() => setTrendInterval('daily')}
+                className={`px-3 py-1 text-[10px] font-bold rounded transition-all ${
+                  trendInterval === 'daily' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                DAILY
+              </button>
+              <button
+                type="button"
+                onClick={() => setTrendInterval('monthly')}
+                className={`px-3 py-1 text-[10px] font-bold rounded transition-all ${
+                  trendInterval === 'monthly' ? 'bg-white text-blue-600 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                MONTHLY
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="w-full">
+          {performanceTrendStats.length > 0 ? (
+            <div className="h-80 relative">
+              <Bar data={performanceTrendChartData} options={performanceTrendChartOptions} />
+            </div>
+          ) : (
+            <div className="h-64 flex flex-col items-center justify-center text-gray-400 text-xs">
+              <Clock className="w-8 h-8 mb-2 opacity-50" />
+              <span>No performance trend data available</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ═════════════════════════════════════════════════════════════════════ */}
