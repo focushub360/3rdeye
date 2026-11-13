@@ -731,6 +731,8 @@ export default function DashboardNew() {
   const [showBiwTable, setShowBiwTable] = useState(true);
   const [biwResponses, setBiwResponses] = useState<any[]>([]);
   const [overallBiwSummary, setOverallBiwSummary] = useState<any>(null);
+  const [allTimeBiwSummary, setAllTimeBiwSummary] = useState<any>(null);
+  const [allTimeBiwResponses, setAllTimeBiwResponses] = useState<any[]>([]);
   const [biwLoading, setBiwLoading] = useState(false);
   const [biwPage, setBiwPage] = useState(1);
   const [biwPageSize, setBiwPageSize] = useState(10);
@@ -748,7 +750,37 @@ export default function DashboardNew() {
     setBiwPage(1);
   }, [summaryStartDate, summaryEndDate]);
 
-  // Fetch BIW summary data for dashboard
+  // Fetch all-time BIW summary specifically for Performance Summary and Overall BIW chart
+  useEffect(() => {
+    if (!showBiwTable || !user) return;
+
+    const fetchAllTimeBiw = async () => {
+      try {
+        const tenantId = selectedTenant?._id || selectedTenant?.id;
+        const response = (await apiClient.getBiwSummary({
+          tenantId: tenantId ? String(tenantId) : undefined,
+          forceNetwork: true,
+        })) as any;
+
+        const raw = response?.data?.data !== undefined ? response.data.data : (response?.data !== undefined ? response.data : response);
+        const data = Array.isArray(raw)
+          ? raw
+          : (Array.isArray(raw?.inspectors) ? raw.inspectors : (Array.isArray(response) ? response : []));
+        const summary = response?.summary || response?.data?.summary || null;
+
+        setAllTimeBiwResponses(data);
+        if (summary) {
+          setAllTimeBiwSummary(summary);
+        }
+      } catch (err) {
+        console.error("Error fetching all-time BIW summary:", err);
+      }
+    };
+
+    fetchAllTimeBiw();
+  }, [showBiwTable, user, selectedTenant?._id, selectedTenant?.id]);
+
+  // Fetch date-filtered BIW summary data for BIW Review Table
   useEffect(() => {
     if (!showBiwTable || !user) return;
 
@@ -2068,6 +2100,26 @@ export default function DashboardNew() {
     return { ...t, totalReviewed: reviewed, performanceScore: score };
   }, [biwReviewTableData]);
 
+  const allTimeBiwTotals = useMemo(() => {
+    if (!allTimeBiwResponses || allTimeBiwResponses.length === 0) {
+      return { accepted: 0, rejected: 0, rework: 0, totalSubmitted: 0, dispatched: 0, totalReviewed: 0, performanceScore: 100 };
+    }
+    const t = allTimeBiwResponses.reduce(
+      (acc: any, row: any) => {
+        acc.accepted += row.accepted || 0;
+        acc.rejected += row.rejected || 0;
+        acc.rework += row.rework || 0;
+        acc.totalSubmitted += row.totalSubmitted || 0;
+        acc.dispatched += row.dispatched || 0;
+        return acc;
+      },
+      { accepted: 0, rejected: 0, rework: 0, totalSubmitted: 0, dispatched: 0 }
+    );
+    const reviewed = t.accepted + t.rejected + t.rework;
+    const score = reviewed > 0 ? Math.round((t.accepted / reviewed) * 100) : 100;
+    return { ...t, totalReviewed: reviewed, performanceScore: score };
+  }, [allTimeBiwResponses]);
+
   const currentSummaryStats = useMemo(() => {
     if (summaryFormFilter !== "all" && formSpecificBiwSummary) {
       const selectedForm = availableFormsForTenant.find((f: any) => (f._id || f.id) === summaryFormFilter);
@@ -2089,14 +2141,14 @@ export default function DashboardNew() {
 
     const tenantStat = (selectedTenant && tenantStats[selectedTenant._id]) || {
       totalForms: availableFormsForTenant.length,
-      totalResponses: overallBiwSummary?.totalSubmitted || overallBiwTotals.totalSubmitted || 0,
-      performanceScore: overallBiwSummary?.performanceScore || overallBiwTotals.performanceScore || 100,
+      totalResponses: allTimeBiwSummary?.totalSubmitted || allTimeBiwTotals.totalSubmitted || 0,
+      performanceScore: allTimeBiwSummary?.performanceScore || allTimeBiwTotals.performanceScore || 100,
     };
 
-    // Use overallBiwSummary if available from backend, falling back to overallBiwTotals
-    const biwAgg = (overallBiwSummary && overallBiwSummary.totalReviewed !== undefined)
-      ? overallBiwSummary
-      : overallBiwTotals;
+    // Use all-time BIW summary so Performance Summary always reflects all-time metrics across all forms
+    const biwAgg = (allTimeBiwSummary && allTimeBiwSummary.totalReviewed !== undefined)
+      ? allTimeBiwSummary
+      : (allTimeBiwTotals.totalReviewed > 0 ? allTimeBiwTotals : (overallBiwSummary || overallBiwTotals));
 
     const accepted = biwAgg.accepted || 0;
     const rejected = biwAgg.rejected || 0;
@@ -2104,13 +2156,10 @@ export default function DashboardNew() {
     const reviewed = biwAgg.totalReviewed ?? (accepted + rejected + rework);
     const score = biwAgg.performanceScore ?? (reviewed > 0 ? Math.round((accepted / reviewed) * 100) : 100);
 
-    const isDateFiltered = Boolean(summaryStartDate || summaryEndDate);
-    const totalSubmitted = isDateFiltered ? (biwAgg.totalSubmitted || 0) : (tenantStat.totalResponses || biwAgg.totalSubmitted || 0);
-
     return {
-      isFiltered: isDateFiltered,
+      isFiltered: false,
       formTitle: "All Forms",
-      totalSubmitted,
+      totalSubmitted: tenantStat.totalResponses || biwAgg.totalSubmitted || 0,
       totalReviewed: reviewed,
       accepted,
       rejected,
@@ -2119,7 +2168,7 @@ export default function DashboardNew() {
       performanceScore: score,
       totalForms: availableFormsForTenant.length || tenantStat.totalForms || 0,
     };
-  }, [summaryFormFilter, formSpecificBiwSummary, availableFormsForTenant, selectedTenant, tenantStats, overallBiwTotals, overallBiwSummary]);
+  }, [summaryFormFilter, formSpecificBiwSummary, availableFormsForTenant, selectedTenant, tenantStats, allTimeBiwTotals, allTimeBiwSummary, overallBiwTotals, overallBiwSummary]);
 
   const renderFormCards = () => {
     console.log("Rendering form cards...");
@@ -3219,9 +3268,9 @@ export default function DashboardNew() {
             </div>
           )}
 
-          {/* Overall BIW Pie Chart - Shown for admins when BIW data is loaded */}
-          {!isSuperAdmin && showBiwTable && biwReviewTableData.length > 0 && (
-            <OverallBiwPieChart biwData={biwReviewTableData} />
+          {/* Overall BIW Pie Chart - Always shows all-time real metrics across all forms */}
+          {!isSuperAdmin && showBiwTable && (allTimeBiwResponses.length > 0 || biwReviewTableData.length > 0) && (
+            <OverallBiwPieChart biwData={allTimeBiwResponses.length > 0 ? allTimeBiwResponses : biwReviewTableData} />
           )}
 
           {/* New Review Breakdown Chart - Show for all users when data is available */}
