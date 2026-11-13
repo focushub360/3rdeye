@@ -54,6 +54,9 @@ test-*.cjs
 *.test.cjs
 *.append.txt
 
+# Technical documentation (local only)
+TECHNICAL_DOCUMENTATION.md
+
 # backups & uploads
 backups/
 3w-wheeler-backend/backups/

@@ -65,11 +65,28 @@ interface TenantStats {
 }
 
 // ─── Overall BIW Pie Chart ────────────────────────────────────────────────────
-const OverallBiwPieChart = ({ biwData }: { biwData: any[] }) => {
+const OverallBiwPieChart = ({
+  biwData,
+  summary,
+  totalSubmissions,
+}: {
+  biwData: any[];
+  summary?: any;
+  totalSubmissions?: number;
+}) => {
   const [hoveredSegment, setHoveredSegment] = useState<string | null>(null);
 
   const totals = useMemo(() => {
-    return biwData.reduce(
+    if (summary && summary.totalReviewed !== undefined) {
+      return {
+        accepted: summary.accepted || 0,
+        rejected: summary.rejected || 0,
+        rework: summary.rework || 0,
+        totalSubmitted: totalSubmissions || summary.totalSubmitted || summary.totalResponses || 0,
+        dispatched: summary.dispatched || 0,
+      };
+    }
+    const computed = biwData.reduce(
       (acc, row) => {
         acc.accepted += row.accepted || 0;
         acc.rejected += row.rejected || 0;
@@ -80,13 +97,17 @@ const OverallBiwPieChart = ({ biwData }: { biwData: any[] }) => {
       },
       { accepted: 0, rejected: 0, rework: 0, totalSubmitted: 0, dispatched: 0 },
     );
-  }, [biwData]);
+    if (totalSubmissions) {
+      computed.totalSubmitted = totalSubmissions;
+    }
+    return computed;
+  }, [biwData, summary, totalSubmissions]);
 
   const totalReviewed = totals.accepted + totals.rejected + totals.rework;
   const overallScore =
     totalReviewed > 0
       ? Math.round((totals.accepted / totalReviewed) * 100)
-      : 0;
+      : (summary?.performanceScore ?? 100);
 
   const chartData = {
     labels: ["Accepted", "Rejected", "Rework"],
@@ -345,7 +366,7 @@ const OverallBiwPieChart = ({ biwData }: { biwData: any[] }) => {
                 Inspectors
               </p>
               <p className="text-xl font-black text-gray-900 dark:text-white">
-                {biwData.length}
+                {(summary?.inspectors || biwData.length || 0).toLocaleString()}
               </p>
             </div>
           </div>
@@ -2139,7 +2160,7 @@ export default function DashboardNew() {
       };
     }
 
-    const tenantStat = (selectedTenant && tenantStats[selectedTenant._id]) || {
+    const tenantStat = (selectedTenant && (tenantStats[selectedTenant._id] || tenantStats[selectedTenant.id] || tenantStats[selectedTenant.slug])) || {
       totalForms: availableFormsForTenant.length,
       totalResponses: allTimeBiwSummary?.totalSubmitted || allTimeBiwTotals.totalSubmitted || 0,
       performanceScore: allTimeBiwSummary?.performanceScore || allTimeBiwTotals.performanceScore || 100,
@@ -3269,8 +3290,12 @@ export default function DashboardNew() {
           )}
 
           {/* Overall BIW Pie Chart - Always shows all-time real metrics across all forms */}
-          {!isSuperAdmin && showBiwTable && (allTimeBiwResponses.length > 0 || biwReviewTableData.length > 0) && (
-            <OverallBiwPieChart biwData={allTimeBiwResponses.length > 0 ? allTimeBiwResponses : biwReviewTableData} />
+          {!isSuperAdmin && showBiwTable && (allTimeBiwResponses.length > 0 || biwReviewTableData.length > 0 || allTimeBiwSummary) && (
+            <OverallBiwPieChart
+              biwData={allTimeBiwResponses.length > 0 ? allTimeBiwResponses : biwReviewTableData}
+              summary={allTimeBiwSummary || overallBiwSummary}
+              totalSubmissions={currentSummaryStats.totalSubmitted}
+            />
           )}
 
           {/* New Review Breakdown Chart - Show for all users when data is available */}
