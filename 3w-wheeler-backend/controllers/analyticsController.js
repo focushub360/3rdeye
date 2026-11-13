@@ -3358,7 +3358,7 @@ export const getQualitySummary = async (req, res) => {
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
     const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
-    const cacheKey = `quality_summary_v19_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v20_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers?.['cache-control'] === 'no-cache';
     if (!shouldBypassCache) {
       const cached = appCache.get(cacheKey);
@@ -4153,19 +4153,25 @@ export const getQualitySummary = async (req, res) => {
         defectRate: dRate,
         totalInspectors: inspectorSet.size,
         inspectors: Array.from(inspectorSet),
-        lastInspectionDate: lastDate ? new Date(lastDate).toISOString().split('T')[0] : null
+        lastInspectionDate: lastDate ? new Date(lastDate).toISOString().split('T')[0] : null,
+        masterTotal: (masterFormCounts[f.id] || 0) + (masterFormCounts[f._id?.toString()] || 0)
       };
     }).sort((a, b) => b.totalChecked - a.totalChecked);
 
+    const isDateFiltered = Boolean(startDate || endDate);
     const formOptions = accessibleForms.map(f => {
       const idStr = f.id ? f.id.toString() : '';
       const mongoIdStr = f._id ? f._id.toString() : '';
       const mCount = (masterFormCounts[idStr] || 0) + (masterFormCounts[mongoIdStr] || 0);
+      const activeMetric = formMetricMap[idStr] || formMetricMap[mongoIdStr];
+      const activeCount = activeMetric ? (activeMetric.totalChecked || 0) : 0;
       return {
         id: idStr || mongoIdStr,
         _id: mongoIdStr,
         title: f.title,
-        totalChecked: mCount
+        totalChecked: isDateFiltered ? activeCount : mCount,
+        activeChecked: activeCount,
+        masterTotal: mCount
       };
     }).sort((a, b) => b.totalChecked - a.totalChecked);
 
@@ -4473,6 +4479,7 @@ export const getQualitySummary = async (req, res) => {
       data: {
         summary: {
           totalChecked,
+          masterTotalChecked: Object.values(masterFormCounts).reduce((s, v) => s + v, 0),
           totalAccepted,
           totalDefects,
           totalRework1,

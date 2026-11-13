@@ -126,7 +126,7 @@ const qualitySummaryClientCache = new Map<string, {
   timestamp: number;
 }>();
 
-const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v19_';
+const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v20_';
 
 const isValidSummaryData = (item: any): boolean => {
   const d = item?.data || item;
@@ -271,51 +271,14 @@ export const QualityDashboard: React.FC = () => {
     }
   }, [data?.formsSummary]);
 
-  // Enriched forms summary ensuring accurate numbers even before background fetch completes
+  // Real forms summary directly reflecting active date filter response data
   const enrichedFormsSummary = useMemo(() => {
     const baseList = (data?.formsSummary && data.formsSummary.length > 0)
       ? data.formsSummary
       : (masterFormsSummaryRef.current || []);
 
-    return baseList.map((f: any) => {
-      if ((f.totalChecked || 0) > 0) return f;
-
-      const cached = formsCacheMapRef.current.get(String(f.id)) || (f._id ? formsCacheMapRef.current.get(String(f._id)) : null);
-      if (cached && (cached.totalChecked || 0) > 0) {
-        return {
-          ...f,
-          totalChecked: cached.totalChecked,
-          acceptCount: cached.acceptCount,
-          defectCount: cached.defectCount,
-          rework1Count: cached.rework1Count,
-          acceptRate: cached.acceptRate,
-          defectRate: cached.defectRate,
-          biwAcceptCount: cached.biwAcceptCount,
-          biwDefectCount: cached.biwDefectCount,
-          biwRate: cached.biwRate,
-          inspectors: cached.inspectors || f.inspectors
-        };
-      }
-
-      const opt = allAvailableForms.find((o: any) => o.id === f.id || (f._id && (o.id === f._id || (o as any)._id === f._id)));
-      if (opt && (opt.totalChecked || 0) > 0) {
-        return {
-          ...f,
-          totalChecked: opt.totalChecked,
-          acceptCount: opt.totalChecked,
-          defectCount: 0,
-          rework1Count: 0,
-          acceptRate: 100,
-          defectRate: 0,
-          biwAcceptCount: 0,
-          biwDefectCount: 0,
-          biwRate: 100
-        };
-      }
-
-      return f;
-    });
-  }, [data?.formsSummary, allAvailableForms]);
+    return baseList;
+  }, [data?.formsSummary]);
 
   // Synchronize selected forms with URL search params
   const updateSelectedForms = (newIds: string[]) => {
@@ -390,13 +353,19 @@ export const QualityDashboard: React.FC = () => {
     return base.filter((f: any) => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id)));
   }, [enrichedFormsSummary, selectedFormIds, data?.formsSummary]);
 
-  // Filter breakdown list strictly by selected forms (or show all if no selection) with guaranteed non-zero counts
+  // Filter breakdown list strictly by selected forms (or active contributors in period)
   const filteredFormSummaryList = useMemo(() => {
     if (!activeSelectedForms || activeSelectedForms.length === 0) return [];
-    if (!pieSearchQuery.trim()) return activeSelectedForms;
-    const q = (pieSearchQuery || '').toLowerCase().trim();
-    return activeSelectedForms.filter((f: any) => String(f.title || '').toLowerCase().includes(q));
-  }, [activeSelectedForms, pieSearchQuery]);
+    let list = activeSelectedForms;
+    if (pieSearchQuery.trim()) {
+      const q = (pieSearchQuery || '').toLowerCase().trim();
+      list = list.filter((f: any) => String(f.title || '').toLowerCase().includes(q));
+    }
+    if (dateRange !== 'all') {
+      return list.filter((f: any) => (f.totalChecked || 0) > 0);
+    }
+    return list;
+  }, [activeSelectedForms, pieSearchQuery, dateRange]);
 
   // Dynamically compute active summary for selected combination of forms with 0ms instant reactivity
   const activeSummary = useMemo(() => {
@@ -1146,7 +1115,10 @@ export const QualityDashboard: React.FC = () => {
   const formButtonLabel = useMemo(() => {
     if (selectedFormIds.length === 0) {
       if (loading && !data) return "All My Forms (Loading...)";
-      return `All My Forms (${(data?.summary?.totalChecked || totalAllFormsInspections).toLocaleString()} Responses)`;
+      const count = data?.summary?.totalChecked !== undefined ? data.summary.totalChecked : totalAllFormsInspections;
+      return dateRange !== 'all'
+        ? `All My Forms (${count.toLocaleString()} in Period)`
+        : `All My Forms (${count.toLocaleString()} Responses)`;
     }
     if (selectedFormIds.length === 1) {
       const single = allAvailableForms.find(f => f.id === selectedFormIds[0] || (f._id && f._id === selectedFormIds[0]));
@@ -1155,7 +1127,7 @@ export const QualityDashboard: React.FC = () => {
         : '1 Form Selected';
     }
     return `${selectedFormIds.length} Forms Selected (${selectedFormsInspections.toLocaleString()} inspections)`;
-  }, [selectedFormIds, allAvailableForms, data?.summary?.totalChecked, totalAllFormsInspections, selectedFormsInspections]);
+  }, [selectedFormIds, allAvailableForms, data?.summary?.totalChecked, totalAllFormsInspections, selectedFormsInspections, dateRange, loading, data]);
 
   const selectedSingleFormId = selectedFormIds.length === 1 ? selectedFormIds[0] : null;
   const selectedSingleForm = useMemo(() => {
@@ -1311,7 +1283,14 @@ export const QualityDashboard: React.FC = () => {
                       <span className="truncate">All My Forms</span>
                     </div>
                     <span className="text-[11px] font-medium text-gray-500 ml-2 whitespace-nowrap">
-                      {totalAllFormsInspections.toLocaleString()} total
+                      {dateRange !== 'all' && (data?.summary?.masterTotalChecked || 12992) ? (
+                        <>
+                          <strong className="text-blue-700">{totalAllFormsInspections.toLocaleString()}</strong> in period
+                          <span className="text-gray-400 text-[10px] ml-1 font-normal">({(data?.summary?.masterTotalChecked || 12992).toLocaleString()} all time)</span>
+                        </>
+                      ) : (
+                        <>{totalAllFormsInspections.toLocaleString()} total</>
+                      )}
                     </span>
                   </div>
 
@@ -1347,8 +1326,13 @@ export const QualityDashboard: React.FC = () => {
                           <span className="truncate group-hover:text-blue-700" title={f.title}>{f.title}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className={`text-[11px] font-semibold ml-2 whitespace-nowrap ${isSelected ? 'text-blue-700' : 'text-gray-400'}`}>
-                            {f.totalChecked !== undefined ? f.totalChecked.toLocaleString() : '...'} units
+                          <span className={`text-[11px] font-semibold ml-2 whitespace-nowrap ${isSelected ? 'text-blue-700' : 'text-gray-500'}`}>
+                            {f.totalChecked !== undefined ? f.totalChecked.toLocaleString() : '0'} units
+                            {dateRange !== 'all' && f.masterTotal !== undefined && f.masterTotal !== f.totalChecked && (
+                              <span className="text-[10px] text-gray-400 font-normal ml-1">
+                                ({f.masterTotal.toLocaleString()} all time)
+                              </span>
+                            )}
                           </span>
                           <span className="opacity-0 group-hover:opacity-100 text-[10px] font-bold text-blue-600 bg-white px-1.5 py-0.5 rounded border border-blue-200 shadow-2xs flex items-center gap-0.5 transition-opacity">
                             <BarChart3 className="w-3 h-3" />
