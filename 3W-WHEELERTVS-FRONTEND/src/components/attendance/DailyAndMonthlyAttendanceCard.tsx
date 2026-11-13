@@ -91,8 +91,14 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
         month: currentMonth,
         year: currentYear,
       });
-      if (response?.data) {
-        setData(response.data);
+      const summaryData = (response as any)?.data || response;
+      if (
+        summaryData &&
+        (summaryData.monthName ||
+          summaryData.records ||
+          summaryData.totalWorkingHours !== undefined)
+      ) {
+        setData(summaryData);
       }
     } catch (error) {
       console.error("[DailyAndMonthlyAttendanceCard] Error fetching monthly data:", error);
@@ -103,7 +109,7 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
 
   useEffect(() => {
     fetchMonthlyData();
-  }, [fetchMonthlyData, isCheckedIn]);
+  }, [fetchMonthlyData, isCheckedIn, checkInTime]);
 
   const handlePrevMonth = () => {
     if (currentMonth === 1) {
@@ -256,6 +262,16 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
             </button>
           </div>
 
+          {/* Refresh Button */}
+          <button
+            onClick={() => fetchMonthlyData()}
+            title="Refresh Attendance Data"
+            disabled={loading}
+            className="p-2 bg-gray-100 dark:bg-gray-700/80 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-xl text-slate-700 dark:text-slate-200 transition-colors border border-gray-300 dark:border-gray-600 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-purple-600" : ""}`} />
+          </button>
+
           {/* Punch Button */}
           <button
             type="button"
@@ -316,7 +332,7 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
             <div>
               <div className="flex items-baseline gap-1.5">
                 <span className="text-2xl font-extrabold text-slate-900 dark:text-white tabular-nums">
-                  {loading ? "--" : data?.totalWorkingHours?.toFixed(1) || "0.0"}
+                  {loading ? "--" : (data?.totalWorkingHours !== undefined ? data.totalWorkingHours.toFixed(1) : "0.0")}
                 </span>
                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
                   / {data?.targetMonthlyHours || 160} hrs
@@ -330,7 +346,9 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
                 ></div>
               </div>
               <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mt-2">
-                {data?.targetMonthlyHours && data.targetMonthlyHours > data.totalWorkingHours
+                {!data || (data.totalWorkingHours || 0) === 0
+                  ? "No working hours logged yet this month"
+                  : data.targetMonthlyHours && data.targetMonthlyHours > data.totalWorkingHours
                   ? `${(data.targetMonthlyHours - data.totalWorkingHours).toFixed(1)} hrs remaining this month`
                   : "Monthly target achieved!"}
               </p>
@@ -354,7 +372,7 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
                   {loading ? "--" : data?.presentDays || 0}
                 </span>
                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                  / {data?.workingDaysSoFar || data?.currentDay || 1} days so far
+                  / {data?.workingDaysSoFar || data?.currentDay || (currentMonth === new Date().getMonth() + 1 ? new Date().getDate() : data?.daysInMonth || 30)} days so far
                 </span>
               </div>
               <div className="w-full h-2 bg-emerald-200 dark:bg-emerald-900/50 rounded-full mt-2.5 overflow-hidden">
@@ -364,7 +382,7 @@ export const DailyAndMonthlyAttendanceCard: React.FC<
                 ></div>
               </div>
               <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mt-2">
-                {data?.totalWorkingDaysInMonth || 26} total scheduled days in {data?.monthName || "month"}
+                {data?.totalWorkingDaysInMonth || 26} total scheduled days in {data?.monthName || displayMonthName}
               </p>
             </div>
           </div>
