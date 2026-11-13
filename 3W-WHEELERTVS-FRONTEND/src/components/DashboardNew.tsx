@@ -600,12 +600,10 @@ export default function DashboardNew() {
   const [summaryStatuses, setSummaryStatuses] = useState<string[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryStartDate, setSummaryStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return d.toISOString().split("T")[0];
+    return "";
   });
   const [summaryEndDate, setSummaryEndDate] = useState(() => {
-    return new Date().toISOString().split("T")[0];
+    return "";
   });
   const [myReviewStats, setMyReviewStats] = useState<any>(() => {
     return apiClient.getCachedData("/analytics/my-review-stats") || null;
@@ -737,12 +735,10 @@ export default function DashboardNew() {
   const [biwPage, setBiwPage] = useState(1);
   const [biwPageSize, setBiwPageSize] = useState(10);
   const [biwStartDate, setBiwStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return d.toISOString().split("T")[0];
+    return "";
   });
   const [biwEndDate, setBiwEndDate] = useState(() => {
-    return new Date().toISOString().split("T")[0];
+    return "";
   });
 
   // Keep BIW table date range synchronized with Inspection Summary
@@ -815,13 +811,6 @@ export default function DashboardNew() {
         responseTenantId === currentTenant?.slug;
 
       if (!isSameTenant) return false;
-
-      const submittedBy = response.submittedBy || response.createdBy || "";
-      if (submittedBy === "Excel Import" ||
-        submittedBy === "System" ||
-        submittedBy === "Admin Import") {
-        return false;
-      }
 
       return true;
     });
@@ -2115,10 +2104,13 @@ export default function DashboardNew() {
     const reviewed = biwAgg.totalReviewed ?? (accepted + rejected + rework);
     const score = biwAgg.performanceScore ?? (reviewed > 0 ? Math.round((accepted / reviewed) * 100) : 100);
 
+    const isDateFiltered = Boolean(summaryStartDate || summaryEndDate);
+    const totalSubmitted = isDateFiltered ? (biwAgg.totalSubmitted || 0) : (tenantStat.totalResponses || biwAgg.totalSubmitted || 0);
+
     return {
-      isFiltered: false,
+      isFiltered: isDateFiltered,
       formTitle: "All Forms",
-      totalSubmitted: tenantStat.totalResponses || biwAgg.totalSubmitted || 0,
+      totalSubmitted,
       totalReviewed: reviewed,
       accepted,
       rejected,

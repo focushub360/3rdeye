@@ -3820,21 +3820,13 @@ export const getBiwSummary = async (req, res) => {
     });
 
     let respQuery = {};
-    if (formIdList.length > 0) {
-      respQuery = { questionId: { $in: resolvedFormIds } };
+    if (resolvedFormIds.length > 0) {
+      respQuery = { questionId: { $in: resolvedFormIds }, isSectionSubmit: { $ne: true } };
     } else if (effectiveTenantId) {
       const isValid = mongoose.Types.ObjectId.isValid(effectiveTenantId);
       const oid = isValid ? new mongoose.Types.ObjectId(String(effectiveTenantId)) : null;
       const tenantCondition = oid ? { $in: [effectiveTenantId, String(effectiveTenantId), oid] } : effectiveTenantId;
-
-      respQuery = {
-        $or: [
-          { tenantId: tenantCondition },
-          ...(resolvedFormIds.length > 0 ? [{ questionId: { $in: resolvedFormIds } }] : [])
-        ]
-      };
-    } else if (resolvedFormIds.length > 0) {
-      respQuery.questionId = { $in: resolvedFormIds };
+      respQuery = { tenantId: tenantCondition, isSectionSubmit: { $ne: true } };
     }
 
     // Add date filtering if startDate or endDate provided
@@ -3950,7 +3942,7 @@ export const getBiwSummary = async (req, res) => {
         {
           $match: {
             ...respQuery,
-            submittedBy: { $nin: [null, '', 'Excel Import', 'System', 'Admin Import', '-'] }
+            submittedBy: { $nin: [null, ''] }
           }
         },
         {
