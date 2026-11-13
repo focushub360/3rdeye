@@ -7217,6 +7217,38 @@ export default function FormAnalyticsDashboard({
     };
   }, [filteredResponses, dateFilter.startDate, dateFilter.endDate, dateFilter.type]);
 
+  const responseTrendSummary = useMemo(() => {
+    const dates = analytics?.dateRange || [];
+    const trendMap = analytics?.responseTrend || {};
+    const counts = dates.map((d) => trendMap[d] || 0);
+    const totalInPeriod = counts.reduce((sum, c) => sum + c, 0);
+    const activeDays = counts.filter((c) => c > 0).length;
+    const avgPerDay = dates.length > 0 ? (totalInPeriod / dates.length).toFixed(1) : "0";
+
+    let peakCount = 0;
+    let peakDate = "";
+    dates.forEach((d) => {
+      const c = trendMap[d] || 0;
+      if (c > peakCount) {
+        peakCount = c;
+        peakDate = d;
+      }
+    });
+
+    const formattedPeakDate = peakDate
+      ? new Date(peakDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      : "-";
+
+    return {
+      totalInPeriod,
+      avgPerDay,
+      peakCount,
+      formattedPeakDate,
+      activeDays,
+      totalDays: dates.length,
+    };
+  }, [analytics.dateRange, analytics.responseTrend]);
+
   // qualityChartResponses and sectionChartResponses used to be computed
   // separately, but they apply the exact same date-filter logic to the same
   // source array, making them identical. They were then each fed into a
@@ -13179,9 +13211,8 @@ export default function FormAnalyticsDashboard({
             <>
               <div className="w-full" id="summary-cards">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full">
-                  {/* Response Trend Chart - COMPACT */}
                   {/* Response Trend Chart */}
-                  <div className="p-6 bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-900 flex flex-col rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg hover:shadow-xl transition-shadow w-full">
+                  <div className="p-4 sm:p-6 bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-900 flex flex-col h-full rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg hover:shadow-xl transition-shadow w-full">
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center">
                         <div className="p-2 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg mr-2">
@@ -13192,7 +13223,7 @@ export default function FormAnalyticsDashboard({
                             Response Trend
                           </h3>
                           <p className="text-xs text-primary-500 dark:text-primary-400">
-                            Last 30 days
+                            {dateFilter.type === "all" ? "All Time Trend" : `Trend: ${commonDateRangeLabel}`}
                           </p>
                         </div>
                       </div>
@@ -13210,9 +13241,9 @@ export default function FormAnalyticsDashboard({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex-1 flex flex-col w-full">
+                      <div className="flex-1 flex flex-col justify-between w-full">
                         <div
-                          style={{ height: "293px", width: "100%", position: "relative" }} // ✅ Added width: 100%
+                          style={{ height: "260px", minHeight: "260px", width: "100%", position: "relative" }}
                           id="response-trend-chart"
                         >
                           <Line
@@ -13243,7 +13274,6 @@ export default function FormAnalyticsDashboard({
                             options={{
                               responsive: true,
                               maintainAspectRatio: false,
-                              // ✅ Add these to ensure full width
                               devicePixelRatio: 2,
                               interaction: {
                                 mode: "index" as const,
@@ -13313,6 +13343,61 @@ export default function FormAnalyticsDashboard({
                               },
                             }}
                           />
+                        </div>
+
+                        {/* Bottom: Trend Summary Metrics (matching height with Overall Inspection Trend boxes) */}
+                        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {/* Total In Period */}
+                          <div className="text-center p-2.5 bg-blue-50/60 dark:bg-blue-900/15 rounded-xl border border-blue-100/70 dark:border-blue-800/30 shadow-xs flex flex-col justify-center items-center h-[72px]">
+                            <div className="text-xs sm:text-sm font-bold text-blue-600 dark:text-blue-400">
+                              {responseTrendSummary.totalInPeriod}
+                            </div>
+                            <div className="text-[10px] sm:text-[11px] font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                              Submissions
+                            </div>
+                            <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                              ({responseTrendSummary.totalDays} Days)
+                            </div>
+                          </div>
+
+                          {/* Daily Average */}
+                          <div className="text-center p-2.5 bg-indigo-50/60 dark:bg-indigo-900/15 rounded-xl border border-indigo-100/70 dark:border-indigo-800/30 shadow-xs flex flex-col justify-center items-center h-[72px]">
+                            <div className="text-xs sm:text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                              {responseTrendSummary.avgPerDay} / day
+                            </div>
+                            <div className="text-[10px] sm:text-[11px] font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                              Daily Average
+                            </div>
+                            <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                              Inspection Pace
+                            </div>
+                          </div>
+
+                          {/* Peak Day Volume */}
+                          <div className="text-center p-2.5 bg-purple-50/60 dark:bg-purple-900/15 rounded-xl border border-purple-100/70 dark:border-purple-800/30 shadow-xs flex flex-col justify-center items-center h-[72px]">
+                            <div className="text-xs sm:text-sm font-bold text-purple-600 dark:text-purple-400">
+                              {responseTrendSummary.peakCount} units
+                            </div>
+                            <div className="text-[10px] sm:text-[11px] font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                              Peak Day Volume
+                            </div>
+                            <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium truncate max-w-full px-1">
+                              {responseTrendSummary.formattedPeakDate}
+                            </div>
+                          </div>
+
+                          {/* Active Days */}
+                          <div className="text-center p-2.5 bg-emerald-50/60 dark:bg-emerald-900/15 rounded-xl border border-emerald-100/70 dark:border-emerald-800/30 shadow-xs flex flex-col justify-center items-center h-[72px]">
+                            <div className="text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                              {responseTrendSummary.activeDays} / {responseTrendSummary.totalDays}
+                            </div>
+                            <div className="text-[10px] sm:text-[11px] font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                              Active Days
+                            </div>
+                            <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                              Production Days
+                            </div>
+                          </div>
                         </div>
                       </div>
                     )}

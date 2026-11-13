@@ -154,7 +154,7 @@ export default function CascadingFilterModal({
 
     if (question?.type === 'chassis-with-zone') {
       const zones = Array.isArray(answer.zone) ? answer.zone : [answer.zone];
-      return zones.some((z: string) => 
+      return zones.some((z: string) =>
         selectedAnswers.some(sel => String(z || '').toLowerCase() === String(sel || '').toLowerCase())
       );
     } else if (question?.type === 'chassis-without-zone') {
@@ -353,9 +353,8 @@ export default function CascadingFilterModal({
                   setExpandedLocation(false);
                   setExpandedQuestion(null);
                 }}
-                className={`w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 border rounded-lg flex items-center justify-between transition-colors ${
-                  expandedDateRange ? "border-indigo-400 ring-2 ring-indigo-100 dark:ring-indigo-900/30" : "border-gray-300"
-                }`}
+                className={`w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 border rounded-lg flex items-center justify-between transition-colors ${expandedDateRange ? "border-indigo-400 ring-2 ring-indigo-100 dark:ring-indigo-900/30" : "border-gray-300"
+                  }`}
               >
                 <div className="flex-1 text-left flex items-center gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5">
@@ -371,17 +370,16 @@ export default function CascadingFilterModal({
                       {isLast30DaysActive
                         ? "Last 30 Days (Default)"
                         : isLast7DaysActive
-                        ? "Last 7 Days"
-                        : isTodayActive
-                        ? "Today"
-                        : `${dateRange.startDate || "Start"} to ${dateRange.endDate || "End"}`}
+                          ? "Last 7 Days"
+                          : isTodayActive
+                            ? "Today"
+                            : `${dateRange.startDate || "Start"} to ${dateRange.endDate || "End"}`}
                     </span>
                   ) : null}
                 </div>
                 <ChevronDown
-                  className={`w-5 h-5 text-gray-600 transition-transform flex-shrink-0 ${
-                    expandedDateRange ? "transform rotate-180" : ""
-                  }`}
+                  className={`w-5 h-5 text-gray-600 transition-transform flex-shrink-0 ${expandedDateRange ? "transform rotate-180" : ""
+                    }`}
                 />
               </button>
 
@@ -396,11 +394,10 @@ export default function CascadingFilterModal({
                       <button
                         type="button"
                         onClick={() => setDateRange(getLast30DaysRange())}
-                        className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-center ${
-                          isLast30DaysActive
+                        className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-center ${isLast30DaysActive
                             ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20 ring-2 ring-indigo-400"
                             : "bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-indigo-600"
-                        }`}
+                          }`}
                         title="Show last 30 days data"
                       >
                         Last 30 Days (Default)
@@ -408,11 +405,10 @@ export default function CascadingFilterModal({
                       <button
                         type="button"
                         onClick={() => setDateRange({ startDate: "", endDate: "" })}
-                        className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-center flex items-center justify-center gap-1 ${
-                          isAllDataActive
+                        className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-center flex items-center justify-center gap-1 ${isAllDataActive
                             ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20 ring-2 ring-emerald-400"
                             : "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300"
-                        }`}
+                          }`}
                         title="Mark and show all data across all time"
                       >
                         <span>✓ Mark All Data</span>
@@ -420,11 +416,10 @@ export default function CascadingFilterModal({
                       <button
                         type="button"
                         onClick={() => setDateRange(getLast7DaysRange())}
-                        className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-center ${
-                          isLast7DaysActive
+                        className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-center ${isLast7DaysActive
                             ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20 ring-2 ring-indigo-400"
                             : "bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-indigo-600"
-                        }`}
+                          }`}
                         title="Show last 7 days data"
                       >
                         Last 7 Days
@@ -432,11 +427,10 @@ export default function CascadingFilterModal({
                       <button
                         type="button"
                         onClick={() => setDateRange(getTodayRange())}
-                        className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-center ${
-                          isTodayActive
+                        className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-center ${isTodayActive
                             ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20 ring-2 ring-indigo-400"
                             : "bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-indigo-600"
-                        }`}
+                          }`}
                         title="Show today's data"
                       >
                         Today
@@ -525,9 +519,8 @@ export default function CascadingFilterModal({
                   )}
                 </div>
                 <ChevronDown
-                  className={`w-5 h-5 text-gray-600 transition-transform flex-shrink-0 ${
-                    expandedLocation ? "transform rotate-180" : ""
-                  }`}
+                  className={`w-5 h-5 text-gray-600 transition-transform flex-shrink-0 ${expandedLocation ? "transform rotate-180" : ""
+                    }`}
                 />
               </button>
 
@@ -588,58 +581,57 @@ export default function CascadingFilterModal({
             <div className="flex-1 pr-2 relative" style={{ overflowY: "auto" }} onScroll={() => setExpandedQuestion(null)}>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative" style={{ overflow: "visible" }}>
                 {questions.length === 0 ? (
-                <div className="col-span-full text-center py-8 text-gray-500">
-                  No questions available
-                </div>
-              ) : (
-                questions.map((question) => {
-                  const isExpanded = expandedQuestion === question.id;
-                  const selectedAnswers = filters[question.id] || [];
+                  <div className="col-span-full text-center py-8 text-gray-500">
+                    No questions available
+                  </div>
+                ) : (
+                  questions.map((question) => {
+                    const isExpanded = expandedQuestion === question.id;
+                    const selectedAnswers = filters[question.id] || [];
 
-                  return (
-                    <div
-                      key={question.id}
-                      className="relative"
-                    >
-                      {/* Question Header */}
-                      <button
-                        onClick={(e) => {
-                          if (expandedQuestion === question.id) {
-                            setExpandedQuestion(null);
-                          } else {
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            setDropdownRect({
-                              top: rect.bottom,
-                              left: rect.left,
-                              width: rect.width
-                            });
-                            setExpandedQuestion(question.id);
-                            setExpandedDateRange(false);
-                            setExpandedLocation(false);
-                          }
-                        }}
-                        className="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 border border-gray-300 rounded-lg flex items-center justify-between transition-colors"
+                    return (
+                      <div
+                        key={question.id}
+                        className="relative"
                       >
-                        <div className="flex-1 text-left min-w-0 flex items-center gap-2">
-                          <p className="font-semibold text-gray-900 text-xs line-clamp-2 flex-1">
-                            {question.text || "Unnamed Question"}
-                          </p>
-                          {selectedAnswers.length > 0 && (
-                            <span className="flex-shrink-0 inline-flex items-center justify-center w-5 h-5 bg-indigo-600 text-white text-xs font-medium rounded-full">
-                              {selectedAnswers.length}
-                            </span>
-                          )}
-                        </div>
-                        <ChevronDown
-                          className={`w-4 h-4 text-gray-600 transition-transform flex-shrink-0 ml-2 ${
-                            isExpanded ? "transform rotate-180" : ""
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  );
-                })
-              )}
+                        {/* Question Header */}
+                        <button
+                          onClick={(e) => {
+                            if (expandedQuestion === question.id) {
+                              setExpandedQuestion(null);
+                            } else {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              setDropdownRect({
+                                top: rect.bottom,
+                                left: rect.left,
+                                width: rect.width
+                              });
+                              setExpandedQuestion(question.id);
+                              setExpandedDateRange(false);
+                              setExpandedLocation(false);
+                            }
+                          }}
+                          className="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 border border-gray-300 rounded-lg flex items-center justify-between transition-colors"
+                        >
+                          <div className="flex-1 text-left min-w-0 flex items-center gap-2">
+                            <p className="font-semibold text-gray-900 text-xs line-clamp-2 flex-1">
+                              {question.text || "Unnamed Question"}
+                            </p>
+                            {selectedAnswers.length > 0 && (
+                              <span className="flex-shrink-0 inline-flex items-center justify-center w-5 h-5 bg-indigo-600 text-white text-xs font-medium rounded-full">
+                                {selectedAnswers.length}
+                              </span>
+                            )}
+                          </div>
+                          <ChevronDown
+                            className={`w-4 h-4 text-gray-600 transition-transform flex-shrink-0 ml-2 ${isExpanded ? "transform rotate-180" : ""
+                              }`}
+                          />
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           </div>
@@ -673,7 +665,7 @@ export default function CascadingFilterModal({
         {expandedQuestion && dropdownRect && (() => {
           const question = questions.find(q => q.id === expandedQuestion);
           if (!question) return null;
-          
+
           const selectedAnswers = filters[question.id] || [];
           const searchTerm = searchTerms[question.id] || "";
           const availableAnswers = getAvailableAnswersForQuestion(question.id);
@@ -684,7 +676,7 @@ export default function CascadingFilterModal({
           return (
             <>
               <div className="fixed inset-0 z-[55]" onClick={() => setExpandedQuestion(null)} />
-              <div 
+              <div
                 className="fixed bg-white border border-gray-300 rounded-lg p-3 z-[60] shadow-xl flex flex-col"
                 style={{
                   top: dropdownRect.top + 4,
@@ -757,15 +749,13 @@ export default function CascadingFilterModal({
                       return (
                         <label
                           key={answer}
-                          className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 group/label ${
-                            isSelected 
-                              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 translate-x-1' 
+                          className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 group/label ${isSelected
+                              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 translate-x-1'
                               : 'hover:bg-indigo-50 text-gray-700 hover:text-indigo-700'
-                          }`}
+                            }`}
                         >
-                          <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
-                            isSelected ? 'bg-white border-white' : 'bg-white border-gray-300 group-hover/label:border-indigo-500'
-                          }`}>
+                          <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-white border-white' : 'bg-white border-gray-300 group-hover/label:border-indigo-500'
+                            }`}>
                             <input
                               type="checkbox"
                               checked={isSelected}
@@ -776,16 +766,15 @@ export default function CascadingFilterModal({
                               <div className="w-2.5 h-2.5 bg-indigo-600 rounded-[2px]" />
                             )}
                           </div>
-                          
+
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-bold truncate">
                               {answer}
                             </p>
                           </div>
-                          
-                          <span className={`text-[10px] font-black tracking-widest px-2 py-0.5 rounded-full ${
-                            isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500 group-hover/label:bg-indigo-100 group-hover/label:text-indigo-600'
-                          }`}>
+
+                          <span className={`text-[10px] font-black tracking-widest px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500 group-hover/label:bg-indigo-100 group-hover/label:text-indigo-600'
+                            }`}>
                             {count}
                           </span>
                         </label>
