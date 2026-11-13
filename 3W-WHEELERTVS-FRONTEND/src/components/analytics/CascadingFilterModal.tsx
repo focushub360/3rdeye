@@ -1,5 +1,51 @@
-import React, { useState, useMemo } from "react";
-import { ChevronDown, X, Search } from "lucide-react";
+import React, { useState, useMemo, useEffect } from "react";
+import { ChevronDown, X, Search, Calendar, Check, RotateCcw } from "lucide-react";
+
+export const getLast30DaysRange = () => {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - 30);
+  const formatDate = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  return {
+    startDate: formatDate(start),
+    endDate: formatDate(end),
+  };
+};
+
+export const getLast7DaysRange = () => {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - 7);
+  const formatDate = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  return {
+    startDate: formatDate(start),
+    endDate: formatDate(end),
+  };
+};
+
+export const getTodayRange = () => {
+  const today = new Date();
+  const formatDate = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  return {
+    startDate: formatDate(today),
+    endDate: formatDate(today),
+  };
+};
 
 interface FilterState {
   [questionId: string]: string[];
@@ -29,6 +75,7 @@ interface CascadingFilterModalProps {
   onClose: () => void;
   questions: Question[];
   responses: Response[];
+  initialDateRange?: { startDate: string; endDate: string };
   onApplyFilters: (filters: FilterState & { dates?: { startDate: string; endDate: string }; locations?: string[] }) => void;
 }
 
@@ -37,17 +84,48 @@ export default function CascadingFilterModal({
   onClose,
   questions,
   responses,
+  initialDateRange,
   onApplyFilters,
 }: CascadingFilterModalProps) {
+  const default30 = useMemo(() => getLast30DaysRange(), []);
+  const default7 = useMemo(() => getLast7DaysRange(), []);
+  const todayRange = useMemo(() => getTodayRange(), []);
+
   const [filters, setFilters] = useState<FilterState>({});
   const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
   const [searchTerms, setSearchTerms] = useState<Record<string, string>>({});
-  const [dateRange, setDateRange] = useState({ startDate: "", endDate: "" });
+  const [dateRange, setDateRange] = useState(() => {
+    if (initialDateRange && (initialDateRange.startDate || initialDateRange.endDate)) {
+      return initialDateRange;
+    }
+    if (initialDateRange && initialDateRange.startDate === "" && initialDateRange.endDate === "") {
+      return { startDate: "", endDate: "" };
+    }
+    return getLast30DaysRange();
+  });
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
-  const [expandedDateRange, setExpandedDateRange] = useState(false);
+  const [expandedDateRange, setExpandedDateRange] = useState(true);
   const [expandedLocation, setExpandedLocation] = useState(false);
   const [locationSearchTerm, setLocationSearchTerm] = useState("");
   const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (initialDateRange && (initialDateRange.startDate || initialDateRange.endDate)) {
+        setDateRange(initialDateRange);
+      } else if (initialDateRange && initialDateRange.startDate === "" && initialDateRange.endDate === "") {
+        setDateRange({ startDate: "", endDate: "" });
+      } else {
+        setDateRange(getLast30DaysRange());
+      }
+      setExpandedDateRange(true);
+    }
+  }, [isOpen, initialDateRange]);
+
+  const isAllDataActive = !dateRange.startDate && !dateRange.endDate;
+  const isLast30DaysActive = dateRange.startDate === default30.startDate && dateRange.endDate === default30.endDate;
+  const isLast7DaysActive = dateRange.startDate === default7.startDate && dateRange.endDate === default7.endDate;
+  const isTodayActive = dateRange.startDate === todayRange.startDate && dateRange.endDate === todayRange.endDate;
 
   const availableLocations = useMemo(() => {
     const locations = new Set<string>();
@@ -269,20 +347,36 @@ export default function CascadingFilterModal({
             {/* Date Range Dropdown */}
             <div className="relative">
               <button
+                type="button"
                 onClick={() => {
                   setExpandedDateRange(!expandedDateRange);
                   setExpandedLocation(false);
                   setExpandedQuestion(null);
                 }}
-                className="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 border border-gray-300 rounded-lg flex items-center justify-between transition-colors"
+                className={`w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 border rounded-lg flex items-center justify-between transition-colors ${
+                  expandedDateRange ? "border-indigo-400 ring-2 ring-indigo-100 dark:ring-indigo-900/30" : "border-gray-300"
+                }`}
               >
-                <div className="flex-1 text-left flex items-center gap-2">
-                  <p className="font-semibold text-gray-900 text-sm">Date Range</p>
-                  {(dateRange.startDate || dateRange.endDate) && (
-                    <span className="inline-flex items-center justify-center w-5 h-5 bg-indigo-600 text-white text-xs font-medium rounded-full">
-                      1
+                <div className="flex-1 text-left flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-indigo-600" />
+                    <p className="font-semibold text-gray-900 text-sm">Date Range</p>
+                  </div>
+                  {isAllDataActive ? (
+                    <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-full border border-emerald-300">
+                      ✓ Mark All Data (All Time)
                     </span>
-                  )}
+                  ) : (dateRange.startDate || dateRange.endDate) ? (
+                    <span className="inline-flex items-center px-2 py-0.5 bg-indigo-600 text-white text-[11px] font-bold rounded-full shadow-xs">
+                      {isLast30DaysActive
+                        ? "Last 30 Days (Default)"
+                        : isLast7DaysActive
+                        ? "Last 7 Days"
+                        : isTodayActive
+                        ? "Today"
+                        : `${dateRange.startDate || "Start"} to ${dateRange.endDate || "End"}`}
+                    </span>
+                  ) : null}
                 </div>
                 <ChevronDown
                   className={`w-5 h-5 text-gray-600 transition-transform flex-shrink-0 ${
@@ -292,34 +386,121 @@ export default function CascadingFilterModal({
               </button>
 
               {expandedDateRange && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-lg p-4 z-50 shadow-lg">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-2">
-                        Start Date
-                      </label>
-                      <input
-                        type="date"
-                        value={dateRange.startDate}
-                        onChange={(e) =>
-                          setDateRange({ ...dateRange, startDate: e.target.value })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                      />
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-xl p-4 z-50 shadow-2xl">
+                  {/* Quick Preset Buttons */}
+                  <div className="mb-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-2">
+                      Date Range Presets
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDateRange(getLast30DaysRange())}
+                        className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-center ${
+                          isLast30DaysActive
+                            ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20 ring-2 ring-indigo-400"
+                            : "bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-indigo-600"
+                        }`}
+                        title="Show last 30 days data"
+                      >
+                        Last 30 Days (Default)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDateRange({ startDate: "", endDate: "" })}
+                        className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-center flex items-center justify-center gap-1 ${
+                          isAllDataActive
+                            ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20 ring-2 ring-emerald-400"
+                            : "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300"
+                        }`}
+                        title="Mark and show all data across all time"
+                      >
+                        <span>✓ Mark All Data</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDateRange(getLast7DaysRange())}
+                        className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-center ${
+                          isLast7DaysActive
+                            ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20 ring-2 ring-indigo-400"
+                            : "bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-indigo-600"
+                        }`}
+                        title="Show last 7 days data"
+                      >
+                        Last 7 Days
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDateRange(getTodayRange())}
+                        className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-center ${
+                          isTodayActive
+                            ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20 ring-2 ring-indigo-400"
+                            : "bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-indigo-600"
+                        }`}
+                        title="Show today's data"
+                      >
+                        Today
+                      </button>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-2">
-                        End Date
-                      </label>
-                      <input
-                        type="date"
-                        value={dateRange.endDate}
-                        onChange={(e) =>
-                          setDateRange({ ...dateRange, endDate: e.target.value })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                      />
+                  </div>
+
+                  {/* Custom Inputs */}
+                  <div className="pt-3 border-t border-gray-100">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-2">
+                      Custom Date Range
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                          Start Date
+                        </label>
+                        <input
+                          type="date"
+                          value={dateRange.startDate}
+                          onChange={(e) =>
+                            setDateRange({ ...dateRange, startDate: e.target.value })
+                          }
+                          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-medium"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                          End Date
+                        </label>
+                        <input
+                          type="date"
+                          value={dateRange.endDate}
+                          onChange={(e) =>
+                            setDateRange({ ...dateRange, endDate: e.target.value })
+                          }
+                          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-medium"
+                        />
+                      </div>
                     </div>
+                  </div>
+
+                  {/* Active range feedback banner */}
+                  <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-between text-xs">
+                    {isAllDataActive ? (
+                      <span className="text-emerald-700 font-semibold flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Mark All Data active (all historical data included)
+                      </span>
+                    ) : (
+                      <span className="text-indigo-700 font-semibold flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                        Filtered: {dateRange.startDate || "Beginning"} to {dateRange.endDate || "Latest"}
+                      </span>
+                    )}
+                    {!isAllDataActive && (
+                      <button
+                        type="button"
+                        onClick={() => setDateRange({ startDate: "", endDate: "" })}
+                        className="text-emerald-600 hover:text-emerald-800 font-bold hover:underline"
+                      >
+                        Mark All Data
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

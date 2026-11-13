@@ -202,7 +202,7 @@ export const QualityDashboard: React.FC = () => {
     if (initialFormIds.length > 1) return 'combined-dashboard';
     return 'data';
   });
-  const [dateRange, setDateRange] = useState<string>('all');
+  const [dateRange, setDateRange] = useState<string>('30d');
   const [selectedFormIds, setSelectedFormIds] = useState<string[]>(initialFormIds);
   const [isFormDropdownOpen, setIsFormDropdownOpen] = useState<boolean>(false);
   const [formSearchQuery, setFormSearchQuery] = useState<string>('');

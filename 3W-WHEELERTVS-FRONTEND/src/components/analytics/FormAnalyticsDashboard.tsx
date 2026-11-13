@@ -55,6 +55,7 @@ import {
   ArrowUpDown,
   ClipboardCheck,
   LogIn,
+  Check,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Pie, Doughnut, Radar } from "react-chartjs-2";
@@ -77,7 +78,7 @@ import ChartDataLabels from "chartjs-plugin-datalabels";
 import { apiClient } from "../../api/client";
 import ResponseQuestion from "./ResponseQuestion";
 import SectionAnalytics from "./SectionAnalytics";
-import CascadingFilterModal from "./CascadingFilterModal";
+import CascadingFilterModal, { getLast30DaysRange } from "./CascadingFilterModal";
 import * as XLSX from "xlsx-js-style";
 import { io } from "socket.io-client";
 import { isImageUrl, formatToDDMMYYYY } from "../../utils/answerTemplateUtils";
@@ -3723,7 +3724,16 @@ export default function FormAnalyticsDashboard({
   }>({ open: false, formId: "", formTitle: "" });
   const [appliedFilters, setAppliedFilters] = useState<
     Array<{ id: string; label: string; value: string }>
-  >([]);
+  >(() => {
+    const d30 = getLast30DaysRange();
+    return [
+      {
+        id: "date",
+        label: "Date",
+        value: `Last 30 Days (${d30.startDate} to ${d30.endDate})`,
+      },
+    ];
+  });
   const [cascadingFilters, setCascadingFilters] = useState<
     Record<string, string[]>
   >({});
@@ -3770,7 +3780,14 @@ export default function FormAnalyticsDashboard({
     type: "all" | "single" | "range";
     startDate: string;
     endDate: string;
-  }>({ type: "all", startDate: "", endDate: "" });
+  }>(() => {
+    const d30 = getLast30DaysRange();
+    return {
+      type: "range",
+      startDate: d30.startDate,
+      endDate: d30.endDate,
+    };
+  });
 
     // BIW Review Table data — computed client-side from the full `responses`
   // dataset (not the server-paginated `tableResponses`), grouped by
@@ -3865,9 +3882,7 @@ export default function FormAnalyticsDashboard({
 
   useEffect(() => {
     if (hasUserAppliedDateFilter) return; // user is in control now, don't override
-
-    // Default to 'all' so historical response data and trends are not clipped
-    setDateFilter({ type: "all", startDate: "", endDate: "" });
+    // Default to last 30 days data (as requested)
   }, [analyticsView, hasUserAppliedDateFilter]);
 
 
@@ -13067,6 +13082,68 @@ export default function FormAnalyticsDashboard({
           }
           aria-hidden={analyticsView !== "dashboard"}
         >
+          {/* Active Date / Filter Control Banner */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-indigo-50/90 via-blue-50/60 to-purple-50/90 dark:from-indigo-950/40 dark:via-blue-950/30 dark:to-purple-950/40 border border-indigo-200/90 dark:border-indigo-800/60 rounded-xl px-4 py-2.5 shadow-xs">
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                {dateFilter.type === "all" ? (
+                  <span>Date: <span className="text-emerald-700 dark:text-emerald-300 font-extrabold">All Data (All Time)</span></span>
+                ) : (
+                  <span>Date: <span className="text-indigo-700 dark:text-indigo-300 font-extrabold">Last 30 Days ({commonDateRangeLabel})</span></span>
+                )}
+              </span>
+              <span className="text-gray-400">•</span>
+              <span className="text-gray-600 dark:text-gray-300 font-medium">
+                Showing <strong className="text-gray-900 dark:text-white font-bold">{filteredResponses.length}</strong> of {responses.length} inspections
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {dateFilter.type !== "all" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHasUserAppliedDateFilter(true);
+                    setDateFilter({ type: "all", startDate: "", endDate: "" });
+                    setAppliedFilters((prev) => prev.filter((f) => f.id !== "date"));
+                  }}
+                  className="px-3 py-1 bg-white hover:bg-emerald-50 dark:bg-gray-800 dark:hover:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-xs font-bold rounded-lg border border-emerald-300 dark:border-emerald-700 shadow-2xs transition-all hover:scale-[1.02] flex items-center gap-1.5"
+                  title="Mark and show all inspection data across all time"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Mark All Data</span>
+                  <span className="text-[10px] text-gray-500 font-normal">({responses.length})</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHasUserAppliedDateFilter(true);
+                    const d30 = getLast30DaysRange();
+                    setDateFilter({ type: "range", startDate: d30.startDate, endDate: d30.endDate });
+                    setAppliedFilters((prev) => [
+                      ...prev.filter((f) => f.id !== "date"),
+                      { id: "date", label: "Date", value: `Last 30 Days (${d30.startDate} to ${d30.endDate})` },
+                    ]);
+                  }}
+                  className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-2xs transition-all hover:scale-[1.02] flex items-center gap-1.5"
+                  title="Filter to default last 30 days"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Last 30 Days (Default)</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowFilterModal(true)}
+                className="px-2.5 py-1 bg-white hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs font-semibold rounded-lg border border-gray-300 dark:border-gray-600 transition-colors flex items-center gap-1"
+                title="Open Advanced Filters"
+              >
+                <Filter className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Filter</span>
+              </button>
+            </div>
+          </div>
           {responses.length === 0 && isChartLoading && !isExporting ? (
             <div className="space-y-6 animate-pulse">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full">
@@ -15705,6 +15782,10 @@ export default function FormAnalyticsDashboard({
           )
         }
         responses={responses}
+        initialDateRange={{
+          startDate: dateFilter.type === "all" ? "" : dateFilter.startDate,
+          endDate: dateFilter.type === "all" ? "" : dateFilter.endDate,
+        }}
         onApplyFilters={(filters) => {
           setHasUserAppliedDateFilter(true); // user has taken explicit control of filtering
           const { dates, locations, ...questionFilters } = filters as any;
