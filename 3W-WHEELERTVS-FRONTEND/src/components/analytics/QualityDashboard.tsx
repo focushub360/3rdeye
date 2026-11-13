@@ -126,7 +126,7 @@ const qualitySummaryClientCache = new Map<string, {
   timestamp: number;
 }>();
 
-const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v20_';
+const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v21_';
 
 const isValidSummaryData = (item: any): boolean => {
   const d = item?.data || item;

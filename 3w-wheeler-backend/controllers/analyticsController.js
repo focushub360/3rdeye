@@ -3358,7 +3358,7 @@ export const getQualitySummary = async (req, res) => {
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
     const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
-    const cacheKey = `quality_summary_v20_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v21_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers?.['cache-control'] === 'no-cache';
     if (!shouldBypassCache) {
       const cached = appCache.get(cacheKey);
@@ -3544,7 +3544,12 @@ export const getQualitySummary = async (req, res) => {
                 rework1Count: {
                   $sum: {
                     $cond: [
-                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1' } },
+                      {
+                        $or: [
+                          { $eq: ['$biwReview.status', 'Reworked'] },
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -3648,7 +3653,12 @@ export const getQualitySummary = async (req, res) => {
                 rework1Count: {
                   $sum: {
                     $cond: [
-                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1' } },
+                      {
+                        $or: [
+                          { $eq: ['$biwReview.status', 'Reworked'] },
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -3757,7 +3767,12 @@ export const getQualitySummary = async (req, res) => {
                 rework1Count: {
                   $sum: {
                     $cond: [
-                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1' } },
+                      {
+                        $or: [
+                          { $eq: ['$biwReview.status', 'Reworked'] },
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -3870,7 +3885,12 @@ export const getQualitySummary = async (req, res) => {
                 reworkCount: {
                   $sum: {
                     $cond: [
-                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1' } },
+                      {
+                        $or: [
+                          { $eq: ['$biwReview.status', 'Reworked'] },
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -4126,6 +4146,21 @@ export const getQualitySummary = async (req, res) => {
       const aRate = tChecked > 0 ? Math.round((aCount / tChecked) * 10000) / 100 : 0;
       const dRate = Math.max(0, Math.round((100 - aRate) * 100) / 100);
 
+      // Reconcile defects, rework and rejected counts strictly
+      let finalRej = rejCount;
+      let finalR1 = r1Count;
+      if (dCount > 0) {
+        if (finalRej + finalR1 !== dCount) {
+          if (finalRej > 0 && finalR1 === 0) {
+            finalR1 = Math.max(0, dCount - finalRej);
+          } else if (finalR1 > 0 && finalRej === 0) {
+            finalRej = Math.max(0, dCount - finalR1);
+          } else if (finalRej === 0 && finalR1 === 0) {
+            finalR1 = dCount;
+          }
+        }
+      }
+
       const biwTotal = bReviewed > 0 ? bReviewed : (bAccept + bDefect);
       const biwRate = biwTotal > 0 ? Math.round((bAccept / biwTotal) * 10000) / 100 : (tChecked > 0 ? 100 : 0);
       const directOk = Math.max(0, aCount - rwAccepted);
@@ -4137,9 +4172,9 @@ export const getQualitySummary = async (req, res) => {
         totalChecked: tChecked,
         acceptCount: aCount,
         defectCount: dCount,
-        rework1Count: r1Count,
+        rework1Count: finalR1,
         reworkAcceptedCount: rwAccepted,
-        rejectedCount: rejCount > 0 ? rejCount : Math.max(0, dCount - r1Count),
+        rejectedCount: finalRej,
         directOkCount: directOk,
         dispatchedCount: dDispatched,
         pendingDispatchCount: Math.max(0, tChecked - dDispatched),
@@ -4483,6 +4518,13 @@ export const getQualitySummary = async (req, res) => {
           totalAccepted,
           totalDefects,
           totalRework1,
+          reworkAcceptedCount,
+          rejectedCount,
+          directOkCount,
+          totalDispatched,
+          pendingDispatch,
+          totalBiwReviewed,
+          pendingBiw,
           overallAcceptRate,
           overallDefectRate,
           totalInspectors: inspectorList.length,
