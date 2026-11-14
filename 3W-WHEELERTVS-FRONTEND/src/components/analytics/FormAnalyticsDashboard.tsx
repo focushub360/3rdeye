@@ -2453,7 +2453,7 @@ export default function FormAnalyticsDashboard({
     !isGuest && (user?.role === "superadmin" || user?.role === "admin");
 
 
-// Using module-level formAnalyticsMemoryCache for instant switching
+  // Using module-level formAnalyticsMemoryCache for instant switching
 
   const { id: paramId } = useParams<{ id: string }>();
   const id = propFormId || paramId;
@@ -2566,7 +2566,7 @@ export default function FormAnalyticsDashboard({
           return parsed.responses;
         }
       }
-    } catch (_) {}
+    } catch (_) { }
     return [];
   });
   const [form, setForm] = useState<Form | null>(() => {
@@ -2579,7 +2579,7 @@ export default function FormAnalyticsDashboard({
         const parsed = JSON.parse(stored);
         if (parsed?.form) return parsed.form;
       }
-    } catch (_) {}
+    } catch (_) { }
     return null;
   });
   const [loading, setLoading] = useState(() => {
@@ -2589,7 +2589,7 @@ export default function FormAnalyticsDashboard({
     try {
       const stored = sessionStorage.getItem(`form_analytics_cache_${id}`);
       if (stored) return false;
-    } catch (_) {}
+    } catch (_) { }
     return true;
   });
   const [isExporting, setIsExporting] = useState(false);
@@ -2677,7 +2677,7 @@ export default function FormAnalyticsDashboard({
       if (saved !== null) {
         return saved === "true";
       }
-    } catch (e) {}
+    } catch (e) { }
     return false;
   });
 
@@ -2800,7 +2800,7 @@ export default function FormAnalyticsDashboard({
         if (parsed.chassisNumber) return String(parsed.chassisNumber);
         if (parsed.value) return String(parsed.value);
         if (parsed.status !== undefined) return "-";
-      } catch {}
+      } catch { }
     }
     return str;
   };
@@ -3115,9 +3115,9 @@ export default function FormAnalyticsDashboard({
         ...(!chassisMasterOptions.length && chassisQuestionId ? { [chassisQuestionId]: chassisEditValue } : {})
       };
       const responseIdentifier = response.id || (response as any)._id;
-      await apiClient.updateResponse(responseIdentifier, { 
+      await apiClient.updateResponse(responseIdentifier, {
         answers: updatedAnswers,
-        chassisNumber: chassisEditValue 
+        chassisNumber: chassisEditValue
       });
 
       const updateChassisMatcher = (r: Response) => {
@@ -3328,11 +3328,11 @@ export default function FormAnalyticsDashboard({
         (result as any)?.data?.response?.biwReview ??
         (payload
           ? {
-              status,
-              reviewedBy: user?.id,
-              reviewedByName: user?.name,
-              reviewedAt: new Date().toISOString(),
-            }
+            status,
+            reviewedBy: user?.id,
+            reviewedByName: user?.name,
+            reviewedAt: new Date().toISOString(),
+          }
           : undefined);
 
       setResponses((prev) =>
@@ -3789,7 +3789,7 @@ export default function FormAnalyticsDashboard({
     };
   });
 
-    // BIW Review Table data — computed client-side from the full `responses`
+  // BIW Review Table data — computed client-side from the full `responses`
   // dataset (not the server-paginated `tableResponses`), grouped by
   // submitter, the same way the User Name rows are read in the Performance
   // Table. Accepted/Rejected/Reworked/Total Reviewed here only count BIW
@@ -4814,7 +4814,7 @@ export default function FormAnalyticsDashboard({
             formAnalyticsMemoryCache.set(id, parsed);
           }
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     if (cached && Date.now() - cached.timestamp < 1800000) {
       setForm(cached.form);
@@ -4868,7 +4868,7 @@ export default function FormAnalyticsDashboard({
         const json = JSON.stringify(compactPayload);
         sessionStorage.setItem(`form_analytics_cache_${id}`, json);
         localStorage.setItem(`form_analytics_cache_${id}`, json);
-      } catch (_) {}
+      } catch (_) { }
     }
   }, [id, form, responses, tableResponses]);
 
@@ -5852,7 +5852,7 @@ export default function FormAnalyticsDashboard({
       if (!itemGroups[itemId]) {
         itemGroups[itemId] = [];
       }
-      
+
       // Keep only previous responses that are within 10 days of the current response
       const rTime = new Date(getResponseTimestamp(r) || 0).getTime();
       const tenDaysMs = 10 * 24 * 60 * 60 * 1000;
@@ -5906,7 +5906,7 @@ export default function FormAnalyticsDashboard({
       const respId = r.id || (r as any)._id;
       const rowStatus = tableDisplayStatuses[respId] || responseStatuses[respId] || "Direct Ok";
       const rank = chassisAttemptRanks[respId] || 1;
-      
+
       let label = `Attempt ${rank} (Green - Accepted)`;
       if (rowStatus === "Rejected") {
         label = `Attempt ${rank} (Red - Rejected)`;
@@ -7977,7 +7977,7 @@ export default function FormAnalyticsDashboard({
     if (typeof parsed === "string" && parsed.trim().startsWith("{") && parsed.trim().endsWith("}")) {
       try {
         parsed = JSON.parse(parsed);
-      } catch {}
+      } catch { }
     }
     if (typeof parsed === "object" && parsed !== null) {
       if (parsed.status !== undefined || parsed.remark !== undefined || parsed.evidenceUrl !== undefined) {
@@ -7989,13 +7989,12 @@ export default function FormAnalyticsDashboard({
           <span className="inline-flex items-center gap-1.5 flex-wrap">
             {s && (
               <span
-                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                  isOk
+                className={`px-2 py-0.5 rounded text-[10px] font-bold ${isOk
                     ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 border border-green-200 dark:border-green-800"
                     : isDefect
                       ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-200 dark:border-red-800"
                       : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-200"
-                }`}
+                  }`}
               >
                 {s}
               </span>
@@ -9074,11 +9073,10 @@ export default function FormAnalyticsDashboard({
                             <td className="px-4 py-3 font-black text-center tabular-nums">{totalDefects}</td>
                             <td className="px-4 py-3 font-bold text-center tabular-nums">{pctOfTotal}%</td>
                             <td className="px-4 py-3 text-center">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black tabular-nums ${
-                                parseFloat(cumulativePct) <= 80
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black tabular-nums ${parseFloat(cumulativePct) <= 80
                                   ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
                                   : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400"
-                              }`}>
+                                }`}>
                                 {cumulativePct}%
                               </span>
                             </td>
@@ -9339,7 +9337,7 @@ export default function FormAnalyticsDashboard({
           },
         },
       },
-      
+
       scales: {
         x: {
           stacked: true,
@@ -9552,8 +9550,8 @@ export default function FormAnalyticsDashboard({
         const flaggedList = (review.questionContexts && review.questionContexts.length > 0)
           ? review.questionContexts
           : (Array.isArray(review.flaggedQuestions) && review.flaggedQuestions.length > 0
-              ? review.flaggedQuestions
-              : []);
+            ? review.flaggedQuestions
+            : []);
 
         if (flaggedList.length > 0) {
           flaggedList.forEach((qc: any) => {
@@ -9590,8 +9588,8 @@ export default function FormAnalyticsDashboard({
           const respFlagged = (Array.isArray(resp?.review?.flaggedQuestions) && resp.review.flaggedQuestions.length > 0)
             ? resp.review.flaggedQuestions
             : (Array.isArray(resp?.review?.questionContexts) && resp.review.questionContexts.length > 0
-                ? resp.review.questionContexts
-                : []);
+              ? resp.review.questionContexts
+              : []);
 
           if (respFlagged.length > 0) {
             foundFlaggedOnResp = true;
@@ -9693,8 +9691,8 @@ export default function FormAnalyticsDashboard({
         const revFlaggedList = (Array.isArray(rev?.questionContexts) && rev.questionContexts.length > 0)
           ? rev.questionContexts
           : (Array.isArray(rev?.flaggedQuestions) && rev.flaggedQuestions.length > 0
-              ? rev.flaggedQuestions
-              : []);
+            ? rev.flaggedQuestions
+            : []);
 
         if (revFlaggedList.length > 0) {
           revFlaggedList.forEach((fq: any) => {
@@ -9885,66 +9883,66 @@ export default function FormAnalyticsDashboard({
           },
         },
       },
-      
+
       scales: {
         x: {
           stacked: true,
           ...(chartOrientation === "h"
             ? {
-                beginAtZero: true,
-                suggestedMax: maxDefectVal <= 2 ? maxDefectVal + 1 : undefined,
-                ticks: {
-                  stepSize: 1,
-                  precision: 0,
-                  color: document.documentElement.classList.contains("dark") ? "#9ca3af" : "#6b7280",
-                  font: { size: 10 },
-                },
-              }
+              beginAtZero: true,
+              suggestedMax: maxDefectVal <= 2 ? maxDefectVal + 1 : undefined,
+              ticks: {
+                stepSize: 1,
+                precision: 0,
+                color: document.documentElement.classList.contains("dark") ? "#9ca3af" : "#6b7280",
+                font: { size: 10 },
+              },
+            }
             : {
-                ticks: {
-                  color: document.documentElement.classList.contains("dark")
-                    ? "#e5e7eb"
-                    : "#374151",
-                  font: { size: 10, weight: "600" as const },
-                  maxRotation: 45,
-                  minRotation: 0,
-                },
-                grid: {
-                  display: false,
-                },
-              }),
+              ticks: {
+                color: document.documentElement.classList.contains("dark")
+                  ? "#e5e7eb"
+                  : "#374151",
+                font: { size: 10, weight: "600" as const },
+                maxRotation: 45,
+                minRotation: 0,
+              },
+              grid: {
+                display: false,
+              },
+            }),
         },
         y: {
           stacked: true,
           ...(chartOrientation === "v"
             ? {
-                beginAtZero: true,
-                suggestedMax: maxDefectVal <= 2 ? maxDefectVal + 1 : undefined,
-                ticks: {
-                  stepSize: 1,
-                  precision: 0,
-                  color: document.documentElement.classList.contains("dark")
-                    ? "#9ca3af"
-                    : "#6b7280",
-                  font: { size: 10 },
-                },
-                grid: {
-                  color: document.documentElement.classList.contains("dark")
-                    ? "rgba(255, 255, 255, 0.05)"
-                    : "rgba(0, 0, 0, 0.03)",
-                },
-              }
+              beginAtZero: true,
+              suggestedMax: maxDefectVal <= 2 ? maxDefectVal + 1 : undefined,
+              ticks: {
+                stepSize: 1,
+                precision: 0,
+                color: document.documentElement.classList.contains("dark")
+                  ? "#9ca3af"
+                  : "#6b7280",
+                font: { size: 10 },
+              },
+              grid: {
+                color: document.documentElement.classList.contains("dark")
+                  ? "rgba(255, 255, 255, 0.05)"
+                  : "rgba(0, 0, 0, 0.03)",
+              },
+            }
             : {
-                ticks: {
-                  color: document.documentElement.classList.contains("dark")
-                    ? "#e5e7eb"
-                    : "#374151",
-                  font: { size: 10, weight: "600" as const },
-                },
-                grid: {
-                  display: false,
-                },
-              }),
+              ticks: {
+                color: document.documentElement.classList.contains("dark")
+                  ? "#e5e7eb"
+                  : "#374151",
+                font: { size: 10, weight: "600" as const },
+              },
+              grid: {
+                display: false,
+              },
+            }),
         },
       },
       interaction: {
@@ -12699,13 +12697,12 @@ export default function FormAnalyticsDashboard({
     return (
       <div className="p-6">
         <div className="text-center py-12 max-w-md mx-auto">
-          <div className={`rounded-2xl p-6 mb-4 border shadow-sm ${
-            isAuthError
+          <div className={`rounded-2xl p-6 mb-4 border shadow-sm ${isAuthError
               ? "bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800/40"
               : isTimeoutError
                 ? "bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/40"
                 : "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800/40"
-          }`}>
+            }`}>
             {isAuthError ? (
               <LogIn className="w-12 h-12 text-blue-600 dark:text-blue-400 mx-auto mb-4" />
             ) : isTimeoutError ? (
@@ -12786,32 +12783,32 @@ export default function FormAnalyticsDashboard({
 
   const dispatchableResponses = isOwnTenantForm
     ? filteredResponses.filter(response => {
-        if (!isOwnTenantResponse(response)) return false; // exclude cross-tenant
+      if (!isOwnTenantResponse(response)) return false; // exclude cross-tenant
 
-        const biwStatus = String(response.biwReview?.status || "").toLowerCase();
-        const tvsStatus = String(response.review?.reviewOption || response.review?.status || "").toLowerCase();
-        const isReworkOrRejected =
-          biwStatus === "rework" ||
-          biwStatus === "reworked" ||
-          biwStatus === "rejected" ||
-          tvsStatus === "rework" ||
-          tvsStatus === "rejected";
+      const biwStatus = String(response.biwReview?.status || "").toLowerCase();
+      const tvsStatus = String(response.review?.reviewOption || response.review?.status || "").toLowerCase();
+      const isReworkOrRejected =
+        biwStatus === "rework" ||
+        biwStatus === "reworked" ||
+        biwStatus === "rejected" ||
+        tvsStatus === "rework" ||
+        tvsStatus === "rejected";
 
-        if (isReworkOrRejected) return false;
+      if (isReworkOrRejected) return false;
 
-        const respId = response.id || (response as any)._id;
-        const status =
-          tableDisplayStatuses[response.id] ||
-          tableDisplayStatuses[(response as any)._id] ||
-          (respId ? tableDisplayStatuses[respId] : null) ||
-          responseStatuses[response.id] ||
-          "";
+      const respId = response.id || (response as any)._id;
+      const status =
+        tableDisplayStatuses[response.id] ||
+        tableDisplayStatuses[(response as any)._id] ||
+        (respId ? tableDisplayStatuses[respId] : null) ||
+        responseStatuses[response.id] ||
+        "";
 
-        return status === "Direct Ok" ||
-          status === "Rework Accepted" ||
-          status === "Rework Completed" ||
-          status === "Accepted";
-      })
+      return status === "Direct Ok" ||
+        status === "Rework Accepted" ||
+        status === "Rework Completed" ||
+        status === "Accepted";
+    })
     : [];
   const pendingDispatchResponses = dispatchableResponses.filter(response => !response.isDispatched);
 
@@ -13609,11 +13606,10 @@ export default function FormAnalyticsDashboard({
 
                     {/* Top Parent Match Tick Box */}
                     <label
-                      className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer select-none shadow-2xs ${
-                        showParentMatchColumn
+                      className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer select-none shadow-2xs ${showParentMatchColumn
                           ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700 ring-1 ring-indigo-400"
                           : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
-                      }`}
+                        }`}
                       title={showParentMatchColumn ? "Untick to hide Parent Match column" : "Tick to show Parent Match column"}
                     >
                       <input
@@ -13625,7 +13621,7 @@ export default function FormAnalyticsDashboard({
                           try {
                             const formKey = id || (form as any)?._id || "default";
                             localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
-                          } catch (err) {}
+                          } catch (err) { }
                         }}
                         className="w-4 h-4 text-indigo-600 rounded border-gray-300 dark:border-gray-600 focus:ring-indigo-500 accent-indigo-600 cursor-pointer"
                       />
@@ -13635,11 +13631,10 @@ export default function FormAnalyticsDashboard({
 
                     <button
                       onClick={() => setShowFilterModal(true)}
-                      className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 flex items-center gap-1.5 border shadow-xs ${
-                        appliedFilters.length > 0 || Object.values(columnFilters).some((v) => v && v.length > 0)
+                      className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 flex items-center gap-1.5 border shadow-xs ${appliedFilters.length > 0 || Object.values(columnFilters).some((v) => v && v.length > 0)
                           ? "bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500 ring-2 ring-indigo-400 ring-offset-2 dark:ring-offset-gray-900"
                           : "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700"
-                      }`}
+                        }`}
                       title="Open Filters Dialog"
                     >
                       <Filter className="w-3.5 h-3.5" />
@@ -13918,7 +13913,7 @@ export default function FormAnalyticsDashboard({
                                   try {
                                     const formKey = id || form?._id || "default";
                                     localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
-                                  } catch (err) {}
+                                  } catch (err) { }
                                 }}
                                 className="w-4 h-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-indigo-600"
                               />
@@ -14023,11 +14018,10 @@ export default function FormAnalyticsDashboard({
                               });
                             });
                           }}
-                          className={`flex flex-col p-2.5 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-100 dark:border-purple-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
-                            !columnFilters["__status"]?.length && !columnFilters["__dispatch"]?.length
+                          className={`flex flex-col p-2.5 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-100 dark:border-purple-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${!columnFilters["__status"]?.length && !columnFilters["__dispatch"]?.length
                               ? "ring-2 ring-purple-500 shadow-sm"
                               : "opacity-80 hover:opacity-100"
-                          }`}
+                            }`}
                           title="Click to show all submissions"
                         >
                           <span className="text-[10px] text-purple-700 dark:text-purple-400 font-bold uppercase truncate" title="Total Submissions">
@@ -14058,11 +14052,10 @@ export default function FormAnalyticsDashboard({
                               });
                             });
                           }}
-                          className={`flex flex-col p-2.5 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
-                            columnFilters["__status"]?.includes("Direct Ok") || columnFilters["__status"]?.includes("Accepted")
+                          className={`flex flex-col p-2.5 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${columnFilters["__status"]?.includes("Direct Ok") || columnFilters["__status"]?.includes("Accepted")
                               ? "ring-2 ring-green-500 shadow-sm"
                               : "opacity-80 hover:opacity-100"
-                          }`}
+                            }`}
                           title="Click to filter by Accepted / Direct OK"
                         >
                           <span className="text-[10px] text-green-700 dark:text-green-400 font-bold uppercase truncate" title="Accepted / Direct OK">
@@ -14093,11 +14086,10 @@ export default function FormAnalyticsDashboard({
                               });
                             });
                           }}
-                          className={`flex flex-col p-2.5 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
-                            columnFilters["__status"]?.includes("Rework Accepted")
+                          className={`flex flex-col p-2.5 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${columnFilters["__status"]?.includes("Rework Accepted")
                               ? "ring-2 ring-blue-500 shadow-sm"
                               : "opacity-80 hover:opacity-100"
-                          }`}
+                            }`}
                           title="Click to filter by Rework Accepted"
                         >
                           <span className="text-[10px] text-blue-700 dark:text-blue-400 font-bold uppercase truncate" title="Rework Accepted">
@@ -14128,11 +14120,10 @@ export default function FormAnalyticsDashboard({
                               });
                             });
                           }}
-                          className={`flex flex-col p-2.5 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-100 dark:border-amber-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
-                            columnFilters["__status"]?.some(s => s.toLowerCase().includes("rework") && s !== "Rework Accepted")
+                          className={`flex flex-col p-2.5 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-100 dark:border-amber-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${columnFilters["__status"]?.some(s => s.toLowerCase().includes("rework") && s !== "Rework Accepted")
                               ? "ring-2 ring-amber-500 shadow-sm"
                               : "opacity-80 hover:opacity-100"
-                          }`}
+                            }`}
                           title="Click to filter by Ongoing Rework"
                         >
                           <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase truncate" title="Ongoing Rework">
@@ -14163,11 +14154,10 @@ export default function FormAnalyticsDashboard({
                               });
                             });
                           }}
-                          className={`flex flex-col p-2.5 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
-                            columnFilters["__status"]?.includes("Rejected")
+                          className={`flex flex-col p-2.5 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${columnFilters["__status"]?.includes("Rejected")
                               ? "ring-2 ring-red-500 shadow-sm"
                               : "opacity-80 hover:opacity-100"
-                          }`}
+                            }`}
                           title="Click to filter by Rejected"
                         >
                           <span className="text-[10px] text-red-700 dark:text-red-400 font-bold uppercase truncate" title="Rejected">
@@ -14198,11 +14188,10 @@ export default function FormAnalyticsDashboard({
                               });
                             });
                           }}
-                          className={`flex flex-col p-2.5 bg-indigo-50 dark:bg-indigo-900/10 rounded-lg border border-indigo-100 dark:border-indigo-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${
-                            columnFilters["__dispatch"]?.includes("Dispatched / Enabled")
+                          className={`flex flex-col p-2.5 bg-indigo-50 dark:bg-indigo-900/10 rounded-lg border border-indigo-100 dark:border-indigo-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${columnFilters["__dispatch"]?.includes("Dispatched / Enabled")
                               ? "ring-2 ring-indigo-500 shadow-sm"
                               : "opacity-80 hover:opacity-100"
-                          }`}
+                            }`}
                           title="Click to filter by Dispatched"
                         >
                           <span className="text-[10px] text-indigo-700 dark:text-indigo-400 font-bold uppercase truncate" title="Dispatched">
@@ -14998,8 +14987,8 @@ export default function FormAnalyticsDashboard({
                                         (serverRev?.flaggedQuestions && serverRev.flaggedQuestions.length > 0)
                                           ? serverRev.flaggedQuestions
                                           : (Array.isArray(tvsRev?.flaggedQuestions) && tvsRev.flaggedQuestions.length > 0
-                                              ? tvsRev.flaggedQuestions
-                                              : (Array.isArray(tvsRev?.questionContexts) ? tvsRev.questionContexts : []));
+                                            ? tvsRev.flaggedQuestions
+                                            : (Array.isArray(tvsRev?.questionContexts) ? tvsRev.questionContexts : []));
 
                                       const flaggedCategories: string[] = rawFlagged
                                         .map((q: any) =>
@@ -15349,15 +15338,15 @@ export default function FormAnalyticsDashboard({
                                       const isEligible = isBiwEligibleResponse(response);
 
                                       // Extract BIW flagged categories (strictly from biwReview only)
-                                       const biwFlaggedCategories: string[] = (
-                                         Array.isArray(response.biwReview?.flaggedQuestions) && response.biwReview.flaggedQuestions.length > 0
-                                           ? response.biwReview.flaggedQuestions
-                                           : Array.isArray(response.biwReview?.defects) && response.biwReview.defects.length > 0
-                                           ? response.biwReview.defects
-                                           : []
-                                       )
-                                         .map((q: any) => typeof q === "object" ? (q.questionText || q.title || q.text || q.questionId) : String(q))
-                                         .filter((s): s is string => Boolean(s && s.trim()));
+                                      const biwFlaggedCategories: string[] = (
+                                        Array.isArray(response.biwReview?.flaggedQuestions) && response.biwReview.flaggedQuestions.length > 0
+                                          ? response.biwReview.flaggedQuestions
+                                          : Array.isArray(response.biwReview?.defects) && response.biwReview.defects.length > 0
+                                            ? response.biwReview.defects
+                                            : []
+                                      )
+                                        .map((q: any) => typeof q === "object" ? (q.questionText || q.title || q.text || q.questionId) : String(q))
+                                        .filter((s): s is string => Boolean(s && s.trim()));
 
                                       // ❌ Rework responses do not receive BIW review:
                                       // Only "Direct Ok", "Accepted", and "Rework Accepted" can receive BIW review.
@@ -15620,17 +15609,17 @@ export default function FormAnalyticsDashboard({
                                         <div className="flex items-center justify-center gap-2">
                                           {/* Time Taken duration */}
                                           {timeSpent !== undefined &&
-                                          timeSpent !== null &&
-                                          timeSpent > 0 && (
-                                            <div className="flex items-center gap-1 font-bold text-blue-600 dark:text-blue-400 text-xs">
-                                              <Clock className="w-3.5 h-3.5 text-blue-500" />
-                                              <span>
-                                                {timeSpent > 60
-                                                  ? `${Math.floor(timeSpent / 60)}m ${timeSpent % 60}s`
-                                                  : `${timeSpent}s`}
-                                              </span>
-                                            </div>
-                                          )}
+                                            timeSpent !== null &&
+                                            timeSpent > 0 && (
+                                              <div className="flex items-center gap-1 font-bold text-blue-600 dark:text-blue-400 text-xs">
+                                                <Clock className="w-3.5 h-3.5 text-blue-500" />
+                                                <span>
+                                                  {timeSpent > 60
+                                                    ? `${Math.floor(timeSpent / 60)}m ${timeSpent % 60}s`
+                                                    : `${timeSpent}s`}
+                                                </span>
+                                              </div>
+                                            )}
 
                                           {/* Chassis Attempt Rank Badge (1, 2, etc.) placed AFTER time taken with status-based color */}
                                           <span
@@ -17035,12 +17024,12 @@ export default function FormAnalyticsDashboard({
           Array.isArray(biwRev?.flaggedQuestions) && biwRev.flaggedQuestions.length > 0
             ? biwRev.flaggedQuestions
             : Array.isArray((biwViewResponse as any).review?.flaggedQuestions) && (biwViewResponse as any).review.flaggedQuestions.length > 0
-            ? (biwViewResponse as any).review.flaggedQuestions
-            : Array.isArray((biwViewResponse as any).review?.questionContexts) && (biwViewResponse as any).review.questionContexts.length > 0
-            ? (biwViewResponse as any).review.questionContexts
-            : Array.isArray((biwViewResponse as any).tvsReview?.flaggedQuestions) && (biwViewResponse as any).tvsReview.flaggedQuestions.length > 0
-            ? (biwViewResponse as any).tvsReview.flaggedQuestions
-            : []
+              ? (biwViewResponse as any).review.flaggedQuestions
+              : Array.isArray((biwViewResponse as any).review?.questionContexts) && (biwViewResponse as any).review.questionContexts.length > 0
+                ? (biwViewResponse as any).review.questionContexts
+                : Array.isArray((biwViewResponse as any).tvsReview?.flaggedQuestions) && (biwViewResponse as any).tvsReview.flaggedQuestions.length > 0
+                  ? (biwViewResponse as any).tvsReview.flaggedQuestions
+                  : []
         );
 
         const modalRemark = biwRev?.remark || biwRev?.reason || (biwViewResponse as any).review?.remark || (biwViewResponse as any).review?.reason;
@@ -17095,10 +17084,10 @@ export default function FormAnalyticsDashboard({
                       )}
                       {(String(currentReviewStatus).toLowerCase().trim() === "reworked" ||
                         String(currentReviewStatus).toLowerCase().trim() === "rework") && (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800">
-                          <RotateCcw className="w-3.5 h-3.5" /> Rework
-                        </span>
-                      )}
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800">
+                            <RotateCcw className="w-3.5 h-3.5" /> Rework
+                          </span>
+                        )}
                       {!currentReviewStatus && (
                         <span className="text-xs font-medium text-gray-500">No review status recorded yet</span>
                       )}
@@ -17527,11 +17516,10 @@ export default function FormAnalyticsDashboard({
                       return (
                         <div className="flex items-center gap-2">
                           <span
-                            className={`px-3 py-1 text-xs font-bold rounded ${
-                              pendingReviewOption === "Rejected"
+                            className={`px-3 py-1 text-xs font-bold rounded ${pendingReviewOption === "Rejected"
                                 ? "bg-red-500/30 text-red-100 border border-red-400"
                                 : "bg-yellow-500/30 text-yellow-100 border border-yellow-400"
-                            }`}
+                              }`}
                           >
                             {pendingReviewOption === "Rejected" ? "❌" : "🔄"}{" "}
                             {pendingReviewOption} — Select questions & enter feedback
@@ -17570,13 +17558,12 @@ export default function FormAnalyticsDashboard({
                                   setPendingReviewOption(opt);
                                 }
                               }}
-                              className={`px-3 py-1 text-xs font-bold rounded transition-all border shadow-sm ${
-                                opt === "Accepted"
+                              className={`px-3 py-1 text-xs font-bold rounded transition-all border shadow-sm ${opt === "Accepted"
                                   ? "bg-green-500/30 border-green-400 text-green-100 hover:bg-green-500/50"
                                   : opt === "Rejected"
                                     ? "bg-red-500/30 border-red-400 text-red-100 hover:bg-red-500/50"
                                     : "bg-yellow-500/30 border-yellow-400 text-yellow-100 hover:bg-yellow-500/50"
-                              }`}
+                                }`}
                             >
                               {opt === "Accepted" ? "✅" : opt === "Rejected" ? "❌" : "🔄"}{" "}
                               {opt}
@@ -17705,289 +17692,286 @@ export default function FormAnalyticsDashboard({
                       })()}
                     </p>
 
-                      {/* Show question selection panel when Rejected/Rework is pending */}
-                      {pendingReviewOption ? (
-                        <div className="space-y-3">
-                          <div
-                            className={`flex items-center gap-2 p-3 rounded-xl border ${
-                              pendingReviewOption === "Rejected"
-                                ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
-                                : "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800"
+                    {/* Show question selection panel when Rejected/Rework is pending */}
+                    {pendingReviewOption ? (
+                      <div className="space-y-3">
+                        <div
+                          className={`flex items-center gap-2 p-3 rounded-xl border ${pendingReviewOption === "Rejected"
+                              ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+                              : "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800"
                             }`}
-                          >
-                            <span className="text-xl">
-                              {pendingReviewOption === "Rejected" ? "❌" : "🔄"}
-                            </span>
-                            <div>
-                              <p
-                                className={`text-xs font-bold ${
-                                  pendingReviewOption === "Rejected"
-                                    ? "text-red-700 dark:text-red-300"
-                                    : "text-yellow-700 dark:text-yellow-300"
+                        >
+                          <span className="text-xl">
+                            {pendingReviewOption === "Rejected" ? "❌" : "🔄"}
+                          </span>
+                          <div>
+                            <p
+                              className={`text-xs font-bold ${pendingReviewOption === "Rejected"
+                                  ? "text-red-700 dark:text-red-300"
+                                  : "text-yellow-700 dark:text-yellow-300"
                                 }`}
-                              >
-                                {pendingReviewOption} TVS Review
-                              </p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">
-                                {pendingReviewOption === "Rejected"
-                                  ? "Flag questions with issues (optional), then enter mandatory rejection reason in the Message Center on the right."
-                                  : 'Select questions requiring rework, then type feedback in the Message Center and submit.'}
-                              </p>
-                            </div>
+                            >
+                              {pendingReviewOption} TVS Review
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              {pendingReviewOption === "Rejected"
+                                ? "Flag questions with issues (optional), then enter mandatory rejection reason in the Message Center on the right."
+                                : 'Select questions requiring rework, then type feedback in the Message Center and submit.'}
+                            </p>
                           </div>
+                        </div>
 
-                          <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">
-                            Select Questions to Flag ({chatFilters.questions.length} selected)
-                          </label>
+                        <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">
+                          Select Questions to Flag ({chatFilters.questions.length} selected)
+                        </label>
 
-                          <div className="max-h-[420px] overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-xl shadow-inner scrollbar-thin bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
-                            {form?.sections
-                              ?.flatMap((s) =>
-                                (s.questions || []).filter(
-                                  (q: any) =>
-                                    !q.parentId && !q.showWhen?.questionId,
-                                ),
-                              )
-                              .map((q) => {
-                                const isChecked = chatFilters.questions.includes(q.id);
-                                const qAnswer = (
-                                  responses.find((r) => r.id === chatResponse.id) ||
-                                  tableResponses.find((r) => r.id === chatResponse.id) ||
-                                  chatResponse
-                                )?.answers?.[q.id];
+                        <div className="max-h-[420px] overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-xl shadow-inner scrollbar-thin bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
+                          {form?.sections
+                            ?.flatMap((s) =>
+                              (s.questions || []).filter(
+                                (q: any) =>
+                                  !q.parentId && !q.showWhen?.questionId,
+                              ),
+                            )
+                            .map((q) => {
+                              const isChecked = chatFilters.questions.includes(q.id);
+                              const qAnswer = (
+                                responses.find((r) => r.id === chatResponse.id) ||
+                                tableResponses.find((r) => r.id === chatResponse.id) ||
+                                chatResponse
+                              )?.answers?.[q.id];
 
-                                return (
-                                  <div
-                                    key={q.id}
-                                    className={`p-3 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 transition-colors ${
-                                      isChecked ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""
+                              return (
+                                <div
+                                  key={q.id}
+                                  className={`p-3 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 transition-colors ${isChecked ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""
                                     }`}
-                                  >
-                                    <div className="flex items-start gap-3">
-                                      <label className="mt-0.5 cursor-pointer">
-                                        <input
-                                          type="checkbox"
-                                          checked={isChecked}
-                                          onChange={(e) => {
-                                            const checked = e.target.checked;
-                                            setChatFilters((prev) => ({
-                                              ...prev,
-                                              questions: checked
-                                                ? [...prev.questions, q.id]
-                                                : prev.questions.filter((id) => id !== q.id),
-                                            }));
-                                          }}
-                                          className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer"
-                                        />
-                                      </label>
-                                      <div className="flex-1 min-w-0">
-                                        <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 block mb-1">
-                                          {q.text}
-                                        </span>
-                                        {qAnswer !== undefined && (
-                                          <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-1.5 rounded mb-1 flex items-center gap-1.5 flex-wrap">
-                                            <span className="font-semibold text-gray-600 dark:text-gray-400">Current:</span>
-                                            {formatChatAnswerValue(qAnswer)}
-                                          </div>
-                                        )}
-                                        {isChecked && (
-                                          <div className="mt-2 space-y-2">
-                                            <QuestionSuggestionRenderer
-                                              question={q}
-                                              currentAnswer={qAnswer}
-                                              value={chatFilters.suggestedAnswers?.[q.id] || {}}
-                                              onChange={(val) =>
-                                                setChatFilters((prev) => ({
-                                                  ...prev,
-                                                  suggestedAnswers: {
-                                                    ...prev.suggestedAnswers,
-                                                    [q.id]: val,
-                                                  },
-                                                }))
-                                              }
-                                            />
-                                          </div>
-                                        )}
-                                      </div>
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <label className="mt-0.5 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          setChatFilters((prev) => ({
+                                            ...prev,
+                                            questions: checked
+                                              ? [...prev.questions, q.id]
+                                              : prev.questions.filter((id) => id !== q.id),
+                                          }));
+                                        }}
+                                        className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer"
+                                      />
+                                    </label>
+                                    <div className="flex-1 min-w-0">
+                                      <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 block mb-1">
+                                        {q.text}
+                                      </span>
+                                      {qAnswer !== undefined && (
+                                        <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-1.5 rounded mb-1 flex items-center gap-1.5 flex-wrap">
+                                          <span className="font-semibold text-gray-600 dark:text-gray-400">Current:</span>
+                                          {formatChatAnswerValue(qAnswer)}
+                                        </div>
+                                      )}
+                                      {isChecked && (
+                                        <div className="mt-2 space-y-2">
+                                          <QuestionSuggestionRenderer
+                                            question={q}
+                                            currentAnswer={qAnswer}
+                                            value={chatFilters.suggestedAnswers?.[q.id] || {}}
+                                            onChange={(val) =>
+                                              setChatFilters((prev) => ({
+                                                ...prev,
+                                                suggestedAnswers: {
+                                                  ...prev.suggestedAnswers,
+                                                  [q.id]: val,
+                                                },
+                                              }))
+                                            }
+                                          />
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
-                                );
-                              })}
-                          </div>
-                        </div>
-                      ) : (
-                        /* Display TVS review overview, status, feedback & discussion context */
-                        <div className="space-y-4">
-                          {/* 1. Review Summary Card if reviewed */}
-                          {(() => {
-                            const tvsRev = tvsReviews.find(
-                              (tr) =>
-                                String(tr.responseId || tr.response_id || "") ===
-                                String(chatResponse?.id),
-                            );
-                            const revOption =
-                              chatResponse?.review?.option ||
-                              chatResponse?.review?.reviewOption ||
-                              tvsRev?.status ||
-                              tvsRev?.reviewOption ||
-                              selectedReviewOptions[chatResponse?.id || ""];
-                            const reviewerName =
-                              (typeof chatResponse?.review?.reviewer === "object"
-                                ? chatResponse?.review?.reviewer?.name || chatResponse?.review?.reviewer?.email
-                                : chatResponse?.review?.reviewer) ||
-                              tvsRev?.reviewer?.name ||
-                              tvsRev?.reviewer ||
-                              reviewedBy[chatResponse?.id || ""]?.name ||
-                              reviewedBy[chatResponse?.id || ""]?.email ||
-                              "";
-                            const reviewDate =
-                              chatResponse?.review?.reviewAt ||
-                              chatResponse?.review?.reviewedAt ||
-                              tvsRev?.createdAt ||
-                              "";
-                            const remark =
-                              chatResponse?.review?.message ||
-                              chatResponse?.review?.remark ||
-                              chatResponse?.review?.reason ||
-                              tvsRev?.remark ||
-                              "";
-                            const evidenceUrl = chatResponse?.review?.evidenceUrl;
-
-                            if (!revOption && !reviewerName) {
-                              return (
-                                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-xs text-gray-500">
-                                  💬 Use the Message Center to discuss this chassis and share inspection feedback.
                                 </div>
                               );
-                            }
-
-                            const isAccepted = String(revOption).toLowerCase().trim() === "accepted";
-                            const isRejected = String(revOption).toLowerCase().trim() === "rejected";
-                            const badgeColor = isAccepted
-                              ? "bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800"
-                              : isRejected
-                                ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
-                                : "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-800";
-
-                            return (
-                              <div className="p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm space-y-3">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                    TVS Review Status
-                                  </span>
-                                  <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 ${badgeColor}`}>
-                                    {isAccepted ? "✅" : isRejected ? "❌" : "🔄"} {revOption}
-                                  </span>
-                                </div>
-
-                                {reviewerName && (
-                                  <p className="text-xs text-gray-600 dark:text-gray-400">
-                                    <span className="font-semibold text-gray-700 dark:text-gray-300">Reviewed By:</span> {reviewerName}
-                                    {reviewDate && (
-                                      <span className="ml-2 text-gray-400">
-                                        ({new Date(reviewDate).toLocaleDateString()} {new Date(reviewDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
-                                      </span>
-                                    )}
-                                  </p>
-                                )}
-
-                                {remark && (
-                                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 text-xs">
-                                    <span className="font-bold text-amber-700 dark:text-amber-400 block mb-1">
-                                      Reviewer Feedback / Remarks:
-                                    </span>
-                                    <p className="text-gray-700 dark:text-gray-300 italic">"{remark}"</p>
-                                  </div>
-                                )}
-
-                                {evidenceUrl && (
-                                  <div>
-                                    <span className="text-[11px] font-bold text-gray-600 dark:text-gray-400 block mb-1">
-                                      Reviewer Attachment / Evidence:
-                                    </span>
-                                    <a href={evidenceUrl} target="_blank" rel="noreferrer" className="inline-block">
-                                      <img
-                                        src={evidenceUrl}
-                                        alt="Review evidence"
-                                        className="w-32 h-20 object-cover rounded-lg border border-gray-200 hover:opacity-90 transition-opacity"
-                                      />
-                                    </a>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
-
-                          {/* 2. Flagged Items for Discussion */}
-                          {(() => {
-                            const tvsRev = tvsReviews.find(
-                              (tr) =>
-                                String(tr.responseId || tr.response_id || "") ===
-                                String(chatResponse?.id),
-                            );
-                            const rawFlagged =
-                              chatResponse?.review?.flaggedQuestions ||
-                              tvsRev?.flaggedQuestions ||
-                              [];
-                            const allFlagged = rawFlagged.map((qText: any) => ({
-                              questionId: typeof qText === "string" ? qText : qText.questionId || qText.text || "",
-                              questionText: typeof qText === "string" ? qText : qText.questionText || qText.text || qText.title || "",
-                            })).filter((item: any) => Boolean(item.questionText));
-
-                            if (allFlagged.length === 0) return null;
-
-                            return (
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                    Flagged Items for Discussion ({allFlagged.length})
-                                  </label>
-                                </div>
-                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                                  {allFlagged.map((item: any, idx: number) => {
-                                    const qId = item.questionId || item.id;
-                                    const qTitle = item.questionText || item.title || qId;
-                                    const matchingQ = form?.sections
-                                      ?.flatMap((s) => s.questions || [])
-                                      .find((q: any) => q.id === qId || q.text === qTitle);
-                                    const ans = chatResponse?.answers?.[matchingQ?.id || qId];
-
-                                    return (
-                                      <div
-                                        key={idx}
-                                        className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-2xs space-y-2"
-                                      >
-                                        <div className="flex items-start justify-between gap-2">
-                                          <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">
-                                            {idx + 1}. {qTitle}
-                                          </p>
-                                          <button
-                                            onClick={() => {
-                                              const replyPrefix = `Replying regarding "${qTitle.substring(0, 30)}...": `;
-                                              setNewMessage((prev) => prev ? `${prev}\n${replyPrefix}` : replyPrefix);
-                                              const textarea = document.querySelector("textarea");
-                                              if (textarea) textarea.focus();
-                                            }}
-                                            className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
-                                          >
-                                            Reply to this
-                                          </button>
-                                        </div>
-                                        {ans !== undefined && (
-                                          <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-2 rounded flex items-center gap-1.5 flex-wrap">
-                                            <span className="font-semibold text-gray-600 dark:text-gray-400">Current Answer:</span>
-                                            {formatChatAnswerValue(ans)}
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            );
-                          })()}
+                            })}
                         </div>
-                      )}
+                      </div>
+                    ) : (
+                      /* Display TVS review overview, status, feedback & discussion context */
+                      <div className="space-y-4">
+                        {/* 1. Review Summary Card if reviewed */}
+                        {(() => {
+                          const tvsRev = tvsReviews.find(
+                            (tr) =>
+                              String(tr.responseId || tr.response_id || "") ===
+                              String(chatResponse?.id),
+                          );
+                          const revOption =
+                            chatResponse?.review?.option ||
+                            chatResponse?.review?.reviewOption ||
+                            tvsRev?.status ||
+                            tvsRev?.reviewOption ||
+                            selectedReviewOptions[chatResponse?.id || ""];
+                          const reviewerName =
+                            (typeof chatResponse?.review?.reviewer === "object"
+                              ? chatResponse?.review?.reviewer?.name || chatResponse?.review?.reviewer?.email
+                              : chatResponse?.review?.reviewer) ||
+                            tvsRev?.reviewer?.name ||
+                            tvsRev?.reviewer ||
+                            reviewedBy[chatResponse?.id || ""]?.name ||
+                            reviewedBy[chatResponse?.id || ""]?.email ||
+                            "";
+                          const reviewDate =
+                            chatResponse?.review?.reviewAt ||
+                            chatResponse?.review?.reviewedAt ||
+                            tvsRev?.createdAt ||
+                            "";
+                          const remark =
+                            chatResponse?.review?.message ||
+                            chatResponse?.review?.remark ||
+                            chatResponse?.review?.reason ||
+                            tvsRev?.remark ||
+                            "";
+                          const evidenceUrl = chatResponse?.review?.evidenceUrl;
+
+                          if (!revOption && !reviewerName) {
+                            return (
+                              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-xs text-gray-500">
+                                💬 Use the Message Center to discuss this chassis and share inspection feedback.
+                              </div>
+                            );
+                          }
+
+                          const isAccepted = String(revOption).toLowerCase().trim() === "accepted";
+                          const isRejected = String(revOption).toLowerCase().trim() === "rejected";
+                          const badgeColor = isAccepted
+                            ? "bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800"
+                            : isRejected
+                              ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
+                              : "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-800";
+
+                          return (
+                            <div className="p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                  TVS Review Status
+                                </span>
+                                <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 ${badgeColor}`}>
+                                  {isAccepted ? "✅" : isRejected ? "❌" : "🔄"} {revOption}
+                                </span>
+                              </div>
+
+                              {reviewerName && (
+                                <p className="text-xs text-gray-600 dark:text-gray-400">
+                                  <span className="font-semibold text-gray-700 dark:text-gray-300">Reviewed By:</span> {reviewerName}
+                                  {reviewDate && (
+                                    <span className="ml-2 text-gray-400">
+                                      ({new Date(reviewDate).toLocaleDateString()} {new Date(reviewDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                                    </span>
+                                  )}
+                                </p>
+                              )}
+
+                              {remark && (
+                                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 text-xs">
+                                  <span className="font-bold text-amber-700 dark:text-amber-400 block mb-1">
+                                    Reviewer Feedback / Remarks:
+                                  </span>
+                                  <p className="text-gray-700 dark:text-gray-300 italic">"{remark}"</p>
+                                </div>
+                              )}
+
+                              {evidenceUrl && (
+                                <div>
+                                  <span className="text-[11px] font-bold text-gray-600 dark:text-gray-400 block mb-1">
+                                    Reviewer Attachment / Evidence:
+                                  </span>
+                                  <a href={evidenceUrl} target="_blank" rel="noreferrer" className="inline-block">
+                                    <img
+                                      src={evidenceUrl}
+                                      alt="Review evidence"
+                                      className="w-32 h-20 object-cover rounded-lg border border-gray-200 hover:opacity-90 transition-opacity"
+                                    />
+                                  </a>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* 2. Flagged Items for Discussion */}
+                        {(() => {
+                          const tvsRev = tvsReviews.find(
+                            (tr) =>
+                              String(tr.responseId || tr.response_id || "") ===
+                              String(chatResponse?.id),
+                          );
+                          const rawFlagged =
+                            chatResponse?.review?.flaggedQuestions ||
+                            tvsRev?.flaggedQuestions ||
+                            [];
+                          const allFlagged = rawFlagged.map((qText: any) => ({
+                            questionId: typeof qText === "string" ? qText : qText.questionId || qText.text || "",
+                            questionText: typeof qText === "string" ? qText : qText.questionText || qText.text || qText.title || "",
+                          })).filter((item: any) => Boolean(item.questionText));
+
+                          if (allFlagged.length === 0) return null;
+
+                          return (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                                  Flagged Items for Discussion ({allFlagged.length})
+                                </label>
+                              </div>
+                              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                                {allFlagged.map((item: any, idx: number) => {
+                                  const qId = item.questionId || item.id;
+                                  const qTitle = item.questionText || item.title || qId;
+                                  const matchingQ = form?.sections
+                                    ?.flatMap((s) => s.questions || [])
+                                    .find((q: any) => q.id === qId || q.text === qTitle);
+                                  const ans = chatResponse?.answers?.[matchingQ?.id || qId];
+
+                                  return (
+                                    <div
+                                      key={idx}
+                                      className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-2xs space-y-2"
+                                    >
+                                      <div className="flex items-start justify-between gap-2">
+                                        <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                                          {idx + 1}. {qTitle}
+                                        </p>
+                                        <button
+                                          onClick={() => {
+                                            const replyPrefix = `Replying regarding "${qTitle.substring(0, 30)}...": `;
+                                            setNewMessage((prev) => prev ? `${prev}\n${replyPrefix}` : replyPrefix);
+                                            const textarea = document.querySelector("textarea");
+                                            if (textarea) textarea.focus();
+                                          }}
+                                          className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
+                                        >
+                                          Reply to this
+                                        </button>
+                                      </div>
+                                      {ans !== undefined && (
+                                        <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-2 rounded flex items-center gap-1.5 flex-wrap">
+                                          <span className="font-semibold text-gray-600 dark:text-gray-400">Current Answer:</span>
+                                          {formatChatAnswerValue(ans)}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -18081,11 +18065,10 @@ export default function FormAnalyticsDashboard({
                           >
                             {msg.isReviewFeedback && (
                               <div className="mb-1.5 flex items-center gap-1.5">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                  msg.reviewOption === "Rejected"
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${msg.reviewOption === "Rejected"
                                     ? "bg-red-100 text-red-700 border border-red-200"
                                     : "bg-yellow-100 text-yellow-800 border border-yellow-200"
-                                }`}>
+                                  }`}>
                                   TVS Review: {msg.reviewOption}
                                 </span>
                               </div>
@@ -18106,11 +18089,11 @@ export default function FormAnalyticsDashboard({
                                         const hasContent =
                                           typeof s === "object"
                                             ? Boolean(
-                                                (s.inspectionRemark && String(s.inspectionRemark).trim()) ||
-                                                (s.remark && String(s.remark).trim()) ||
-                                                (s.inspectionFileUrl && String(s.inspectionFileUrl).trim()) ||
-                                                (s.fileUrl && String(s.fileUrl).trim()),
-                                              )
+                                              (s.inspectionRemark && String(s.inspectionRemark).trim()) ||
+                                              (s.remark && String(s.remark).trim()) ||
+                                              (s.inspectionFileUrl && String(s.inspectionFileUrl).trim()) ||
+                                              (s.fileUrl && String(s.fileUrl).trim()),
+                                            )
                                             : Boolean(String(s).trim());
                                         if (!hasContent) return null;
 
@@ -18298,13 +18281,12 @@ export default function FormAnalyticsDashboard({
                                   ? "Send a message..."
                                   : "Type your feedback to the inspector..."
                           }
-                          className={`w-full px-5 py-4 bg-gray-50 dark:bg-gray-800 border-2 rounded-2xl text-sm focus:ring-0 transition-all resize-none shadow-inner text-gray-800 dark:text-gray-200 ${
-                            pendingReviewOption === "Rejected"
+                          className={`w-full px-5 py-4 bg-gray-50 dark:bg-gray-800 border-2 rounded-2xl text-sm focus:ring-0 transition-all resize-none shadow-inner text-gray-800 dark:text-gray-200 ${pendingReviewOption === "Rejected"
                               ? isRejectionBlank
                                 ? "border-red-400/80 focus:border-red-600 dark:border-red-500/80 dark:focus:border-red-400 bg-red-50/20"
                                 : "border-emerald-300 focus:border-emerald-500 dark:border-emerald-600"
                               : "border-transparent focus:border-indigo-500 dark:focus:border-indigo-400"
-                          }`}
+                            }`}
                           rows={3}
                         />
                       </div>
@@ -18372,9 +18354,9 @@ export default function FormAnalyticsDashboard({
                           <b>
                             {!isAssignedReviewer || isSubmitter
                               ? (typeof chatResponse.review?.reviewer === "object"
-                                  ? chatResponse.review?.reviewer?.name || chatResponse.review?.reviewer?.email
-                                  : chatResponse.review?.reviewer) ||
-                                "the reviewer"
+                                ? chatResponse.review?.reviewer?.name || chatResponse.review?.reviewer?.email
+                                : chatResponse.review?.reviewer) ||
+                              "the reviewer"
                               : chatResponse.submittedBy || "the submitter"}
                           </b>
                         </p>
