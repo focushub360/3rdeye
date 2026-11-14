@@ -5041,6 +5041,11 @@ export default function FormAnalyticsDashboard({
   // Subscribes to the form's analytics room ('form-analytics-${id}') to receive
   // instant updates when any response is created, updated (status/BIW/dispatch),
   // deleted, or batch-imported from anywhere in the system.
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const responsesPageRef = useRef(responsesPage);
+  responsesPageRef.current = responsesPage;
+
   useEffect(() => {
     if (!id) return;
 
@@ -5055,7 +5060,10 @@ export default function FormAnalyticsDashboard({
     const socketUrl = getSocketUrl();
     const socket = io(socketUrl, {
       reconnection: true,
-      transports: ["websocket", "polling"],
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      transports: ["polling", "websocket"],
       withCredentials: true,
     });
 
@@ -5155,8 +5163,8 @@ export default function FormAnalyticsDashboard({
       fetchFullAnalyticsResponses();
       fetchSummary();
       fetchPerformanceTable();
-      if (activeTab === "responses") {
-        fetchResponsesPage(responsesPage);
+      if (activeTabRef.current === "responses") {
+        fetchResponsesPage(responsesPageRef.current);
       }
     });
 
@@ -5165,7 +5173,7 @@ export default function FormAnalyticsDashboard({
       socket.emit("leave-form-analytics", id);
       socket.disconnect();
     };
-  }, [id, activeTab, responsesPage]);
+  }, [id]);
 
   // Question / Section / Overall tabs also derive their charts and stats
   // from the full `responses` array. If the user lands directly on one of

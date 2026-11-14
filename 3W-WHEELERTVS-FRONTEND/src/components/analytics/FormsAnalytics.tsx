@@ -621,7 +621,7 @@ export default function FormsAnalytics() {
     const socketUrl = getSocketUrl();
     const socket = io(socketUrl, {
       reconnection: true,
-      transports: ["websocket", "polling"],
+      transports: ["polling", "websocket"],
       withCredentials: true,
     });
 
