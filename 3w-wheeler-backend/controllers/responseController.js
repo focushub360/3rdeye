@@ -70,23 +70,47 @@ const canAccessResponseTenant = async (req, response) => {
     }
   }
 
-  // Also check parent form if linked
+  // Also check parent form if linked either by parentFormId OR by being in childForms of a parent form
   let matchesParentFormAccess = false;
-  if (!isOwnerTenant && !isSharedTenant && !matchesAssignedChassis && (form?.parentFormId || form?.parentForm)) {
-    const parentId = form.parentFormId || form.parentForm?.id || form.parentForm?._id;
+  if (!isOwnerTenant && !isSharedTenant && !matchesAssignedChassis && userTenantIdStr) {
+    const formIdentifiers = [form?.id, form?._id ? form._id.toString() : null, targetFormId].filter(Boolean);
+    const parentQuery = [
+      { 'childForms.formId': { $in: formIdentifiers } },
+      { 'childForms.id': { $in: formIdentifiers } }
+    ];
+    const parentId = form?.parentFormId || form?.parentForm?.id || form?.parentForm?._id;
     if (parentId) {
-      const parentFormDoc = await Form.findOne(
-        mongoose.Types.ObjectId.isValid(parentId) ? { $or: [{ _id: parentId }, { id: parentId }] } : { id: parentId }
-      ).select('tenantId sharedWithTenants chassisTenantAssignments').lean();
-      if (parentFormDoc) {
-        const isParentOwner = parentFormDoc.tenantId && parentFormDoc.tenantId.toString() === userTenantIdStr;
-        const isParentShared = Array.isArray(parentFormDoc.sharedWithTenants) && parentFormDoc.sharedWithTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr);
-        const isParentAssigned = Array.isArray(parentFormDoc.chassisTenantAssignments) && parentFormDoc.chassisTenantAssignments.some(
-          (a) => a.assignedTenants && a.assignedTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr)
-        );
-        matchesParentFormAccess = Boolean(isParentOwner || isParentShared || isParentAssigned);
-      }
+      if (mongoose.Types.ObjectId.isValid(parentId)) parentQuery.push({ _id: parentId });
+      parentQuery.push({ id: parentId });
     }
+
+    const parentFormDoc = await Form.findOne({ $or: parentQuery })
+      .select('tenantId sharedWithTenants chassisTenantAssignments').lean();
+
+    if (parentFormDoc) {
+      const isParentOwner = parentFormDoc.tenantId && parentFormDoc.tenantId.toString() === userTenantIdStr;
+      const isParentShared = Array.isArray(parentFormDoc.sharedWithTenants) && parentFormDoc.sharedWithTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr);
+      const isParentAssigned = Array.isArray(parentFormDoc.chassisTenantAssignments) && parentFormDoc.chassisTenantAssignments.some(
+        (a) => a.assignedTenants && a.assignedTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr)
+      );
+      matchesParentFormAccess = Boolean(isParentOwner || isParentShared || isParentAssigned);
+    }
+  }
+
+  // Also check child forms: if user owns or has access to a child form of this form
+  let matchesChildFormAccess = false;
+  if (!isOwnerTenant && !isSharedTenant && !matchesAssignedChassis && !matchesParentFormAccess && userTenantIdStr && Array.isArray(form?.childForms) && form.childForms.length > 0) {
+    const childIds = form.childForms.map((cf) => cf.formId || cf.id).filter(Boolean);
+    const childFormDocs = await Form.find({
+      $or: [
+        { id: { $in: childIds } },
+        { _id: { $in: childIds.filter((id) => mongoose.Types.ObjectId.isValid(id)) } }
+      ]
+    }).select('tenantId sharedWithTenants').lean();
+    matchesChildFormAccess = childFormDocs.some(
+      (cf) => (cf.tenantId && cf.tenantId.toString() === userTenantIdStr) ||
+              (Array.isArray(cf.sharedWithTenants) && cf.sharedWithTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr))
+    );
   }
 
   // Response.tenantId itself always equals the form owner's tenant, so as a
@@ -95,7 +119,7 @@ const canAccessResponseTenant = async (req, response) => {
   const responseTenantIdStr = response.tenantId ? response.tenantId.toString() : null;
   const matchesResponseTenant = responseTenantIdStr && responseTenantIdStr === userTenantIdStr;
 
-  return Boolean(isOwnerTenant || isSharedTenant || matchesAssignedChassis || matchesParentFormAccess || matchesResponseTenant);
+  return Boolean(isOwnerTenant || isSharedTenant || matchesAssignedChassis || matchesParentFormAccess || matchesChildFormAccess || matchesResponseTenant);
 };
 
 // ─── Robust Date Parser for Excel Imports ─────────────────────────────────────
@@ -4523,22 +4547,43 @@ export const updateResponse = async (req, res) => {
           }
           const formObj = formQueryOr.length > 0 ? await Form.findOne({ $or: formQueryOr }).lean() : null;
 
-          if (formObj && Array.isArray(formObj.chassisTenantAssignments) && formObj.chassisTenantAssignments.length > 0) {
+          let parentDoc = null;
+          if (formObj) {
+            const formIds = [formObj.id, formObj._id?.toString(), response.formId, response.questionId].filter(Boolean);
+            const parentQuery = [
+              { 'childForms.formId': { $in: formIds } },
+              { 'childForms.id': { $in: formIds } }
+            ];
+            const pId = formObj.parentFormId || formObj.parentForm?.id || formObj.parentForm?._id;
+            if (pId) {
+              if (mongoose.Types.ObjectId.isValid(pId)) parentQuery.push({ _id: pId });
+              parentQuery.push({ id: pId });
+            }
+            parentDoc = await Form.findOne({ $or: parentQuery }).lean();
+          }
+
+          const assignmentsToCheck = (formObj && Array.isArray(formObj.chassisTenantAssignments) && formObj.chassisTenantAssignments.length > 0)
+            ? formObj.chassisTenantAssignments
+            : (parentDoc?.chassisTenantAssignments || []);
+
+          if (assignmentsToCheck.length > 0) {
             const respChassis = String(
               response.chassisNumber ||
               (response.answers instanceof Map ? response.answers.get('chassis_number') || response.answers.get('chassisNumber') : response.answers?.chassis_number || response.answers?.chassisNumber) ||
               ''
             ).trim().toLowerCase();
 
-            const assignment = formObj.chassisTenantAssignments.find(a =>
+            const assignment = assignmentsToCheck.find(a =>
               a.chassisNumber && respChassis && a.chassisNumber.toString().trim().toLowerCase() === respChassis
             );
 
             if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
               const userTenantIdStr = req.user.tenantId ? req.user.tenantId.toString() : '';
               const isAssigned = assignment.assignedTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
-              const isFormOwner = formObj.tenantId && formObj.tenantId.toString() === userTenantIdStr;
-              const isSharedTenant = Array.isArray(formObj.sharedWithTenants) && formObj.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
+              const isFormOwner = (formObj?.tenantId && formObj.tenantId.toString() === userTenantIdStr) ||
+                                  (parentDoc?.tenantId && parentDoc.tenantId.toString() === userTenantIdStr);
+              const isSharedTenant = (Array.isArray(formObj?.sharedWithTenants) && formObj.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr)) ||
+                                     (Array.isArray(parentDoc?.sharedWithTenants) && parentDoc.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr));
               const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
 
               if (!isAssigned && !isFormOwner && !isSharedTenant && !isAdmin) {
@@ -6365,21 +6410,42 @@ export const getResponsesByForm = async (req, res) => {
           }
           const formObj = formQueryOr.length > 0 ? await Form.findOne({ $or: formQueryOr }).lean() : null;
 
-          if (formObj && Array.isArray(formObj.chassisTenantAssignments) && formObj.chassisTenantAssignments.length > 0) {
+          let parentDoc = null;
+          if (formObj) {
+            const formIds = [formObj.id, formObj._id?.toString(), response.formId, response.questionId].filter(Boolean);
+            const parentQuery = [
+              { 'childForms.formId': { $in: formIds } },
+              { 'childForms.id': { $in: formIds } }
+            ];
+            const pId = formObj.parentFormId || formObj.parentForm?.id || formObj.parentForm?._id;
+            if (pId) {
+              if (mongoose.Types.ObjectId.isValid(pId)) parentQuery.push({ _id: pId });
+              parentQuery.push({ id: pId });
+            }
+            parentDoc = await Form.findOne({ $or: parentQuery }).lean();
+          }
+
+          const assignmentsToCheck = (formObj && Array.isArray(formObj.chassisTenantAssignments) && formObj.chassisTenantAssignments.length > 0)
+            ? formObj.chassisTenantAssignments
+            : (parentDoc?.chassisTenantAssignments || []);
+
+          if (assignmentsToCheck.length > 0) {
             const respChassis = String(
               response.chassisNumber ||
               (response.answers instanceof Map ? response.answers.get('chassis_number') || response.answers.get('chassisNumber') : response.answers?.chassis_number || response.answers?.chassisNumber) ||
               ''
             ).trim().toLowerCase();
 
-            const assignment = formObj.chassisTenantAssignments.find(a =>
+            const assignment = assignmentsToCheck.find(a =>
               a.chassisNumber && respChassis && a.chassisNumber.toString().trim().toLowerCase() === respChassis
             );
 
             if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
               const isAssigned = assignment.assignedTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
-              const isFormOwner = formObj.tenantId && formObj.tenantId.toString() === userTenantIdStr;
-              const isSharedTenant = Array.isArray(formObj.sharedWithTenants) && formObj.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
+              const isFormOwner = (formObj?.tenantId && formObj.tenantId.toString() === userTenantIdStr) ||
+                                  (parentDoc?.tenantId && parentDoc.tenantId.toString() === userTenantIdStr);
+              const isSharedTenant = (Array.isArray(formObj?.sharedWithTenants) && formObj.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr)) ||
+                                     (Array.isArray(parentDoc?.sharedWithTenants) && parentDoc.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr));
               const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
 
               if (!isAssigned && !isFormOwner && !isSharedTenant && !isAdmin) {
