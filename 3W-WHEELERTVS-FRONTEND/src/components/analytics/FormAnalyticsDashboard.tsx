@@ -3781,6 +3781,13 @@ export default function FormAnalyticsDashboard({
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [activeReviewQuestionTab, setActiveReviewQuestionTab] = useState<string>("current");
+  const [relatedFormData, setRelatedFormData] = useState<{
+    parentForm?: any;
+    childForms?: any[];
+    parentAnswers?: Record<string, any>;
+    childAnswers?: Record<string, any>;
+  }>({});
   const [selectedInspectorForTrend, setSelectedInspectorForTrend] =
     useState<string>("Overall");
   const [localFilterName, setLocalFilterName] = useState<string>("All");
@@ -4314,7 +4321,19 @@ export default function FormAnalyticsDashboard({
     try {
       setPendingReviewOption(null);
 
-      const allFormQuestions = form?.sections?.flatMap((s) => s.questions || []) || [];
+      const parentFormDoc = form?.parentForm?.sections?.length ? form.parentForm : relatedFormData.parentForm;
+      const childDocs = (form?.childForms || []).map((cf: any) => {
+        const found = (relatedFormData.childForms || []).find(
+          (rf: any) => rf.id === (cf.formId || cf.id) || rf._id === (cf.formId || cf.id)
+        );
+        return found || cf;
+      });
+
+      const allFormQuestions = [
+        ...(form?.sections?.flatMap((s: any) => s.questions || []) || []),
+        ...(parentFormDoc?.sections?.flatMap((s: any) => s.questions || []) || []),
+        ...(childDocs.flatMap((cf: any) => cf.sections?.flatMap((s: any) => s.questions || []) || []) || []),
+      ];
       const flaggedFromFilters = (chatFilters.questions || []).map((qId) => {
         const qObj = allFormQuestions.find((q: any) => String(q.id) === String(qId));
         return {
@@ -4402,6 +4421,18 @@ export default function FormAnalyticsDashboard({
             }
           ];
         });
+
+        // Also sync review to parent response if parent questions were flagged
+        const parentRespId = (chatResponse as any)?.parentResponseId || (chatResponse as any)?.followUpStatus?.parentResponseId;
+        const parentQIds = (parentFormDoc?.sections || []).flatMap((s: any) => (s.questions || []).map((q: any) => q.id));
+        const parentFlagged = flaggedQuestions.filter((fq: any) => parentQIds.includes(fq.questionId));
+        if (parentRespId && parentFlagged.length > 0) {
+          apiClient.submitReview({
+            ...reviewData,
+            responseId: parentRespId,
+            flaggedQuestions: parentFlagged,
+          }).catch((pErr: any) => console.warn("Parent review sync error:", pErr));
+        }
 
         setSelectedReviewOptions((prev) => ({
           ...prev,
@@ -6146,6 +6177,92 @@ export default function FormAnalyticsDashboard({
     }
   }, [showChatModal, chatResponse?.id, (chatResponse as any)?._id]);
 
+  // Load related parent/child form schemas and answers when chat modal opens
+  useEffect(() => {
+    if (!showChatModal || !chatResponse) return;
+
+    setActiveReviewQuestionTab("current");
+
+    const chassisVal =
+      chatResponse.chassisNumber ||
+      chatResponse.answers?.chassis_number ||
+      chatResponse.answers?.chassisNumber ||
+      (chatResponse as any).followUpStatus?.matchedChassis;
+
+    // 1. If viewing a child form, ensure parent form sections & parent answers for this chassis are loaded
+    const parentId = form?.parentFormId || (chatResponse as any).parentFormId;
+    if (parentId) {
+      if (!form?.parentForm?.sections?.length && !relatedFormData.parentForm?.sections?.length) {
+        apiClient
+          .getForm(parentId)
+          .then((res: any) => {
+            if (res?.form) {
+              setRelatedFormData((prev) => ({ ...prev, parentForm: res.form }));
+            }
+          })
+          .catch((err) => console.warn("Could not load parent form details:", err));
+      }
+
+      if (
+        !chatResponse.parentAnswers &&
+        !(chatResponse as any).followUpStatus?.parentAnswers &&
+        chassisVal
+      ) {
+        apiClient
+          .getFormResponses(parentId, { units: chassisVal, limit: 1 })
+          .then((res: any) => {
+            const pResp = (res?.responses || [])[0];
+            if (pResp?.answers) {
+              setRelatedFormData((prev) => ({ ...prev, parentAnswers: pResp.answers }));
+            }
+          })
+          .catch((err) => console.warn("Could not load parent response answers:", err));
+      }
+    }
+
+    // 2. If viewing a parent form, ensure child forms & child answers for this chassis are loaded
+    const childList = form?.childForms || [];
+    if (childList.length > 0) {
+      childList.forEach((cf: any) => {
+        const cId = cf.formId || cf.id || cf._id;
+        if (cId && (!cf.sections || cf.sections.length === 0)) {
+          apiClient
+            .getForm(cId)
+            .then((res: any) => {
+              if (res?.form) {
+                setRelatedFormData((prev) => ({
+                  ...prev,
+                  childForms: [
+                    ...(prev.childForms || []).filter(
+                      (f: any) => f.id !== cId && f._id !== cId,
+                    ),
+                    res.form,
+                  ],
+                }));
+              }
+            })
+            .catch((err) => console.warn("Could not load child form details:", err));
+        }
+
+        if (
+          !chatResponse.childAnswers &&
+          !(chatResponse as any).followUpStatus?.childAnswers &&
+          chassisVal
+        ) {
+          apiClient
+            .getFormResponses(cId, { units: chassisVal, limit: 1 })
+            .then((res: any) => {
+              const cResp = (res?.responses || [])[0];
+              if (cResp?.answers) {
+                setRelatedFormData((prev) => ({ ...prev, childAnswers: cResp.answers }));
+              }
+            })
+            .catch((err) => console.warn("Could not load child response answers:", err));
+        }
+      });
+    }
+  }, [showChatModal, chatResponse?.id, (chatResponse as any)?._id]);
+
 
   // Auto-open chat modal if responseId is in URL
   useEffect(() => {
@@ -6168,123 +6285,190 @@ export default function FormAnalyticsDashboard({
     try {
       const questionContexts: any[] = [];
       const selectedQuestionTitles: string[] = [];
-      chatFilters.questions.forEach((qid) => {
-        form?.sections?.forEach((section) => {
-          const q = section.questions?.find((q) => q.id === qid);
-          if (q) {
-            const rawAnswer = chatResponse.answers?.[qid];
-            let filteredAnswer = rawAnswer;
 
-            // Apply category filtering if selections exist
-            if (
-              rawAnswer &&
-              typeof rawAnswer === "object" &&
-              rawAnswer.categories &&
-              chatFilters.selectedCategories[qid]
-            ) {
-              const selectedNames = chatFilters.selectedCategories[qid];
-              if (selectedNames.length > 0) {
-                filteredAnswer = {
-                  ...rawAnswer,
-                  categories: rawAnswer.categories.filter((cat: any) =>
-                    selectedNames.includes(cat.name),
-                  ),
-                };
-              }
-            }
-
-            // Parse flat array into structured object for chassis-with-zone questions
-            let structuredAnswer = filteredAnswer;
-            if (
-              q.type === "chassis-with-zone" ||
-              q.type === "chassis-without-zone"
-            ) {
-              // Always use chatFilters.suggestedAnswers for current values (they have the latest changes including uploads)
-              const currentValue = chatFilters.suggestedAnswers?.[qid];
-              if (currentValue) {
-                // Use the suggestedAnswers which has the latest data
-                structuredAnswer = {
-                  status: currentValue.status || "",
-                  chassisNumber: currentValue.chassisNumber || "",
-                  zones: Array.isArray(currentValue.zone)
-                    ? currentValue.zone.join(", ")
-                    : currentValue.zone || "",
-                  zonesData: currentValue.zonesData,
-                  evidenceUrl: currentValue.evidenceUrl || "",
-                };
-                // Add categories from zonesData
-                if (currentValue.zonesData) {
-                  const cats: any[] = [];
-                  Object.entries(currentValue.zonesData).forEach(
-                    ([zoneName, zoneData]: [string, any]) => {
-                      if (zoneData?.categories) {
-                        zoneData.categories.forEach((cat: any) => {
-                          const defectsArr = (cat.defects || []).map(
-                            (d: any) => ({
-                              name: d.name,
-                              details: d.details || { remark: "", fileUrl: "" },
-                            }),
-                          );
-                          cats.push({ name: cat.name, defects: defectsArr });
-                        });
-                      }
-                    },
-                  );
-                  if (cats.length > 0) structuredAnswer.categories = cats;
-                }
-              } else if (
-                Array.isArray(filteredAnswer) &&
-                filteredAnswer.length >= 7
-              ) {
-                // Fallback to array parsing
-                structuredAnswer = {
-                  status: filteredAnswer[1] || "",
-                  chassisNumber: filteredAnswer[0] || "",
-                  zones: filteredAnswer[2] || "",
-                  categories: filteredAnswer[3]
-                    ? [
-                      {
-                        name: filteredAnswer[3],
-                        defects: filteredAnswer[4]
-                          ? [
-                            {
-                              name: filteredAnswer[4],
-                              details: {
-                                remark: filteredAnswer[5] || "",
-                                fileUrl: filteredAnswer[6] || "",
-                              },
-                            },
-                          ]
-                          : [],
-                      },
-                    ]
-                    : [],
-                };
-              } else if (filteredAnswer?.zonesData) {
-                structuredAnswer = filteredAnswer;
-              }
-            }
-
-            const rawSuggestion = chatFilters.suggestedAnswers?.[qid];
-            const hasFilledSuggestion =
-              rawSuggestion &&
-              typeof rawSuggestion === "object" &&
-              Boolean(
-                (rawSuggestion.inspectionRemark && String(rawSuggestion.inspectionRemark).trim()) ||
-                (rawSuggestion.remark && String(rawSuggestion.remark).trim()) ||
-                (rawSuggestion.inspectionFileUrl && String(rawSuggestion.inspectionFileUrl).trim()) ||
-                (rawSuggestion.fileUrl && String(rawSuggestion.fileUrl).trim())
-              );
-
-            questionContexts.push({
-              questionId: qid,
-              title: q.text || "Question",
-              answer: structuredAnswer,
-              suggestion: hasFilledSuggestion ? rawSuggestion : undefined,
-            });
-            selectedQuestionTitles.push(q.text || "Question");
-          }
+      // Collect all available form sources (current, parent, child)
+      const allFormSources: Array<{ sections: any[]; formTitle: string; answers: any }> = [];
+      if (form?.sections) {
+        allFormSources.push({
+          sections: form.sections,
+          formTitle: form.title || "Form",
+          answers: (
+            responses.find((r) => r.id === chatResponse?.id) ||
+            tableResponses.find((r) => r.id === chatResponse?.id) ||
+            chatResponse
+          )?.answers || {},
         });
+      }
+      const parentDoc = form?.parentForm?.sections?.length ? form.parentForm : relatedFormData.parentForm;
+      if (parentDoc?.sections) {
+        allFormSources.push({
+          sections: parentDoc.sections,
+          formTitle: parentDoc.title || (chatResponse as any)?.parentFormTitle || "Parent Form",
+          answers:
+            (chatResponse as any)?.parentAnswers ||
+            (chatResponse as any)?.followUpStatus?.parentAnswers ||
+            relatedFormData.parentAnswers ||
+            {},
+        });
+      }
+      const childDocsList = (form?.childForms || []).map((cf: any) => {
+        const found = (relatedFormData.childForms || []).find(
+          (rf: any) => rf.id === (cf.formId || cf.id) || rf._id === (cf.formId || cf.id)
+        );
+        return found || cf;
+      });
+      childDocsList.forEach((cf: any) => {
+        if (cf.sections) {
+          allFormSources.push({
+            sections: cf.sections,
+            formTitle: cf.formTitle || cf.title || "Child Form",
+            answers:
+              (chatResponse as any)?.childAnswers ||
+              (chatResponse as any)?.followUpStatus?.childAnswers ||
+              relatedFormData.childAnswers ||
+              {},
+          });
+        }
+      });
+
+      chatFilters.questions.forEach((qid) => {
+        let q: any = null;
+        let section: any = null;
+        let foundFormTitle = "";
+        let foundAnswers: any = {};
+
+        for (const src of allFormSources) {
+          for (const sec of src.sections || []) {
+            const match = (sec.questions || []).find((quest: any) => quest.id === qid);
+            if (match) {
+              q = match;
+              section = sec;
+              foundFormTitle = src.formTitle;
+              foundAnswers = src.answers;
+              break;
+            }
+          }
+          if (q) break;
+        }
+
+        if (q) {
+          const rawAnswer = foundAnswers?.[qid] ?? chatResponse.answers?.[qid];
+          let filteredAnswer = rawAnswer;
+
+          // Apply category filtering if selections exist
+          if (
+            rawAnswer &&
+            typeof rawAnswer === "object" &&
+            rawAnswer.categories &&
+            chatFilters.selectedCategories[qid]
+          ) {
+            const selectedNames = chatFilters.selectedCategories[qid];
+            if (selectedNames.length > 0) {
+              filteredAnswer = {
+                ...rawAnswer,
+                categories: rawAnswer.categories.filter((cat: any) =>
+                  selectedNames.includes(cat.name),
+                ),
+              };
+            }
+          }
+
+          // Parse flat array into structured object for chassis-with-zone questions
+          let structuredAnswer = filteredAnswer;
+          if (
+            q.type === "chassis-with-zone" ||
+            q.type === "chassis-without-zone"
+          ) {
+            // Always use chatFilters.suggestedAnswers for current values (they have the latest changes including uploads)
+            const currentValue = chatFilters.suggestedAnswers?.[qid];
+            if (currentValue) {
+              // Use the suggestedAnswers which has the latest data
+              structuredAnswer = {
+                status: currentValue.status || "",
+                chassisNumber: currentValue.chassisNumber || "",
+                zones: Array.isArray(currentValue.zone)
+                  ? currentValue.zone.join(", ")
+                  : currentValue.zone || "",
+                zonesData: currentValue.zonesData,
+                evidenceUrl: currentValue.evidenceUrl || "",
+              };
+              // Add categories from zonesData
+              if (currentValue.zonesData) {
+                const cats: any[] = [];
+                Object.entries(currentValue.zonesData).forEach(
+                  ([zoneName, zoneData]: [string, any]) => {
+                    if (zoneData?.categories) {
+                      zoneData.categories.forEach((cat: any) => {
+                        const defectsArr = (cat.defects || []).map(
+                          (d: any) => ({
+                            name: d.name,
+                            details: d.details || { remark: "", fileUrl: "" },
+                          }),
+                        );
+                        cats.push({ name: cat.name, defects: defectsArr });
+                      });
+                    }
+                  },
+                );
+                if (cats.length > 0) structuredAnswer.categories = cats;
+              }
+            } else if (
+              Array.isArray(filteredAnswer) &&
+              filteredAnswer.length >= 7
+            ) {
+              // Fallback to array parsing
+              structuredAnswer = {
+                status: filteredAnswer[1] || "",
+                chassisNumber: filteredAnswer[0] || "",
+                zones: filteredAnswer[2] || "",
+                categories: filteredAnswer[3]
+                  ? [
+                    {
+                      name: filteredAnswer[3],
+                      defects: filteredAnswer[4]
+                        ? [
+                          {
+                            name: filteredAnswer[4],
+                            details: {
+                              remark: filteredAnswer[5] || "",
+                              fileUrl: filteredAnswer[6] || "",
+                            },
+                          },
+                        ]
+                        : [],
+                    },
+                  ]
+                  : [],
+              };
+            } else if (filteredAnswer?.zonesData) {
+              structuredAnswer = filteredAnswer;
+            }
+          }
+
+          const rawSuggestion = chatFilters.suggestedAnswers?.[qid];
+          const hasFilledSuggestion =
+            rawSuggestion &&
+            typeof rawSuggestion === "object" &&
+            Boolean(
+              (rawSuggestion.inspectionRemark && String(rawSuggestion.inspectionRemark).trim()) ||
+              (rawSuggestion.remark && String(rawSuggestion.remark).trim()) ||
+              (rawSuggestion.inspectionFileUrl && String(rawSuggestion.inspectionFileUrl).trim()) ||
+              (rawSuggestion.fileUrl && String(rawSuggestion.fileUrl).trim())
+            );
+
+          const qDisplayName = allFormSources.length > 1 && foundFormTitle ? `${q.text || "Question"} [${foundFormTitle}]` : q.text || "Question";
+
+          questionContexts.push({
+            questionId: qid,
+            title: qDisplayName,
+            sectionTitle: section?.title,
+            formTitle: foundFormTitle,
+            answer: structuredAnswer,
+            suggestion: hasFilledSuggestion ? rawSuggestion : undefined,
+            question: q,
+          });
+          selectedQuestionTitles.push(qDisplayName);
+        }
       });
 
       // Determine recipient email / ID:
@@ -17824,83 +18008,248 @@ export default function FormAnalyticsDashboard({
                           </div>
                         </div>
 
-                        <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">
-                          Select Questions to Flag ({chatFilters.questions.length} selected)
-                        </label>
+                        {/* Tabbed Question Selection Panel for Connected Forms */}
+                        {(() => {
+                          const parentFormObj = form?.parentForm?.sections?.length ? form.parentForm : relatedFormData.parentForm;
+                          const childDocs = (form?.childForms || []).map((cf: any) => {
+                            const found = (relatedFormData.childForms || []).find(
+                              (rf: any) => rf.id === (cf.formId || cf.id) || rf._id === (cf.formId || cf.id)
+                            );
+                            return found || cf;
+                          });
 
-                        <div className="max-h-[420px] overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-xl shadow-inner scrollbar-thin bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
-                          {form?.sections
-                            ?.flatMap((s) =>
-                              (s.questions || []).filter(
-                                (q: any) =>
-                                  !q.parentId && !q.showWhen?.questionId,
+                          interface ReviewFormTab {
+                            id: string;
+                            title: string;
+                            badge: string;
+                            questions: any[];
+                            answers: Record<string, any>;
+                          }
+
+                          const reviewFormTabs: ReviewFormTab[] = [];
+                          const isChildForm = Boolean(form?.parentFormId || (chatResponse as any)?.parentFormId);
+
+                          if (isChildForm) {
+                            // Tab 1: Current child form
+                            reviewFormTabs.push({
+                              id: "current",
+                              title: form?.title || "Child Form",
+                              badge: "Child Form",
+                              questions: (form?.sections || []).flatMap((s: any) =>
+                                (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
                               ),
-                            )
-                            .map((q) => {
-                              const isChecked = chatFilters.questions.includes(q.id);
-                              const qAnswer = (
-                                responses.find((r) => r.id === chatResponse.id) ||
-                                tableResponses.find((r) => r.id === chatResponse.id) ||
+                              answers: (
+                                responses.find((r) => r.id === chatResponse?.id) ||
+                                tableResponses.find((r) => r.id === chatResponse?.id) ||
                                 chatResponse
-                              )?.answers?.[q.id];
+                              )?.answers || {},
+                            });
 
-                              return (
-                                <div
-                                  key={q.id}
-                                  className={`p-3 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 transition-colors ${isChecked ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""
-                                    }`}
-                                >
-                                  <div className="flex items-start gap-3">
-                                    <label className="mt-0.5 cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={isChecked}
-                                        onChange={(e) => {
-                                          const checked = e.target.checked;
-                                          setChatFilters((prev) => ({
-                                            ...prev,
-                                            questions: checked
-                                              ? [...prev.questions, q.id]
-                                              : prev.questions.filter((id) => id !== q.id),
-                                          }));
-                                        }}
-                                        className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer"
-                                      />
-                                    </label>
-                                    <div className="flex-1 min-w-0">
-                                      <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 block mb-1">
-                                        {q.text}
-                                      </span>
-                                      {qAnswer !== undefined && (
-                                        <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-1.5 rounded mb-1 flex items-center gap-1.5 flex-wrap">
-                                          <span className="font-semibold text-gray-600 dark:text-gray-400">Current:</span>
-                                          {formatChatAnswerValue(qAnswer)}
+                            // Tab 2: Parent form
+                            reviewFormTabs.push({
+                              id: "parent",
+                              title: parentFormObj?.title || (chatResponse as any)?.parentFormTitle || (form as any)?.parentFormTitle || "Parent Form",
+                              badge: "Parent Form",
+                              questions: (parentFormObj?.sections || []).flatMap((s: any) =>
+                                (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+                              ),
+                              answers:
+                                (chatResponse as any)?.parentAnswers ||
+                                (chatResponse as any)?.followUpStatus?.parentAnswers ||
+                                relatedFormData.parentAnswers ||
+                                {},
+                            });
+                          } else if (childDocs.length > 0) {
+                            // Tab 1: Current parent form
+                            reviewFormTabs.push({
+                              id: "current",
+                              title: form?.title || "Parent Form",
+                              badge: "Parent Form",
+                              questions: (form?.sections || []).flatMap((s: any) =>
+                                (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+                              ),
+                              answers: (
+                                responses.find((r) => r.id === chatResponse?.id) ||
+                                tableResponses.find((r) => r.id === chatResponse?.id) ||
+                                chatResponse
+                              )?.answers || {},
+                            });
+
+                            // Tab 2+: Child form(s)
+                            childDocs.forEach((cf: any, idx: number) => {
+                              reviewFormTabs.push({
+                                id: `child-${cf.formId || cf.id || idx}`,
+                                title: cf.formTitle || cf.title || `Child Form ${idx + 1}`,
+                                badge: "Child Form",
+                                questions: (cf.sections || []).flatMap((s: any) =>
+                                  (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+                                ),
+                                answers:
+                                  (chatResponse as any)?.childAnswers ||
+                                  (chatResponse as any)?.followUpStatus?.childAnswers ||
+                                  relatedFormData.childAnswers ||
+                                  {},
+                              });
+                            });
+                          } else {
+                            // Standalone form
+                            reviewFormTabs.push({
+                              id: "current",
+                              title: form?.title || "Form",
+                              badge: "Form",
+                              questions: (form?.sections || []).flatMap((s: any) =>
+                                (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+                              ),
+                              answers: (
+                                responses.find((r) => r.id === chatResponse?.id) ||
+                                tableResponses.find((r) => r.id === chatResponse?.id) ||
+                                chatResponse
+                              )?.answers || {},
+                            });
+                          }
+
+                          const activeTab = reviewFormTabs.find((t) => t.id === activeReviewQuestionTab) || reviewFormTabs[0];
+
+                          return (
+                            <div className="space-y-3">
+                              {/* Tab Bar */}
+                              {reviewFormTabs.length > 1 && (
+                                <div className="flex items-center gap-1.5 p-1 bg-gray-200/70 dark:bg-gray-800/80 rounded-xl border border-gray-300/80 dark:border-gray-700 shadow-2xs">
+                                  {reviewFormTabs.map((tab) => {
+                                    const isTabActive = activeTab.id === tab.id;
+                                    const selectedInTabCount = (tab.questions || []).filter((q) =>
+                                      chatFilters.questions.includes(q.id)
+                                    ).length;
+                                    const isParent = tab.badge.includes("Parent");
+
+                                    return (
+                                      <button
+                                        key={tab.id}
+                                        type="button"
+                                        onClick={() => setActiveReviewQuestionTab(tab.id)}
+                                        className={`flex-1 flex items-center justify-between py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+                                          isTabActive
+                                            ? "bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-sm border border-gray-200/80 dark:border-gray-600"
+                                            : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-white/40 dark:hover:bg-gray-700/40"
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <span className="truncate max-w-[140px]" title={tab.title}>
+                                            {tab.title}
+                                          </span>
+                                          <span
+                                            className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${
+                                              isTabActive
+                                                ? isParent
+                                                  ? "bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300"
+                                                  : "bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300"
+                                                : "bg-gray-200/80 dark:bg-gray-600 text-gray-500 dark:text-gray-400"
+                                            }`}
+                                          >
+                                            {tab.badge}
+                                          </span>
                                         </div>
-                                      )}
-                                      {isChecked && (
-                                        <div className="mt-2 space-y-2">
-                                          <QuestionSuggestionRenderer
-                                            question={q}
-                                            currentAnswer={qAnswer}
-                                            value={chatFilters.suggestedAnswers?.[q.id] || {}}
-                                            onChange={(val) =>
-                                              setChatFilters((prev) => ({
-                                                ...prev,
-                                                suggestedAnswers: {
-                                                  ...prev.suggestedAnswers,
-                                                  [q.id]: val,
-                                                },
-                                              }))
-                                            }
-                                          />
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
+                                        {selectedInTabCount > 0 && (
+                                          <span className="ml-1.5 px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[10px] font-black shadow-xs">
+                                            {selectedInTabCount}
+                                          </span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
                                 </div>
-                              );
-                            })}
-                        </div>
+                              )}
+
+                              <div className="flex items-center justify-between">
+                                <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">
+                                  Select Questions to Flag ({chatFilters.questions.length} total selected)
+                                </label>
+                                {activeTab.questions.length > 0 && (
+                                  <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                                    {activeTab.questions.length} questions in {activeTab.badge}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="max-h-[420px] overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-xl shadow-inner scrollbar-thin bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
+                                {activeTab.questions.length === 0 ? (
+                                  <div className="p-8 text-center text-xs text-gray-500 dark:text-gray-400">
+                                    <p className="font-semibold mb-1">No questions found for {activeTab.title}</p>
+                                    <p className="text-[11px] opacity-75">Inspection checkpoints will appear here once loaded.</p>
+                                  </div>
+                                ) : (
+                                  activeTab.questions.map((q: any) => {
+                                    const isChecked = chatFilters.questions.includes(q.id);
+                                    const qAnswer = activeTab.answers?.[q.id];
+
+                                    return (
+                                      <div
+                                        key={q.id}
+                                        className={`p-3 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 transition-colors ${
+                                          isChecked ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""
+                                        }`}
+                                      >
+                                        <div className="flex items-start gap-3">
+                                          <label className="mt-0.5 cursor-pointer">
+                                            <input
+                                              type="checkbox"
+                                              checked={isChecked}
+                                              onChange={(e) => {
+                                                const checked = e.target.checked;
+                                                setChatFilters((prev) => ({
+                                                  ...prev,
+                                                  questions: checked
+                                                    ? [...prev.questions, q.id]
+                                                    : prev.questions.filter((id) => id !== q.id),
+                                                }));
+                                              }}
+                                              className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer"
+                                            />
+                                          </label>
+                                          <div className="flex-1 min-w-0">
+                                            <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 block mb-1">
+                                              {q.text || q.title || q.id}
+                                            </span>
+                                            {qAnswer !== undefined ? (
+                                              <div className="text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-1.5 rounded mb-1 flex items-center gap-1.5 flex-wrap">
+                                                <span className="font-semibold text-gray-600 dark:text-gray-400">
+                                                  Current:
+                                                </span>
+                                                {formatChatAnswerValue(qAnswer)}
+                                              </div>
+                                            ) : (
+                                              <div className="text-[10px] text-gray-400 italic mb-1">
+                                                Not inspected in this record
+                                              </div>
+                                            )}
+                                            {isChecked && (
+                                              <div className="mt-2 space-y-2">
+                                                <QuestionSuggestionRenderer
+                                                  question={q}
+                                                  currentAnswer={qAnswer}
+                                                  value={chatFilters.suggestedAnswers?.[q.id] || {}}
+                                                  onChange={(val) =>
+                                                    setChatFilters((prev) => ({
+                                                      ...prev,
+                                                      suggestedAnswers: {
+                                                        ...prev.suggestedAnswers,
+                                                        [q.id]: val,
+                                                      },
+                                                    }))
+                                                  }
+                                                />
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     ) : (
                       /* Display TVS review overview, status, feedback & discussion context */

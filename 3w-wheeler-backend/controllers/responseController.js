@@ -5443,6 +5443,7 @@ export const getResponsesByForm = async (req, res) => {
                 const prId = pr.id || (pr._id ? pr._id.toString() : null);
                 if (prId) parentByIdMap.set(prId, pr);
                 const pVal = getChassisFromDoc(pr, parentFormDoc);
+                const prAns = pr.answers instanceof Map ? Object.fromEntries(pr.answers) : (pr.answers || {});
                 if (pVal) {
                   const norm = pVal.toLowerCase().trim();
                   if (!parentChassisMap.has(norm)) {
@@ -5453,11 +5454,15 @@ export const getResponsesByForm = async (req, res) => {
                       status: pr.status || 'Accepted',
                       submittedBy: pr.submittedBy || 'Inspector',
                       responseId: prId,
-                      chassis: pVal
+                      chassis: pVal,
+                      answers: prAns
                     });
                   } else {
                     const cur = parentChassisMap.get(norm);
                     cur.responseCount++;
+                    if (!cur.answers || Object.keys(cur.answers).length === 0) {
+                      cur.answers = prAns;
+                    }
                   }
                 }
               });
@@ -5517,6 +5522,9 @@ export const getResponsesByForm = async (req, res) => {
             .then(childResponses => {
               childResponses.forEach(cr => {
                 const cVal = getChassisFromDoc(cr);
+                const crAns = cr.answers instanceof Map ? Object.fromEntries(cr.answers) : (cr.answers || {});
+                const crFormId = cr.questionId || cr.formId;
+                const matchedChildDoc = childFormDocs.find(cf => cf.id === crFormId || cf._id?.toString() === crFormId);
                 if (cVal) {
                   const norm = cVal.toLowerCase().trim();
                   if (!childChassisMap.has(norm)) {
@@ -5527,11 +5535,17 @@ export const getResponsesByForm = async (req, res) => {
                       status: cr.status || 'Direct Ok',
                       submittedBy: cr.submittedBy || 'Inspector',
                       responseId: cr.id || (cr._id ? cr._id.toString() : null),
-                      chassis: cVal
+                      chassis: cVal,
+                      answers: crAns,
+                      formTitle: matchedChildDoc?.title || 'Follow-up Form',
+                      formId: matchedChildDoc?.id || matchedChildDoc?._id?.toString() || crFormId
                     });
                   } else {
                     const cur = childChassisMap.get(norm);
                     cur.responseCount++;
+                    if (!cur.answers || Object.keys(cur.answers).length === 0) {
+                      cur.answers = crAns;
+                    }
                   }
                 }
               });
@@ -5705,6 +5719,7 @@ export const getResponsesByForm = async (req, res) => {
 
           if (pMatch) {
             const parentChassis = pMatch.chassis || getChassisFromDoc(pMatch, parentFormDoc) || chassisVal;
+            const parentAnswers = pMatch.answers || (directParent ? (directParent.answers instanceof Map ? Object.fromEntries(directParent.answers) : (directParent.answers || {})) : {});
             followUpStatus = {
               isMatched: true,
               matchType: 'parent',
@@ -5716,6 +5731,9 @@ export const getResponsesByForm = async (req, res) => {
               parentSubmittedBy: pMatch.submittedBy || 'Inspector',
               parentCreatedAt: pMatch.createdAt || pMatch.latestCreatedAt,
               parentResponseId: pMatch.responseId || pMatch.id || response.parentResponseId,
+              parentAnswers: parentAnswers,
+              parentFormTitle: parentFormDoc?.title || form.parentFormTitle,
+              parentFormId: parentFormDoc?.id || parentFormDoc?._id?.toString() || parentFormIdStr,
               matchedChassis: parentChassis,
               details: `Matched parent chassis "${parentChassis}" (Status: ${pMatch.status || 'Accepted'}) by ${pMatch.submittedBy || 'Inspector'}`
             };
@@ -5727,6 +5745,8 @@ export const getResponsesByForm = async (req, res) => {
               label: 'No Parent Match',
               badgeText: '⚠ No Parent Match',
               color: 'amber',
+              parentFormTitle: parentFormDoc?.title || form.parentFormTitle,
+              parentFormId: parentFormDoc?.id || parentFormDoc?._id?.toString() || parentFormIdStr,
               matchedChassis: chassisVal,
               details: `Chassis "${chassisVal}" has not been inspected in parent form yet`
             };
@@ -5747,6 +5767,9 @@ export const getResponsesByForm = async (req, res) => {
               followUpSubmittedBy: cMatch.submittedBy || 'Inspector',
               followUpCreatedAt: cMatch.latestCreatedAt || cMatch.createdAt,
               followUpResponseId: cMatch.responseId || cMatch.id,
+              childAnswers: cMatch.answers || {},
+              childFormTitle: cMatch.formTitle,
+              childFormId: cMatch.formId,
               matchedChassis: cMatch.chassis || chassisVal,
               details: `Follow-up completed for chassis "${cMatch.chassis || chassisVal}" by ${cMatch.submittedBy || 'Inspector'}`
             };
@@ -5835,6 +5858,14 @@ export const getResponsesByForm = async (req, res) => {
         submittedAt: responseObj.submittedAt || responseObj.createdAt || undefined,
         submittedBy: displaySubmittedBy, // Override with better display name
         review: reviewInfo,
+        parentAnswers: followUpStatus?.parentAnswers,
+        parentFormTitle: followUpStatus?.parentFormTitle || parentFormDoc?.title,
+        parentFormId: followUpStatus?.parentFormId || parentFormIdStr,
+        parentResponseId: followUpStatus?.parentResponseId,
+        childAnswers: followUpStatus?.childAnswers,
+        childFormTitle: followUpStatus?.childFormTitle,
+        childFormId: followUpStatus?.childFormId,
+        childResponseId: followUpStatus?.followUpResponseId,
         followUpStatus,
         parentMatch: followUpStatus
       };

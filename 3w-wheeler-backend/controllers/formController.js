@@ -900,6 +900,7 @@ export const getFormById = async (req, res) => {
         item._id = dc._id.toString();
         item.id = dc.id;
         item.formTitle = dc.title || item.formTitle;
+        item.sections = dc.sections || [];
       });
 
       const enrichedChildForms = [];
@@ -934,7 +935,8 @@ export const getFormById = async (req, res) => {
             _id: pDoc._id.toString(),
             id: pDoc.id,
             title: pDoc.title,
-            responseCount: pCount
+            responseCount: pCount,
+            sections: pDoc.sections || []
           };
 
           // If child form has empty sections, inherit sections from parent form with Chassis Number tracking
