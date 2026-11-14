@@ -43,6 +43,7 @@ import {
   SlidersHorizontal,
   Pin,
   RefreshCw,
+  Unlink,
 } from "lucide-react";
 import ImportHistoryModal from "../history/ImportHistoryModal";
 import { QualitySummaryModal } from "./QualitySummaryModal";
@@ -1085,6 +1086,28 @@ export default function FormsAnalytics() {
       },
       "Delete Form",
       "Delete",
+      "Cancel",
+    );
+  };
+
+  const handleUnlinkChildForm = (parentId: string, childId: string, childTitle: string) => {
+    showConfirm(
+      `Are you sure you want to unlink "${childTitle}" from this parent form? The form will remain intact in its organization.`,
+      async () => {
+        try {
+          setDeletingFormId(childId);
+          await apiClient.unlinkChildForm(parentId, childId);
+          showSuccess(`"${childTitle}" unlinked successfully!`, "Success");
+          await refetchForms({ forceNetwork: true });
+        } catch (err: any) {
+          console.error("Unlink error:", err);
+          showError(err?.message || "Failed to unlink follow-up form", "Unlink Failed");
+        } finally {
+          setDeletingFormId(null);
+        }
+      },
+      "Unlink Follow-up Form",
+      "Unlink",
       "Cancel",
     );
   };
@@ -2777,22 +2800,67 @@ export default function FormsAnalytics() {
                                     <Plus className="w-3.5 h-3.5" />
                                   </button>
                                 )}
-                                {((isOwner && canDelete) || childHasDeletePermission) && (
-                                  <button
-                                    onClick={() =>
-                                      handleDelete(childId, child.title || "")
-                                    }
-                                    className="p-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title="Delete"
-                                    disabled={deleteMutation.loading && deletingFormId === childId}
-                                  >
-                                    {deleteMutation.loading && deletingFormId === childId ? (
-                                      <div className="w-3.5 h-3.5 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
-                                    ) : (
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    )}
-                                  </button>
-                                )}
+                                {(() => {
+                                  const childTenantIdStr = child.tenantId
+                                    ? String(typeof child.tenantId === 'object' ? child.tenantId?._id || child.tenantId?.id : child.tenantId)
+                                    : "";
+                                  const userTenantIdStr = user?.tenantId
+                                    ? String(typeof user.tenantId === 'object' ? user.tenantId?._id || user.tenantId?.id : user.tenantId)
+                                    : "";
+                                  const isCrossTenantChild = Boolean(
+                                    childTenantIdStr && userTenantIdStr && childTenantIdStr !== userTenantIdStr && userRole !== 'superadmin'
+                                  );
+
+                                  if (isCrossTenantChild) {
+                                    return (
+                                      <button
+                                        onClick={() =>
+                                          handleUnlinkChildForm(parent._id || parent.id, childId, child.title || "")
+                                        }
+                                        className="p-1.5 rounded-lg border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="Unlink Follow-up Form (Detach from Parent)"
+                                        disabled={deletingFormId === childId}
+                                      >
+                                        {deletingFormId === childId ? (
+                                          <div className="w-3.5 h-3.5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+                                        ) : (
+                                          <Unlink className="w-3.5 h-3.5" />
+                                        )}
+                                      </button>
+                                    );
+                                  }
+
+                                  return (
+                                    <>
+                                      <button
+                                        onClick={() =>
+                                          handleUnlinkChildForm(parent._id || parent.id, childId, child.title || "")
+                                        }
+                                        className="p-1.5 rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:hover:bg-amber-950/30 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="Unlink from Parent"
+                                        disabled={deletingFormId === childId}
+                                      >
+                                        <Unlink className="w-3.5 h-3.5" />
+                                      </button>
+                                      {((isOwner && canDelete) || childHasDeletePermission) && (
+                                        <button
+                                          onClick={() =>
+                                            handleDelete(childId, child.title || "")
+                                          }
+                                          className="p-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                          title="Delete Form Permanently"
+                                          disabled={deleteMutation.loading && deletingFormId === childId}
+                                        >
+                                          {deleteMutation.loading && deletingFormId === childId ? (
+                                            <div className="w-3.5 h-3.5 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+                                          ) : (
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          )}
+                                        </button>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </div>
