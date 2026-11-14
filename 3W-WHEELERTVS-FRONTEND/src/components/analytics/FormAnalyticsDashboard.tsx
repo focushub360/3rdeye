@@ -4,6 +4,7 @@ import {
   useNavigate,
   useLocation,
   useSearchParams,
+  Link,
 } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import CameraCapture from "../forms/CameraCapture";
@@ -2450,7 +2451,7 @@ export default function FormAnalyticsDashboard({
   }, []);
 
   const canBulkSelectResponses =
-    !isGuest && (user?.role === "superadmin" || user?.role === "admin");
+    !isGuest && (user?.role === "superadmin" || user?.role === "admin" || user?.role === "subadmin" || user?.role === "tenant_admin");
 
 
   // Using module-level formAnalyticsMemoryCache for instant switching
@@ -2463,12 +2464,22 @@ export default function FormAnalyticsDashboard({
 
   // Permission check for analytics tabs
   const hasTabPermission = (tabName: string): boolean => {
-    // Admin bypass - see all tabs
-    if (user?.role === "admin" || user?.role === "superadmin" || user?.role === "tenant_admin") {
+    // Admin, superadmin, tenant_admin, and subadmin bypass - see all tabs
+    if (
+      user?.role === "admin" ||
+      user?.role === "superadmin" ||
+      user?.role === "tenant_admin" ||
+      user?.role === "subadmin"
+    ) {
       return true;
     }
 
-    // Non-admin / non-superadmin users need explicit permissions
+    // Default core tabs (dashboard, responses, preview) are always accessible to anyone viewing this form
+    if (tabName === "dashboard" || tabName === "responses" || tabName === "preview") {
+      return true;
+    }
+
+    // Non-admin / non-superadmin users need explicit permissions for granular sub-tabs
     if (!id || !form) return false;
 
     // Map the component's tab name to the permission tree suffix.
@@ -12987,6 +12998,16 @@ export default function FormAnalyticsDashboard({
             <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white truncate max-w-[200px] sm:max-w-md">
               {form?.title || "Form"}
             </h1>
+            {id && (
+              <Link
+                to={`/forms/${id}/respond`}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-lg border border-blue-200 dark:border-blue-800 transition-colors shadow-2xs"
+                title="Open and fill / view inspection form"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>View Form</span>
+              </Link>
+            )}
           </div>
 
           {/* Tabs - Center */}
