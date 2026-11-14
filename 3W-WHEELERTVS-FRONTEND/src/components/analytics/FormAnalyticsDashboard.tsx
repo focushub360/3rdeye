@@ -3192,7 +3192,7 @@ export default function FormAnalyticsDashboard({
   // submissions), and "Excel Import" responses have no real submitter, so
   // anyone can review those too.
   const isSubmitterOfResponse = (response: Response) => {
-    if (user?.role === "superadmin") return false;
+    if (user?.role === "superadmin" || user?.role === "admin") return false;
     if (response.submittedBy === "Excel Import") return false;
 
     const userEmail = (user?.email || "").toLowerCase();
@@ -5825,7 +5825,7 @@ export default function FormAnalyticsDashboard({
     );
   };
 
-  // Only assigned tenant reviewers (or superadmin) can perform BIW review / review feedback
+  // Only assigned tenant reviewers (or superadmin / admin / form owner) can perform BIW review / review feedback
   const canUserBiwReview = (response: Response | null | undefined): { canReview: boolean; reason?: string } => {
     if (!response) return { canReview: false, reason: "No response selected" };
 
@@ -5837,12 +5837,27 @@ export default function FormAnalyticsDashboard({
       };
     }
 
-    if (user?.role === "superadmin") return { canReview: true };
+    if (user?.role === "superadmin" || user?.role === "admin") return { canReview: true };
 
     const userTenantStr = String((user?.tenantId as any)?._id || (user?.tenantId as any)?.id || user?.tenantId || "");
+    const formTenantStr = String((form?.tenantId as any)?._id || (form?.tenantId as any)?.id || form?.tenantId || "");
+    const isFormOwnerTenant = Boolean(formTenantStr && userTenantStr && formTenantStr === userTenantStr);
+    const isFormSharedTenant = Array.isArray(form?.sharedWithTenants) && form.sharedWithTenants.some(
+      (t: any) => String(t?._id || t?.id || t) === userTenantStr
+    );
 
-    // 1. Check if the chassis has assigned tenants
-    const assignments = (form as any)?.chassisTenantAssignments;
+    if (isFormOwnerTenant || isFormSharedTenant) {
+      if (isSubmitterOfResponse(response)) {
+        return {
+          canReview: false,
+          reason: "You cannot BIW review your own submission"
+        };
+      }
+      return { canReview: true };
+    }
+
+    // 1. Check if the chassis has assigned tenants (on this form or parent form)
+    const assignments = (form as any)?.chassisTenantAssignments || (form as any)?.parentForm?.chassisTenantAssignments;
     if (Array.isArray(assignments) && assignments.length > 0) {
       const respChassis = String(
         response.chassisNumber ||
@@ -15449,17 +15464,13 @@ export default function FormAnalyticsDashboard({
                                       // 2️⃣ Use the tenant check function
                                       const isSameTenant = isOwnTenantResponse(response);
 
-                                      // ❌ If under active rework or rejection, dispatch is blocked
-                                      if (isReworkOrRejected || !canShowDispatch) {
-                                        return <span className="text-gray-400 text-xs">-</span>;
-                                      }
-
-                                      // ✅ Already dispatched - show read-only badge (only if not under active rework/rejection)
+                                      // ✅ 1️⃣ FIRST: Already dispatched - show read-only badge!
+                                      // Entering chat or TVS review must NEVER hide the dispatch record.
                                       if (response.isDispatched) {
                                         const dispatchDate = response.dispatchedAt ? new Date(response.dispatchedAt) : null;
                                         return (
                                           <div className="flex flex-col items-center justify-center text-xs text-center gap-0.5">
-                                            <div className="flex items-center text-green-600 font-medium">
+                                            <div className="flex items-center text-green-600 dark:text-green-400 font-semibold">
                                               <CheckCircle className="w-3.5 h-3.5 mr-1" />
                                               <span>Enabled</span>
                                             </div>
@@ -15477,6 +15488,11 @@ export default function FormAnalyticsDashboard({
                                             )}
                                           </div>
                                         );
+                                      }
+
+                                      // ❌ If under active rework or rejection, dispatch is blocked
+                                      if (isReworkOrRejected || !canShowDispatch) {
+                                        return <span className="text-gray-400 text-xs">-</span>;
                                       }
 
                                       // 🔒 NOT CREATOR TENANT: Show dash (NO CHECKBOX)

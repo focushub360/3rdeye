@@ -30,24 +30,31 @@ const canAccessResponseTenant = async (req, response) => {
   if (!response) return false;
   if (req.user?.role === 'superadmin') return true;
 
-  const or_conditions = [{ id: response.questionId }];
-  if (mongoose.Types.ObjectId.isValid(response.questionId)) {
-    or_conditions.push({ _id: response.questionId });
+  const targetFormId = response.questionId || response.formId;
+  const or_conditions = [{ id: targetFormId }];
+  if (mongoose.Types.ObjectId.isValid(targetFormId)) {
+    or_conditions.push({ _id: targetFormId });
+  }
+  if (response.formId && response.formId !== targetFormId) {
+    or_conditions.push({ id: response.formId });
+    if (mongoose.Types.ObjectId.isValid(response.formId)) {
+      or_conditions.push({ _id: response.formId });
+    }
   }
 
   const form = await Form.findOne({
     $or: or_conditions,
-  }).select('tenantId sharedWithTenants chassisTenantAssignments').lean();
+  }).select('tenantId sharedWithTenants chassisTenantAssignments parentFormId parentForm').lean();
 
   const userTenantIdStr = req.user?.tenantId ? req.user.tenantId.toString() : null;
   const isOwnerTenant = form?.tenantId && form.tenantId.toString() === userTenantIdStr;
   const isSharedTenant =
     form?.sharedWithTenants &&
-    form.sharedWithTenants.some((t) => t.toString() === userTenantIdStr);
+    form.sharedWithTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr);
   let matchesAssignedChassis = false;
   if (Array.isArray(form?.chassisTenantAssignments) && userTenantIdStr) {
     const myAssignedChassis = form.chassisTenantAssignments
-      .filter((a) => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr))
+      .filter((a) => a.assignedTenants && a.assignedTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr))
       .map((a) => a.chassisNumber)
       .filter(Boolean);
 
@@ -63,13 +70,32 @@ const canAccessResponseTenant = async (req, response) => {
     }
   }
 
+  // Also check parent form if linked
+  let matchesParentFormAccess = false;
+  if (!isOwnerTenant && !isSharedTenant && !matchesAssignedChassis && (form?.parentFormId || form?.parentForm)) {
+    const parentId = form.parentFormId || form.parentForm?.id || form.parentForm?._id;
+    if (parentId) {
+      const parentFormDoc = await Form.findOne(
+        mongoose.Types.ObjectId.isValid(parentId) ? { $or: [{ _id: parentId }, { id: parentId }] } : { id: parentId }
+      ).select('tenantId sharedWithTenants chassisTenantAssignments').lean();
+      if (parentFormDoc) {
+        const isParentOwner = parentFormDoc.tenantId && parentFormDoc.tenantId.toString() === userTenantIdStr;
+        const isParentShared = Array.isArray(parentFormDoc.sharedWithTenants) && parentFormDoc.sharedWithTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr);
+        const isParentAssigned = Array.isArray(parentFormDoc.chassisTenantAssignments) && parentFormDoc.chassisTenantAssignments.some(
+          (a) => a.assignedTenants && a.assignedTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr)
+        );
+        matchesParentFormAccess = Boolean(isParentOwner || isParentShared || isParentAssigned);
+      }
+    }
+  }
+
   // Response.tenantId itself always equals the form owner's tenant, so as a
   // last resort also accept a direct match against it (covers responses
   // whose form record may have since been deleted/moved).
   const responseTenantIdStr = response.tenantId ? response.tenantId.toString() : null;
   const matchesResponseTenant = responseTenantIdStr && responseTenantIdStr === userTenantIdStr;
 
-  return Boolean(isOwnerTenant || isSharedTenant || matchesAssignedChassis || matchesResponseTenant);
+  return Boolean(isOwnerTenant || isSharedTenant || matchesAssignedChassis || matchesParentFormAccess || matchesResponseTenant);
 };
 
 // ─── Robust Date Parser for Excel Imports ─────────────────────────────────────
@@ -4510,8 +4536,12 @@ export const updateResponse = async (req, res) => {
 
             if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
               const userTenantIdStr = req.user.tenantId ? req.user.tenantId.toString() : '';
-              const isAssigned = assignment.assignedTenants.some(t => t.toString() === userTenantIdStr);
-              if (!isAssigned) {
+              const isAssigned = assignment.assignedTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
+              const isFormOwner = formObj.tenantId && formObj.tenantId.toString() === userTenantIdStr;
+              const isSharedTenant = Array.isArray(formObj.sharedWithTenants) && formObj.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
+              const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+
+              if (!isAssigned && !isFormOwner && !isSharedTenant && !isAdmin) {
                 return res.status(403).json({
                   success: false,
                   message: 'Only assigned tenant reviewers can perform BIW review for this chassis.'
@@ -4524,9 +4554,10 @@ export const updateResponse = async (req, res) => {
         const subBy = String(originalSubmittedBy || '').toLowerCase();
         const crBy = String(originalCreatedBy || '').toLowerCase();
         const contactEmail = String(originalSubmitterContact?.email || '').toLowerCase();
+        const isAdminOrSuperAdmin = req.user.role === 'superadmin' || req.user.role === 'admin';
 
         const isSubmitter =
-          !isSuperAdmin &&
+          !isAdminOrSuperAdmin &&
           !isExcelImport &&
           (
             (userEmail && subBy === userEmail) ||
@@ -6346,8 +6377,12 @@ export const getResponsesByForm = async (req, res) => {
             );
 
             if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
-              const isAssigned = assignment.assignedTenants.some(t => t.toString() === userTenantIdStr);
-              if (!isAssigned) {
+              const isAssigned = assignment.assignedTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
+              const isFormOwner = formObj.tenantId && formObj.tenantId.toString() === userTenantIdStr;
+              const isSharedTenant = Array.isArray(formObj.sharedWithTenants) && formObj.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
+              const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+
+              if (!isAssigned && !isFormOwner && !isSharedTenant && !isAdmin) {
                 skippedCount++;
                 continue;
               }
@@ -6364,9 +6399,10 @@ export const getResponsesByForm = async (req, res) => {
         const subBy = String(originalSubmittedBy || '').toLowerCase();
         const crBy = String(originalCreatedBy || '').toLowerCase();
         const contactEmail = String(originalSubmitterContact?.email || '').toLowerCase();
+        const isAdminOrSuperAdmin = req.user.role === 'superadmin' || req.user.role === 'admin';
 
         const isSubmitter =
-          !isSuperAdmin &&
+          !isAdminOrSuperAdmin &&
           !isExcelImport &&
           (
             (userEmail && subBy === userEmail) ||
