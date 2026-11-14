@@ -386,7 +386,7 @@ export const QualityDashboard: React.FC = () => {
     const totalDispatched = matchedForms.reduce((sum: number, f: any) => sum + (f.dispatchedCount || 0), 0);
     const pendingDispatch = Math.max(0, totalChecked - totalDispatched);
     const totalBiwReviewed = matchedForms.reduce((sum: number, f: any) => sum + (f.biwReviewedCount !== undefined ? f.biwReviewedCount : ((f.biwAcceptCount || 0) + (f.biwDefectCount || 0))), 0);
-    const pendingBiw = Math.max(0, totalChecked - totalBiwReviewed);
+    const pendingBiw = Math.max(0, totalDispatched - totalBiwReviewed);
     const reworkAcceptedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.reworkAcceptedCount || 0), 0);
     const rejectedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.rejectedCount !== undefined ? f.rejectedCount : Math.max(0, (f.defectCount || 0) - (f.rework1Count || 0))), 0);
     const directOkCount = matchedForms.reduce((sum: number, f: any) => sum + (f.directOkCount !== undefined ? f.directOkCount : Math.max(0, (f.acceptCount || 0) - (f.reworkAcceptedCount || 0))), 0);
@@ -527,7 +527,7 @@ export const QualityDashboard: React.FC = () => {
     const pendingDispatchPercent = (pendingDispatchCount / total) * 100;
 
     const biwReviewedCount = Math.min(total, totalBiwReviewed);
-    const pendingDataCount = Math.max(0, total - biwReviewedCount);
+    const pendingDataCount = Math.max(0, totalDispatched - biwReviewedCount);
     const biwReviewedPercent = (biwReviewedCount / total) * 100;
     const pendingDataPercent = (pendingDataCount / total) * 100;
 

@@ -8355,7 +8355,7 @@ export default function FormAnalyticsDashboard({
     const pendingDispatchPercent = (pendingDispatchCount / total) * 100;
 
     const biwReviewedCount = Math.min(total, totalBiwReviewed);
-    const pendingDataCount = Math.max(0, total - biwReviewedCount);
+    const pendingDataCount = Math.max(0, totalDispatched - biwReviewedCount);
     const biwReviewedPercent = (biwReviewedCount / total) * 100;
     const pendingDataPercent = (pendingDataCount / total) * 100;
 

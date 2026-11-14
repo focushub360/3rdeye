@@ -3947,7 +3947,7 @@ export const getQualitySummary = async (req, res) => {
     const totalDispatched = summary.dispatchedCount || 0;
     const pendingDispatch = Math.max(0, totalChecked - totalDispatched);
     const totalBiwReviewed = summary.biwReviewedCount || 0;
-    const pendingBiw = Math.max(0, totalChecked - totalBiwReviewed);
+    const pendingBiw = Math.max(0, totalDispatched - totalBiwReviewed);
     const reworkAcceptedCount = summary.reworkAcceptedCount || 0;
     const rejectedCount = summary.rejectedCount !== undefined ? summary.rejectedCount : Math.max(0, totalDefects - totalRework1);
     const directOkCount = Math.max(0, totalAccepted - reworkAcceptedCount);
@@ -4182,7 +4182,7 @@ export const getQualitySummary = async (req, res) => {
         biwRejectCount: bReject,
         biwDefectCount: bDefect,
         biwReviewedCount: biwTotal,
-        pendingBiwCount: Math.max(0, tChecked - biwTotal),
+        pendingBiwCount: Math.max(0, dDispatched - biwTotal),
         biwAcceptRate: biwRate,
         acceptRate: aRate,
         defectRate: dRate,
