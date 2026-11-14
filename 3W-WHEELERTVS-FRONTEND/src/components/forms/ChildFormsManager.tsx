@@ -37,6 +37,7 @@ interface ChildFormsManagerProps {
   parentFormTitle?: string;
   parentFormTenantId?: string;
   onUpdate?: () => void;
+  onTenantsChange?: (tenants: string[]) => void;
 }
 
 export default function ChildFormsManager({
@@ -44,6 +45,7 @@ export default function ChildFormsManager({
   parentFormTitle = "Form",
   parentFormTenantId,
   onUpdate,
+  onTenantsChange,
 }: ChildFormsManagerProps) {
   const navigate = useNavigate();
   const [childForms, setChildForms] = useState<ChildForm[]>([]);
@@ -176,9 +178,15 @@ export default function ChildFormsManager({
               );
             }
           }
+        } else {
+          // If no child forms exist, read current form's sharedWithTenants
+          shared = (form.sharedWithTenants || []).map((t: any) =>
+            typeof t === 'string' ? t : t._id || t.toString()
+          );
         }
         setAssignedTenants(shared);
         setSelectedTenants(shared);
+        onTenantsChange?.(shared);
       } catch (err) {
         console.error("Failed to fetch follow-up form tenant details:", err);
       }
@@ -297,37 +305,27 @@ export default function ChildFormsManager({
       setSaving(true);
       setSuccessMessage("");
 
-      // 1. Assign selected tenants directly to every follow-up form connected to this parent
       const currentChildForms = childForms || [];
-      for (const cf of currentChildForms) {
-        const cfId = cf.id || cf._id || (cf as any).formId;
-        if (cfId) {
-          await apiClient.updateForm(cfId, {
-            sharedWithTenants: selectedTenants,
-          });
+      if (currentChildForms.length > 0) {
+        // 1. Assign selected tenants directly to every follow-up form connected to this parent
+        for (const cf of currentChildForms) {
+          const cfId = cf.id || cf._id || (cf as any).formId;
+          if (cfId) {
+            await apiClient.updateForm(cfId, {
+              sharedWithTenants: selectedTenants,
+            });
+          }
         }
-      }
-
-      // 2. Ensure parent form itself is NOT shared with partner tenants,
-      // because only follow-up forms are assigned to partner organizations!
-      try {
-        const formData = await apiClient.getFormById(parentFormId);
-        const parentForm = formData.form || formData;
-        const currentParentShared = (parentForm.sharedWithTenants || []).map((t: any) =>
-          String(typeof t === 'object' && t ? (t._id || t.id) : t)
-        );
-        const cleanedParentShared = currentParentShared.filter((tId: string) => !selectedTenants.includes(tId));
-        if (cleanedParentShared.length !== currentParentShared.length) {
-          await apiClient.updateForm(parentFormId, {
-            sharedWithTenants: cleanedParentShared,
-          });
-        }
-      } catch (err) {
-        console.warn("Could not clean parent form sharedWithTenants:", err);
+      } else {
+        // 2. If no follow-up forms exist, assign selected tenants to this form directly
+        await apiClient.updateForm(parentFormId, {
+          sharedWithTenants: selectedTenants,
+        });
       }
 
       setAssignedTenants([...selectedTenants]);
-      setSuccessMessage("Follow-up forms assigned successfully!");
+      onTenantsChange?.(selectedTenants);
+      setSuccessMessage("Assigned successfully!");
       setTimeout(() => setSuccessMessage(""), 3500);
       onUpdate?.();
     } catch (error: any) {
@@ -338,19 +336,24 @@ export default function ChildFormsManager({
   };
 
   const toggleTenantCheckbox = (tenantId: string) => {
-    setSelectedTenants((prev) =>
-      prev.includes(tenantId)
+    setSelectedTenants((prev) => {
+      const next = prev.includes(tenantId)
         ? prev.filter((id) => id !== tenantId)
-        : [...prev, tenantId]
-    );
+        : [...prev, tenantId];
+      onTenantsChange?.(next);
+      return next;
+    });
   };
 
   const handleSelectAll = () => {
-    setSelectedTenants(tenants.map((t) => t._id));
+    const allIds = tenants.map((t) => t._id);
+    setSelectedTenants(allIds);
+    onTenantsChange?.(allIds);
   };
 
   const handleClearAll = () => {
     setSelectedTenants([]);
+    onTenantsChange?.([]);
   };
 
   const hasUnsavedChanges =

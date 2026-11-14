@@ -4234,6 +4234,9 @@ export default function FormCreator() {
                   parentFormId={id}
                   parentFormTitle={form.title}
                   parentFormTenantId={user?.role === "superadmin" ? selectedTenantId : user?.tenantId}
+                  onTenantsChange={(tenants) => {
+                    setSharedWithTenants(tenants);
+                  }}
                   onUpdate={() => {
                     // Optionally refresh form data if needed
                     console.log("Child forms updated");
