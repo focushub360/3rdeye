@@ -106,11 +106,16 @@ export default function TenantPerformanceDetailTable({ tenant, onBack }: { tenan
     (acc, user) => {
       acc.dispatchPending += user.dispatched || 0;
       acc.totalSubmitted += user.totalSubmitted || 0;
-      acc.totalReviewed += user.totalReviewed || 0;
-      acc.reviewPending += user.reviewPending || 0;
-      acc.accepted += user.accepted || 0;
-      acc.rejected += user.rejectedReview ?? user.rejected ?? 0;
-      acc.reworked += user.reworked ?? user.rework ?? 0;
+      acc.totalReviewed += user.totalReviewed || user.biwTotalReviewed || 0;
+      acc.reviewPending += user.reviewPending || user.biwReviewPending || 0;
+      acc.accepted += user.accepted || user.biwAccepted || 0;
+      acc.rejected += user.rejectedReview ?? user.rejected ?? user.biwRejected ?? 0;
+      acc.reworked += user.reworked ?? user.rework ?? user.biwReworked ?? 0;
+      acc.tvsTotalReviewed += user.tvsTotalReviewed || 0;
+      acc.tvsReviewPending += user.tvsReviewPending || Math.max(0, (user.totalSubmitted || 0) - (user.tvsTotalReviewed || 0));
+      acc.tvsAccepted += user.tvsAccepted || 0;
+      acc.tvsRejected += user.tvsRejected || 0;
+      acc.tvsReworked += user.tvsReworked || 0;
       return acc;
     },
     {
@@ -121,6 +126,11 @@ export default function TenantPerformanceDetailTable({ tenant, onBack }: { tenan
       accepted: 0,
       rejected: 0,
       reworked: 0,
+      tvsTotalReviewed: 0,
+      tvsReviewPending: 0,
+      tvsAccepted: 0,
+      tvsRejected: 0,
+      tvsReworked: 0,
     },
   ), [performanceTableData]);
 
@@ -222,6 +232,9 @@ export default function TenantPerformanceDetailTable({ tenant, onBack }: { tenan
                 <th colSpan={5} className="px-4 py-2 bg-purple-100/80 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-center tracking-widest uppercase border-x-2 border-purple-300 dark:border-purple-600 shadow-sm">
                   ✦ BIW Review Section ✦
                 </th>
+                <th colSpan={5} className="px-4 py-2 bg-blue-100/80 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-center tracking-widest uppercase border-x-2 border-blue-300 dark:border-blue-600 shadow-sm">
+                  ✦ TVS Review Section ✦
+                </th>
                 <th colSpan={2} className="px-4 py-2 bg-gray-100/70 dark:bg-gray-800/70 text-gray-500 dark:text-gray-400 text-center tracking-widest uppercase border-l border-gray-200 dark:border-gray-700">
                   Evaluation
                 </th>
@@ -236,6 +249,12 @@ export default function TenantPerformanceDetailTable({ tenant, onBack }: { tenan
                 <th className="px-4 py-3 border-b bg-purple-50/60 dark:bg-purple-950/30 text-center text-emerald-600 dark:text-emerald-400 font-extrabold">BIW Accepted</th>
                 <th className="px-4 py-3 border-b bg-purple-50/60 dark:bg-purple-950/30 text-center text-rose-600 dark:text-rose-400 font-extrabold">BIW Rejected</th>
                 <th className="px-4 py-3 border-b border-r border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 text-center text-amber-600 dark:text-amber-400 font-extrabold">BIW Reworked</th>
+                {/* TVS Review Section Columns */}
+                <th className="px-4 py-3 border-b border-l border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/30 text-center text-blue-800 dark:text-blue-200">TVS Reviewed</th>
+                <th className="px-4 py-3 border-b bg-blue-50/60 dark:bg-blue-950/30 text-center text-amber-600 dark:text-amber-400">TVS Pending</th>
+                <th className="px-4 py-3 border-b bg-blue-50/60 dark:bg-blue-950/30 text-center text-emerald-600 dark:text-emerald-400 font-extrabold">TVS Accepted</th>
+                <th className="px-4 py-3 border-b bg-blue-50/60 dark:bg-blue-950/30 text-center text-rose-600 dark:text-rose-400 font-extrabold">TVS Rejected</th>
+                <th className="px-4 py-3 border-b border-r border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/30 text-center text-amber-600 dark:text-amber-400 font-extrabold">TVS Rework</th>
                 <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 text-center">Performance Score</th>
                 <th className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 text-center">Performance Category</th>
               </tr>
@@ -243,14 +262,14 @@ export default function TenantPerformanceDetailTable({ tenant, onBack }: { tenan
             <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
                 {performanceTableLoading ? (
                     <tr>
-                        <td colSpan={10} className="text-center py-16">
+                        <td colSpan={15} className="text-center py-16">
                             <div className="animate-spin rounded-full h-8 w-8 border-4 border-purple-600 border-t-transparent mx-auto mb-4"></div>
                             <p className="text-gray-500 text-sm">Loading performance data...</p>
                         </td>
                     </tr>
                 ) : paginatedData.length === 0 ? (
                     <tr>
-                        <td colSpan={10} className="text-center py-16">
+                        <td colSpan={15} className="text-center py-16">
                             <Users className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
                             <h3 className="text-lg font-bold text-gray-800 dark:text-white">No User Data</h3>
                             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">No performance data found for the selected period.</p>
@@ -264,11 +283,17 @@ export default function TenantPerformanceDetailTable({ tenant, onBack }: { tenan
                         <td className="px-4 py-4 text-center font-bold text-blue-600 dark:text-blue-400 tabular-nums">{user.dispatched || 0}</td>
                         <td className="px-4 py-4 text-center font-bold text-gray-700 dark:text-gray-300 tabular-nums border-r border-gray-100 dark:border-gray-700">{user.totalSubmitted}</td>
                         {/* BIW Review row cells */}
-                        <td className="px-4 py-4 text-center font-bold text-purple-900 dark:text-purple-200 tabular-nums bg-purple-50/25 dark:bg-purple-950/10 border-l border-purple-100 dark:border-purple-900/30">{user.totalReviewed}</td>
-                        <td className="px-4 py-4 text-center font-bold text-gray-700 dark:text-gray-300 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">{user.reviewPending}</td>
-                        <td className="px-4 py-4 text-center font-extrabold text-emerald-600 dark:text-emerald-500 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">{user.accepted}</td>
-                        <td className="px-4 py-4 text-center font-extrabold text-rose-600 dark:text-rose-500 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">{user.rejectedReview ?? user.rejected ?? 0}</td>
-                        <td className="px-4 py-4 text-center font-extrabold text-amber-600 dark:text-amber-500 tabular-nums bg-purple-50/25 dark:bg-purple-950/10 border-r border-purple-100 dark:border-purple-900/30">{user.reworked ?? user.rework ?? 0}</td>
+                        <td className="px-4 py-4 text-center font-bold text-purple-900 dark:text-purple-200 tabular-nums bg-purple-50/25 dark:bg-purple-950/10 border-l border-purple-100 dark:border-purple-900/30">{user.biwTotalReviewed ?? user.totalReviewed ?? 0}</td>
+                        <td className="px-4 py-4 text-center font-bold text-gray-700 dark:text-gray-300 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">{user.biwReviewPending ?? user.reviewPending ?? 0}</td>
+                        <td className="px-4 py-4 text-center font-extrabold text-emerald-600 dark:text-emerald-500 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">{user.biwAccepted ?? user.accepted ?? 0}</td>
+                        <td className="px-4 py-4 text-center font-extrabold text-rose-600 dark:text-rose-500 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">{user.biwRejected ?? user.rejectedReview ?? user.rejected ?? 0}</td>
+                        <td className="px-4 py-4 text-center font-extrabold text-amber-600 dark:text-amber-500 tabular-nums bg-purple-50/25 dark:bg-purple-950/10 border-r border-purple-100 dark:border-purple-900/30">{user.biwReworked ?? user.reworked ?? user.rework ?? 0}</td>
+                        {/* TVS Review row cells */}
+                        <td className="px-4 py-4 text-center font-bold text-blue-900 dark:text-blue-200 tabular-nums bg-blue-50/25 dark:bg-blue-950/10 border-l border-blue-100 dark:border-blue-900/30">{user.tvsTotalReviewed ?? 0}</td>
+                        <td className="px-4 py-4 text-center font-bold text-gray-700 dark:text-gray-300 tabular-nums bg-blue-50/25 dark:bg-blue-950/10">{user.tvsReviewPending ?? Math.max(0, (user.totalSubmitted || 0) - (user.tvsTotalReviewed || 0))}</td>
+                        <td className="px-4 py-4 text-center font-extrabold text-emerald-600 dark:text-emerald-500 tabular-nums bg-blue-50/25 dark:bg-blue-950/10">{user.tvsAccepted ?? 0}</td>
+                        <td className="px-4 py-4 text-center font-extrabold text-rose-600 dark:text-rose-500 tabular-nums bg-blue-50/25 dark:bg-blue-950/10">{user.tvsRejected ?? 0}</td>
+                        <td className="px-4 py-4 text-center font-extrabold text-amber-600 dark:text-amber-500 tabular-nums bg-blue-50/25 dark:bg-blue-950/10 border-r border-blue-100 dark:border-blue-900/30">{user.tvsReworked ?? 0}</td>
                         <td className="px-4 py-4 text-center font-black tabular-nums">{user.performanceScore}%</td>
                         <td className="px-4 py-4 text-center whitespace-nowrap">
                             <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getCategoryBadgeColor(user.performanceScore)}`}>
@@ -291,6 +316,12 @@ export default function TenantPerformanceDetailTable({ tenant, onBack }: { tenan
                 <td className="px-4 py-4 border-t bg-purple-100/70 dark:bg-purple-900/40 text-center text-emerald-600 tabular-nums font-extrabold">{total.accepted}</td>
                 <td className="px-4 py-4 border-t bg-purple-100/70 dark:bg-purple-900/40 text-center text-rose-600 tabular-nums font-extrabold">{total.rejected}</td>
                 <td className="px-4 py-4 border-t border-r border-purple-300 dark:border-purple-700 bg-purple-100/70 dark:bg-purple-900/40 text-center text-amber-600 tabular-nums font-extrabold">{total.reworked}</td>
+                {/* TVS Review footer cells */}
+                <td className="px-4 py-4 border-t border-l border-blue-300 dark:border-blue-700 bg-blue-100/70 dark:bg-blue-900/40 text-center tabular-nums text-blue-900 dark:text-blue-200">{total.tvsTotalReviewed}</td>
+                <td className="px-4 py-4 border-t bg-blue-100/70 dark:bg-blue-900/40 text-center tabular-nums text-amber-700 dark:text-amber-300">{total.tvsReviewPending}</td>
+                <td className="px-4 py-4 border-t bg-blue-100/70 dark:bg-blue-900/40 text-center text-emerald-600 tabular-nums font-extrabold">{total.tvsAccepted}</td>
+                <td className="px-4 py-4 border-t bg-blue-100/70 dark:bg-blue-900/40 text-center text-rose-600 tabular-nums font-extrabold">{total.tvsRejected}</td>
+                <td className="px-4 py-4 border-t border-r border-blue-300 dark:border-blue-700 bg-blue-100/70 dark:bg-blue-900/40 text-center text-amber-600 tabular-nums font-extrabold">{total.tvsReworked}</td>
                 <td className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 text-center tabular-nums">{totalPerformanceScore}%</td>
                 <td className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 text-center">
                     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getCategoryBadgeColor(totalPerformanceScore)}`}>

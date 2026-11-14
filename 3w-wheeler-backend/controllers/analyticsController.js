@@ -2785,6 +2785,16 @@ export const getPerformanceTable = async (req, res) => {
         accepted: 0,
         rejectedReview: 0,
         reworked: 0,
+        biwTotalReviewed: 0,
+        biwReviewPending: 0,
+        biwAccepted: 0,
+        biwRejected: 0,
+        biwReworked: 0,
+        tvsTotalReviewed: 0,
+        tvsReviewPending: 0,
+        tvsAccepted: 0,
+        tvsRejected: 0,
+        tvsReworked: 0,
         performanceScore: 0,
         responses: []
       });
@@ -2839,6 +2849,16 @@ export const getPerformanceTable = async (req, res) => {
           accepted: 0,
           rejectedReview: 0,
           reworked: 0,
+          biwTotalReviewed: 0,
+          biwReviewPending: 0,
+          biwAccepted: 0,
+          biwRejected: 0,
+          biwReworked: 0,
+          tvsTotalReviewed: 0,
+          tvsReviewPending: 0,
+          tvsAccepted: 0,
+          tvsRejected: 0,
+          tvsReworked: 0,
           performanceScore: 0,
           responses: []
         });
@@ -2867,9 +2887,9 @@ export const getPerformanceTable = async (req, res) => {
       // Review outcomes are credited to the submitter of this inspected chassis
       const rId1 = response._id ? response._id.toString() : '';
       const rId2 = response.id ? String(response.id) : '';
-      const review = reviewsByResponseId.get(rId1) || reviewsByResponseId.get(rId2);
-      const biwStatus = response.biwReview?.status || review?.reviewOption || review?.status;
 
+      // 1. BIW Review outcomes (from response.biwReview)
+      const biwStatus = response.biwReview?.status;
       if (biwStatus) {
         const bsLower = String(biwStatus).toLowerCase();
         if (
@@ -2878,23 +2898,58 @@ export const getPerformanceTable = async (req, res) => {
           bsLower.includes('ok') ||
           bsLower === 'verified'
         ) {
+          stats.biwAccepted++;
           stats.accepted++;
+          stats.biwTotalReviewed++;
           stats.totalReviewed++;
         } else if (bsLower.includes('reject')) {
+          stats.biwRejected++;
           stats.rejectedReview++;
+          stats.biwTotalReviewed++;
           stats.totalReviewed++;
         } else if (bsLower.includes('rework')) {
+          stats.biwReworked++;
           stats.reworked++;
+          stats.biwTotalReviewed++;
           stats.totalReviewed++;
+        }
+      }
+
+      // 2. TVS Review outcomes (from Review collection or response.tvsReview / response.review)
+      const tvsReview = reviewsByResponseId.get(rId1) || reviewsByResponseId.get(rId2) || response.tvsReview || response.review;
+      const tvsStatus = tvsReview?.reviewOption || tvsReview?.status;
+
+      if (tvsStatus) {
+        const tsLower = String(tvsStatus).toLowerCase();
+        if (
+          tsLower.includes('accept') ||
+          tsLower.includes('direct ok') ||
+          tsLower.includes('ok') ||
+          tsLower === 'verified'
+        ) {
+          stats.tvsAccepted++;
+          stats.tvsTotalReviewed++;
+        } else if (tsLower.includes('reject')) {
+          stats.tvsRejected++;
+          stats.tvsTotalReviewed++;
+        } else if (tsLower.includes('rework')) {
+          stats.tvsReworked++;
+          stats.tvsTotalReviewed++;
         }
       }
     });
 
     // Calculate final metrics
     for (const [userId, stats] of userStatsMap) {
-      stats.reviewPending = Math.max(0, stats.totalSubmitted - stats.totalReviewed);
-      stats.performanceScore = stats.totalReviewed > 0
-        ? Math.round((stats.accepted / stats.totalReviewed) * 100)
+      stats.biwReviewPending = Math.max(0, stats.totalSubmitted - stats.biwTotalReviewed);
+      stats.reviewPending = stats.biwReviewPending;
+      stats.tvsReviewPending = Math.max(0, stats.totalSubmitted - stats.tvsTotalReviewed);
+
+      const effectiveReviewed = stats.biwTotalReviewed > 0 ? stats.biwTotalReviewed : stats.tvsTotalReviewed;
+      const effectiveAccepted = stats.biwTotalReviewed > 0 ? stats.biwAccepted : stats.tvsAccepted;
+
+      stats.performanceScore = effectiveReviewed > 0
+        ? Math.round((effectiveAccepted / effectiveReviewed) * 100)
         : (stats.totalSubmitted > 0 ? 100 : 0);
 
       if (stats.responses.length > 0) {
@@ -2967,11 +3022,28 @@ export const getPerformanceTable = async (req, res) => {
           dispatchPending: stats.dispatchPending || 0,
           dispatched: stats.dispatched || 0,
           totalSubmitted: stats.totalSubmitted || 0,
-          totalReviewed: stats.totalReviewed || 0,
-          reviewPending: stats.reviewPending || 0,
-          accepted: stats.accepted || 0,
-          rejectedReview: stats.rejectedReview || 0,
-          reworked: stats.reworked || 0,
+
+          // BIW Review
+          biwTotalReviewed: stats.biwTotalReviewed || 0,
+          biwReviewPending: stats.biwReviewPending || 0,
+          biwAccepted: stats.biwAccepted || 0,
+          biwRejected: stats.biwRejected || 0,
+          biwReworked: stats.biwReworked || 0,
+
+          // Backward compatibility aliases
+          totalReviewed: stats.biwTotalReviewed || 0,
+          reviewPending: stats.biwReviewPending || 0,
+          accepted: stats.biwAccepted || 0,
+          rejectedReview: stats.biwRejected || 0,
+          reworked: stats.biwReworked || 0,
+
+          // TVS Review
+          tvsTotalReviewed: stats.tvsTotalReviewed || 0,
+          tvsReviewPending: stats.tvsReviewPending || 0,
+          tvsAccepted: stats.tvsAccepted || 0,
+          tvsRejected: stats.tvsRejected || 0,
+          tvsReworked: stats.tvsReworked || 0,
+
           performanceScore: stats.performanceScore || 0
         };
       });
@@ -2983,6 +3055,8 @@ export const getPerformanceTable = async (req, res) => {
       totalSubmissions: tableData.reduce((sum, row) => sum + row.totalSubmitted, 0),
       totalDispatched: tableData.reduce((sum, row) => sum + row.dispatched, 0),
       totalReviewed: tableData.reduce((sum, row) => sum + row.totalReviewed, 0),
+      totalBiwReviewed: tableData.reduce((sum, row) => sum + row.biwTotalReviewed, 0),
+      totalTvsReviewed: tableData.reduce((sum, row) => sum + row.tvsTotalReviewed, 0),
       averageScore: tableData.length > 0
         ? Math.round(tableData.reduce((sum, row) => sum + row.performanceScore, 0) / tableData.length)
         : 0,
