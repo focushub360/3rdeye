@@ -18,6 +18,7 @@ import {
   CheckCircle,
   CheckCircle2,
   AlertTriangle,
+  Layers,
   Link2,
   Clock,
   XCircle,
@@ -17739,9 +17740,9 @@ export default function FormAnalyticsDashboard({
 
       {/* Chat Modal */}
       {showChatModal && chatResponse && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-[60] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-indigo-600">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[60] flex items-center justify-center p-3 sm:p-5">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-[96vw] max-w-6xl max-h-[92vh] overflow-hidden flex flex-col border border-gray-200 dark:border-gray-800">
+            <div className="px-6 py-4 border-b border-indigo-700/40 bg-gradient-to-r from-indigo-600 via-indigo-700 to-blue-600">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-white/20 rounded-lg">
@@ -17965,9 +17966,9 @@ export default function FormAnalyticsDashboard({
               </div>
             </div>
 
-            <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-2">
-              {/* Left Column: Filters */}
-              <div className="p-6 bg-gray-50 dark:bg-gray-900/50 border-r border-gray-200 dark:border-gray-700 overflow-y-auto space-y-6">
+            <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-0">
+              {/* Left Column: Filters & Questions */}
+              <div className="lg:col-span-7 p-6 bg-slate-50/50 dark:bg-gray-900/50 border-r border-gray-200 dark:border-gray-700 overflow-y-auto space-y-5">
                 <div>
                   <div className="space-y-4">
                     <p className="text-xl text-gray-700 dark:text-gray-300">
@@ -18148,16 +18149,19 @@ export default function FormAnalyticsDashboard({
                             <div className="space-y-3">
                               {/* Form Selection Tabs: Main Form & Child Form */}
                               {reviewFormTabs.length > 1 && (
-                                <div className="p-2 bg-gradient-to-r from-blue-50/80 via-indigo-50/50 to-purple-50/80 dark:from-slate-800 dark:to-slate-850 rounded-2xl border border-indigo-200/80 dark:border-indigo-900/50 shadow-sm space-y-1.5">
-                                  <div className="flex items-center justify-between px-1">
-                                    <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-400">
-                                      Choose Form Questionnaire to Review:
-                                    </span>
-                                    <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">
-                                      Click tab to switch questions
+                                <div className="p-3.5 bg-slate-100/80 dark:bg-slate-850 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-xs space-y-2.5">
+                                  <div className="flex items-center justify-between px-0.5">
+                                    <div className="flex items-center gap-1.5">
+                                      <Layers className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                                        Choose Form Questionnaire:
+                                      </span>
+                                    </div>
+                                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                                      Click tab to switch inspection checkpoints
                                     </span>
                                   </div>
-                                  <div className="grid grid-cols-2 gap-2">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                     {reviewFormTabs.map((tab) => {
                                       const isTabActive = activeTab.id === tab.id;
                                       const selectedInTabCount = (tab.questions || []).filter((q) =>
@@ -18170,41 +18174,73 @@ export default function FormAnalyticsDashboard({
                                           key={tab.id}
                                           type="button"
                                           onClick={() => setActiveReviewQuestionTab(tab.id)}
-                                          className={`flex items-center justify-between p-3 rounded-xl text-left transition-all cursor-pointer ${
+                                          className={`relative flex items-center justify-between p-3.5 rounded-xl text-left transition-all cursor-pointer border ${
                                             isTabActive
                                               ? isMain
-                                                ? "bg-blue-600 text-white shadow-md shadow-blue-500/30 ring-2 ring-blue-400/50"
-                                                : "bg-purple-600 text-white shadow-md shadow-purple-500/30 ring-2 ring-purple-400/50"
-                                              : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-750 border border-gray-200 dark:border-gray-700 shadow-2xs"
+                                                ? "bg-white dark:bg-gray-800 border-blue-500 dark:border-blue-400 shadow-md ring-2 ring-blue-500/20"
+                                                : "bg-white dark:bg-gray-800 border-purple-500 dark:border-purple-400 shadow-md ring-2 ring-purple-500/20"
+                                              : "bg-white/80 dark:bg-gray-800/60 border-slate-200 dark:border-slate-700/80 hover:border-slate-300 hover:bg-white dark:hover:bg-gray-800 shadow-2xs"
                                           }`}
                                         >
-                                          <div className="flex flex-col min-w-0 pr-2">
-                                            <span
-                                              className={`text-[9px] uppercase tracking-wider font-black px-1.5 py-0.5 rounded-md w-fit mb-1 ${
+                                          <div className="flex items-start gap-2.5 min-w-0 pr-2">
+                                            <div
+                                              className={`p-2 rounded-lg shrink-0 mt-0.5 ${
                                                 isTabActive
-                                                  ? "bg-white/20 text-white"
-                                                  : isMain
-                                                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300"
-                                                    : "bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300"
+                                                  ? isMain
+                                                    ? "bg-blue-600 text-white shadow-xs"
+                                                    : "bg-purple-600 text-white shadow-xs"
+                                                  : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
                                               }`}
                                             >
-                                              {isMain ? "Main Form" : "Child Form"}
-                                            </span>
-                                            <span className="text-xs font-bold truncate max-w-[160px]" title={tab.title}>
-                                              {tab.title}
-                                            </span>
+                                              <FileText className="w-4 h-4" />
+                                            </div>
+                                            <div className="flex flex-col min-w-0">
+                                              <div className="flex items-center gap-1.5 mb-1">
+                                                <span
+                                                  className={`text-[9px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-md ${
+                                                    isMain
+                                                      ? "bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                                                      : "bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800"
+                                                  }`}
+                                                >
+                                                  {isMain ? "Main Form" : "Child Form"}
+                                                </span>
+                                                {isTabActive && (
+                                                  <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                                                    <CheckCircle2 className="w-3 h-3" /> Active
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <span
+                                                className="text-xs font-bold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2"
+                                                title={tab.title}
+                                              >
+                                                {tab.title}
+                                              </span>
+                                              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+                                                {tab.questions.length} questions
+                                              </span>
+                                            </div>
                                           </div>
-                                          <div className="flex flex-col items-end shrink-0 gap-1">
-                                            <span className={`text-[10px] font-semibold ${isTabActive ? "text-blue-100" : "text-gray-400 dark:text-gray-500"}`}>
-                                              {tab.questions.length} questions
-                                            </span>
+
+                                          <div className="flex flex-col items-end shrink-0 pl-1">
                                             {selectedInTabCount > 0 ? (
-                                              <span className="px-2 py-0.5 rounded-full bg-amber-400 text-gray-900 text-[10px] font-black shadow-xs animate-bounce">
+                                              <span className="px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold shadow-xs">
                                                 {selectedInTabCount} flagged
                                               </span>
-                                            ) : isTabActive ? (
-                                              <span className="text-[10px] text-white/80 font-bold">Active</span>
-                                            ) : null}
+                                            ) : (
+                                              <span
+                                                className={`text-[10px] font-bold px-2.5 py-1 rounded-md transition-colors ${
+                                                  isTabActive
+                                                    ? isMain
+                                                      ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200/60"
+                                                      : "bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200/60"
+                                                    : "text-slate-400 border border-transparent"
+                                                }`}
+                                              >
+                                                {isTabActive ? "Viewing" : "Select"}
+                                              </span>
+                                            )}
                                           </div>
                                         </button>
                                       );
@@ -18213,18 +18249,25 @@ export default function FormAnalyticsDashboard({
                                 </div>
                               )}
 
-                              <div className="flex items-center justify-between">
-                                <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">
-                                  Select Questions to Flag ({chatFilters.questions.length} total selected)
-                                </label>
+                              <div className="flex items-center justify-between pt-1">
+                                <div className="flex items-center gap-2">
+                                  <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">
+                                    Select Questions to Flag
+                                  </label>
+                                  {chatFilters.questions.length > 0 && (
+                                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 text-[10px] font-black border border-amber-300">
+                                      {chatFilters.questions.length} Selected
+                                    </span>
+                                  )}
+                                </div>
                                 {activeTab.questions.length > 0 && (
-                                  <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                                    {activeTab.questions.length} questions in {activeTab.badge}
+                                  <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">
+                                    Showing {activeTab.questions.length} questions from {activeTab.badge}
                                   </span>
                                 )}
                               </div>
 
-                              <div className="max-h-[420px] overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-xl shadow-inner scrollbar-thin bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
+                              <div className="max-h-[460px] overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-xl shadow-xs scrollbar-thin bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
                                 {activeTab.questions.length === 0 ? (
                                   <div className="p-8 text-center text-xs text-gray-500 dark:text-gray-400">
                                     <p className="font-semibold mb-1">No questions found for {activeTab.title}</p>
@@ -18481,7 +18524,7 @@ export default function FormAnalyticsDashboard({
                 </div>
               </div>
               {/* Right Column: Chat history and input */}
-              <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 border-t md:border-t-0 p-6 overflow-hidden">
+              <div className="lg:col-span-5 flex flex-col bg-white dark:bg-gray-900 border-t lg:border-t-0 p-6 overflow-hidden min-h-0">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">
                     Message Center

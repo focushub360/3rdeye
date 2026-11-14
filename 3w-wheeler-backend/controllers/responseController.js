@@ -5307,11 +5307,9 @@ export const getResponsesByForm = async (req, res) => {
       r.parentResponseId || (r.batchId && (r.batchId.includes('-t2') || r.batchId.includes('-fu-')))
     );
 
-    // Query parent/child matches if we have responses on this page and this form has parent/child relationships or follow-up responses (table view only)
-    if (!isAnalytics && responses.length > 0 && (isChildForm || isParentForm || hasFollowUpResponsesInBatch)) {
-      // Query parent/child matches if we have responses on this page and this form has parent/child relationships or follow-up responses
-      if (responses.length > 0 && (isChildForm || isParentForm || hasFollowUpResponsesInBatch)) {
-        const pageChassisList = responses.map(r => getChassisFromDoc(r)).filter(Boolean);
+    // Query parent/child matches if we have responses on this page and this form has parent/child relationships or follow-up responses
+    if (responses.length > 0 && (isChildForm || isParentForm || hasFollowUpResponsesInBatch)) {
+      const pageChassisList = responses.map(r => getChassisFromDoc(r)).filter(Boolean);
         const chassisStringsSet = new Set();
         pageChassisList.forEach(c => {
           if (!c) return;
@@ -5477,8 +5475,9 @@ export const getResponsesByForm = async (req, res) => {
                       cur.answers = prAns;
                     }
                   }
-                });
-              })
+                }
+              });
+            })
               .catch(err => console.warn('[getResponsesByForm] Error fetching parent responses for matching:', err))
           );
         }
@@ -5559,8 +5558,9 @@ export const getResponsesByForm = async (req, res) => {
                       cur.answers = crAns;
                     }
                   }
-                });
-              })
+                }
+              });
+            })
               .catch(err => console.warn('[getResponsesByForm] Error fetching child responses for matching:', err))
           );
         }
@@ -5791,83 +5791,32 @@ export const getResponsesByForm = async (req, res) => {
 
             if (daysElapsed <= 10) {
               followUpStatus = {
-                isMatched: true,
-                matchType: 'parent',
-                status: 'matched',
-                label: 'Parent Matched',
-                badgeText: '✓ Parent Matched',
-                color: 'emerald',
-                parentStatus: pMatch.status || 'Accepted',
-                parentSubmittedBy: pMatch.submittedBy || 'Inspector',
-                parentCreatedAt: pMatch.createdAt || pMatch.latestCreatedAt,
-                parentResponseId: pMatch.responseId || pMatch.id || response.parentResponseId,
-                matchedChassis: parentChassis,
-                details: `Matched parent chassis "${parentChassis}" (Status: ${pMatch.status || 'Accepted'}) by ${pMatch.submittedBy || 'Inspector'}`
+                isMatched: false,
+                matchType: 'child',
+                status: 'pending',
+                label: `Pending Follow-up (Day ${daysElapsed + 1}/10)`,
+                badgeText: `⏳ Day ${daysElapsed + 1}/10`,
+                color: 'sky',
+                daysElapsed,
+                daysRemaining,
+                matchedChassis: chassisVal,
+                details: `Follow-up pending within 10-day window (Day ${daysElapsed + 1} of 10)`
               };
             } else {
               followUpStatus = {
                 isMatched: false,
-                matchType: 'parent',
-                status: 'unmatched',
-                label: 'No Parent Match',
-                badgeText: '⚠ No Parent Match',
-                color: 'amber',
-                matchedChassis: chassisVal,
-                details: `Chassis "${chassisVal}" has not been inspected in parent form yet`
-              };
-            }
-          } else if (isParentForm || childFormIds.length > 0 || hasFollowUpResponsesInBatch) {
-            // This is a main form response -> check if follow-up exists
-            const hasChildMatch = childChassisMap.has(norm);
-            if (hasChildMatch) {
-              const cMatch = childChassisMap.get(norm);
-              followUpStatus = {
-                isMatched: true,
                 matchType: 'child',
-                status: 'matched',
-                label: 'Follow-up Complete',
-                badgeText: '✓ Follow-up Done',
-                color: 'emerald',
-                followUpStatus: cMatch.status || 'Direct Ok',
-                followUpSubmittedBy: cMatch.submittedBy || 'Inspector',
-                followUpCreatedAt: cMatch.latestCreatedAt || cMatch.createdAt,
-                followUpResponseId: cMatch.responseId || cMatch.id,
-                matchedChassis: cMatch.chassis || chassisVal,
-                details: `Follow-up completed for chassis "${cMatch.chassis || chassisVal}" by ${cMatch.submittedBy || 'Inspector'}`
+                status: 'overdue',
+                label: `Overdue (${daysElapsed}d)`,
+                badgeText: `✕ Overdue (${daysElapsed}d)`,
+                color: 'rose',
+                daysElapsed,
+                matchedChassis: chassisVal,
+                details: `Follow-up overdue by ${daysElapsed} days`
               };
-            } else {
-              const createdAtDate = response.createdAt ? new Date(response.createdAt) : new Date();
-              const daysElapsed = Math.floor((Date.now() - createdAtDate.getTime()) / (1000 * 60 * 60 * 24));
-              const daysRemaining = Math.max(0, 10 - daysElapsed);
-
-              if (daysElapsed <= 10) {
-                followUpStatus = {
-                  isMatched: false,
-                  matchType: 'child',
-                  status: 'pending',
-                  label: `Pending Follow-up (Day ${daysElapsed + 1}/10)`,
-                  badgeText: `⏳ Day ${daysElapsed + 1}/10`,
-                  color: 'sky',
-                  daysElapsed,
-                  daysRemaining,
-                  matchedChassis: chassisVal,
-                  details: `Follow-up pending within 10-day window (Day ${daysElapsed + 1} of 10)`
-                };
-              } else {
-                followUpStatus = {
-                  isMatched: false,
-                  matchType: 'child',
-                  status: 'overdue',
-                  label: `Overdue (${daysElapsed}d)`,
-                  badgeText: `✕ Overdue (${daysElapsed}d)`,
-                  color: 'rose',
-                  daysElapsed,
-                  matchedChassis: chassisVal,
-                  details: `Follow-up overdue by ${daysElapsed} days`
-                };
-              }
             }
-          } else {
+          }
+        } else {
             followUpStatus = {
               isMatched: false,
               matchType: 'standalone',
@@ -5905,7 +5854,6 @@ export const getResponsesByForm = async (req, res) => {
             resolvedChassis = formConfiguredChassis[0];
           }
         }
-      }
       if (resolvedChassis && !respAnswers.chassis_number) {
         respAnswers.chassis_number = resolvedChassis;
       }
