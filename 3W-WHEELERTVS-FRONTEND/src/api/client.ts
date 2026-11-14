@@ -935,7 +935,7 @@ class ApiClient {
   }
 
   // Forms
-  async getForms(params?: { isGlobal?: boolean; search?: string; tenantId?: string; limit?: number; forceNetwork?: boolean }) {
+  async getForms(params?: { isGlobal?: boolean; search?: string; tenantId?: string; allTenants?: boolean; limit?: number; forceNetwork?: boolean }) {
     const query = new URLSearchParams();
     if (params?.isGlobal !== undefined) {
       query.set("isGlobal", params.isGlobal.toString());
@@ -945,6 +945,9 @@ class ApiClient {
     }
     if (params?.tenantId) {
       query.set("tenantId", params.tenantId);
+    }
+    if (params?.allTenants !== undefined) {
+      query.set("allTenants", params.allTenants.toString());
     }
     if (params?.limit !== undefined) {
       query.set("limit", params.limit.toString());

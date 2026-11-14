@@ -350,6 +350,22 @@ export default function FormsAnalytics() {
   const [targetChildrenCount, setTargetChildrenCount] = useState(0);
   const [followUpSequenceNumber, setFollowUpSequenceNumber] = useState(1);
   const [selectedPresetFormat, setSelectedPresetFormat] = useState<"standard" | "xFormat" | "ordinal" | "child" | "custom">("standard");
+  const [allCrossTenantForms, setAllCrossTenantForms] = useState<any[]>([]);
+
+  // Preload cross-tenant forms so admins in any tenant can link forms across all tenants
+  useEffect(() => {
+    let mounted = true;
+    apiClient.getForms({ allTenants: true, limit: 1000 })
+      .then((res: any) => {
+        if (mounted && res?.forms && Array.isArray(res.forms)) {
+          setAllCrossTenantForms(res.forms);
+        }
+      })
+      .catch((err) => {
+        console.warn("Could not preload cross-tenant forms:", err);
+      });
+    return () => { mounted = false; };
+  }, []);
 
   const getBaseFormTitle = (title: string) => {
     return (title || "")
@@ -415,6 +431,15 @@ export default function FormsAnalytics() {
     setActiveFollowUpTab("create");
     setSelectedExistingFormId("");
     setAddFollowUpModalOpen(true);
+
+    // Refresh cross-tenant forms to include newly created forms from Saify, LMPL, etc.
+    apiClient.getForms({ allTenants: true, limit: 1000, forceNetwork: true })
+      .then((res: any) => {
+        if (res?.forms && Array.isArray(res.forms)) {
+          setAllCrossTenantForms(res.forms);
+        }
+      })
+      .catch(() => {});
 
     // Fetch full form from backend to guarantee complete sections, questions, and childForms
     const parentId = parentForm._id || parentForm.id;
@@ -598,7 +623,20 @@ export default function FormsAnalytics() {
         String(typeof cf === "string" ? cf : cf.formId || cf.id || cf._id || "")
       )
     );
-    return (forms || []).filter((f: any) => {
+
+    // Merge forms with allCrossTenantForms to ensure Saify, Sreedevi, and other tenants' forms are available to link
+    const combinedMap = new Map<string, any>();
+    (forms || []).forEach((f: any) => {
+      const k = String(f._id || f.id);
+      if (k) combinedMap.set(k, f);
+    });
+    (allCrossTenantForms || []).forEach((f: any) => {
+      const k = String(f._id || f.id);
+      if (k && !combinedMap.has(k)) combinedMap.set(k, f);
+    });
+    const formPool = Array.from(combinedMap.values());
+
+    return formPool.filter((f: any) => {
       const fMongoId = f._id ? String(f._id) : "";
       const fUuid = f.id ? String(f.id) : "";
       const isSelf = (parentMongoId && fMongoId === parentMongoId) || (parentUuid && fUuid === parentUuid);
@@ -607,7 +645,7 @@ export default function FormsAnalytics() {
         (fUuid && existingChildIds.has(fUuid));
       return !isSelf && !isAlreadyChild;
     });
-  }, [forms, targetParentForm]);
+  }, [forms, allCrossTenantForms, targetParentForm]);
 
   const formsGroupedByTenant = useMemo(() => {
     const groups: Record<string, any[]> = {};
@@ -625,9 +663,17 @@ export default function FormsAnalytics() {
       groups[tName].push(f);
     });
 
-    const sortedEntries = Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+    const userTenant = user?.tenantId
+      ? String(typeof user.tenantId === 'object' ? (user.tenantId?.companyName || user.tenantId?.name || '') : '')
+      : '';
+
+    const sortedEntries = Object.entries(groups).sort(([a], [b]) => {
+      if (userTenant && a.toLowerCase() === userTenant.toLowerCase()) return -1;
+      if (userTenant && b.toLowerCase() === userTenant.toLowerCase()) return 1;
+      return a.localeCompare(b);
+    });
     return Object.fromEntries(sortedEntries);
-  }, [availableFormsToLink]);
+  }, [availableFormsToLink, user?.tenantId]);
 
   const handleCreateFollowUpForm = async (openEditor: boolean = false) => {
     if (!targetParentForm || !followUpTitle.trim()) return;

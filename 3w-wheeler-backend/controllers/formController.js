@@ -390,12 +390,15 @@ export const createForm = async (req, res) => {
 
 export const getAllForms = async (req, res) => {
   try {
-    const { page = 1, limit = 1000, search, isVisible, isActive, createdBy, isGlobal, tenantId: queryTenantId } = req.query;
+    const { page = 1, limit = 1000, search, isVisible, isActive, createdBy, isGlobal, tenantId: queryTenantId, allTenants } = req.query;
 
-    let query = { ...req.tenantFilter };
+    // If allTenants is requested by admin/subadmin, bypass tenant restriction to allow cross-tenant form discovery
+    const allowCrossTenantDiscovery = allTenants === 'true' && ['admin', 'superadmin', 'subadmin'].includes(req.user.role);
+
+    let query = allowCrossTenantDiscovery ? {} : { ...req.tenantFilter };
 
     // If not superadmin, also include global forms shared with this tenant
-    if (req.user.role !== 'superadmin' && req.user.tenantId) {
+    if (req.user.role !== 'superadmin' && req.user.tenantId && !allowCrossTenantDiscovery) {
       const tenantIdStr = req.user.tenantId.toString();
       const tenantIdObj = mongoose.Types.ObjectId.isValid(tenantIdStr)
         ? new mongoose.Types.ObjectId(tenantIdStr)
