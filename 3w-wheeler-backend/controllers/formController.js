@@ -1068,8 +1068,9 @@ export const updateForm = async (req, res) => {
     // Update form
     const updateData = { ...req.body };
 
-    // Only superadmin and admin can change isGlobal and sharedWithTenants
-    if (req.user.role !== 'superadmin' && req.user.role !== 'admin') {
+    // Only authorized roles can change sharedWithTenants
+    const canManageSharing = ['superadmin', 'admin', 'subadmin', 'tenant_admin'].includes(req.user.role);
+    if (!canManageSharing) {
       delete updateData.isGlobal;
       delete updateData.sharedWithTenants;
       delete updateData.tenantId;
@@ -1087,16 +1088,18 @@ export const updateForm = async (req, res) => {
 
     Object.assign(form, updateData);
 
-    try {
-      normalizeSectionWeightage(form.sections);
-    } catch (error) {
-      if (error instanceof SectionWeightageError) {
-        return res.status(400).json({
-          success: false,
-          message: error.message
-        });
+    if (req.body.sections !== undefined) {
+      try {
+        normalizeSectionWeightage(form.sections);
+      } catch (error) {
+        if (error instanceof SectionWeightageError) {
+          return res.status(400).json({
+            success: false,
+            message: error.message
+          });
+        }
+        throw error;
       }
-      throw error;
     }
 
     // Normalize question types before saving (handles spaces/slashes) using global utility

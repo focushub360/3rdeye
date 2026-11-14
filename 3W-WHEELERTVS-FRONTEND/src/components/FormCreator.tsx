@@ -1076,7 +1076,12 @@ export default function FormCreator() {
       // Include tenantId for form creation
       tenantId: tenantId,
       isGlobal: isGlobal,
-      sharedWithTenants: sharedWithTenants,
+      sharedWithTenants: (Array.isArray(form.childForms) && form.childForms.length > 0)
+        ? (form.sharedWithTenants || []).filter((t: any) => {
+            const tId = typeof t === "string" ? t : (t?._id || t?.id || String(t));
+            return !sharedWithTenants.includes(tId);
+          })
+        : sharedWithTenants,
       chassisNumbers: form.chassisNumbers || [],
       // Include chassis number tenant configuration (Convert Record to Array of Objects for Mongoose/Mongo indexing)
       chassisTenantAssignments: Object.entries(chassisTenantAssignments || {}).map(([chassisNumber, tenants]) => {
@@ -4234,8 +4239,10 @@ export default function FormCreator() {
                   parentFormId={id}
                   parentFormTitle={form.title}
                   parentFormTenantId={user?.role === "superadmin" ? selectedTenantId : user?.tenantId}
-                  onTenantsChange={(tenants) => {
-                    setSharedWithTenants(tenants);
+                  onTenantsChange={(tenants, isChildFormAssignment) => {
+                    if (!isChildFormAssignment) {
+                      setSharedWithTenants(tenants);
+                    }
                   }}
                   onUpdate={() => {
                     // Optionally refresh form data if needed

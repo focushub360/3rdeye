@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Loader2,
   Filter,
+  AlertCircle,
 } from "lucide-react";
 import { apiClient } from "../../api/client";
 
@@ -37,7 +38,7 @@ interface ChildFormsManagerProps {
   parentFormTitle?: string;
   parentFormTenantId?: string;
   onUpdate?: () => void;
-  onTenantsChange?: (tenants: string[]) => void;
+  onTenantsChange?: (tenants: string[], isChildFormAssignment?: boolean) => void;
 }
 
 export default function ChildFormsManager({
@@ -61,6 +62,7 @@ export default function ChildFormsManager({
   const [selectedTenants, setSelectedTenants] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
   const [isExpanded, setIsExpanded] = useState(true);
   const [tenantSearch, setTenantSearch] = useState("");
   const [tenantFilter, setTenantFilter] = useState<"all" | "selected" | "unselected">("all");
@@ -186,7 +188,7 @@ export default function ChildFormsManager({
         }
         setAssignedTenants(shared);
         setSelectedTenants(shared);
-        onTenantsChange?.(shared);
+        onTenantsChange?.(shared, loadedChildren.length > 0);
       } catch (err) {
         console.error("Failed to fetch follow-up form tenant details:", err);
       }
@@ -304,32 +306,62 @@ export default function ChildFormsManager({
     try {
       setSaving(true);
       setSuccessMessage("");
+      setErrorMessage("");
 
       const currentChildForms = childForms || [];
+      const updatePromises: Promise<any>[] = [];
+
       if (currentChildForms.length > 0) {
-        // 1. Assign selected tenants directly to every follow-up form connected to this parent
+        // 1. Assign selected tenants in parallel to every follow-up form connected to this parent
         for (const cf of currentChildForms) {
           const cfId = cf.id || cf._id || (cf as any).formId;
           if (cfId) {
-            await apiClient.updateForm(cfId, {
-              sharedWithTenants: selectedTenants,
-            });
+            updatePromises.push(
+              apiClient.updateForm(cfId, {
+                sharedWithTenants: selectedTenants,
+              }).catch((cfErr) => {
+                console.warn(`Non-blocking: could not update follow-up form ${cfId}:`, cfErr);
+              })
+            );
+          }
+        }
+
+        // 2. Ensure parent form does not retain partner tenants so ONLY follow-up is visible to partner
+        if (parentFullForm && Array.isArray(parentFullForm.sharedWithTenants) && parentFullForm.sharedWithTenants.length > 0) {
+          const sanitizedParentSharing = parentFullForm.sharedWithTenants
+            .map((t: any) => typeof t === "string" ? t : (t?._id || t?.id || String(t)))
+            .filter((tId: string) => !selectedTenants.includes(tId));
+
+          if (sanitizedParentSharing.length !== parentFullForm.sharedWithTenants.length) {
+            updatePromises.push(
+              apiClient.updateForm(parentFormId, {
+                sharedWithTenants: sanitizedParentSharing,
+              }).catch((pErr) => {
+                console.warn("Non-blocking parent sanitize warning:", pErr);
+              })
+            );
           }
         }
       } else {
-        // 2. If no follow-up forms exist, assign selected tenants to this form directly
-        await apiClient.updateForm(parentFormId, {
-          sharedWithTenants: selectedTenants,
-        });
+        // 3. If no follow-up forms exist, assign selected tenants to this standalone form directly
+        updatePromises.push(
+          apiClient.updateForm(parentFormId, {
+            sharedWithTenants: selectedTenants,
+          })
+        );
       }
 
+      await Promise.all(updatePromises);
+
       setAssignedTenants([...selectedTenants]);
-      onTenantsChange?.(selectedTenants);
+      onTenantsChange?.(selectedTenants, currentChildForms.length > 0);
       setSuccessMessage("Assigned successfully!");
-      setTimeout(() => setSuccessMessage(""), 3500);
+      setTimeout(() => setSuccessMessage(""), 4000);
       onUpdate?.();
     } catch (error: any) {
-      alert(error.message || "Failed to update tenant assignment");
+      console.error("Assign error:", error);
+      setErrorMessage(error?.message || "Failed to update tenant assignment. Please retry.");
+      setTimeout(() => setErrorMessage(""), 5000);
     } finally {
       setSaving(false);
     }
@@ -340,7 +372,7 @@ export default function ChildFormsManager({
       const next = prev.includes(tenantId)
         ? prev.filter((id) => id !== tenantId)
         : [...prev, tenantId];
-      onTenantsChange?.(next);
+      onTenantsChange?.(next, (childForms || []).length > 0);
       return next;
     });
   };
@@ -348,12 +380,12 @@ export default function ChildFormsManager({
   const handleSelectAll = () => {
     const allIds = tenants.map((t) => t._id);
     setSelectedTenants(allIds);
-    onTenantsChange?.(allIds);
+    onTenantsChange?.(allIds, (childForms || []).length > 0);
   };
 
   const handleClearAll = () => {
     setSelectedTenants([]);
-    onTenantsChange?.([]);
+    onTenantsChange?.([], (childForms || []).length > 0);
   };
 
   const hasUnsavedChanges =
@@ -580,7 +612,19 @@ export default function ChildFormsManager({
               </div>
 
               <div className="flex items-center gap-2">
-                {hasUnsavedChanges && (
+                {errorMessage && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30 px-2 py-1 rounded-md border border-red-200 dark:border-red-800 animate-fade-in">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    {errorMessage}
+                  </span>
+                )}
+                {successMessage && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 rounded-md border border-emerald-200 dark:border-emerald-800 animate-fade-in">
+                    <Check className="w-3.5 h-3.5" />
+                    {successMessage}
+                  </span>
+                )}
+                {hasUnsavedChanges && !successMessage && !errorMessage && (
                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 rounded-md border border-amber-200 dark:border-amber-800">
                     ● Unsaved changes
                   </span>
@@ -791,6 +835,12 @@ export default function ChildFormsManager({
                   <p className="text-xs text-gray-500 font-medium">
                     <strong className="text-gray-800 dark:text-gray-200">{selectedTenants.length}</strong> of {tenants.length} organizations selected
                   </p>
+                  {errorMessage && (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-2 py-0.5 rounded-md border border-red-200 dark:border-red-800 animate-fade-in">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      {errorMessage}
+                    </span>
+                  )}
                   {successMessage && (
                     <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800 animate-fade-in">
                       <Check className="w-3.5 h-3.5" />
