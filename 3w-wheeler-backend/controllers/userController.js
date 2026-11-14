@@ -954,12 +954,23 @@ export const submitReview = async (req, res) => {
     const targetResponse = await Response.findOne(respQuery);
 
     if (targetResponse && req.user?.role !== 'superadmin') {
-      const formObj = await Form.findOne({
-        $or: [
-          ...(targetResponse.formId ? [{ _id: targetResponse.formId }, { id: targetResponse.formId }] : []),
-          ...(targetResponse.questionId ? [{ _id: targetResponse.questionId }, { id: targetResponse.questionId }] : [])
-        ]
-      }).lean();
+      const formOrConditions = [];
+      if (targetResponse.formId) {
+        formOrConditions.push({ id: targetResponse.formId });
+        if (mongoose.Types.ObjectId.isValid(targetResponse.formId)) {
+          formOrConditions.push({ _id: new mongoose.Types.ObjectId(targetResponse.formId) });
+        }
+      }
+      if (targetResponse.questionId) {
+        formOrConditions.push({ id: targetResponse.questionId });
+        if (mongoose.Types.ObjectId.isValid(targetResponse.questionId)) {
+          formOrConditions.push({ _id: new mongoose.Types.ObjectId(targetResponse.questionId) });
+        }
+      }
+
+      const formObj = formOrConditions.length > 0
+        ? await Form.findOne({ $or: formOrConditions }).lean()
+        : null;
 
       if (formObj && Array.isArray(formObj.chassisTenantAssignments) && formObj.chassisTenantAssignments.length > 0) {
         const respChassis = String(

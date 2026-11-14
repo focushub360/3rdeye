@@ -202,3 +202,17 @@ export const emitImageProgress = (submissionId, status) => {
     console.log(`🖼️ Image progress: ${submissionId} - ${status.message}`);
   }
 };
+
+export const emitFormsChanged = (data = {}) => {
+  if (io) {
+    io.emit('forms-changed', {
+      ...data,
+      timestamp: new Date()
+    });
+    io.to('dashboard-analytics').emit('forms-changed', {
+      ...data,
+      timestamp: new Date()
+    });
+    console.log('🔔 Emitted forms-changed event to all connected clients');
+  }
+};

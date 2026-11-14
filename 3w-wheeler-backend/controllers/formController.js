@@ -5,6 +5,8 @@ import Parameter from '../models/Parameter.js';
 import Tenant from '../models/Tenant.js';
 import User from '../models/User.js';
 import { v4 as uuidv4 } from 'uuid';
+import { clearFormCache } from '../utils/cache.js';
+import { emitFormsChanged } from '../socket/socketHandler.js';
 
 const ALLOWED_FILE_TYPES = ['image', 'pdf', 'excel', 'stp', 'pvz', 'doc', 'docx'];
 
@@ -295,8 +297,14 @@ export const createForm = async (req, res) => {
 
     await form.save();
 
-    // If parentFormId is specified, auto-link to parent's childForms
+    // If parentFormId is specified, ensure child form has parentFormId & parentFormTitle and auto-link to parent's childForms
     if (formData.parentFormId) {
+      form.parentFormId = formData.parentFormId.toString();
+      if (formData.parentFormTitle) {
+        form.parentFormTitle = formData.parentFormTitle;
+      }
+      await form.save();
+
       try {
         const parentForm = await Form.findOne({
           $or: [
@@ -306,31 +314,16 @@ export const createForm = async (req, res) => {
         });
         if (parentForm) {
           if (!parentForm.childForms) parentForm.childForms = [];
-          const exists = parentForm.childForms.some(cf => cf.formId === form.id || cf.formId === form._id.toString());
+          const formMongoId = form._id ? form._id.toString() : '';
+          const formUuid = form.id ? String(form.id) : '';
+          const exists = parentForm.childForms.some(cf => (formUuid && cf.formId === formUuid) || (formMongoId && cf.formId === formMongoId));
           if (!exists) {
             parentForm.childForms.push({
-              formId: form._id ? form._id.toString() : form.id,
+              formId: formMongoId || formUuid,
               formTitle: form.title,
               order: parentForm.childForms.length
             });
-            // Auto-share: if parent has sharedWithTenants, copy to child
-            if (parentForm.sharedWithTenants && parentForm.sharedWithTenants.length > 0) {
-              if (!form.sharedWithTenants) form.sharedWithTenants = [];
-              parentForm.sharedWithTenants.forEach(tId => {
-                if (!form.sharedWithTenants.some(t => t.toString() === tId.toString())) {
-                  form.sharedWithTenants.push(tId);
-                }
-              });
-              await form.save();
-            }
-            // Auto-share: if parent belongs to another tenant, share child with parent tenant
-            if (parentForm.tenantId && form.tenantId && parentForm.tenantId.toString() !== form.tenantId.toString()) {
-              if (!form.sharedWithTenants) form.sharedWithTenants = [];
-              if (!form.sharedWithTenants.some(t => t.toString() === parentForm.tenantId.toString())) {
-                form.sharedWithTenants.push(parentForm.tenantId);
-                await form.save();
-              }
-            }
+            parentForm.markModified('childForms');
             await parentForm.save();
           }
         }
@@ -339,8 +332,10 @@ export const createForm = async (req, res) => {
       }
     }
 
-    console.log('Form created successfully with ID:', form.id);
+    clearFormCache();
+    emitFormsChanged({ action: 'created', formId: form._id ? form._id.toString() : form.id, tenantId: form.tenantId });
 
+    console.log('Form created successfully with ID:', form.id);
 
     res.status(201).json({
       success: true,
@@ -415,18 +410,14 @@ export const getAllForms = async (req, res) => {
       }).select('_id id childForms parentFormId').lean();
 
       const linkedChildIds = [];
-      const linkedParentIds = [];
       accessibleParents.forEach(p => {
-        if (p._id) linkedParentIds.push(p._id.toString());
-        if (p.id) linkedParentIds.push(p.id.toString());
-        if (p.parentFormId) linkedParentIds.push(p.parentFormId.toString());
         (p.childForms || []).forEach(cf => {
           const cfId = typeof cf === 'string' ? cf : (cf.formId || cf.id || cf._id);
           if (cfId) linkedChildIds.push(cfId.toString());
         });
       });
 
-      const additionalObjectIds = [...linkedChildIds, ...linkedParentIds]
+      const additionalObjectIds = linkedChildIds
         .filter(id => mongoose.Types.ObjectId.isValid(id))
         .map(id => new mongoose.Types.ObjectId(id));
 
@@ -436,8 +427,7 @@ export const getAllForms = async (req, res) => {
           { sharedWithTenants: { $in: tenantValues } },
           { "chassisTenantAssignments.assignedTenants": tenantIdStr },
           { _id: { $in: additionalObjectIds } },
-          { id: { $in: [...linkedChildIds, ...linkedParentIds] } },
-          { parentFormId: { $in: [...linkedChildIds, ...linkedParentIds] } }
+          { id: { $in: linkedChildIds } }
         ]
       };
     } else if (req.user.role === 'superadmin' && queryTenantId) {
@@ -980,18 +970,18 @@ export const getFormById = async (req, res) => {
         const defaultQuestions = formObj.followUpQuestions && formObj.followUpQuestions.length > 0
           ? formObj.followUpQuestions
           : [
-              {
-                id: 'chassis-number-q',
-                text: 'Chassis Number',
-                type: 'text',
-                required: true,
-                trackResponseQuestion: true,
-                trackResponseRank: true,
-                trackResponseRankLabel: 'Chassis Number',
-                trackResponseQuestionLabel: 'Chassis Number',
-                placeholder: 'Enter Chassis Number / VIN...'
-              }
-            ];
+            {
+              id: 'chassis-number-q',
+              text: 'Chassis Number',
+              type: 'text',
+              required: true,
+              trackResponseQuestion: true,
+              trackResponseRank: true,
+              trackResponseRankLabel: 'Chassis Number',
+              trackResponseQuestionLabel: 'Chassis Number',
+              placeholder: 'Enter Chassis Number / VIN...'
+            }
+          ];
 
         formObj.sections = [
           {
@@ -1056,11 +1046,22 @@ export const updateForm = async (req, res) => {
       }
     }
 
-    // For admin/subadmin, ensure they can only edit forms in their tenant
-    if (['admin', 'subadmin'].includes(req.user.role) && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
+    // For admin/subadmin, ensure they can only edit forms in their tenant or forms shared with their tenant
+    const formTenantIdStr = (form.tenantId?._id || form.tenantId)?.toString() || '';
+    const userTenantIdStr = (req.user.tenantId?._id || req.user.tenantId)?.toString() || '';
+    const isSharedWithThisTenant = Array.isArray(form.sharedWithTenants) && form.sharedWithTenants.some(t => {
+      const tId = (t?._id || t)?.toString();
+      return tId && tId === userTenantIdStr;
+    });
+
+    if (['admin', 'subadmin'].includes(req.user.role) &&
+      formTenantIdStr &&
+      userTenantIdStr &&
+      formTenantIdStr !== userTenantIdStr &&
+      !isSharedWithThisTenant) {
       return res.status(403).json({
         success: false,
-        message: 'Access denied. You can only edit forms in your organization.'
+        message: 'Access denied. You can only edit forms in your organization or shared with your organization.'
       });
     }
 
@@ -1078,6 +1079,11 @@ export const updateForm = async (req, res) => {
       delete updateData.isGlobal;
       delete updateData.tenantId;
     }
+
+    // Never unintentionally strip existing parent-child relationships if undefined in updateData
+    if (updateData.parentFormId === undefined) delete updateData.parentFormId;
+    if (updateData.parentFormTitle === undefined) delete updateData.parentFormTitle;
+    if (updateData.childForms === undefined) delete updateData.childForms;
 
     Object.assign(form, updateData);
 
@@ -1107,6 +1113,9 @@ export const updateForm = async (req, res) => {
     }
 
     await form.save();
+
+    clearFormCache();
+    emitFormsChanged({ action: 'updated', formId: form._id ? form._id.toString() : form.id, tenantId: form.tenantId });
 
     res.json({
       success: true,
@@ -1198,6 +1207,30 @@ export const deleteForm = async (req, res) => {
     // For admin, ensure they can only delete forms in their tenant (if both tenant IDs are present)
     if (isAdmin && !isSuperAdmin) {
       if (formTenantIdStr && userTenantIdStr && formTenantIdStr !== userTenantIdStr) {
+        // If this form was shared with or assigned to the admin's tenant, treat delete as unsharing / removing from this organization
+        const isSharedWithUserTenant =
+          (Array.isArray(form.sharedWithTenants) && form.sharedWithTenants.some(t => (t?._id || t)?.toString() === userTenantIdStr)) ||
+          (Array.isArray(form.chassisTenantAssignments) && form.chassisTenantAssignments.some(cta => cta.assignedTenants?.some(at => (at?._id || at)?.toString() === userTenantIdStr)));
+
+        if (isSharedWithUserTenant) {
+          form.sharedWithTenants = (form.sharedWithTenants || []).filter(t => (t?._id || t)?.toString() !== userTenantIdStr);
+          if (Array.isArray(form.chassisTenantAssignments)) {
+            form.chassisTenantAssignments.forEach(cta => {
+              if (Array.isArray(cta.assignedTenants)) {
+                cta.assignedTenants = cta.assignedTenants.filter(at => (at?._id || at)?.toString() !== userTenantIdStr);
+              }
+            });
+          }
+          form.markModified('sharedWithTenants');
+          form.markModified('chassisTenantAssignments');
+          await form.save();
+
+          return res.json({
+            success: true,
+            message: 'Form removed from your organization successfully'
+          });
+        }
+
         return res.status(403).json({
           success: false,
           message: 'Access denied. You can only delete forms in your organization.'
@@ -1234,6 +1267,9 @@ export const deleteForm = async (req, res) => {
 
     // 4. Delete form using the form's _id (MongoDB ObjectId)
     await Form.findByIdAndDelete(form._id);
+
+    clearFormCache();
+    emitFormsChanged({ action: 'deleted', formId: form._id ? form._id.toString() : form.id, tenantId: form.tenantId });
 
     res.json({
       success: true,
@@ -1273,16 +1309,30 @@ export const updateFormVisibility = async (req, res) => {
       });
     }
 
-    // For admin/subadmin, ensure they can only modify forms in their tenant
-    if (['admin', 'subadmin'].includes(req.user.role) && form.tenantId && req.user.tenantId && form.tenantId.toString() !== req.user.tenantId.toString()) {
+    // For admin/subadmin, ensure they can only modify forms in their tenant or shared with their tenant
+    const formTenantIdStr = (form.tenantId?._id || form.tenantId)?.toString() || '';
+    const userTenantIdStr = (req.user.tenantId?._id || req.user.tenantId)?.toString() || '';
+    const isSharedWithThisTenant = Array.isArray(form.sharedWithTenants) && form.sharedWithTenants.some(t => {
+      const tId = (t?._id || t)?.toString();
+      return tId && tId === userTenantIdStr;
+    });
+
+    if (['admin', 'subadmin'].includes(req.user.role) &&
+      formTenantIdStr &&
+      userTenantIdStr &&
+      formTenantIdStr !== userTenantIdStr &&
+      !isSharedWithThisTenant) {
       return res.status(403).json({
         success: false,
-        message: 'Access denied. You can only modify forms in your organization.'
+        message: 'Access denied. You can only modify forms in your organization or shared with your organization.'
       });
     }
 
     form.isVisible = isVisible;
     await form.save();
+
+    clearFormCache();
+    emitFormsChanged({ action: 'updated', formId: form._id ? form._id.toString() : form.id, tenantId: form.tenantId });
 
     res.json({
       success: true,
@@ -1580,6 +1630,9 @@ export const duplicateForm = async (req, res) => {
 
     const duplicateForm = new Form(duplicateData);
     await duplicateForm.save();
+
+    clearFormCache();
+    emitFormsChanged({ action: 'duplicated', formId: duplicateForm._id ? duplicateForm._id.toString() : duplicateForm.id, tenantId: duplicateForm.tenantId });
 
     res.status(201).json({
       success: true,
@@ -1969,24 +2022,14 @@ export const linkChildForm = async (req, res) => {
     }
 
     // Support cross-tenant / tenant-wise form linking:
-    // If parent and child forms belong to different organizations, automatically share them with each other
-    if (parentForm.tenantId && childForm.tenantId && parentForm.tenantId.toString() !== childForm.tenantId.toString()) {
-      const parentTenantStr = parentForm.tenantId.toString();
-      const childTenantStr = childForm.tenantId.toString();
-
-      if (!childForm.sharedWithTenants) childForm.sharedWithTenants = [];
-      if (!childForm.sharedWithTenants.some(t => t.toString() === parentTenantStr)) {
-        childForm.sharedWithTenants.push(parentForm.tenantId);
-      }
-
-      if (!parentForm.sharedWithTenants) parentForm.sharedWithTenants = [];
-      if (!parentForm.sharedWithTenants.some(t => t.toString() === childTenantStr)) {
-        parentForm.sharedWithTenants.push(childForm.tenantId);
-      }
-    }
+    // When linking an existing form from another tenant, our goal is purely response matching by chassis/VIN.
+    // We do NOT modify parentForm.sharedWithTenants (parent form must never appear on the other tenant's dashboard).
+    // We do NOT modify childForm.sharedWithTenants (to prevent child form from lingering on parent's dashboard when unlinked).
+    const isCrossTenantLink = parentForm.tenantId && childForm.tenantId &&
+      parentForm.tenantId.toString() !== childForm.tenantId.toString();
 
     // Check permissions
-    if (parentForm.createdBy.toString() !== req.user._id.toString() &&
+    if (parentForm.createdBy && parentForm.createdBy.toString() !== req.user._id.toString() &&
       !['admin', 'superadmin', 'subadmin'].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
@@ -2007,13 +2050,19 @@ export const linkChildForm = async (req, res) => {
     );
 
     if (existingLink) {
-      return res.status(400).json({
-        success: false,
-        message: 'This form is already linked as a child form'
+      if (!isCrossTenantLink) {
+        childForm.parentFormId = parentForm._id ? parentForm._id.toString() : parentForm.id;
+        childForm.parentFormTitle = parentForm.title;
+        await childForm.save();
+      }
+      return res.json({
+        success: true,
+        message: 'This form is already linked as a child form',
+        data: { parentForm, childForm }
       });
     }
 
-    // Add child form
+    // Add child form to parentForm.childForms
     const order = parentForm.childForms.length;
     parentForm.childForms.push({
       formId: childForm._id ? childForm._id.toString() : childForm.id,
@@ -2021,11 +2070,19 @@ export const linkChildForm = async (req, res) => {
       order
     });
 
-    // Also set parentFormId on child form for bidirectional consistency
-    childForm.parentFormId = parentForm._id ? parentForm._id.toString() : parentForm.id;
-    childForm.parentFormTitle = parentForm.title;
+    // Only set parentFormId on child form if it's within the SAME organization/tenant.
+    // For cross-tenant forms, the child form must keep its own independent standalone identity in its own tenant,
+    // so Saify/vendor inspectors and admins can continue using it normally without interference.
+    if (!isCrossTenantLink) {
+      childForm.parentFormId = parentForm._id ? parentForm._id.toString() : parentForm.id;
+      childForm.parentFormTitle = parentForm.title;
+      await childForm.save();
+    }
 
-    await Promise.all([parentForm.save(), childForm.save()]);
+    await parentForm.save();
+
+    clearFormCache();
+    emitFormsChanged({ action: 'linked', parentFormId: parentForm._id ? parentForm._id.toString() : parentForm.id, childFormId: childForm._id ? childForm._id.toString() : childForm.id });
 
     res.json({
       success: true,
@@ -2071,48 +2128,74 @@ export const unlinkChildForm = async (req, res) => {
       });
     }
 
-    if (!parentForm.childForms || parentForm.childForms.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'No child forms linked to this parent form'
-      });
+    if (!parentForm.childForms) {
+      parentForm.childForms = [];
     }
 
     const targetChildForm = await findFormByIdentifier(childFormId);
     const targetChildMongoId = targetChildForm?._id ? targetChildForm._id.toString() : '';
     const targetChildUuid = targetChildForm?.id ? String(targetChildForm.id) : '';
 
-    const initialLength = parentForm.childForms.length;
     parentForm.childForms = parentForm.childForms.filter(
       cf => cf.formId !== childFormId &&
-            (!targetChildMongoId || cf.formId !== targetChildMongoId) &&
-            (!targetChildUuid || cf.formId !== targetChildUuid)
+        (!targetChildMongoId || cf.formId !== targetChildMongoId) &&
+        (!targetChildUuid || cf.formId !== targetChildUuid)
     );
-
-    if (parentForm.childForms.length === initialLength) {
-      return res.status(404).json({
-        success: false,
-        message: 'Child form not found in parent form'
-      });
-    }
 
     // Reorder remaining child forms
     parentForm.childForms.forEach((cf, index) => {
       cf.order = index;
     });
 
+    parentForm.markModified('childForms');
     await parentForm.save();
 
-    // Also clear parentFormId on child form if it points to this parent
+    // Clean up cross-tenant references if any exist
     try {
       const childForm = await findFormByIdentifier(childFormId);
-      if (childForm && (childForm.parentFormId === parentForm.id || childForm.parentFormId === parentForm._id.toString())) {
-        childForm.parentFormId = null;
-        await childForm.save();
+      if (childForm) {
+        let childModified = false;
+
+        // Clear parentFormId if it points to this parent
+        if (childForm.parentFormId === parentForm.id || childForm.parentFormId === parentForm._id.toString()) {
+          childForm.parentFormId = null;
+          childModified = true;
+        }
+
+        // Revoke cross-tenant sharing so unlinked child form disappears completely from parent tenant
+        if (parentForm.tenantId && childForm.sharedWithTenants && childForm.sharedWithTenants.length > 0) {
+          const parentTenantStr = parentForm.tenantId.toString();
+          const initialShareLen = childForm.sharedWithTenants.length;
+          childForm.sharedWithTenants = childForm.sharedWithTenants.filter(
+            t => t && t.toString() !== parentTenantStr
+          );
+          if (childForm.sharedWithTenants.length !== initialShareLen) {
+            childForm.markModified('sharedWithTenants');
+            childModified = true;
+          }
+        }
+
+        if (childModified) {
+          await childForm.save();
+        }
+
+        // Revoke child's tenant from parentForm.sharedWithTenants if present
+        if (childForm.tenantId && parentForm.sharedWithTenants && parentForm.sharedWithTenants.length > 0) {
+          const childTenantStr = childForm.tenantId.toString();
+          parentForm.sharedWithTenants = parentForm.sharedWithTenants.filter(
+            t => t && t.toString() !== childTenantStr
+          );
+          parentForm.markModified('sharedWithTenants');
+        }
       }
     } catch (childErr) {
-      console.warn('Failed to clear child parentFormId:', childErr);
+      console.warn('Failed to clean up child form references on unlink:', childErr);
     }
+
+    await parentForm.save();
+
+    clearFormCache();
+    emitFormsChanged({ action: 'unlinked', parentFormId: parentForm._id ? parentForm._id.toString() : parentForm.id, childFormId });
 
     res.json({
       success: true,
@@ -2170,7 +2253,9 @@ export const getChildForms = async (req, res) => {
             isVisible: childForm.isVisible,
             isActive: childForm.isActive,
             order: childRef.order,
-            responseCount: cCount
+            responseCount: cCount,
+            sharedWithTenants: childForm.sharedWithTenants || [],
+            tenantId: childForm.tenantId
           });
         }
       }
@@ -2517,6 +2602,9 @@ export const importFormFromCSV = async (req, res) => {
 
     await Promise.all(parameterPromises);
     console.log(`Created ${parametersToCreate.size} parameters for form`);
+
+    clearFormCache();
+    emitFormsChanged({ action: 'imported', formId: form._id ? form._id.toString() : form.id, tenantId: form.tenantId });
 
     res.status(201).json({
       success: true,

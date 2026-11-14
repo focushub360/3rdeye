@@ -12,6 +12,13 @@ import {
   GitBranch,
   Edit2,
   Link2,
+  Search,
+  Building2,
+  Users,
+  CheckCircle2,
+  ShieldCheck,
+  Loader2,
+  Filter,
 } from "lucide-react";
 import { apiClient } from "../../api/client";
 
@@ -42,17 +49,19 @@ export default function ChildFormsManager({
   const [childForms, setChildForms] = useState<ChildForm[]>([]);
   const [availableForms, setAvailableForms] = useState<any[]>([]);
   const [tenants, setTenants] = useState<any[]>([]);
-  
+
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [modalTab, setModalTab] = useState<"create" | "link">("create");
-  
+
   const [selectedFormId, setSelectedFormId] = useState("");
   const [assignedTenants, setAssignedTenants] = useState<string[]>([]);
   const [selectedTenants, setSelectedTenants] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [isExpanded, setIsExpanded] = useState(true);
+  const [tenantSearch, setTenantSearch] = useState("");
+  const [tenantFilter, setTenantFilter] = useState<"all" | "selected" | "unselected">("all");
 
   // Follow-up creation state
   const [followUpTitle, setFollowUpTitle] = useState("");
@@ -143,18 +152,35 @@ export default function ChildFormsManager({
       );
       setAvailableForms(available);
 
-      // Fetch current form's sharedWithTenants
+      // Fetch follow-up forms' sharedWithTenants
       try {
         const formData = await apiClient.getFormById(parentFormId);
         const form = formData.form || formData;
         setParentFullForm(form);
-        const shared = (form.sharedWithTenants || []).map((t: any) => 
-          typeof t === 'string' ? t : t._id || t.toString()
-        );
+
+        let shared: string[] = [];
+        const loadedChildren = childData.childForms || [];
+        if (loadedChildren.length > 0) {
+          const firstChild = loadedChildren[0];
+          if (Array.isArray(firstChild.sharedWithTenants) && firstChild.sharedWithTenants.length > 0) {
+            shared = firstChild.sharedWithTenants.map((t: any) =>
+              typeof t === 'string' ? t : t._id || t.toString()
+            );
+          } else {
+            const firstId = firstChild.id || firstChild._id;
+            if (firstId) {
+              const childRes = await apiClient.getFormById(firstId);
+              const cForm = childRes.form || childRes;
+              shared = (cForm.sharedWithTenants || []).map((t: any) =>
+                typeof t === 'string' ? t : t._id || t.toString()
+              );
+            }
+          }
+        }
         setAssignedTenants(shared);
         setSelectedTenants(shared);
       } catch (err) {
-        console.error("Failed to fetch form details:", err);
+        console.error("Failed to fetch follow-up form tenant details:", err);
       }
 
       // Fetch tenants
@@ -236,9 +262,8 @@ export default function ChildFormsManager({
         isVisible: true,
         sections,
         chassisNumbers: parentFullForm?.chassisNumbers || [],
-        chassisTenantAssignments:
-          parentFullForm?.chassisTenantAssignments || [],
-        sharedWithTenants: parentFullForm?.sharedWithTenants || [],
+        chassisTenantAssignments: [],
+        sharedWithTenants: selectedTenants,
       };
 
       const res = await apiClient.createForm(payload);
@@ -271,11 +296,38 @@ export default function ChildFormsManager({
     try {
       setSaving(true);
       setSuccessMessage("");
-      await apiClient.updateForm(parentFormId, {
-        sharedWithTenants: selectedTenants,
-      });
+
+      // 1. Assign selected tenants directly to every follow-up form connected to this parent
+      const currentChildForms = childForms || [];
+      for (const cf of currentChildForms) {
+        const cfId = cf.id || cf._id || (cf as any).formId;
+        if (cfId) {
+          await apiClient.updateForm(cfId, {
+            sharedWithTenants: selectedTenants,
+          });
+        }
+      }
+
+      // 2. Ensure parent form itself is NOT shared with partner tenants,
+      // because only follow-up forms are assigned to partner organizations!
+      try {
+        const formData = await apiClient.getFormById(parentFormId);
+        const parentForm = formData.form || formData;
+        const currentParentShared = (parentForm.sharedWithTenants || []).map((t: any) =>
+          String(typeof t === 'object' && t ? (t._id || t.id) : t)
+        );
+        const cleanedParentShared = currentParentShared.filter((tId: string) => !selectedTenants.includes(tId));
+        if (cleanedParentShared.length !== currentParentShared.length) {
+          await apiClient.updateForm(parentFormId, {
+            sharedWithTenants: cleanedParentShared,
+          });
+        }
+      } catch (err) {
+        console.warn("Could not clean parent form sharedWithTenants:", err);
+      }
+
       setAssignedTenants([...selectedTenants]);
-      setSuccessMessage("Assigned successfully!");
+      setSuccessMessage("Follow-up forms assigned successfully!");
       setTimeout(() => setSuccessMessage(""), 3500);
       onUpdate?.();
     } catch (error: any) {
@@ -292,6 +344,18 @@ export default function ChildFormsManager({
         : [...prev, tenantId]
     );
   };
+
+  const handleSelectAll = () => {
+    setSelectedTenants(tenants.map((t) => t._id));
+  };
+
+  const handleClearAll = () => {
+    setSelectedTenants([]);
+  };
+
+  const hasUnsavedChanges =
+    JSON.stringify([...selectedTenants].sort()) !==
+    JSON.stringify([...assignedTenants].sort());
 
   const handleLinkForm = async () => {
     if (!selectedFormId) return;
@@ -447,20 +511,18 @@ export default function ChildFormsManager({
                       </p>
                       <div className="flex items-center space-x-3 mt-2">
                         <span
-                          className={`text-xs px-2 py-1 rounded-full ${
-                            form.isActive
-                              ? "bg-green-100 text-green-800"
-                              : "bg-gray-100 text-gray-800"
-                          }`}
+                          className={`text-xs px-2 py-1 rounded-full ${form.isActive
+                            ? "bg-green-100 text-green-800"
+                            : "bg-gray-100 text-gray-800"
+                            }`}
                         >
                           {form.isActive ? "Active" : "Inactive"}
                         </span>
                         <span
-                          className={`text-xs px-2 py-1 rounded-full ${
-                            form.isVisible
-                              ? "bg-blue-100 text-blue-800"
-                              : "bg-gray-100 text-gray-800"
-                          }`}
+                          className={`text-xs px-2 py-1 rounded-full ${form.isVisible
+                            ? "bg-blue-100 text-blue-800"
+                            : "bg-gray-100 text-gray-800"
+                            }`}
                         >
                           {form.isVisible ? "Visible" : "Hidden"}
                         </span>
@@ -491,66 +553,268 @@ export default function ChildFormsManager({
             </div>
           )}
 
-          {/* Tenant Assignment */}
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-5 mb-4">
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase">
-              Assign to Tenants
-            </label>
-            <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900">
-              {tenants.map((tenant) => {
-                const isChecked = selectedTenants.includes(tenant._id);
-                const isOwner = parentFormTenantId && tenant._id === parentFormTenantId;
-                const isCurrentlyAssigned = assignedTenants.includes(tenant._id);
-                return (
-                  <label
-                    key={tenant._id}
-                    className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md cursor-pointer transition-colors"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => toggleTenantCheckbox(tenant._id)}
-                      className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
-                    />
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                      {tenant.companyName || tenant.name}
-                      {isOwner && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded uppercase tracking-wider">
-                          Owner
-                        </span>
-                      )}
-                      {isCurrentlyAssigned && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded uppercase tracking-wider">
-                          Assigned
-                        </span>
-                      )}
+          {/* Enhanced Fast & Neat Tenant Assignment Section */}
+          <div className="bg-white dark:bg-gray-850 rounded-2xl border border-gray-200/80 dark:border-gray-700/80 shadow-xs overflow-hidden mb-6 transition-all">
+            {/* Header */}
+            <div className="px-5 py-4 bg-gradient-to-r from-gray-50 via-white to-gray-50 dark:from-gray-800 dark:via-gray-850 dark:to-gray-800 border-b border-gray-200/80 dark:border-gray-700/80 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold shadow-2xs">
+                  <Building2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-bold text-gray-900 dark:text-gray-100 tracking-tight">
+                      Assign to Tenants
+                    </h4>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/60">
+                      {assignedTenants.length} Assigned
                     </span>
-                  </label>
-                );
-              })}
-              {tenants.length === 0 && (
-                <p className="text-sm text-gray-500 text-center py-4">No tenants available</p>
-              )}
-            </div>
-            <div className="flex items-center justify-between mt-3">
-              <div className="flex items-center gap-3">
-                <p className="text-xs font-medium text-gray-500">
-                  {selectedTenants.length} tenant{selectedTenants.length !== 1 ? 's' : ''} selected
-                </p>
-                {successMessage && (
-                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded">
-                    <Check className="w-3.5 h-3.5" />
-                    {successMessage}
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Authorize external partner organizations (e.g. Saify, Sreedevi) to inspect and submit follow-up records.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {hasUnsavedChanges && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 rounded-md border border-amber-200 dark:border-amber-800">
+                    ● Unsaved changes
                   </span>
                 )}
+                <button
+                  type="button"
+                  onClick={handleAssignTenants}
+                  disabled={saving}
+                  className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white rounded-xl font-semibold text-xs inline-flex items-center gap-1.5 shadow-sm hover:shadow transition-all disabled:opacity-50 disabled:cursor-wait cursor-pointer active:scale-95"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Save Assignment</span>
+                    </>
+                  )}
+                </button>
               </div>
-              <button
-                onClick={handleAssignTenants}
-                disabled={saving}
-                className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium text-sm inline-flex items-center shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait"
-              >
-                {saving ? "Assigning..." : "Assign"}
-              </button>
+            </div>
+
+            {/* Controls & Search */}
+            <div className="p-5">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-3.5">
+                {/* Search */}
+                <div className="relative flex-1">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={tenantSearch}
+                    onChange={(e) => setTenantSearch(e.target.value)}
+                    placeholder="Quick search by organization or tenant name..."
+                    className="w-full text-xs pl-8 pr-8 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all"
+                  />
+                  {tenantSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setTenantSearch("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter Pills & Quick Actions */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="flex items-center bg-gray-100 dark:bg-gray-800 p-0.5 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <button
+                      type="button"
+                      onClick={() => setTenantFilter("all")}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${tenantFilter === "all"
+                        ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-2xs"
+                        : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+                        }`}
+                    >
+                      All ({tenants.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTenantFilter("selected")}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${tenantFilter === "selected"
+                        ? "bg-white dark:bg-gray-700 text-purple-700 dark:text-purple-300 shadow-2xs"
+                        : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+                        }`}
+                    >
+                      Selected ({selectedTenants.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTenantFilter("unselected")}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${tenantFilter === "unselected"
+                        ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-2xs"
+                        : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+                        }`}
+                    >
+                      Available ({Math.max(0, tenants.length - selectedTenants.length)})
+                    </button>
+                  </div>
+
+                  <div className="h-4 w-px bg-gray-200 dark:bg-gray-700 mx-0.5" />
+
+                  <button
+                    type="button"
+                    onClick={handleSelectAll}
+                    className="px-2.5 py-1 text-[11px] font-medium text-purple-600 hover:text-purple-800 dark:text-purple-400 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearAll}
+                    className="px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              {/* Selected Tenants Tags */}
+              {selectedTenants.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap mb-3.5 p-2.5 rounded-xl bg-purple-50/60 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/40">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300 ml-1 mr-0.5">
+                    Selected ({selectedTenants.length}):
+                  </span>
+                  {selectedTenants.map((tId) => {
+                    const tenantObj = tenants.find((t) => t._id === tId);
+                    const label = tenantObj?.companyName || tenantObj?.name || tId;
+                    return (
+                      <span
+                        key={tId}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold bg-white dark:bg-gray-800 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shadow-2xs group"
+                      >
+                        <span>{label}</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleTenantCheckbox(tId)}
+                          className="text-purple-400 hover:text-purple-700 dark:hover:text-purple-200 transition-colors cursor-pointer ml-0.5"
+                          title={`Remove ${label}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Responsive Tenant Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-72 overflow-y-auto p-1 pr-1.5 custom-scrollbar">
+                {tenants
+                  .filter((tenant) => {
+                    const term = tenantSearch.toLowerCase().trim();
+                    const name = (tenant.name || "").toLowerCase();
+                    const comp = (tenant.companyName || "").toLowerCase();
+                    const matchesSearch = !term || name.includes(term) || comp.includes(term);
+                    if (!matchesSearch) return false;
+
+                    const isChecked = selectedTenants.includes(tenant._id);
+                    if (tenantFilter === "selected") return isChecked;
+                    if (tenantFilter === "unselected") return !isChecked;
+                    return true;
+                  })
+                  .map((tenant) => {
+                    const isChecked = selectedTenants.includes(tenant._id);
+                    const isOwner = parentFormTenantId && tenant._id === parentFormTenantId;
+                    const isCurrentlyAssigned = assignedTenants.includes(tenant._id);
+
+                    return (
+                      <div
+                        key={tenant._id}
+                        onClick={() => toggleTenantCheckbox(tenant._id)}
+                        className={`group relative flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer select-none ${isChecked
+                          ? "bg-purple-50/70 dark:bg-purple-950/30 border-purple-400 dark:border-purple-600 shadow-2xs ring-1 ring-purple-400/30"
+                          : "bg-white dark:bg-gray-800/80 border-gray-200 dark:border-gray-700 hover:border-purple-200 dark:hover:border-purple-800 hover:bg-gray-50/60"
+                          }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors border shrink-0 ${isChecked
+                              ? "bg-purple-600 border-purple-600 text-white"
+                              : "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-transparent group-hover:border-purple-400"
+                              }`}
+                          >
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-gray-900 dark:text-gray-100 truncate">
+                              {tenant.companyName || tenant.name}
+                            </p>
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
+                              {tenant.slug || tenant.name || "Organization"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0 ml-2">
+                          {isOwner && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-md uppercase tracking-wider">
+                              Owner
+                            </span>
+                          )}
+                          {isCurrentlyAssigned && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 rounded-md uppercase tracking-wider inline-flex items-center gap-0.5">
+                              <Check className="w-2.5 h-2.5" />
+                              Live
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                {tenants.length === 0 && (
+                  <div className="col-span-full py-8 text-center text-xs text-gray-500 dark:text-gray-400">
+                    No tenants available in the system
+                  </div>
+                )}
+              </div>
+
+              {/* Footer status bar */}
+              <div className="flex items-center justify-between pt-3 mt-3 border-t border-gray-100 dark:border-gray-800">
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-gray-500 font-medium">
+                    <strong className="text-gray-800 dark:text-gray-200">{selectedTenants.length}</strong> of {tenants.length} organizations selected
+                  </p>
+                  {successMessage && (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800 animate-fade-in">
+                      <Check className="w-3.5 h-3.5" />
+                      {successMessage}
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleAssignTenants}
+                  disabled={saving}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50 disabled:cursor-wait cursor-pointer"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3 h-3" />
+                      <span>Save Changes</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -588,11 +852,10 @@ export default function ChildFormsManager({
               <button
                 type="button"
                 onClick={() => setModalTab("create")}
-                className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
-                  modalTab === "create"
-                    ? "border-blue-600 text-blue-700 dark:text-blue-400"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
+                className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${modalTab === "create"
+                  ? "border-blue-600 text-blue-700 dark:text-blue-400"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+                  }`}
               >
                 <Sparkles className="w-4 h-4" />
                 Create New Follow-up
@@ -600,11 +863,10 @@ export default function ChildFormsManager({
               <button
                 type="button"
                 onClick={() => setModalTab("link")}
-                className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
-                  modalTab === "link"
-                    ? "border-blue-600 text-blue-700 dark:text-blue-400"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
+                className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${modalTab === "link"
+                  ? "border-blue-600 text-blue-700 dark:text-blue-400"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+                  }`}
               >
                 <Link2 className="w-4 h-4" />
                 Link Existing Form
@@ -650,11 +912,10 @@ export default function ChildFormsManager({
                       <button
                         type="button"
                         onClick={() => handleApplyPreset("standard")}
-                        className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${
-                          selectedPresetFormat === "standard"
-                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-blue-400"
-                        }`}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${selectedPresetFormat === "standard"
+                          ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                          : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-blue-400"
+                          }`}
                       >
                         <div className="text-[10px] opacity-75 font-semibold">Standard</div>
                         <div className="font-semibold truncate">Follow up {sequenceNumber}</div>
@@ -663,11 +924,10 @@ export default function ChildFormsManager({
                       <button
                         type="button"
                         onClick={() => handleApplyPreset("xFormat")}
-                        className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${
-                          selectedPresetFormat === "xFormat"
-                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-blue-400"
-                        }`}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${selectedPresetFormat === "xFormat"
+                          ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                          : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-blue-400"
+                          }`}
                       >
                         <div className="text-[10px] opacity-75 font-semibold">x-Format</div>
                         <div className="font-semibold truncate">Follow up x{sequenceNumber}</div>
@@ -676,11 +936,10 @@ export default function ChildFormsManager({
                       <button
                         type="button"
                         onClick={() => handleApplyPreset("ordinal")}
-                        className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${
-                          selectedPresetFormat === "ordinal"
-                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-blue-400"
-                        }`}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${selectedPresetFormat === "ordinal"
+                          ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                          : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-blue-400"
+                          }`}
                       >
                         <div className="text-[10px] opacity-75 font-semibold">Ordinal Format</div>
                         <div className="font-semibold truncate">{getOrdinal(sequenceNumber)} Follow-up</div>
@@ -689,11 +948,10 @@ export default function ChildFormsManager({
                       <button
                         type="button"
                         onClick={() => handleApplyPreset("child")}
-                        className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${
-                          selectedPresetFormat === "child"
-                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-blue-400"
-                        }`}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${selectedPresetFormat === "child"
+                          ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                          : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-blue-400"
+                          }`}
                       >
                         <div className="text-[10px] opacity-75 font-semibold">Child Format</div>
                         <div className="font-semibold truncate">Child Follow-up {sequenceNumber}</div>
@@ -739,11 +997,10 @@ export default function ChildFormsManager({
                     </label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <label
-                        className={`flex items-start p-3 rounded-xl border cursor-pointer transition-all ${
-                          followUpSource === "parent"
-                            ? "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20"
-                            : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
-                        }`}
+                        className={`flex items-start p-3 rounded-xl border cursor-pointer transition-all ${followUpSource === "parent"
+                          ? "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20"
+                          : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                          }`}
                       >
                         <input
                           type="radio"
@@ -764,11 +1021,10 @@ export default function ChildFormsManager({
                       </label>
 
                       <label
-                        className={`flex items-start p-3 rounded-xl border cursor-pointer transition-all ${
-                          followUpSource === "empty"
-                            ? "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20"
-                            : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
-                        }`}
+                        className={`flex items-start p-3 rounded-xl border cursor-pointer transition-all ${followUpSource === "empty"
+                          ? "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20"
+                          : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                          }`}
                       >
                         <input
                           type="radio"

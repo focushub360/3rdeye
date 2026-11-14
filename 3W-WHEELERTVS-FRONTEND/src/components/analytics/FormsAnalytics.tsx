@@ -63,6 +63,7 @@ import WhatsAppInviteModal from "../WhatsAppInviteModal";
 import SMSInviteModal from "../SMSInviteModal";
 import ShareAnalyticsModal from "./ShareAnalyticsModal";
 import AutoSendModal from "../forms/AutoSendModal";
+import { io } from "socket.io-client";
 
 import { useAuth } from "../../context/AuthContext";
 
@@ -338,6 +339,21 @@ export default function FormsAnalytics() {
   const [actualResponseCounts, setActualResponseCounts] = useState<Record<string, number>>({});
   const [expandedChildFormIds, setExpandedChildFormIds] = useState<Record<string, boolean>>({});
   const [deletingFormId, setDeletingFormId] = useState<string | null>(null);
+  const [deleteModalState, setDeleteModalState] = useState<{
+    isOpen: boolean;
+    formId: string;
+    formTitle: string;
+    inputName: string;
+    isOwner: boolean;
+    ownerOrgName?: string;
+  }>({
+    isOpen: false,
+    formId: "",
+    formTitle: "",
+    inputName: "",
+    isOwner: true,
+    ownerOrgName: "",
+  });
 
   // Add Follow-up Form Modal state
   const [addFollowUpModalOpen, setAddFollowUpModalOpen] = useState(false);
@@ -352,6 +368,62 @@ export default function FormsAnalytics() {
   const [followUpSequenceNumber, setFollowUpSequenceNumber] = useState(1);
   const [selectedPresetFormat, setSelectedPresetFormat] = useState<"standard" | "xFormat" | "ordinal" | "child" | "custom">("standard");
   const [allCrossTenantForms, setAllCrossTenantForms] = useState<any[]>([]);
+  const [tenantsList, setTenantsList] = useState<any[]>([]);
+
+  // Preload tenants minimal list for resolving assigned tenant names and badges
+  useEffect(() => {
+    let mounted = true;
+    apiClient.getTenantsMinimal()
+      .then((res: any) => {
+        if (mounted) {
+          const list = res?.tenants || res?.data?.tenants || [];
+          setTenantsList(list);
+        }
+      })
+      .catch((err) => {
+        console.warn("Could not load tenants for labels:", err);
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  const tenantMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (tenantsList || []).forEach((t: any) => {
+      const id = String(t._id || t.id);
+      const name = t.companyName || t.name;
+      if (id && name) map.set(id, name);
+    });
+    return map;
+  }, [tenantsList]);
+
+  const getAssignedTenantNames = useCallback((formItem: any): string[] => {
+    if (!formItem) return [];
+    const names = new Set<string>();
+
+    // 1. From sharedWithTenants
+    if (Array.isArray(formItem.sharedWithTenants)) {
+      formItem.sharedWithTenants.forEach((t: any) => {
+        const tId = String(typeof t === "object" && t ? (t._id || t.id) : t);
+        const name = tenantMap.get(tId) || (typeof t === "object" && t ? (t.companyName || t.name) : null);
+        if (name) names.add(name);
+      });
+    }
+
+    // 2. From chassisTenantAssignments
+    if (Array.isArray(formItem.chassisTenantAssignments)) {
+      formItem.chassisTenantAssignments.forEach((a: any) => {
+        if (Array.isArray(a.assignedTenants)) {
+          a.assignedTenants.forEach((tId: any) => {
+            const strId = String(typeof tId === "object" && tId ? (tId._id || tId.id) : tId);
+            const name = tenantMap.get(strId) || (typeof tId === "object" && tId ? (tId.companyName || tId.name) : null);
+            if (name) names.add(name);
+          });
+        }
+      });
+    }
+
+    return Array.from(names);
+  }, [tenantMap]);
 
   // Preload cross-tenant forms so admins in any tenant can link forms across all tenants
   useEffect(() => {
@@ -536,16 +608,53 @@ export default function FormsAnalytics() {
     refetchForms({ forceNetwork: true });
   }, [user?.tenantId]);
 
-  const deleteMutation = useMutation((id: string) => apiClient.deleteForm(id), {
-    onSuccess: () => {
+  // Real-time synchronization across all logins and systems without latency
+  useEffect(() => {
+    const getSocketUrl = () => {
+      const apiBase = apiClient.getBaseUrl();
+      if (apiBase) {
+        return apiBase.replace(/\/api\/?$/, "");
+      }
+      return window.location.origin;
+    };
+
+    const socketUrl = getSocketUrl();
+    const socket = io(socketUrl, {
+      reconnection: true,
+      transports: ["websocket", "polling"],
+      withCredentials: true,
+    });
+
+    socket.on("connect", () => {
+      console.log("✅ [FormsAnalytics] Connected to real-time forms sync socket");
+      socket.emit("join-dashboard-analytics");
+    });
+
+    const handleFormsChanged = () => {
+      console.log("🔔 [FormsAnalytics] Real-time forms-changed received, instant refresh across logins");
+      apiClient.invalidateFormsCache();
       refetchForms({ forceNetwork: true });
-      showSuccess("Form deleted successfully", "Success");
+    };
+
+    socket.on("forms-changed", handleFormsChanged);
+
+    return () => {
+      socket.off("forms-changed", handleFormsChanged);
+      socket.disconnect();
+    };
+  }, [refetchForms]);
+
+  const deleteMutation = useMutation((id: string) => apiClient.deleteForm(id), {
+    onSuccess: (data: any) => {
+      refetchForms({ forceNetwork: true });
+      const msg = data?.message || "Operation completed successfully";
+      showSuccess(msg, "Success");
     },
     onError: (error: any) => {
       console.error("Delete form error:", error);
       showError(
-        typeof error === "string" ? error : error?.message || "Failed to delete form",
-        "Delete Failed"
+        typeof error === "string" ? error : error?.message || "Failed to process form request",
+        "Action Failed"
       );
     },
   });
@@ -762,22 +871,13 @@ export default function FormsAnalytics() {
         isVisible: true,
         sections,
         chassisNumbers: targetParentForm.chassisNumbers || [],
-        chassisTenantAssignments:
-          targetParentForm.chassisTenantAssignments || [],
-        sharedWithTenants: targetParentForm.sharedWithTenants || [],
+        chassisTenantAssignments: [],
+        sharedWithTenants: [],
       };
 
       const res = await apiClient.createForm(payload);
       const createdForm = (res as any).form || (res as any).data?.form || res;
       const newFormId = createdForm?._id || createdForm?.id;
-
-      if (newFormId) {
-        try {
-          await apiClient.linkChildForm(parentId, newFormId);
-        } catch (linkErr) {
-          // Auto-linked
-        }
-      }
 
       setAddFollowUpModalOpen(false);
       showSuccess(
@@ -790,6 +890,7 @@ export default function FormsAnalytics() {
         [parentId]: true,
       }));
 
+      apiClient.invalidateFormsCache();
       await refetchForms({ forceNetwork: true });
 
       if (openEditor && newFormId) {
@@ -814,6 +915,7 @@ export default function FormsAnalytics() {
         ...prev,
         [parentId]: true,
       }));
+      apiClient.invalidateFormsCache();
       await refetchForms({ forceNetwork: true });
     } catch (err: any) {
       showError(err.message || "Failed to link follow-up form", "Error");
@@ -942,6 +1044,51 @@ export default function FormsAnalytics() {
     // First pass: register all non-child parent forms
     filteredForms.forEach((form) => {
       if (!isFormAChild(form)) {
+        // Exclude foreign tenant forms from being registered as top-level parent cards on this tenant's screen.
+        // A foreign form should only appear if it is a global form, or if the user is superadmin.
+        const ownerTenantId =
+          typeof form.tenantId === "object"
+            ? (form.tenantId?._id || form.tenantId?.id)
+            : form.tenantId;
+        const userTenantId =
+          typeof user?.tenantId === "object"
+            ? (user?.tenantId?._id || user?.tenantId?.id)
+            : user?.tenantId;
+        const isForeignTenant =
+          ownerTenantId &&
+          userTenantId &&
+          String(ownerTenantId) !== String(userTenantId) &&
+          userRole !== "superadmin";
+
+        const isSharedWithUser =
+          Array.isArray(form.sharedWithTenants) &&
+          form.sharedWithTenants.some(
+            (t: any) => String(t?._id || t?.id || t) === String(userTenantId)
+          );
+
+        const hasChassisShare =
+          Array.isArray(form.chassisTenantAssignments) &&
+          form.chassisTenantAssignments.some(
+            (a: any) =>
+              Array.isArray(a.assignedTenants) &&
+              a.assignedTenants.some((t: any) => String(t?._id || t?.id || t) === String(userTenantId))
+          );
+
+        const parentRespCount =
+          (form.id && actualResponseCounts[form.id]) ||
+          (form._id && actualResponseCounts[form._id]) ||
+          form.responseCount ||
+          0;
+
+        if (
+          isForeignTenant &&
+          !form.isGlobal &&
+          !isSharedWithUser &&
+          (!hasChassisShare || parentRespCount === 0)
+        ) {
+          return;
+        }
+
         const canonicalKey = String(form._id || form.id);
         if (canonicalKey) {
           if (form._id) keyToCanonicalKey.set(String(form._id), canonicalKey);
@@ -976,17 +1123,19 @@ export default function FormsAnalytics() {
           }
         }
 
-        if (parentKey) {
-          if (!result[parentKey]) {
-            const parentForm = formsMap.get(parentKey) || null;
-            result[parentKey] = {
-              parent: parentForm,
-              children: [],
-            };
-          }
+        if (parentKey && result[parentKey]?.parent) {
           const childKey = String(form._id || form.id);
           if (!result[parentKey].children.some((c) => String(c._id || c.id) === childKey)) {
             result[parentKey].children.push(form);
+          }
+        } else {
+          // Parent is not accessible or not shown for this tenant; keep child form visible as its own standalone card
+          const childKey = getCanonicalKey(String(form._id || form.id));
+          if (childKey && !result[childKey]) {
+            result[childKey] = {
+              parent: form,
+              children: [],
+            };
           }
         }
       }
@@ -1016,7 +1165,10 @@ export default function FormsAnalytics() {
         const childId = childRef.formId ? String(childRef.formId) : "";
         if (!childId) return;
 
-        let child = existingChildrenMap.get(childId) || formsMap.get(childId);
+        let child =
+          existingChildrenMap.get(childId) ||
+          formsMap.get(childId) ||
+          (allCrossTenantForms || []).find((f: any) => String(f._id || f.id) === childId);
         if (child) {
           const canonical = String(child._id || child.id);
           if (!usedChildIds.has(canonical)) {
@@ -1045,6 +1197,56 @@ export default function FormsAnalytics() {
     return result;
   }, [filteredForms, visibleForms, formsMap, isFormAChild]);
 
+  const isFormGroupAssigned = useCallback(
+    (group: { parent: FormItem; children: FormItem[] }) => {
+      if (!group?.parent) return false;
+      const userTenantId =
+        typeof user?.tenantId === "object"
+          ? (user?.tenantId?._id || user?.tenantId?.id)
+          : user?.tenantId;
+      const userTenantIdStr = userTenantId ? String(userTenantId) : "";
+      if (!userTenantIdStr || userRole === "superadmin") return false;
+
+      const checkFormAssigned = (f: any) => {
+        if (!f) return false;
+        const ownerId =
+          typeof f.tenantId === "object"
+            ? (f.tenantId?._id || f.tenantId?.id)
+            : f.tenantId;
+        const ownerIdStr = ownerId ? String(ownerId) : "";
+
+        // If owned by current user's organization, it is not an incoming assigned form
+        if (!ownerIdStr || ownerIdStr === userTenantIdStr) return false;
+
+        // Form belongs to another tenant: check if shared with user's tenant
+        const isShared =
+          Array.isArray(f.sharedWithTenants) &&
+          f.sharedWithTenants.some(
+            (t: any) =>
+              String(typeof t === "object" && t ? (t._id || t.id) : t) === userTenantIdStr
+          );
+        const isChassisShared =
+          Array.isArray(f.chassisTenantAssignments) &&
+          f.chassisTenantAssignments.some(
+            (a: any) =>
+              Array.isArray(a.assignedTenants) &&
+              a.assignedTenants.some(
+                (t: any) =>
+                  String(typeof t === "object" && t ? (t._id || t.id) : t) === userTenantIdStr
+              )
+          );
+
+        return isShared || isChassisShared || !f.isGlobal;
+      };
+
+      if (checkFormAssigned(group.parent)) return true;
+      if (Array.isArray(group.children) && group.children.some(checkFormAssigned)) return true;
+
+      return false;
+    },
+    [user, userRole]
+  );
+
   const sortedGroupedForms = useMemo(() => {
     return Object.values(groupedForms).sort((a, b) => {
       if (!a.parent || !b.parent) return 0;
@@ -1053,41 +1255,69 @@ export default function FormsAnalytics() {
       const aPinned = pinnedFormIds.includes(aId);
       const bPinned = pinnedFormIds.includes(bId);
 
+      // 1. Pinned forms always at the very top
       if (aPinned && !bPinned) return -1;
       if (!aPinned && bPinned) return 1;
       if (aPinned && bPinned) {
         return pinnedFormIds.indexOf(aId) - pinnedFormIds.indexOf(bId);
       }
-      return 0;
+
+      // 2. Assigned forms come right after pinned forms!
+      const aAssigned = isFormGroupAssigned(a);
+      const bAssigned = isFormGroupAssigned(b);
+
+      if (aAssigned && !bAssigned) return -1;
+      if (!aAssigned && bAssigned) return 1;
+
+      // 3. Within same priority, sort by most recent activity (updatedAt or createdAt descending)
+      const aTime = Math.max(
+        a.parent.updatedAt ? new Date(a.parent.updatedAt).getTime() : 0,
+        a.parent.createdAt ? new Date(a.parent.createdAt).getTime() : 0
+      );
+      const bTime = Math.max(
+        b.parent.updatedAt ? new Date(b.parent.updatedAt).getTime() : 0,
+        b.parent.createdAt ? new Date(b.parent.createdAt).getTime() : 0
+      );
+      return bTime - aTime;
     });
-  }, [groupedForms, pinnedFormIds]);
+  }, [groupedForms, pinnedFormIds, isFormGroupAssigned]);
 
   const allForms = filteredForms.length;
   const totalResponses = filteredForms.reduce((sum, form) => {
     return sum + (form.responseCount || 0);
   }, 0);
 
-  const handleDelete = async (id: string, title: string) => {
-    showConfirm(
-      `Are you sure you want to delete "${title}"? This action cannot be undone.`,
-      async () => {
-        try {
-          setDeletingFormId(id);
-          const res = await deleteMutation.mutate(id);
-          if (res) {
-            await refetchForms({ forceNetwork: true });
-          }
-        } catch (err: any) {
-          console.error("Delete error:", err);
-          showError(err?.message || "Failed to delete form", "Delete Failed");
-        } finally {
-          setDeletingFormId(null);
-        }
-      },
-      "Delete Form",
-      "Delete",
-      "Cancel",
-    );
+  const handleDelete = (id: string, title: string, isOwner: boolean = true, ownerOrgName?: string) => {
+    setDeleteModalState({
+      isOpen: true,
+      formId: id,
+      formTitle: title || "",
+      inputName: "",
+      isOwner,
+      ownerOrgName,
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    const { formId, formTitle, inputName, isOwner } = deleteModalState;
+    if (inputName.trim().toLowerCase() !== formTitle.trim().toLowerCase()) {
+      return;
+    }
+
+    try {
+      setDeletingFormId(formId);
+      const res = await deleteMutation.mutate(formId);
+      if (res) {
+        apiClient.invalidateFormsCache();
+        await refetchForms({ forceNetwork: true });
+        setDeleteModalState({ isOpen: false, formId: "", formTitle: "", inputName: "", isOwner: true, ownerOrgName: "" });
+      }
+    } catch (err: any) {
+      console.error("Delete/Remove error:", err);
+      showError(err?.message || (isOwner ? "Failed to delete form" : "Failed to remove form"), isOwner ? "Delete Failed" : "Remove Failed");
+    } finally {
+      setDeletingFormId(null);
+    }
   };
 
   const handleUnlinkChildForm = (parentId: string, childId: string, childTitle: string) => {
@@ -1098,12 +1328,20 @@ export default function FormsAnalytics() {
           setDeletingFormId(childId);
           await apiClient.unlinkChildForm(parentId, childId);
           showSuccess(`"${childTitle}" unlinked successfully!`, "Success");
-          await refetchForms({ forceNetwork: true });
         } catch (err: any) {
           console.error("Unlink error:", err);
-          showError(err?.message || "Failed to unlink follow-up form", "Unlink Failed");
+          if (
+            err?.message?.includes("No child forms linked") ||
+            err?.message?.includes("not found in parent")
+          ) {
+            showSuccess(`"${childTitle}" unlinked successfully!`, "Success");
+          } else {
+            showError(err?.message || "Failed to unlink follow-up form", "Unlink Failed");
+          }
         } finally {
           setDeletingFormId(null);
+          apiClient.invalidateFormsCache();
+          await refetchForms({ forceNetwork: true });
         }
       },
       "Unlink Follow-up Form",
@@ -1228,7 +1466,8 @@ export default function FormsAnalytics() {
     try {
       await apiClient.createForm(previewFormData);
       showSuccess("Form imported successfully", "Import Complete");
-      refetchForms();
+      apiClient.invalidateFormsCache();
+      await refetchForms({ forceNetwork: true });
       setIsPreviewOpen(false);
       setPreviewFormData(null);
     } catch (error: any) {
@@ -1982,9 +2221,12 @@ export default function FormsAnalytics() {
               (ownerTenantIdStr && userTenantIdStr && ownerTenantIdStr === userTenantIdStr);
 
             const tenantName =
-              typeof parent.tenantId === "object"
-                ? parent.tenantId?.companyName || parent.tenantId?.name
-                : null;
+              (typeof parent.tenantId === "object"
+                ? parent.tenantId?.companyName || parent.tenantId?.name || parent.tenantId?.slug
+                : null) ||
+              (parent.tenantId ? tenantMap.get(String(parent.tenantId)) : null) ||
+              (parent as any).tenantName ||
+              null;
 
             return (
               <div
@@ -1997,7 +2239,7 @@ export default function FormsAnalytics() {
               >
                 <div className="flex items-start justify-between mb-4 gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <h3 className="font-medium text-primary-800 line-clamp-2 mb-0">
                         {parent.title}
                       </h3>
@@ -2007,11 +2249,22 @@ export default function FormsAnalytics() {
                           <span>Pinned</span>
                         </span>
                       )}
-                      {tenantName && !isOwner && userRole !== "superadmin" && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100 uppercase tracking-wider">
-                          {tenantName}
+                      {!isOwner && userRole !== "superadmin" && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800 shadow-2xs">
+                          <Share2 className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                          <span>Assigned from {tenantName || "Partner Org"}</span>
                         </span>
                       )}
+                      {(isOwner || userRole === "superadmin") &&
+                        getAssignedTenantNames(parent).map((tName) => (
+                          <span
+                            key={tName}
+                            className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200 uppercase tracking-wider dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800 shadow-2xs"
+                            title={`Assigned to ${tName}`}
+                          >
+                            {tName}
+                          </span>
+                        ))}
                     </div>
                     <p className="text-sm text-primary-600 line-clamp-2">
                       {parent.description}
@@ -2594,20 +2847,20 @@ export default function FormsAnalytics() {
                         )}
                         {((isOwner && canDelete) || hasDeletePermission) && (
                           <button
-                            onClick={() => handleDelete(formId, parent.title)}
+                            onClick={() => handleDelete(formId, parent.title, isOwner, tenantName || undefined)}
                             className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-red-600 rounded-lg transition-colors hover:bg-red-700 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Delete form"
+                            title={isOwner ? "Delete form permanently" : "Remove shared form from your organization"}
                             disabled={deleteMutation.loading && deletingFormId === formId}
                           >
                             {deleteMutation.loading && deletingFormId === formId ? (
                               <>
                                 <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                <span>Deleting...</span>
+                                <span>{isOwner ? "Deleting..." : "Removing..."}</span>
                               </>
                             ) : (
                               <>
                                 <Trash2 className="w-3.5 h-3.5" />
-                                <span>Delete</span>
+                                <span>{isOwner ? "Delete" : "Remove"}</span>
                               </>
                             )}
                           </button>
@@ -2682,6 +2935,24 @@ export default function FormsAnalytics() {
                         const childHasDeletePermission = hasFormAnalyticsPermission(childId, 'delete');
                         const childHasUploadsPermission = hasFormAnalyticsPermission(childId, 'uploads');
 
+                        const childOwnerTenantId =
+                          typeof child.tenantId === "object"
+                            ? (child.tenantId?._id || child.tenantId?.id)
+                            : child.tenantId;
+                        const childOwnerTenantIdStr = childOwnerTenantId ? String(childOwnerTenantId) : "";
+                        const isChildOwner =
+                          userRole === "superadmin" ||
+                          !child.tenantId ||
+                          (childOwnerTenantIdStr && userTenantIdStr && childOwnerTenantIdStr === userTenantIdStr);
+                        const childTenantName =
+                          (typeof child.tenantId === "object"
+                            ? child.tenantId?.companyName || child.tenantId?.name || child.tenantId?.slug
+                            : null) ||
+                          (child.tenantId ? tenantMap.get(String(child.tenantId)) : null) ||
+                          (child as any).tenantName ||
+                          null;
+                        const childAssignedTenantNames = getAssignedTenantNames(child);
+
                         return (
                           <div
                             key={childId}
@@ -2705,9 +2976,28 @@ export default function FormsAnalytics() {
                                 </div>
                               </div>
 
-                              <h5 className="font-semibold text-primary-800 mb-2 line-clamp-2 text-sm group-hover:text-primary-600 transition-colors">
-                                {child.title}
-                              </h5>
+                              <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                                <h5 className="font-semibold text-primary-800 line-clamp-2 text-sm group-hover:text-primary-600 transition-colors mb-0">
+                                  {child.title}
+                                </h5>
+                                {!isChildOwner && userRole !== "superadmin" && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800 shadow-2xs">
+                                    <Share2 className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
+                                    <span>Assigned from {childTenantName || "Partner Org"}</span>
+                                  </span>
+                                )}
+                                {(isChildOwner || userRole === "superadmin") &&
+                                  childAssignedTenantNames.map((tName) => (
+                                    <span
+                                      key={tName}
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200 uppercase tracking-wider dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800 shadow-2xs"
+                                      title={`Assigned to ${tName}`}
+                                    >
+                                      {tName}
+                                    </span>
+                                  ))}
+
+                              </div>
 
                               {child.description && (
                                 <p className="text-xs text-primary-600 mb-3 line-clamp-2">
@@ -2845,10 +3135,10 @@ export default function FormsAnalytics() {
                                       {((isOwner && canDelete) || childHasDeletePermission) && (
                                         <button
                                           onClick={() =>
-                                            handleDelete(childId, child.title || "")
+                                            handleDelete(childId, child.title || "", isChildOwner, childTenantName || undefined)
                                           }
                                           className="p-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                                          title="Delete Form Permanently"
+                                          title={isChildOwner ? "Delete Form Permanently" : "Remove Form from Organization"}
                                           disabled={deleteMutation.loading && deletingFormId === childId}
                                         >
                                           {deleteMutation.loading && deletingFormId === childId ? (
@@ -3439,6 +3729,152 @@ export default function FormsAnalytics() {
         formTitle={shareAnalyticsModal.formTitle}
         formSchema={forms.find((f: any) => f.id === shareAnalyticsModal.formId || f._id === shareAnalyticsModal.formId)}
       />
+
+      {/* Delete Form Confirmation Modal with Text Name Validation */}
+      {deleteModalState.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div
+            className="bg-white dark:bg-gray-850 rounded-2xl max-w-md w-full shadow-2xl border border-red-100 dark:border-red-900/40 overflow-hidden animate-in zoom-in-95 duration-200"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-form-title"
+          >
+            {/* Modal Header */}
+            <div className="p-5 pb-4 border-b border-gray-100 dark:border-gray-700/60 flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                    deleteModalState.isOwner
+                      ? "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400"
+                      : "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400"
+                  }`}
+                >
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 id="delete-form-title" className="text-base font-bold text-gray-900 dark:text-white">
+                    {deleteModalState.isOwner ? "Delete Form Permanently" : "Remove Form from Organization"}
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {deleteModalState.isOwner
+                      ? "This action is destructive and cannot be undone"
+                      : "This form will no longer appear in your organization's dashboard"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteModalState({ isOpen: false, formId: "", formTitle: "", inputName: "", isOwner: true, ownerOrgName: "" })}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 rounded-lg transition-colors"
+                disabled={deleteMutation.loading}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4">
+              <div
+                className={`p-3.5 border rounded-xl text-xs leading-relaxed ${
+                  deleteModalState.isOwner
+                    ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800/40 text-red-800 dark:text-red-300"
+                    : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/40 text-amber-800 dark:text-amber-300"
+                }`}
+              >
+                {deleteModalState.isOwner ? (
+                  <>
+                    You are about to permanently delete <strong>{deleteModalState.formTitle}</strong>. All associated sections, questions, and inspection records will be permanently removed.
+                  </>
+                ) : (
+                  <>
+                    You are about to remove <strong>{deleteModalState.formTitle}</strong> from your organization.
+                    {deleteModalState.ownerOrgName ? ` The master form template in ${deleteModalState.ownerOrgName} will remain safely intact.` : ' The master form template will remain safely intact.'}
+                  </>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                  To confirm, type <span className={`font-bold select-all font-mono px-1.5 py-0.5 rounded ${
+                    deleteModalState.isOwner
+                      ? "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40"
+                      : "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40"
+                  }`}>{deleteModalState.formTitle}</span> below:
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={deleteModalState.inputName}
+                  onChange={(e) =>
+                    setDeleteModalState((prev) => ({
+                      ...prev,
+                      inputName: e.target.value,
+                    }))
+                  }
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      deleteModalState.inputName.trim().toLowerCase() === deleteModalState.formTitle.trim().toLowerCase() &&
+                      !deleteMutation.loading
+                    ) {
+                      handleConfirmDelete();
+                    }
+                  }}
+                  placeholder={deleteModalState.formTitle}
+                  className="w-full px-3.5 py-2.5 text-sm bg-gray-50 dark:bg-gray-900/60 border border-gray-300 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all font-medium"
+                />
+                <div className="mt-1.5 flex items-center justify-between text-[11px]">
+                  {deleteModalState.inputName.length === 0 ? (
+                    <span className="text-gray-400">Type exact form name to enable {deleteModalState.isOwner ? "delete" : "remove"}</span>
+                  ) : deleteModalState.inputName.trim().toLowerCase() === deleteModalState.formTitle.trim().toLowerCase() ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" /> Form name verified
+                    </span>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">
+                      Name does not match
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-gray-50 dark:bg-gray-800/80 border-t border-gray-100 dark:border-gray-700/60 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setDeleteModalState({ isOpen: false, formId: "", formTitle: "", inputName: "", isOwner: true, ownerOrgName: "" })}
+                className="px-4 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-200/60 dark:hover:bg-gray-700 rounded-xl transition-colors"
+                disabled={deleteMutation.loading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={
+                  deleteModalState.inputName.trim().toLowerCase() !== deleteModalState.formTitle.trim().toLowerCase() ||
+                  deleteMutation.loading
+                }
+                className="px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center gap-2 shadow-xs disabled:opacity-40 disabled:cursor-not-allowed bg-red-600 hover:bg-red-700 text-white disabled:hover:bg-red-600"
+              >
+                {deleteMutation.loading ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>{deleteModalState.isOwner ? "Deleting..." : "Removing..."}</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{deleteModalState.isOwner ? "Delete Form" : "Remove Form"}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <QualitySummaryModal
         isOpen={isQualitySummaryOpen}
         onClose={() => setIsQualitySummaryOpen(false)}

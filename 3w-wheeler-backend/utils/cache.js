@@ -46,4 +46,17 @@ export const cacheMiddleware = (duration = 300) => {
   };
 };
 
+export const clearFormCache = () => {
+  try {
+    const keys = appCache.keys();
+    keys.forEach(key => {
+      if (key.includes('form') || key.includes('__express__') || key.includes('analytics') || key.includes('response')) {
+        appCache.del(key);
+      }
+    });
+  } catch (err) {
+    console.warn('Error clearing form cache:', err);
+  }
+};
+
 export default appCache;

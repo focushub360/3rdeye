@@ -4900,7 +4900,7 @@ export default function FormAnalyticsDashboard({
       const currentUnits = searchParams.get("units") || searchParams.get("identificationNumber") || searchParams.get("chassisNumber");
       const responsesData = await apiClient.getAllFormResponses(id, {
         analytics: true,
-        forceNetwork: false,
+        forceNetwork: true,
         ...(currentBatchId ? { batchId: currentBatchId } : {}),
         ...(isUploadOnly ? { uploadOnly: true } : {}),
         onPage: ({ responses: pageResponses, pageNumber, totalPages, totalResponses, isLast }: {
@@ -4949,7 +4949,7 @@ export default function FormAnalyticsDashboard({
         page: page,
         limit: responsesPageSize,
         analytics: false,
-        forceNetwork: false,
+        forceNetwork: true,
         ...(currentBatchId ? { batchId: currentBatchId } : {}),
         ...(isUploadOnly ? { uploadOnly: true } : {}),
       });
@@ -4962,6 +4962,13 @@ export default function FormAnalyticsDashboard({
       setLoadingTable(false);
     }
   };
+
+  // Invalidate any stale responses cache when mounting a form's analytics dashboard
+  useEffect(() => {
+    if (id) {
+      apiClient.invalidateFormsCache();
+    }
+  }, [id]);
 
   // Keep activeTab in sync with analyticsView (existing tab buttons already
   // set analyticsView; this propagates that choice into the lazy-loading
@@ -8350,8 +8357,9 @@ export default function FormAnalyticsDashboard({
     const defectsPercent = (totalDefectsCount / total) * 100;
 
     const dispatchedPercent = (totalDispatched / total) * 100;
-    const pendingDispatchCount = Math.max(0, total - totalDispatched);
-    const pendingDispatchPercent = (pendingDispatchCount / total) * 100;
+    // Pending dispatch BIW = Direct Ok + Rework Accepted - Dispatched
+    const pendingDispatchCount = Math.max(0, (directOk + reworkCompleted) - totalDispatched);
+    const pendingDispatchPercent = total > 0 ? (pendingDispatchCount / total) * 100 : 0;
 
     const biwReviewedCount = Math.min(total, totalBiwReviewed);
     const pendingDataCount = Math.max(0, totalDispatched - biwReviewedCount);
@@ -8601,7 +8609,8 @@ export default function FormAnalyticsDashboard({
                 const tvsRejCount = tvsReviews.filter((r) => (r.reviewOption || r.option || r.status) === "Rejected").length;
                 const tvsRwCount = tvsReviews.filter((r) => String(r.reviewOption || r.option || r.status || "").toLowerCase().includes("rework")).length;
                 const tvsDefCount = tvsRejCount + tvsRwCount;
-                const pendingTvsCount = Math.max(0, totalCount - tvsRevCount);
+                // TVS Pending = Dispatched - Total TVS Review
+                const pendingTvsCount = Math.max(0, (totalPieChartData.counts.dispatched ?? inspectionStats.dispatched) - tvsRevCount);
                 const tvsRevPct = totalCount > 0 ? ((tvsRevCount / totalCount) * 100).toFixed(1) : "0";
                 const pendingTvsPct = totalCount > 0 ? ((pendingTvsCount / totalCount) * 100).toFixed(1) : "0";
                 const tvsAccPct = totalCount > 0 ? ((tvsAccCount / totalCount) * 100).toFixed(1) : "0";

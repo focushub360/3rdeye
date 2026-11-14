@@ -217,6 +217,9 @@ export default function FormCreator() {
     description: "",
     isVisible: true,
     locationEnabled: true,
+    parentFormId: "" as string | undefined,
+    parentFormTitle: "" as string | undefined,
+    childForms: [] as any[],
     sections: [
       {
         id: crypto.randomUUID(),
@@ -421,6 +424,9 @@ export default function FormCreator() {
             description: backendForm.description,
             isVisible: backendForm.isVisible,
             locationEnabled: backendForm.locationEnabled !== false,
+            parentFormId: backendForm.parentFormId,
+            parentFormTitle: backendForm.parentFormTitle,
+            childForms: backendForm.childForms || [],
             sections: sectionsWithNestedFollowUps,
             followUpQuestions: backendForm.followUpQuestions || [],
             chassisNumbers: (backendForm.chassisNumbers || []).map((cn: any) => 
@@ -1064,6 +1070,9 @@ export default function FormCreator() {
     // Flatten follow-up questions into section questions array (recursively)
     const formToSave = {
       ...form,
+      parentFormId: form.parentFormId,
+      parentFormTitle: form.parentFormTitle,
+      childForms: form.childForms,
       // Include tenantId for form creation
       tenantId: tenantId,
       isGlobal: isGlobal,
@@ -4101,7 +4110,7 @@ export default function FormCreator() {
                           ))}
                         </select>
                       </div>
-                    ) : (
+                    ) : !form.parentFormId ? (
                       <div>
                         <label className="block text-sm font-medium text-primary-700 mb-2">
                           Assign to Tenants
@@ -4139,7 +4148,7 @@ export default function FormCreator() {
                           {sharedWithTenants.length} tenants selected
                         </p>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 )}
 

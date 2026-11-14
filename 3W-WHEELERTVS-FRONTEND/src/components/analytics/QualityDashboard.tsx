@@ -541,8 +541,9 @@ export const QualityDashboard: React.FC = () => {
     const defectsPercent = (totalDefects / total) * 100;
 
     const dispatchedPercent = (totalDispatched / total) * 100;
-    const pendingDispatchCount = Math.max(0, total - totalDispatched);
-    const pendingDispatchPercent = (pendingDispatchCount / total) * 100;
+    // Pending dispatch BIW = Direct Ok + Rework Accepted - Dispatched
+    const pendingDispatchCount = Math.max(0, (directOk + reworkCompleted) - totalDispatched);
+    const pendingDispatchPercent = total > 0 ? (pendingDispatchCount / total) * 100 : 0;
 
     const biwReviewedCount = Math.min(total, totalBiwReviewed);
     const pendingDataCount = Math.max(0, totalDispatched - biwReviewedCount);
@@ -563,7 +564,8 @@ export const QualityDashboard: React.FC = () => {
       ? activeSummary.tvsReworkCount
       : formsList.reduce((s, f) => s + (f.tvsReworkCount || 0), 0);
     const tvsDefectsCount = tvsRejectCount + tvsReworkCount;
-    const pendingTvsCount = Math.max(0, total - tvsReviewedCount);
+    // TVS Pending = Dispatched - Total TVS Review
+    const pendingTvsCount = Math.max(0, totalDispatched - tvsReviewedCount);
 
     const tvsReviewedPercent = total > 0 ? (tvsReviewedCount / total) * 100 : 0;
     const pendingTvsPercent = total > 0 ? (pendingTvsCount / total) * 100 : 0;
