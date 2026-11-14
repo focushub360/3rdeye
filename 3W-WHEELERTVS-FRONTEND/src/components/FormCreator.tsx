@@ -1165,7 +1165,7 @@ export default function FormCreator() {
         }
 
         showSuccess("Form updated successfully", "Success");
-        const targetPath = user?.role === "superadmin" ? "/superadmin/forms" : "/forms";
+        const targetPath = user?.role === "superadmin" ? "/superadmin/forms" : `/forms/${id}/preview`;
         navigate(targetPath);
       } else {
         // Create new form
@@ -1212,7 +1212,7 @@ export default function FormCreator() {
         }
 
         showSuccess("Form created successfully", "Success");
-        const targetPath = user?.role === "superadmin" ? "/superadmin/forms" : "/forms";
+        const targetPath = user?.role === "superadmin" ? "/superadmin/forms" : `/forms/${newFormId}/preview`;
         navigate(targetPath);
       }
     } catch (error: any) {
