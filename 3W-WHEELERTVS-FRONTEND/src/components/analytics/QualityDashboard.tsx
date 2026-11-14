@@ -387,6 +387,11 @@ export const QualityDashboard: React.FC = () => {
     const pendingDispatch = Math.max(0, totalChecked - totalDispatched);
     const totalBiwReviewed = matchedForms.reduce((sum: number, f: any) => sum + (f.biwReviewedCount !== undefined ? f.biwReviewedCount : ((f.biwAcceptCount || 0) + (f.biwDefectCount || 0))), 0);
     const pendingBiw = Math.max(0, totalDispatched - totalBiwReviewed);
+    const tvsReviewedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsReviewedCount || 0), 0);
+    const tvsAcceptCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsAcceptCount || 0), 0);
+    const tvsRejectCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsRejectCount || 0), 0);
+    const tvsReworkCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsReworkCount || 0), 0);
+    const pendingTvsReview = Math.max(0, totalChecked - tvsReviewedCount);
     const reworkAcceptedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.reworkAcceptedCount || 0), 0);
     const rejectedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.rejectedCount !== undefined ? f.rejectedCount : Math.max(0, (f.defectCount || 0) - (f.rework1Count || 0))), 0);
     const directOkCount = matchedForms.reduce((sum: number, f: any) => sum + (f.directOkCount !== undefined ? f.directOkCount : Math.max(0, (f.acceptCount || 0) - (f.reworkAcceptedCount || 0))), 0);
@@ -408,6 +413,11 @@ export const QualityDashboard: React.FC = () => {
       pendingDispatch: pendingDispatch !== undefined ? pendingDispatch : data.summary.pendingDispatch,
       totalBiwReviewed: totalBiwReviewed || data.summary.totalBiwReviewed,
       pendingBiw: pendingBiw !== undefined ? pendingBiw : data.summary.pendingBiw,
+      tvsReviewedCount: tvsReviewedCount || data.summary.tvsReviewedCount || 0,
+      tvsAcceptCount: tvsAcceptCount || data.summary.tvsAcceptCount || 0,
+      tvsRejectCount: tvsRejectCount || data.summary.tvsRejectCount || 0,
+      tvsReworkCount: tvsReworkCount || data.summary.tvsReworkCount || 0,
+      pendingTvsReview: pendingTvsReview !== undefined ? pendingTvsReview : (data.summary.pendingTvsReview || 0),
       reworkAcceptedCount: reworkAcceptedCount !== undefined ? reworkAcceptedCount : data.summary.reworkAcceptedCount,
       rejectedCount: rejectedCount !== undefined ? rejectedCount : data.summary.rejectedCount,
       directOkCount: directOkCount !== undefined ? directOkCount : data.summary.directOkCount,
@@ -501,6 +511,10 @@ export const QualityDashboard: React.FC = () => {
         pendingDispatch: 0,
         biwReviewed: 0,
         pendingData: 0,
+        tvsReviewed: 0,
+        pendingTvs: 0,
+        tvsAccepted: 0,
+        tvsDefects: 0,
         counts: {
           directOk: 0,
           reworkCompleted: 0,
@@ -511,6 +525,10 @@ export const QualityDashboard: React.FC = () => {
           pendingDispatch: 0,
           biwReviewed: 0,
           pendingData: 0,
+          tvsReviewed: 0,
+          pendingTvs: 0,
+          tvsAccepted: 0,
+          tvsDefects: 0,
           total: 0,
         },
       };
@@ -531,6 +549,27 @@ export const QualityDashboard: React.FC = () => {
     const biwReviewedPercent = (biwReviewedCount / total) * 100;
     const pendingDataPercent = (pendingDataCount / total) * 100;
 
+    // Real TVS reviewed
+    const tvsReviewedCount = activeSummary.tvsReviewedCount !== undefined
+      ? activeSummary.tvsReviewedCount
+      : formsList.reduce((s, f) => s + (f.tvsReviewedCount || 0), 0);
+    const tvsAcceptCount = activeSummary.tvsAcceptCount !== undefined
+      ? activeSummary.tvsAcceptCount
+      : formsList.reduce((s, f) => s + (f.tvsAcceptCount || 0), 0);
+    const tvsRejectCount = activeSummary.tvsRejectCount !== undefined
+      ? activeSummary.tvsRejectCount
+      : formsList.reduce((s, f) => s + (f.tvsRejectCount || 0), 0);
+    const tvsReworkCount = activeSummary.tvsReworkCount !== undefined
+      ? activeSummary.tvsReworkCount
+      : formsList.reduce((s, f) => s + (f.tvsReworkCount || 0), 0);
+    const tvsDefectsCount = tvsRejectCount + tvsReworkCount;
+    const pendingTvsCount = Math.max(0, total - tvsReviewedCount);
+
+    const tvsReviewedPercent = total > 0 ? (tvsReviewedCount / total) * 100 : 0;
+    const pendingTvsPercent = total > 0 ? (pendingTvsCount / total) * 100 : 0;
+    const tvsAcceptPercent = total > 0 ? (tvsAcceptCount / total) * 100 : 0;
+    const tvsDefectsPercent = total > 0 ? (tvsDefectsCount / total) * 100 : 0;
+
     return {
       directOk: Number(directOkPercent.toFixed(1)),
       reworkCompleted: Number(reworkCompletedPercent.toFixed(1)),
@@ -541,6 +580,10 @@ export const QualityDashboard: React.FC = () => {
       pendingDispatch: Number(pendingDispatchPercent.toFixed(1)),
       biwReviewed: Number(biwReviewedPercent.toFixed(1)),
       pendingData: Number(pendingDataPercent.toFixed(1)),
+      tvsReviewed: Number(tvsReviewedPercent.toFixed(1)),
+      pendingTvs: Number(pendingTvsPercent.toFixed(1)),
+      tvsAccepted: Number(tvsAcceptPercent.toFixed(1)),
+      tvsDefects: Number(tvsDefectsPercent.toFixed(1)),
       counts: {
         directOk,
         reworkCompleted,
@@ -551,6 +594,10 @@ export const QualityDashboard: React.FC = () => {
         pendingDispatch: pendingDispatchCount,
         biwReviewed: biwReviewedCount,
         pendingData: pendingDataCount,
+        tvsReviewed: tvsReviewedCount,
+        pendingTvs: pendingTvsCount,
+        tvsAccepted: tvsAcceptCount,
+        tvsDefects: tvsDefectsCount,
         total,
       },
     };
@@ -1666,10 +1713,66 @@ export const QualityDashboard: React.FC = () => {
               </div>
             </div>
 
-            {/* Center Donut + Right 4 Pipeline Cards */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-6 py-2">
-              {/* Center / Left: Doughnut Chart */}
-              <div className="flex-1 w-full min-w-0 flex flex-col items-center justify-center">
+            {/* 3-Column Layout: Left TVS Review Cards | Center Donut Chart | Right BIW Cards */}
+            <div className="overflow-x-auto w-full pb-2">
+              <div className="grid grid-cols-[135px_minmax(280px,1fr)_135px] sm:grid-cols-[145px_minmax(320px,1fr)_145px] items-center justify-between gap-3 sm:gap-6 py-2 min-w-[580px]">
+                {/* Left: 4 TVS Review Pipeline Cards placed Top-to-Bottom */}
+                <div className="flex flex-col gap-2.5 justify-center items-center flex-shrink-0">
+                  {/* Total TVS Review */}
+                  <div className="text-center p-2.5 bg-purple-50/70 rounded-xl border border-purple-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                    <div className="text-xs sm:text-sm font-bold text-purple-600">
+                      {summaryPieDetails.tvsReviewed}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-purple-700 whitespace-nowrap">
+                      Total TVS Review
+                    </div>
+                    <div className="text-[9px] text-gray-500 font-medium">
+                      ({summaryPieDetails.counts.tvsReviewed.toLocaleString()})
+                    </div>
+                  </div>
+
+                  {/* Pending TVS Review */}
+                  <div className="text-center p-2.5 bg-amber-50/70 rounded-xl border border-amber-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                    <div className="text-xs sm:text-sm font-bold text-amber-600">
+                      {summaryPieDetails.pendingTvs}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-amber-700 whitespace-nowrap">
+                      Pending TVS Review
+                    </div>
+                    <div className="text-[9px] text-gray-500 font-medium">
+                      ({summaryPieDetails.counts.pendingTvs.toLocaleString()})
+                    </div>
+                  </div>
+
+                  {/* TVS Accepted */}
+                  <div className="text-center p-2.5 bg-emerald-50/70 rounded-xl border border-emerald-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                    <div className="text-xs sm:text-sm font-bold text-emerald-600">
+                      {summaryPieDetails.tvsAccepted}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-emerald-700 whitespace-nowrap">
+                      TVS Accepted
+                    </div>
+                    <div className="text-[9px] text-gray-500 font-medium">
+                      ({summaryPieDetails.counts.tvsAccepted.toLocaleString()})
+                    </div>
+                  </div>
+
+                  {/* TVS Defects / Rework */}
+                  <div className="text-center p-2.5 bg-rose-50/70 rounded-xl border border-rose-200 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                    <div className="text-xs sm:text-sm font-bold text-rose-600">
+                      {summaryPieDetails.tvsDefects}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-rose-700 whitespace-nowrap">
+                      TVS Defects / Rework
+                    </div>
+                    <div className="text-[9px] text-gray-500 font-medium">
+                      ({summaryPieDetails.counts.tvsDefects.toLocaleString()})
+                    </div>
+                  </div>
+                </div>
+
+                {/* Center / Left: Doughnut Chart */}
+                <div className="flex-1 w-full min-w-0 flex flex-col items-center justify-center">
                 <div
                   className="relative w-full max-w-[320px] h-[240px] sm:h-[260px] flex items-center justify-center"
                   onMouseLeave={() => setHoveredSlice('all')}
@@ -1804,6 +1907,7 @@ export const QualityDashboard: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
 
             {/* Bottom: 6 Core Inspection Status Cards */}
             <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-6 gap-2 pt-3 border-t border-gray-100">

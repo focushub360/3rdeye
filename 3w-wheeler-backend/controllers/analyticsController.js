@@ -2932,6 +2932,7 @@ export const getPerformanceTable = async (req, res) => {
     }
 
     // Format final table data
+    const formTenantId = formDoc?.tenantId ? formDoc.tenantId.toString() : (userTenantId ? userTenantId.toString() : null);
     const tableData = Array.from(userStatsMap.values())
       .filter(stats => stats.totalSubmitted > 0 || stats.totalReviewed > 0)
       .map(stats => {
@@ -3593,36 +3594,48 @@ export const getQualitySummary = async (req, res) => {
                   }
                 },
                 biwAcceptCount: {
-                  $sum: {
-                    $cond: [
-                      { $eq: ['$biwReview.status', 'Accepted'] },
-                      1,
-                      0
-                    ]
-                  }
+                  $sum: { $cond: [{ $eq: ['$biwReview.status', 'Accepted'] }, 1, 0] }
                 },
                 biwRejectCount: {
-                  $sum: {
-                    $cond: [
-                      { $eq: ['$biwReview.status', 'Rejected'] },
-                      1,
-                      0
-                    ]
-                  }
+                  $sum: { $cond: [{ $eq: ['$biwReview.status', 'Rejected'] }, 1, 0] }
                 },
                 biwDefectCount: {
+                  $sum: { $cond: [{ $in: ['$biwReview.status', ['Rejected', 'Reworked']] }, 1, 0] }
+                },
+                biwReviewedCount: {
+                  $sum: { $cond: [{ $in: ['$biwReview.status', ['Accepted', 'Rejected', 'Reworked']] }, 1, 0] }
+                },
+                tvsAcceptCount: {
                   $sum: {
                     $cond: [
-                      { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                      { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] },
                       1,
                       0
                     ]
                   }
                 },
-                biwReviewedCount: {
+                tvsRejectCount: {
                   $sum: {
                     $cond: [
-                      { $in: ['$biwReview.status', ['Accepted', 'Rejected', 'Reworked']] },
+                      { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                tvsReworkCount: {
+                  $sum: {
+                    $cond: [
+                      { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                tvsReviewedCount: {
+                  $sum: {
+                    $cond: [
+                      { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] },
                       1,
                       0
                     ]
@@ -3688,36 +3701,48 @@ export const getQualitySummary = async (req, res) => {
                   }
                 },
                 biwAcceptCount: {
-                  $sum: {
-                    $cond: [
-                      { $eq: ['$biwReview.status', 'Accepted'] },
-                      1,
-                      0
-                    ]
-                  }
+                  $sum: { $cond: [{ $eq: ['$biwReview.status', 'Accepted'] }, 1, 0] }
                 },
                 biwRejectCount: {
-                  $sum: {
-                    $cond: [
-                      { $eq: ['$biwReview.status', 'Rejected'] },
-                      1,
-                      0
-                    ]
-                  }
+                  $sum: { $cond: [{ $eq: ['$biwReview.status', 'Rejected'] }, 1, 0] }
                 },
                 biwDefectCount: {
+                  $sum: { $cond: [{ $in: ['$biwReview.status', ['Rejected', 'Reworked']] }, 1, 0] }
+                },
+                biwReviewedCount: {
+                  $sum: { $cond: [{ $in: ['$biwReview.status', ['Accepted', 'Rejected', 'Reworked']] }, 1, 0] }
+                },
+                tvsAcceptCount: {
                   $sum: {
                     $cond: [
-                      { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                      { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] },
                       1,
                       0
                     ]
                   }
                 },
-                biwReviewedCount: {
+                tvsRejectCount: {
                   $sum: {
                     $cond: [
-                      { $in: ['$biwReview.status', ['Accepted', 'Rejected', 'Reworked']] },
+                      { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                tvsReworkCount: {
+                  $sum: {
+                    $cond: [
+                      { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                tvsReviewedCount: {
+                  $sum: {
+                    $cond: [
+                      { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] },
                       1,
                       0
                     ]
@@ -3802,36 +3827,48 @@ export const getQualitySummary = async (req, res) => {
                   }
                 },
                 biwAcceptCount: {
-                  $sum: {
-                    $cond: [
-                      { $eq: ['$biwReview.status', 'Accepted'] },
-                      1,
-                      0
-                    ]
-                  }
+                  $sum: { $cond: [{ $eq: ['$biwReview.status', 'Accepted'] }, 1, 0] }
                 },
                 biwRejectCount: {
-                  $sum: {
-                    $cond: [
-                      { $eq: ['$biwReview.status', 'Rejected'] },
-                      1,
-                      0
-                    ]
-                  }
+                  $sum: { $cond: [{ $eq: ['$biwReview.status', 'Rejected'] }, 1, 0] }
                 },
                 biwDefectCount: {
+                  $sum: { $cond: [{ $in: ['$biwReview.status', ['Rejected', 'Reworked']] }, 1, 0] }
+                },
+                biwReviewedCount: {
+                  $sum: { $cond: [{ $in: ['$biwReview.status', ['Accepted', 'Rejected', 'Reworked']] }, 1, 0] }
+                },
+                tvsAcceptCount: {
                   $sum: {
                     $cond: [
-                      { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                      { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] },
                       1,
                       0
                     ]
                   }
                 },
-                biwReviewedCount: {
+                tvsRejectCount: {
                   $sum: {
                     $cond: [
-                      { $in: ['$biwReview.status', ['Accepted', 'Rejected', 'Reworked']] },
+                      { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                tvsReworkCount: {
+                  $sum: {
+                    $cond: [
+                      { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] },
+                      1,
+                      0
+                    ]
+                  }
+                },
+                tvsReviewedCount: {
+                  $sum: {
+                    $cond: [
+                      { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] },
                       1,
                       0
                     ]
@@ -3967,6 +4004,51 @@ export const getQualitySummary = async (req, res) => {
     summary.overallDefectRate = overallDefectRate;
     summary.dispatchedRate = totalChecked > 0 ? Math.round((totalDispatched / totalChecked) * 10000) / 100 : 0;
     summary.biwReviewedRate = totalChecked > 0 ? Math.round((totalBiwReviewed / totalChecked) * 10000) / 100 : 0;
+
+    // TVS Review counts
+    let tvsReviewedCount = summary.tvsReviewedCount || 0;
+    let tvsAcceptCount = summary.tvsAcceptCount || 0;
+    let tvsRejectCount = summary.tvsRejectCount || 0;
+    let tvsReworkCount = summary.tvsReworkCount || 0;
+
+    try {
+      const reviewFilter = {
+        ...(req.user?.tenantId ? {
+          $or: [
+            { tenantId: req.user.tenantId.toString() },
+            { tenantId: new mongoose.Types.ObjectId(req.user.tenantId) }
+          ]
+        } : {}),
+        ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : {})
+      };
+      const collReviews = await Review.aggregate([
+        { $match: reviewFilter },
+        { $group: { _id: '$reviewOption', count: { $sum: 1 } } }
+      ]);
+      if (collReviews && collReviews.length > 0) {
+        let collAccept = 0, collReject = 0, collRework = 0;
+        collReviews.forEach(r => {
+          if (r._id === 'Accepted') collAccept += r.count;
+          else if (r._id === 'Rejected') collReject += r.count;
+          else if (r._id === 'Rework' || r._id === 'Reworked') collRework += r.count;
+        });
+        const collTotal = collAccept + collReject + collRework;
+        if (collTotal > tvsReviewedCount) {
+          tvsReviewedCount = collTotal;
+          tvsAcceptCount = collAccept;
+          tvsRejectCount = collReject;
+          tvsReworkCount = collRework;
+        }
+      }
+    } catch (e) {
+      console.warn('[Quality Summary] Could not query Review collection:', e.message);
+    }
+
+    summary.tvsReviewedCount = tvsReviewedCount;
+    summary.tvsAcceptCount = tvsAcceptCount;
+    summary.tvsRejectCount = tvsRejectCount;
+    summary.tvsReworkCount = tvsReworkCount;
+    summary.pendingTvsReview = Math.max(0, totalChecked - tvsReviewedCount);
 
     // Defect breakdown extraction from top defect responses
     const defectTypeMap = {};
@@ -4107,6 +4189,10 @@ export const getQualitySummary = async (req, res) => {
       let bDefect = 0;
       let bReviewed = 0;
       let dDispatched = 0;
+      let tvsAccept = 0;
+      let tvsReject = 0;
+      let tvsRework = 0;
+      let tvsReviewed = 0;
       const inspectorSet = new Set();
       let lastDate = null;
 
@@ -4123,6 +4209,10 @@ export const getQualitySummary = async (req, res) => {
           bDefect += m.biwDefectCount || 0;
           bReviewed += m.biwReviewedCount || 0;
           dDispatched += m.dispatchedCount || 0;
+          tvsAccept += m.tvsAcceptCount || 0;
+          tvsReject += m.tvsRejectCount || 0;
+          tvsRework += m.tvsReworkCount || 0;
+          tvsReviewed += m.tvsReviewedCount || 0;
           if (Array.isArray(m.inspectors)) {
             m.inspectors.forEach(insp => { if (insp) inspectorSet.add(insp); });
           }
@@ -4183,6 +4273,11 @@ export const getQualitySummary = async (req, res) => {
         biwDefectCount: bDefect,
         biwReviewedCount: biwTotal,
         pendingBiwCount: Math.max(0, dDispatched - biwTotal),
+        tvsAcceptCount: tvsAccept,
+        tvsRejectCount: tvsReject,
+        tvsReworkCount: tvsRework,
+        tvsReviewedCount: tvsReviewed,
+        pendingTvsCount: Math.max(0, tChecked - tvsReviewed),
         biwAcceptRate: biwRate,
         acceptRate: aRate,
         defectRate: dRate,
@@ -4525,6 +4620,11 @@ export const getQualitySummary = async (req, res) => {
           pendingDispatch,
           totalBiwReviewed,
           pendingBiw,
+          tvsReviewedCount: summary.tvsReviewedCount || 0,
+          tvsAcceptCount: summary.tvsAcceptCount || 0,
+          tvsRejectCount: summary.tvsRejectCount || 0,
+          tvsReworkCount: summary.tvsReworkCount || 0,
+          pendingTvsReview: summary.pendingTvsReview !== undefined ? summary.pendingTvsReview : Math.max(0, totalChecked - (summary.tvsReviewedCount || 0)),
           overallAcceptRate,
           overallDefectRate,
           totalInspectors: inspectorList.length,

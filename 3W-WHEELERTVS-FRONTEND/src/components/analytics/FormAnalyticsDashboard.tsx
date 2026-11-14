@@ -7990,10 +7990,10 @@ export default function FormAnalyticsDashboard({
             {s && (
               <span
                 className={`px-2 py-0.5 rounded text-[10px] font-bold ${isOk
-                    ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 border border-green-200 dark:border-green-800"
-                    : isDefect
-                      ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-200 dark:border-red-800"
-                      : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-200"
+                  ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 border border-green-200 dark:border-green-800"
+                  : isDefect
+                    ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-200 dark:border-red-800"
+                    : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-200"
                   }`}
               >
                 {s}
@@ -8594,85 +8594,158 @@ export default function FormAnalyticsDashboard({
             </div>
           ) : (
             <>
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                {/* Center / Left: Doughnut Chart */}
-                <div style={{ height: "260px", minHeight: "260px", position: "relative" }} className="flex-1 w-full min-w-0 flex items-center justify-center">
-                  {/* Doughnut Chart */}
-                  <Doughnut data={data} options={options} />
+              {(() => {
+                const totalCount = totalPieChartData.counts.total || 0;
+                const tvsRevCount = tvsReviews.length;
+                const tvsAccCount = tvsReviews.filter((r) => (r.reviewOption || r.option || r.status) === "Accepted").length;
+                const tvsRejCount = tvsReviews.filter((r) => (r.reviewOption || r.option || r.status) === "Rejected").length;
+                const tvsRwCount = tvsReviews.filter((r) => String(r.reviewOption || r.option || r.status || "").toLowerCase().includes("rework")).length;
+                const tvsDefCount = tvsRejCount + tvsRwCount;
+                const pendingTvsCount = Math.max(0, totalCount - tvsRevCount);
+                const tvsRevPct = totalCount > 0 ? ((tvsRevCount / totalCount) * 100).toFixed(1) : "0";
+                const pendingTvsPct = totalCount > 0 ? ((pendingTvsCount / totalCount) * 100).toFixed(1) : "0";
+                const tvsAccPct = totalCount > 0 ? ((tvsAccCount / totalCount) * 100).toFixed(1) : "0";
+                const tvsDefPct = totalCount > 0 ? ((tvsDefCount / totalCount) * 100).toFixed(1) : "0";
 
-                  {/* Center count & label overlay */}
-                  <div
-                    className="absolute pointer-events-none flex flex-col items-center justify-center select-none"
-                    style={{
-                      top: "calc(50% - 15px)",
-                      left: "50%",
-                      transform: "translate(-50%, -50%)",
-                    }}
-                  >
-                    <span className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white leading-none tracking-tight">
-                      {centerAcceptedCount}
-                    </span>
-                    <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 tracking-wider mt-1">
-                      ACCEPTED
-                    </span>
-                  </div>
-                </div>
+                return (
+                  <div className="overflow-x-auto w-full pb-2">
+                    <div className="grid grid-cols-[130px_minmax(260px,1fr)_130px] sm:grid-cols-[140px_minmax(300px,1fr)_140px] items-center justify-between gap-3 sm:gap-4 min-w-[560px]">
+                      {/* Left: TVS Review Pipeline Cards placed Top-to-Bottom */}
+                      <div className="flex flex-col gap-2 justify-center items-center flex-shrink-0">
+                        {/* Total TVS Review */}
+                        <div className="text-center p-2.5 bg-purple-50/60 dark:bg-purple-950/20 rounded-xl border border-purple-100/70 dark:border-purple-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                          <div className="text-xs sm:text-sm font-bold text-purple-600 dark:text-purple-400">
+                            {tvsRevPct}%
+                          </div>
+                          <div className="text-[10px] sm:text-[11px] font-semibold text-purple-700 dark:text-purple-300 whitespace-nowrap">
+                            Total TVS Review
+                          </div>
+                          <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                            ({tvsRevCount})
+                          </div>
+                        </div>
 
-                {/* Right: Pipeline / Dispatch Cards placed Top-to-Bottom - Same rectangle box size */}
-                <div className="flex flex-row sm:flex-col gap-2 flex-wrap sm:flex-nowrap justify-center items-center flex-shrink-0">
-                  {/* Dispatched */}
-                  <div className="text-center p-2.5 bg-indigo-50/60 dark:bg-indigo-950/20 rounded-xl border border-indigo-100/70 dark:border-indigo-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
-                    <div className="text-xs sm:text-sm font-bold text-indigo-600 dark:text-indigo-400">
-                      {totalPieChartData.dispatched}%
-                    </div>
-                    <div className="text-[10px] sm:text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
-                      Dispatched
-                    </div>
-                    <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
-                      ({totalPieChartData.counts.dispatched})
-                    </div>
-                  </div>
+                        {/* Pending TVS Review */}
+                        <div className="text-center p-2.5 bg-amber-50/60 dark:bg-amber-950/20 rounded-xl border border-amber-100/70 dark:border-amber-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                          <div className="text-xs sm:text-sm font-bold text-amber-600 dark:text-amber-400">
+                            {pendingTvsPct}%
+                          </div>
+                          <div className="text-[10px] sm:text-[11px] font-semibold text-amber-700 dark:text-amber-300 whitespace-nowrap">
+                            Pending TVS Review
+                          </div>
+                          <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                            ({pendingTvsCount})
+                          </div>
+                        </div>
 
-                  {/* Pending Dispatch */}
-                  <div className="text-center p-2.5 bg-amber-50/60 dark:bg-amber-950/20 rounded-xl border border-amber-100/70 dark:border-amber-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
-                    <div className="text-xs sm:text-sm font-bold text-amber-600 dark:text-amber-400">
-                      {totalPieChartData.pendingDispatch}%
-                    </div>
-                    <div className="text-[10px] sm:text-[11px] font-semibold text-amber-700 dark:text-amber-300 whitespace-nowrap">
-                      Pending Dispatch
-                    </div>
-                    <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
-                      ({totalPieChartData.counts.pendingDispatch})
-                    </div>
-                  </div>
+                        {/* TVS Accepted */}
+                        <div className="text-center p-2.5 bg-emerald-50/60 dark:bg-emerald-950/20 rounded-xl border border-emerald-100/70 dark:border-emerald-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                          <div className="text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                            {tvsAccPct}%
+                          </div>
+                          <div className="text-[10px] sm:text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
+                            TVS Accepted
+                          </div>
+                          <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                            ({tvsAccCount})
+                          </div>
+                        </div>
 
-                  {/* Total BIW Review */}
-                  <div className="text-center p-2.5 bg-teal-50/60 dark:bg-teal-950/20 rounded-xl border border-teal-100/70 dark:border-teal-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
-                    <div className="text-xs sm:text-sm font-bold text-teal-600 dark:text-teal-400">
-                      {totalPieChartData.biwReviewed}%
-                    </div>
-                    <div className="text-[10px] sm:text-[11px] font-semibold text-teal-700 dark:text-teal-300 whitespace-nowrap">
-                      Total BIW Review
-                    </div>
-                    <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
-                      ({totalPieChartData.counts.biwReviewed})
-                    </div>
-                  </div>
+                        {/* TVS Defects / Rework */}
+                        <div className="text-center p-2.5 bg-rose-50/70 dark:bg-rose-950/20 rounded-xl border border-rose-200/80 dark:border-rose-800/40 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                          <div className="text-xs sm:text-sm font-bold text-rose-600 dark:text-rose-400">
+                            {tvsDefPct}%
+                          </div>
+                          <div className="text-[10px] sm:text-[11px] font-semibold text-rose-700 dark:text-rose-300 whitespace-nowrap">
+                            TVS Defects / Rework
+                          </div>
+                          <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                            ({tvsDefCount})
+                          </div>
+                        </div>
+                      </div>
 
-                  {/* Pending Data */}
-                  <div className="text-center p-2.5 bg-rose-50/70 dark:bg-rose-950/20 rounded-xl border border-rose-200/80 dark:border-rose-800/40 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
-                    <div className="text-xs sm:text-sm font-bold text-rose-600 dark:text-rose-400">
-                      {totalPieChartData.pendingData}%
-                    </div>
-                    <div className="text-[10px] sm:text-[11px] font-semibold text-rose-700 dark:text-rose-300 whitespace-nowrap">
-                      Pending Data
-                    </div>
-                    <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
-                      ({totalPieChartData.counts.pendingData})
+                      {/* Center / Left: Doughnut Chart */}
+                      <div style={{ height: "260px", minHeight: "260px", position: "relative" }} className="flex-1 w-full min-w-0 flex items-center justify-center">
+                        {/* Doughnut Chart */}
+                        <Doughnut data={data} options={options} />
+
+                        {/* Center count & label overlay */}
+                        <div
+                          className="absolute pointer-events-none flex flex-col items-center justify-center select-none"
+                          style={{
+                            top: "calc(50% - 15px)",
+                            left: "50%",
+                            transform: "translate(-50%, -50%)",
+                          }}
+                        >
+                          <span className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white leading-none tracking-tight">
+                            {centerAcceptedCount}
+                          </span>
+                          <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 tracking-wider mt-1">
+                            ACCEPTED
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Right: Pipeline / Dispatch Cards placed Top-to-Bottom - Same rectangle box size */}
+                      <div className="flex flex-col gap-2 justify-center items-center flex-shrink-0">
+                        {/* Dispatched */}
+                        <div className="text-center p-2.5 bg-indigo-50/60 dark:bg-indigo-950/20 rounded-xl border border-indigo-100/70 dark:border-indigo-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                          <div className="text-xs sm:text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                            {totalPieChartData.dispatched}%
+                          </div>
+                          <div className="text-[10px] sm:text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
+                            Dispatched
+                          </div>
+                          <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                            ({totalPieChartData.counts.dispatched})
+                          </div>
+                        </div>
+
+                        {/* Pending Dispatch */}
+                        <div className="text-center p-2.5 bg-amber-50/60 dark:bg-amber-950/20 rounded-xl border border-amber-100/70 dark:border-amber-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                          <div className="text-xs sm:text-sm font-bold text-amber-600 dark:text-amber-400">
+                            {totalPieChartData.pendingDispatch}%
+                          </div>
+                          <div className="text-[10px] sm:text-[11px] font-semibold text-amber-700 dark:text-amber-300 whitespace-nowrap">
+                            Pending Dispatch
+                          </div>
+                          <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                            ({totalPieChartData.counts.pendingDispatch})
+                          </div>
+                        </div>
+
+                        {/* Total BIW Review */}
+                        <div className="text-center p-2.5 bg-teal-50/60 dark:bg-teal-950/20 rounded-xl border border-teal-100/70 dark:border-teal-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                          <div className="text-xs sm:text-sm font-bold text-teal-600 dark:text-teal-400">
+                            {totalPieChartData.biwReviewed}%
+                          </div>
+                          <div className="text-[10px] sm:text-[11px] font-semibold text-teal-700 dark:text-teal-300 whitespace-nowrap">
+                            Total BIW Review
+                          </div>
+                          <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                            ({totalPieChartData.counts.biwReviewed})
+                          </div>
+                        </div>
+
+                        {/* Pending Data */}
+                        <div className="text-center p-2.5 bg-rose-50/70 dark:bg-rose-950/20 rounded-xl border border-rose-200/80 dark:border-rose-800/40 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                          <div className="text-xs sm:text-sm font-bold text-rose-600 dark:text-rose-400">
+                            {totalPieChartData.pendingData}%
+                          </div>
+                          <div className="text-[10px] sm:text-[11px] font-semibold text-rose-700 dark:text-rose-300 whitespace-nowrap">
+                            Pending Data
+                          </div>
+                          <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                            ({totalPieChartData.counts.pendingData})
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
+                );
+              })()}
 
               {/* Bottom: Core Inspection Statuses - Same rectangle box size */}
               <div className="mt-4 grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-6 gap-2">
@@ -9074,8 +9147,8 @@ export default function FormAnalyticsDashboard({
                             <td className="px-4 py-3 font-bold text-center tabular-nums">{pctOfTotal}%</td>
                             <td className="px-4 py-3 text-center">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-black tabular-nums ${parseFloat(cumulativePct) <= 80
-                                  ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
-                                  : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400"
+                                ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
+                                : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400"
                                 }`}>
                                 {cumulativePct}%
                               </span>
@@ -12698,10 +12771,10 @@ export default function FormAnalyticsDashboard({
       <div className="p-6">
         <div className="text-center py-12 max-w-md mx-auto">
           <div className={`rounded-2xl p-6 mb-4 border shadow-sm ${isAuthError
-              ? "bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800/40"
-              : isTimeoutError
-                ? "bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/40"
-                : "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800/40"
+            ? "bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800/40"
+            : isTimeoutError
+              ? "bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/40"
+              : "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800/40"
             }`}>
             {isAuthError ? (
               <LogIn className="w-12 h-12 text-blue-600 dark:text-blue-400 mx-auto mb-4" />
@@ -13607,8 +13680,8 @@ export default function FormAnalyticsDashboard({
                     {/* Top Parent Match Tick Box */}
                     <label
                       className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer select-none shadow-2xs ${showParentMatchColumn
-                          ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700 ring-1 ring-indigo-400"
-                          : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
+                        ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700 ring-1 ring-indigo-400"
+                        : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
                         }`}
                       title={showParentMatchColumn ? "Untick to hide Parent Match column" : "Tick to show Parent Match column"}
                     >
@@ -13632,8 +13705,8 @@ export default function FormAnalyticsDashboard({
                     <button
                       onClick={() => setShowFilterModal(true)}
                       className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 flex items-center gap-1.5 border shadow-xs ${appliedFilters.length > 0 || Object.values(columnFilters).some((v) => v && v.length > 0)
-                          ? "bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500 ring-2 ring-indigo-400 ring-offset-2 dark:ring-offset-gray-900"
-                          : "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700"
+                        ? "bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500 ring-2 ring-indigo-400 ring-offset-2 dark:ring-offset-gray-900"
+                        : "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700"
                         }`}
                       title="Open Filters Dialog"
                     >
@@ -14019,8 +14092,8 @@ export default function FormAnalyticsDashboard({
                             });
                           }}
                           className={`flex flex-col p-2.5 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-100 dark:border-purple-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${!columnFilters["__status"]?.length && !columnFilters["__dispatch"]?.length
-                              ? "ring-2 ring-purple-500 shadow-sm"
-                              : "opacity-80 hover:opacity-100"
+                            ? "ring-2 ring-purple-500 shadow-sm"
+                            : "opacity-80 hover:opacity-100"
                             }`}
                           title="Click to show all submissions"
                         >
@@ -14053,8 +14126,8 @@ export default function FormAnalyticsDashboard({
                             });
                           }}
                           className={`flex flex-col p-2.5 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${columnFilters["__status"]?.includes("Direct Ok") || columnFilters["__status"]?.includes("Accepted")
-                              ? "ring-2 ring-green-500 shadow-sm"
-                              : "opacity-80 hover:opacity-100"
+                            ? "ring-2 ring-green-500 shadow-sm"
+                            : "opacity-80 hover:opacity-100"
                             }`}
                           title="Click to filter by Accepted / Direct OK"
                         >
@@ -14087,8 +14160,8 @@ export default function FormAnalyticsDashboard({
                             });
                           }}
                           className={`flex flex-col p-2.5 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${columnFilters["__status"]?.includes("Rework Accepted")
-                              ? "ring-2 ring-blue-500 shadow-sm"
-                              : "opacity-80 hover:opacity-100"
+                            ? "ring-2 ring-blue-500 shadow-sm"
+                            : "opacity-80 hover:opacity-100"
                             }`}
                           title="Click to filter by Rework Accepted"
                         >
@@ -14121,8 +14194,8 @@ export default function FormAnalyticsDashboard({
                             });
                           }}
                           className={`flex flex-col p-2.5 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-100 dark:border-amber-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${columnFilters["__status"]?.some(s => s.toLowerCase().includes("rework") && s !== "Rework Accepted")
-                              ? "ring-2 ring-amber-500 shadow-sm"
-                              : "opacity-80 hover:opacity-100"
+                            ? "ring-2 ring-amber-500 shadow-sm"
+                            : "opacity-80 hover:opacity-100"
                             }`}
                           title="Click to filter by Ongoing Rework"
                         >
@@ -14155,8 +14228,8 @@ export default function FormAnalyticsDashboard({
                             });
                           }}
                           className={`flex flex-col p-2.5 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${columnFilters["__status"]?.includes("Rejected")
-                              ? "ring-2 ring-red-500 shadow-sm"
-                              : "opacity-80 hover:opacity-100"
+                            ? "ring-2 ring-red-500 shadow-sm"
+                            : "opacity-80 hover:opacity-100"
                             }`}
                           title="Click to filter by Rejected"
                         >
@@ -14189,8 +14262,8 @@ export default function FormAnalyticsDashboard({
                             });
                           }}
                           className={`flex flex-col p-2.5 bg-indigo-50 dark:bg-indigo-900/10 rounded-lg border border-indigo-100 dark:border-indigo-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${columnFilters["__dispatch"]?.includes("Dispatched / Enabled")
-                              ? "ring-2 ring-indigo-500 shadow-sm"
-                              : "opacity-80 hover:opacity-100"
+                            ? "ring-2 ring-indigo-500 shadow-sm"
+                            : "opacity-80 hover:opacity-100"
                             }`}
                           title="Click to filter by Dispatched"
                         >
@@ -17517,8 +17590,8 @@ export default function FormAnalyticsDashboard({
                         <div className="flex items-center gap-2">
                           <span
                             className={`px-3 py-1 text-xs font-bold rounded ${pendingReviewOption === "Rejected"
-                                ? "bg-red-500/30 text-red-100 border border-red-400"
-                                : "bg-yellow-500/30 text-yellow-100 border border-yellow-400"
+                              ? "bg-red-500/30 text-red-100 border border-red-400"
+                              : "bg-yellow-500/30 text-yellow-100 border border-yellow-400"
                               }`}
                           >
                             {pendingReviewOption === "Rejected" ? "❌" : "🔄"}{" "}
@@ -17559,10 +17632,10 @@ export default function FormAnalyticsDashboard({
                                 }
                               }}
                               className={`px-3 py-1 text-xs font-bold rounded transition-all border shadow-sm ${opt === "Accepted"
-                                  ? "bg-green-500/30 border-green-400 text-green-100 hover:bg-green-500/50"
-                                  : opt === "Rejected"
-                                    ? "bg-red-500/30 border-red-400 text-red-100 hover:bg-red-500/50"
-                                    : "bg-yellow-500/30 border-yellow-400 text-yellow-100 hover:bg-yellow-500/50"
+                                ? "bg-green-500/30 border-green-400 text-green-100 hover:bg-green-500/50"
+                                : opt === "Rejected"
+                                  ? "bg-red-500/30 border-red-400 text-red-100 hover:bg-red-500/50"
+                                  : "bg-yellow-500/30 border-yellow-400 text-yellow-100 hover:bg-yellow-500/50"
                                 }`}
                             >
                               {opt === "Accepted" ? "✅" : opt === "Rejected" ? "❌" : "🔄"}{" "}
@@ -17697,8 +17770,8 @@ export default function FormAnalyticsDashboard({
                       <div className="space-y-3">
                         <div
                           className={`flex items-center gap-2 p-3 rounded-xl border ${pendingReviewOption === "Rejected"
-                              ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
-                              : "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800"
+                            ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+                            : "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800"
                             }`}
                         >
                           <span className="text-xl">
@@ -17707,8 +17780,8 @@ export default function FormAnalyticsDashboard({
                           <div>
                             <p
                               className={`text-xs font-bold ${pendingReviewOption === "Rejected"
-                                  ? "text-red-700 dark:text-red-300"
-                                  : "text-yellow-700 dark:text-yellow-300"
+                                ? "text-red-700 dark:text-red-300"
+                                : "text-yellow-700 dark:text-yellow-300"
                                 }`}
                             >
                               {pendingReviewOption} TVS Review
@@ -18066,8 +18139,8 @@ export default function FormAnalyticsDashboard({
                             {msg.isReviewFeedback && (
                               <div className="mb-1.5 flex items-center gap-1.5">
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${msg.reviewOption === "Rejected"
-                                    ? "bg-red-100 text-red-700 border border-red-200"
-                                    : "bg-yellow-100 text-yellow-800 border border-yellow-200"
+                                  ? "bg-red-100 text-red-700 border border-red-200"
+                                  : "bg-yellow-100 text-yellow-800 border border-yellow-200"
                                   }`}>
                                   TVS Review: {msg.reviewOption}
                                 </span>
@@ -18282,10 +18355,10 @@ export default function FormAnalyticsDashboard({
                                   : "Type your feedback to the inspector..."
                           }
                           className={`w-full px-5 py-4 bg-gray-50 dark:bg-gray-800 border-2 rounded-2xl text-sm focus:ring-0 transition-all resize-none shadow-inner text-gray-800 dark:text-gray-200 ${pendingReviewOption === "Rejected"
-                              ? isRejectionBlank
-                                ? "border-red-400/80 focus:border-red-600 dark:border-red-500/80 dark:focus:border-red-400 bg-red-50/20"
-                                : "border-emerald-300 focus:border-emerald-500 dark:border-emerald-600"
-                              : "border-transparent focus:border-indigo-500 dark:focus:border-indigo-400"
+                            ? isRejectionBlank
+                              ? "border-red-400/80 focus:border-red-600 dark:border-red-500/80 dark:focus:border-red-400 bg-red-50/20"
+                              : "border-emerald-300 focus:border-emerald-500 dark:border-emerald-600"
+                            : "border-transparent focus:border-indigo-500 dark:focus:border-indigo-400"
                             }`}
                           rows={3}
                         />
