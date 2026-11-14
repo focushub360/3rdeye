@@ -98,12 +98,16 @@ export const login = async (req, res) => {
     }
 
     console.log('Searching by identifier (email or username):', identifier);
-    user = await User.findOne({
-      $or: [
-        { email: identifier.toLowerCase() },
-        { username: identifier }
-      ]
-    });
+    const isEmail = identifier.includes('@');
+    if (isEmail) {
+      user = await User.findOne({ email: identifier.toLowerCase() });
+    }
+    if (!user) {
+      user = await User.findOne({ username: identifier });
+    }
+    if (!user && !isEmail) {
+      user = await User.findOne({ email: identifier.toLowerCase() });
+    }
 
     if (!user) {
       console.log('Login failed: User not found in DB');
