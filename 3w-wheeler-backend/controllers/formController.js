@@ -918,15 +918,24 @@ export const getFormById = async (req, res) => {
       formObj.childForms = enrichedChildForms;
 
       // 2. If this form itself is a child form, attach parentForm details
+      const formIdentifiers = [formObj.id, formObj._id ? formObj._id.toString() : null].filter(Boolean);
+      let parentConditions = [];
       if (formObj.parentFormId) {
-        const pDoc = await Form.findOne({
-          $or: [
-            { id: formObj.parentFormId },
-            { _id: mongoose.Types.ObjectId.isValid(formObj.parentFormId) ? new mongoose.Types.ObjectId(formObj.parentFormId) : null }
-          ].filter(Boolean)
-        }).select('id _id title sections chassisNumbers').lean();
+        parentConditions.push({ id: formObj.parentFormId });
+        if (mongoose.Types.ObjectId.isValid(formObj.parentFormId)) {
+          parentConditions.push({ _id: new mongoose.Types.ObjectId(formObj.parentFormId) });
+        }
+      }
+      if (formIdentifiers.length > 0) {
+        parentConditions.push({ 'childForms.formId': { $in: formIdentifiers } });
+      }
+
+      if (parentConditions.length > 0) {
+        const pDoc = await Form.findOne({ $or: parentConditions }).select('id _id title sections chassisNumbers').lean();
 
         if (pDoc) {
+          formObj.parentFormId = formObj.parentFormId || pDoc._id.toString();
+          formObj.parentFormTitle = formObj.parentFormTitle || pDoc.title;
           const pCount = await Response.countDocuments({
             questionId: { $in: [pDoc.id, pDoc._id.toString()] },
             isSectionSubmit: { $ne: true }

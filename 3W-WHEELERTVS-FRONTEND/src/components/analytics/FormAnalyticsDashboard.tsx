@@ -4805,7 +4805,7 @@ export default function FormAnalyticsDashboard({
 
       // Fetch form details
       const formData = await apiClient.request<{ form: any }>(formCacheKey, {
-        forceNetwork: false,
+        forceNetwork: true,
         timeout: 60000, // 60 seconds for form data
       });
 
@@ -6181,7 +6181,7 @@ export default function FormAnalyticsDashboard({
   useEffect(() => {
     if (!showChatModal || !chatResponse) return;
 
-    setActiveReviewQuestionTab("current");
+    setActiveReviewQuestionTab("child");
 
     const chassisVal =
       chatResponse.chassisNumber ||
@@ -6189,12 +6189,36 @@ export default function FormAnalyticsDashboard({
       chatResponse.answers?.chassisNumber ||
       (chatResponse as any).followUpStatus?.matchedChassis;
 
+    // Freshly check if current form has parent or child forms (bypassing any stale cache)
+    const currentFormId = id || form?.id || (form as any)?._id;
+    if (currentFormId && (!form?.parentForm && !form?.parentFormId && (!form?.childForms || form.childForms.length === 0))) {
+      apiClient
+        .request<{ form: any }>(`/forms/${currentFormId}`, { forceNetwork: true })
+        .then((res: any) => {
+          if (res?.form) {
+            setForm(res.form);
+            if (res.form.parentForm) {
+              setRelatedFormData((prev) => ({ ...prev, parentForm: res.form.parentForm }));
+            }
+          }
+        })
+        .catch(() => {});
+    }
+
     // 1. If viewing a child form, ensure parent form sections & parent answers for this chassis are loaded
-    const parentId = form?.parentFormId || (chatResponse as any).parentFormId;
+    const parentId =
+      form?.parentFormId ||
+      form?.parentForm?.id ||
+      form?.parentForm?._id ||
+      (chatResponse as any)?.parentFormId ||
+      (chatResponse as any)?.parentForm?.id ||
+      (chatResponse as any)?.parentForm?._id ||
+      (chatResponse as any)?.followUpStatus?.parentFormId;
+
     if (parentId) {
       if (!form?.parentForm?.sections?.length && !relatedFormData.parentForm?.sections?.length) {
         apiClient
-          .getForm(parentId)
+          .request<{ form: any }>(`/forms/${parentId}`, { forceNetwork: true })
           .then((res: any) => {
             if (res?.form) {
               setRelatedFormData((prev) => ({ ...prev, parentForm: res.form }));
@@ -6209,7 +6233,7 @@ export default function FormAnalyticsDashboard({
         chassisVal
       ) {
         apiClient
-          .getFormResponses(parentId, { units: chassisVal, limit: 1 })
+          .getFormResponses(parentId, { units: chassisVal, limit: 1, forceNetwork: true })
           .then((res: any) => {
             const pResp = (res?.responses || [])[0];
             if (pResp?.answers) {
@@ -6227,7 +6251,7 @@ export default function FormAnalyticsDashboard({
         const cId = cf.formId || cf.id || cf._id;
         if (cId && (!cf.sections || cf.sections.length === 0)) {
           apiClient
-            .getForm(cId)
+            .request<{ form: any }>(`/forms/${cId}`, { forceNetwork: true })
             .then((res: any) => {
               if (res?.form) {
                 setRelatedFormData((prev) => ({
@@ -6250,7 +6274,7 @@ export default function FormAnalyticsDashboard({
           chassisVal
         ) {
           apiClient
-            .getFormResponses(cId, { units: chassisVal, limit: 1 })
+            .getFormResponses(cId, { units: chassisVal, limit: 1, forceNetwork: true })
             .then((res: any) => {
               const cResp = (res?.responses || [])[0];
               if (cResp?.answers) {
@@ -18027,12 +18051,37 @@ export default function FormAnalyticsDashboard({
                           }
 
                           const reviewFormTabs: ReviewFormTab[] = [];
-                          const isChildForm = Boolean(form?.parentFormId || (chatResponse as any)?.parentFormId);
+                          const hasParent = Boolean(
+                            form?.parentFormId ||
+                            form?.parentForm ||
+                            parentFormObj ||
+                            (chatResponse as any)?.parentFormId ||
+                            (chatResponse as any)?.parentFormTitle ||
+                            (chatResponse as any)?.parentAnswers ||
+                            (chatResponse as any)?.followUpStatus?.parentAnswers ||
+                            (chatResponse as any)?.followUpStatus?.matchType === "parent"
+                          );
+                          const hasChildren = childDocs.length > 0;
 
-                          if (isChildForm) {
-                            // Tab 1: Current child form
+                          if (hasParent) {
+                            // 1. Main Form Tab
                             reviewFormTabs.push({
-                              id: "current",
+                              id: "main",
+                              title: parentFormObj?.title || (chatResponse as any)?.parentFormTitle || (form as any)?.parentFormTitle || "Main Form",
+                              badge: "Main Form",
+                              questions: (parentFormObj?.sections || []).flatMap((s: any) =>
+                                (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+                              ),
+                              answers:
+                                (chatResponse as any)?.parentAnswers ||
+                                (chatResponse as any)?.followUpStatus?.parentAnswers ||
+                                relatedFormData.parentAnswers ||
+                                {},
+                            });
+
+                            // 2. Child Form Tab
+                            reviewFormTabs.push({
+                              id: "child",
                               title: form?.title || "Child Form",
                               badge: "Child Form",
                               questions: (form?.sections || []).flatMap((s: any) =>
@@ -18044,27 +18093,12 @@ export default function FormAnalyticsDashboard({
                                 chatResponse
                               )?.answers || {},
                             });
-
-                            // Tab 2: Parent form
+                          } else if (hasChildren) {
+                            // 1. Main Form Tab
                             reviewFormTabs.push({
-                              id: "parent",
-                              title: parentFormObj?.title || (chatResponse as any)?.parentFormTitle || (form as any)?.parentFormTitle || "Parent Form",
-                              badge: "Parent Form",
-                              questions: (parentFormObj?.sections || []).flatMap((s: any) =>
-                                (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
-                              ),
-                              answers:
-                                (chatResponse as any)?.parentAnswers ||
-                                (chatResponse as any)?.followUpStatus?.parentAnswers ||
-                                relatedFormData.parentAnswers ||
-                                {},
-                            });
-                          } else if (childDocs.length > 0) {
-                            // Tab 1: Current parent form
-                            reviewFormTabs.push({
-                              id: "current",
-                              title: form?.title || "Parent Form",
-                              badge: "Parent Form",
+                              id: "main",
+                              title: form?.title || "Main Form",
+                              badge: "Main Form",
                               questions: (form?.sections || []).flatMap((s: any) =>
                                 (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
                               ),
@@ -18075,7 +18109,7 @@ export default function FormAnalyticsDashboard({
                               )?.answers || {},
                             });
 
-                            // Tab 2+: Child form(s)
+                            // 2+. Child Form Tabs
                             childDocs.forEach((cf: any, idx: number) => {
                               reviewFormTabs.push({
                                 id: `child-${cf.formId || cf.id || idx}`,
@@ -18112,51 +18146,70 @@ export default function FormAnalyticsDashboard({
 
                           return (
                             <div className="space-y-3">
-                              {/* Tab Bar */}
+                              {/* Form Selection Tabs: Main Form & Child Form */}
                               {reviewFormTabs.length > 1 && (
-                                <div className="flex items-center gap-1.5 p-1 bg-gray-200/70 dark:bg-gray-800/80 rounded-xl border border-gray-300/80 dark:border-gray-700 shadow-2xs">
-                                  {reviewFormTabs.map((tab) => {
-                                    const isTabActive = activeTab.id === tab.id;
-                                    const selectedInTabCount = (tab.questions || []).filter((q) =>
-                                      chatFilters.questions.includes(q.id)
-                                    ).length;
-                                    const isParent = tab.badge.includes("Parent");
+                                <div className="p-2 bg-gradient-to-r from-blue-50/80 via-indigo-50/50 to-purple-50/80 dark:from-slate-800 dark:to-slate-850 rounded-2xl border border-indigo-200/80 dark:border-indigo-900/50 shadow-sm space-y-1.5">
+                                  <div className="flex items-center justify-between px-1">
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-400">
+                                      Choose Form Questionnaire to Review:
+                                    </span>
+                                    <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">
+                                      Click tab to switch questions
+                                    </span>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {reviewFormTabs.map((tab) => {
+                                      const isTabActive = activeTab.id === tab.id;
+                                      const selectedInTabCount = (tab.questions || []).filter((q) =>
+                                        chatFilters.questions.includes(q.id)
+                                      ).length;
+                                      const isMain = tab.badge.includes("Main") || tab.badge.includes("Parent");
 
-                                    return (
-                                      <button
-                                        key={tab.id}
-                                        type="button"
-                                        onClick={() => setActiveReviewQuestionTab(tab.id)}
-                                        className={`flex-1 flex items-center justify-between py-2 px-3 rounded-lg text-xs font-bold transition-all ${
-                                          isTabActive
-                                            ? "bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-sm border border-gray-200/80 dark:border-gray-600"
-                                            : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-white/40 dark:hover:bg-gray-700/40"
-                                        }`}
-                                      >
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                          <span className="truncate max-w-[140px]" title={tab.title}>
-                                            {tab.title}
-                                          </span>
-                                          <span
-                                            className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${
-                                              isTabActive
-                                                ? isParent
-                                                  ? "bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300"
-                                                  : "bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300"
-                                                : "bg-gray-200/80 dark:bg-gray-600 text-gray-500 dark:text-gray-400"
-                                            }`}
-                                          >
-                                            {tab.badge}
-                                          </span>
-                                        </div>
-                                        {selectedInTabCount > 0 && (
-                                          <span className="ml-1.5 px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[10px] font-black shadow-xs">
-                                            {selectedInTabCount}
-                                          </span>
-                                        )}
-                                      </button>
-                                    );
-                                  })}
+                                      return (
+                                        <button
+                                          key={tab.id}
+                                          type="button"
+                                          onClick={() => setActiveReviewQuestionTab(tab.id)}
+                                          className={`flex items-center justify-between p-3 rounded-xl text-left transition-all cursor-pointer ${
+                                            isTabActive
+                                              ? isMain
+                                                ? "bg-blue-600 text-white shadow-md shadow-blue-500/30 ring-2 ring-blue-400/50"
+                                                : "bg-purple-600 text-white shadow-md shadow-purple-500/30 ring-2 ring-purple-400/50"
+                                              : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-750 border border-gray-200 dark:border-gray-700 shadow-2xs"
+                                          }`}
+                                        >
+                                          <div className="flex flex-col min-w-0 pr-2">
+                                            <span
+                                              className={`text-[9px] uppercase tracking-wider font-black px-1.5 py-0.5 rounded-md w-fit mb-1 ${
+                                                isTabActive
+                                                  ? "bg-white/20 text-white"
+                                                  : isMain
+                                                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300"
+                                                    : "bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300"
+                                              }`}
+                                            >
+                                              {isMain ? "Main Form" : "Child Form"}
+                                            </span>
+                                            <span className="text-xs font-bold truncate max-w-[160px]" title={tab.title}>
+                                              {tab.title}
+                                            </span>
+                                          </div>
+                                          <div className="flex flex-col items-end shrink-0 gap-1">
+                                            <span className={`text-[10px] font-semibold ${isTabActive ? "text-blue-100" : "text-gray-400 dark:text-gray-500"}`}>
+                                              {tab.questions.length} questions
+                                            </span>
+                                            {selectedInTabCount > 0 ? (
+                                              <span className="px-2 py-0.5 rounded-full bg-amber-400 text-gray-900 text-[10px] font-black shadow-xs animate-bounce">
+                                                {selectedInTabCount} flagged
+                                              </span>
+                                            ) : isTabActive ? (
+                                              <span className="text-[10px] text-white/80 font-bold">Active</span>
+                                            ) : null}
+                                          </div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
                               )}
 
