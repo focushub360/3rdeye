@@ -730,9 +730,10 @@ export const QualityDashboard: React.FC = () => {
       const cleanName = (insp.name || 'Unknown').trim();
       const key = cleanName.toLowerCase();
       if (!map.has(key)) {
-        map.set(key, { ...insp, name: cleanName });
+        map.set(key, { ...insp, name: cleanName, tenantName: insp.tenantName || '' });
       } else {
         const existing = map.get(key);
+        if (!existing.tenantName && insp.tenantName) existing.tenantName = insp.tenantName;
         existing.totalChecked += (insp.totalChecked || 0);
         existing.acceptCount += (insp.acceptCount || 0);
         existing.defectCount += (insp.defectCount || 0);
@@ -2716,7 +2717,14 @@ export const QualityDashboard: React.FC = () => {
                           .filter(i => String(i.name || '').toLowerCase().includes((searchInspector || '').toLowerCase()))
                           .map((insp, idx) => (
                           <tr key={idx} className="hover:bg-blue-50/50 transition-colors group">
-                            <td className="px-6 py-4 font-medium text-gray-900">{insp.name}</td>
+                            <td className="px-6 py-4 font-medium text-gray-900">
+                              {insp.name}
+                              {insp.tenantName && (
+                                <span className="ml-1.5 text-xs font-normal text-gray-500">
+                                  ({insp.tenantName})
+                                </span>
+                              )}
+                            </td>
                             <td className="px-6 py-4 text-center font-semibold">{insp.totalChecked}</td>
                             <td className="px-6 py-4 text-center">
                               <div className="flex items-center justify-center gap-2">

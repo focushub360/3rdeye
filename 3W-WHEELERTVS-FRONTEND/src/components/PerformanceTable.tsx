@@ -686,6 +686,11 @@ const PerformanceTable = ({
                     )}
                     <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap">
                       {row.name}
+                      {!isSuperAdmin && row.tenantName && row.tenantName !== "Unknown Tenant" && (
+                        <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
+                          ({row.tenantName})
+                        </span>
+                      )}
                     </td>
                     {performanceStatuses
                       .filter((status) => status !== "Dispatched")

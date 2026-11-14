@@ -42,6 +42,7 @@ import {
   AlertCircle,
   SlidersHorizontal,
   Pin,
+  RefreshCw,
 } from "lucide-react";
 import ImportHistoryModal from "../history/ImportHistoryModal";
 import { QualitySummaryModal } from "./QualitySummaryModal";
@@ -401,7 +402,7 @@ export default function FormsAnalytics() {
 
   const handleOpenAddFollowUpModal = async (parentForm: any, existingChildren: any[] = []) => {
     setTargetParentForm(parentForm);
-    const count = existingChildren?.length || 0;
+    const count = Math.max(existingChildren?.length || 0, parentForm?.childForms?.length || 0);
     setTargetChildrenCount(count);
     const nextNum = count + 1;
     const base = getBaseFormTitle(parentForm.title || "Form");
@@ -415,17 +416,14 @@ export default function FormsAnalytics() {
     setSelectedExistingFormId("");
     setAddFollowUpModalOpen(true);
 
-    // If sections are missing or empty, fetch the full form from backend to populate question/section count
+    // Fetch full form from backend to guarantee complete sections, questions, and childForms
     const parentId = parentForm._id || parentForm.id;
-    if (parentId && (!parentForm.sections || parentForm.sections.length === 0)) {
+    if (parentId) {
       try {
         const res = await apiClient.getForm(parentId);
         const fullForm = (res as any)?.form || (res as any)?.data?.form || res;
-        if (fullForm?.sections?.length) {
-          setTargetParentForm((prev: any) => ({
-            ...prev,
-            ...fullForm,
-          }));
+        if (fullForm) {
+          setTargetParentForm(fullForm);
         }
       } catch (err) {
         console.warn("Could not fetch full parent form details:", err);
@@ -592,17 +590,44 @@ export default function FormsAnalytics() {
 
   const availableFormsToLink = useMemo(() => {
     if (!targetParentForm) return [];
-    const parentId = targetParentForm._id || targetParentForm.id;
+    const parentMongoId = targetParentForm._id ? String(targetParentForm._id) : "";
+    const parentUuid = targetParentForm.id ? String(targetParentForm.id) : "";
+
     const existingChildIds = new Set(
       (targetParentForm.childForms || []).map((cf: any) =>
-        typeof cf === "string" ? cf : cf.formId || cf.id || cf._id
+        String(typeof cf === "string" ? cf : cf.formId || cf.id || cf._id || "")
       )
     );
     return (forms || []).filter((f: any) => {
-      const fId = f._id || f.id;
-      return fId !== parentId && !existingChildIds.has(fId);
+      const fMongoId = f._id ? String(f._id) : "";
+      const fUuid = f.id ? String(f.id) : "";
+      const isSelf = (parentMongoId && fMongoId === parentMongoId) || (parentUuid && fUuid === parentUuid);
+      const isAlreadyChild =
+        (fMongoId && existingChildIds.has(fMongoId)) ||
+        (fUuid && existingChildIds.has(fUuid));
+      return !isSelf && !isAlreadyChild;
     });
   }, [forms, targetParentForm]);
+
+  const formsGroupedByTenant = useMemo(() => {
+    const groups: Record<string, any[]> = {};
+    availableFormsToLink.forEach((f: any) => {
+      let tName = "";
+      if (typeof f.tenantId === "object" && f.tenantId) {
+        tName = f.tenantId.companyName || f.tenantId.name || f.tenantId.slug || "";
+      } else if (f.tenantName) {
+        tName = f.tenantName;
+      }
+      if (!tName) {
+        tName = f.isGlobal ? "Global / Common" : "General";
+      }
+      if (!groups[tName]) groups[tName] = [];
+      groups[tName].push(f);
+    });
+
+    const sortedEntries = Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+    return Object.fromEntries(sortedEntries);
+  }, [availableFormsToLink]);
 
   const handleCreateFollowUpForm = async (openEditor: boolean = false) => {
     if (!targetParentForm || !followUpTitle.trim()) return;
@@ -629,28 +654,32 @@ export default function FormsAnalytics() {
 
       let sections = [];
       if (followUpSource === "parent" && parentSections.length > 0) {
-        sections = parentSections.map((sec: any, sIdx: number) => ({
-          ...sec,
-          id: crypto.randomUUID(),
-          questions: (sec.questions || []).map((q: any, qIdx: number) => {
-            if (sIdx === 0 && qIdx === 0) {
+        sections = parentSections.map((sec: any, sIdx: number) => {
+          const { _id: _secId, ...secRest } = sec;
+          return {
+            ...secRest,
+            id: crypto.randomUUID(),
+            questions: (sec.questions || []).map((q: any, qIdx: number) => {
+              const { _id: _qId, ...qRest } = q;
+              if (sIdx === 0 && qIdx === 0) {
+                return {
+                  ...qRest,
+                  id: crypto.randomUUID(),
+                  text: q.text && q.text.toLowerCase().includes("chassis") ? q.text : "Chassis Number",
+                  trackResponseQuestion: true,
+                  trackResponseRank: true,
+                  trackResponseRankLabel: "Chassis Number",
+                  trackResponseQuestionLabel: "Chassis Number",
+                  placeholder: "Enter Chassis Number / VIN...",
+                };
+              }
               return {
-                ...q,
+                ...qRest,
                 id: crypto.randomUUID(),
-                text: q.text && q.text.toLowerCase().includes("chassis") ? q.text : "Chassis Number",
-                trackResponseQuestion: true,
-                trackResponseRank: true,
-                trackResponseRankLabel: "Chassis Number",
-                trackResponseQuestionLabel: "Chassis Number",
-                placeholder: "Enter Chassis Number / VIN...",
               };
-            }
-            return {
-              ...q,
-              id: crypto.randomUUID(),
-            };
-          }),
-        }));
+            }),
+          };
+        });
       } else {
         sections = [
           {
@@ -850,44 +879,73 @@ export default function FormsAnalytics() {
   });
 
   const groupedForms = useMemo(() => {
-    const result = filteredForms.reduce(
-      (acc, form) => {
-        const isChild = isFormAChild(form);
+    const result: Record<string, { parent: FormItem | null; children: FormItem[] }> = {};
+    const keyToCanonicalKey = new Map<string, string>();
 
-        if (isChild) {
-          const parentKey = form.parentFormId;
-          if (parentKey) {
-            acc[parentKey] = acc[parentKey] || {
-              parent: null,
-              children: [],
-            };
-            const childId = form.id || form._id;
-            if (!acc[parentKey].children.some((c) => (c.id || c._id) === childId)) {
-              acc[parentKey].children.push(form);
-            }
-          }
-          return acc;
-        }
+    // Helper to find the canonical key for any form identifier
+    const getCanonicalKey = (idOrUuid: string) => {
+      if (!idOrUuid) return "";
+      if (keyToCanonicalKey.has(idOrUuid)) return keyToCanonicalKey.get(idOrUuid)!;
+      const f = formsMap.get(idOrUuid);
+      const canonical = f ? String(f._id || f.id) : idOrUuid;
+      keyToCanonicalKey.set(idOrUuid, canonical);
+      return canonical;
+    };
 
-        const key = form.id || form._id;
-        if (!key) {
-          return acc;
-        }
-
-        if (!acc[key]) {
-          acc[key] = {
+    // First pass: register all non-child parent forms
+    filteredForms.forEach((form) => {
+      if (!isFormAChild(form)) {
+        const canonicalKey = String(form._id || form.id);
+        if (canonicalKey) {
+          if (form._id) keyToCanonicalKey.set(String(form._id), canonicalKey);
+          if (form.id) keyToCanonicalKey.set(String(form.id), canonicalKey);
+          result[canonicalKey] = {
             parent: form,
             children: [],
           };
-        } else {
-          acc[key].parent = form;
+        }
+      }
+    });
+
+    // Second pass: attach child forms to their respective parent
+    filteredForms.forEach((form) => {
+      if (isFormAChild(form)) {
+        let parentKey = form.parentFormId ? getCanonicalKey(form.parentFormId) : "";
+
+        // If parentKey couldn't be found via parentFormId, search which parent contains this form in childForms
+        if (!parentKey || !result[parentKey]) {
+          const formUuid = form.id ? String(form.id) : "";
+          const formMongo = form._id ? String(form._id) : "";
+          for (const potentialParent of visibleForms) {
+            const hasChild = (potentialParent.childForms || []).some((cf: any) => {
+              const cfId = typeof cf === "string" ? cf : cf.formId || cf.id || cf._id;
+              const cfIdStr = cfId ? String(cfId) : "";
+              return (formUuid && cfIdStr === formUuid) || (formMongo && cfIdStr === formMongo);
+            });
+            if (hasChild) {
+              parentKey = getCanonicalKey(String(potentialParent._id || potentialParent.id));
+              break;
+            }
+          }
         }
 
-        return acc;
-      },
-      {} as Record<string, { parent: FormItem | null; children: FormItem[] }>,
-    );
+        if (parentKey) {
+          if (!result[parentKey]) {
+            const parentForm = formsMap.get(parentKey) || null;
+            result[parentKey] = {
+              parent: parentForm,
+              children: [],
+            };
+          }
+          const childKey = String(form._id || form.id);
+          if (!result[parentKey].children.some((c) => String(c._id || c.id) === childKey)) {
+            result[parentKey].children.push(form);
+          }
+        }
+      }
+    });
 
+    // Third pass: order children according to parent.childForms, and include any linked children from formsMap
     Object.values(result).forEach((group) => {
       const parent = group.parent;
       if (!parent) {
@@ -900,43 +958,45 @@ export default function FormsAnalytics() {
 
       const existingChildrenMap = new Map<string, FormItem>();
       group.children.forEach((child) => {
-        const childKey = child.id || child._id;
-        if (childKey) {
-          existingChildrenMap.set(childKey, child);
-        }
+        if (child._id) existingChildrenMap.set(String(child._id), child);
+        if (child.id) existingChildrenMap.set(String(child.id), child);
       });
 
       const orderedChildren: FormItem[] = [];
       const usedChildIds = new Set<string>();
 
       childRefs.forEach((childRef) => {
-        const childId = childRef.formId;
-        if (!childId || usedChildIds.has(childId)) {
-          return;
-        }
-
-        usedChildIds.add(childId);
+        const childId = childRef.formId ? String(childRef.formId) : "";
+        if (!childId) return;
 
         let child = existingChildrenMap.get(childId) || formsMap.get(childId);
         if (child) {
-          orderedChildren.push(child);
+          const canonical = String(child._id || child.id);
+          if (!usedChildIds.has(canonical)) {
+            usedChildIds.add(canonical);
+            if (child.id) usedChildIds.add(String(child.id));
+            if (child._id) usedChildIds.add(String(child._id));
+            orderedChildren.push(child);
+          }
         }
       });
 
+      // Add any remaining children detected via parentFormId that weren't listed in childRefs
       group.children.forEach((child) => {
-        const childId = child.id || child._id;
-        if (!childId || usedChildIds.has(childId)) {
-          return;
+        const canonical = String(child._id || child.id);
+        if (!usedChildIds.has(canonical)) {
+          usedChildIds.add(canonical);
+          if (child.id) usedChildIds.add(String(child.id));
+          if (child._id) usedChildIds.add(String(child._id));
+          orderedChildren.push(child);
         }
-        usedChildIds.add(childId);
-        orderedChildren.push(child);
       });
 
       group.children = orderedChildren;
     });
 
     return result;
-  }, [filteredForms, formsMap, isFormAChild]);
+  }, [filteredForms, visibleForms, formsMap, isFormAChild]);
 
   const sortedGroupedForms = useMemo(() => {
     return Object.values(groupedForms).sort((a, b) => {
@@ -3154,10 +3214,14 @@ export default function FormsAnalytics() {
                       className="w-full px-3.5 py-2.5 text-sm border border-gray-300 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-medium"
                     >
                       <option value="">-- Choose a form to link --</option>
-                      {availableFormsToLink.map((f: any) => (
-                        <option key={f._id || f.id} value={f._id || f.id}>
-                          {f.title}
-                        </option>
+                      {Object.entries(formsGroupedByTenant).map(([tenantName, tenantForms]) => (
+                        <optgroup key={tenantName} label={tenantName}>
+                          {tenantForms.map((f: any) => (
+                            <option key={f._id || f.id} value={f._id || f.id}>
+                              {f.title}
+                            </option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
                     {availableFormsToLink.length === 0 && (

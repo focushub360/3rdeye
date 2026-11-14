@@ -3887,7 +3887,9 @@ export const getQualitySummary = async (req, res) => {
                       0
                     ]
                   }
-                }
+                },
+                tenantId: { $first: '$tenantId' },
+                createdBy: { $first: '$createdBy' }
               }
             }
           ],
@@ -4311,16 +4313,39 @@ export const getQualitySummary = async (req, res) => {
     let metCount = 0;
     let partiallyMetCount = 0;
 
+    // Build tenant lookup maps to attach tenant names to inspectors
+    const allTenantsList = await Tenant.find({}).select('_id name companyName').lean();
+    const tenantMap = {};
+    allTenantsList.forEach(t => {
+      tenantMap[t._id.toString()] = t.companyName || t.name || '';
+    });
+
+    const allUsersList = await User.find({}).select('firstName lastName username email tenantId').populate('tenantId', 'name companyName').lean();
+    const userTenantMap = {};
+    allUsersList.forEach(u => {
+      const tName = u.tenantId?.companyName || u.tenantId?.name || (u.tenantId ? tenantMap[u.tenantId.toString()] : '') || '';
+      if (tName) {
+        const full = `${u.firstName || ''} ${u.lastName || ''}`.trim().toLowerCase();
+        if (full) userTenantMap[full] = tName;
+        if (u.username) userTenantMap[u.username.trim().toLowerCase()] = tName;
+        if (u.email) userTenantMap[u.email.trim().toLowerCase()] = tName;
+        if (u.firstName) userTenantMap[u.firstName.trim().toLowerCase()] = tName;
+      }
+    });
+
     // Aggregate inspector records by name and retain form-wise metrics
     const inspectorAggMap = {};
     (agg.byInspector || []).forEach(item => {
       const inspName = typeof item._id === 'object' ? (item._id.inspector || 'Unknown Submitter') : (item._id || 'Unknown Submitter');
       const formKey = typeof item._id === 'object' ? item._id.formKey : null;
       const fTitle = formTitleMap[formKey] || formKey || 'Selected Form';
+      const cleanInspLower = inspName.trim().toLowerCase();
+      const resolvedTenant = userTenantMap[cleanInspLower] || (item.tenantId ? tenantMap[item.tenantId.toString()] : '') || '';
 
       if (!inspectorAggMap[inspName]) {
         inspectorAggMap[inspName] = {
           name: inspName,
+          tenantName: resolvedTenant,
           totalChecked: 0,
           defectCount: 0,
           rework1Count: 0,
@@ -4333,6 +4358,8 @@ export const getQualitySummary = async (req, res) => {
           dispatchedCount: 0,
           forms: {}
         };
+      } else if (!inspectorAggMap[inspName].tenantName && resolvedTenant) {
+        inspectorAggMap[inspName].tenantName = resolvedTenant;
       }
 
       inspectorAggMap[inspName].totalChecked += item.totalChecked || 0;
@@ -4397,6 +4424,7 @@ export const getQualitySummary = async (req, res) => {
 
       return {
         name: insp.name,
+        tenantName: insp.tenantName || '',
         totalChecked: tChecked,
         totalSubmitted: tChecked,
         dispatched: insp.dispatchedCount || 0,

@@ -309,10 +309,28 @@ export const createForm = async (req, res) => {
           const exists = parentForm.childForms.some(cf => cf.formId === form.id || cf.formId === form._id.toString());
           if (!exists) {
             parentForm.childForms.push({
-              formId: form.id || form._id.toString(),
+              formId: form._id ? form._id.toString() : form.id,
               formTitle: form.title,
               order: parentForm.childForms.length
             });
+            // Auto-share: if parent has sharedWithTenants, copy to child
+            if (parentForm.sharedWithTenants && parentForm.sharedWithTenants.length > 0) {
+              if (!form.sharedWithTenants) form.sharedWithTenants = [];
+              parentForm.sharedWithTenants.forEach(tId => {
+                if (!form.sharedWithTenants.some(t => t.toString() === tId.toString())) {
+                  form.sharedWithTenants.push(tId);
+                }
+              });
+              await form.save();
+            }
+            // Auto-share: if parent belongs to another tenant, share child with parent tenant
+            if (parentForm.tenantId && form.tenantId && parentForm.tenantId.toString() !== form.tenantId.toString()) {
+              if (!form.sharedWithTenants) form.sharedWithTenants = [];
+              if (!form.sharedWithTenants.some(t => t.toString() === parentForm.tenantId.toString())) {
+                form.sharedWithTenants.push(parentForm.tenantId);
+                await form.save();
+              }
+            }
             await parentForm.save();
           }
         }
@@ -384,11 +402,39 @@ export const getAllForms = async (req, res) => {
         : null;
       const tenantValues = [tenantIdStr, tenantIdObj].filter(Boolean);
 
-      query = {
+      // Find all parent forms accessible by this tenant to also include their child follow-ups
+      const accessibleParents = await Form.find({
         $or: [
           { tenantId: { $in: tenantValues } },
           { sharedWithTenants: { $in: tenantValues } },
           { "chassisTenantAssignments.assignedTenants": tenantIdStr }
+        ]
+      }).select('_id id childForms parentFormId').lean();
+
+      const linkedChildIds = [];
+      const linkedParentIds = [];
+      accessibleParents.forEach(p => {
+        if (p._id) linkedParentIds.push(p._id.toString());
+        if (p.id) linkedParentIds.push(p.id.toString());
+        if (p.parentFormId) linkedParentIds.push(p.parentFormId.toString());
+        (p.childForms || []).forEach(cf => {
+          const cfId = typeof cf === 'string' ? cf : (cf.formId || cf.id || cf._id);
+          if (cfId) linkedChildIds.push(cfId.toString());
+        });
+      });
+
+      const additionalObjectIds = [...linkedChildIds, ...linkedParentIds]
+        .filter(id => mongoose.Types.ObjectId.isValid(id))
+        .map(id => new mongoose.Types.ObjectId(id));
+
+      query = {
+        $or: [
+          { tenantId: { $in: tenantValues } },
+          { sharedWithTenants: { $in: tenantValues } },
+          { "chassisTenantAssignments.assignedTenants": tenantIdStr },
+          { _id: { $in: additionalObjectIds } },
+          { id: { $in: [...linkedChildIds, ...linkedParentIds] } },
+          { parentFormId: { $in: [...linkedChildIds, ...linkedParentIds] } }
         ]
       };
     } else if (req.user.role === 'superadmin' && queryTenantId) {
@@ -1919,12 +1965,21 @@ export const linkChildForm = async (req, res) => {
       });
     }
 
-    // Check if forms belong to the same tenant
-    if (parentForm.tenantId.toString() !== childForm.tenantId.toString()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Parent and child forms must belong to the same organization'
-      });
+    // Support cross-tenant / tenant-wise form linking:
+    // If parent and child forms belong to different organizations, automatically share them with each other
+    if (parentForm.tenantId && childForm.tenantId && parentForm.tenantId.toString() !== childForm.tenantId.toString()) {
+      const parentTenantStr = parentForm.tenantId.toString();
+      const childTenantStr = childForm.tenantId.toString();
+
+      if (!childForm.sharedWithTenants) childForm.sharedWithTenants = [];
+      if (!childForm.sharedWithTenants.some(t => t.toString() === parentTenantStr)) {
+        childForm.sharedWithTenants.push(parentForm.tenantId);
+      }
+
+      if (!parentForm.sharedWithTenants) parentForm.sharedWithTenants = [];
+      if (!parentForm.sharedWithTenants.some(t => t.toString() === childTenantStr)) {
+        parentForm.sharedWithTenants.push(childForm.tenantId);
+      }
     }
 
     // Check permissions
@@ -1942,8 +1997,10 @@ export const linkChildForm = async (req, res) => {
     }
 
     // Check if child form is already linked
+    const childIdStr = childForm.id ? String(childForm.id) : '';
+    const childMongoIdStr = childForm._id ? String(childForm._id) : '';
     const existingLink = parentForm.childForms.find(
-      cf => cf.formId === childForm.id
+      cf => (childIdStr && cf.formId === childIdStr) || (childMongoIdStr && cf.formId === childMongoIdStr)
     );
 
     if (existingLink) {
@@ -1956,13 +2013,14 @@ export const linkChildForm = async (req, res) => {
     // Add child form
     const order = parentForm.childForms.length;
     parentForm.childForms.push({
-      formId: childForm.id,
+      formId: childForm._id ? childForm._id.toString() : childForm.id,
       formTitle: childForm.title,
       order
     });
 
     // Also set parentFormId on child form for bidirectional consistency
-    childForm.parentFormId = parentForm.id || parentForm._id.toString();
+    childForm.parentFormId = parentForm._id ? parentForm._id.toString() : parentForm.id;
+    childForm.parentFormTitle = parentForm.title;
 
     await Promise.all([parentForm.save(), childForm.save()]);
 
@@ -2017,9 +2075,15 @@ export const unlinkChildForm = async (req, res) => {
       });
     }
 
+    const targetChildForm = await findFormByIdentifier(childFormId);
+    const targetChildMongoId = targetChildForm?._id ? targetChildForm._id.toString() : '';
+    const targetChildUuid = targetChildForm?.id ? String(targetChildForm.id) : '';
+
     const initialLength = parentForm.childForms.length;
     parentForm.childForms = parentForm.childForms.filter(
-      cf => cf.formId !== childFormId
+      cf => cf.formId !== childFormId &&
+            (!targetChildMongoId || cf.formId !== targetChildMongoId) &&
+            (!targetChildUuid || cf.formId !== targetChildUuid)
     );
 
     if (parentForm.childForms.length === initialLength) {
