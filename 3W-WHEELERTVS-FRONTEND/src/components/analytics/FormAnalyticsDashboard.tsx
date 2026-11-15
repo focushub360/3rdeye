@@ -6275,7 +6275,7 @@ export default function FormAnalyticsDashboard({
             }
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }
 
     // 1. If viewing a child form, ensure parent form sections & parent answers for this chassis are loaded
@@ -18281,34 +18281,31 @@ export default function FormAnalyticsDashboard({
                                           key={tab.id}
                                           type="button"
                                           onClick={() => setActiveReviewQuestionTab(tab.id)}
-                                          className={`relative flex items-center justify-between p-3.5 rounded-xl text-left transition-all cursor-pointer border ${
-                                            isTabActive
-                                              ? isMain
-                                                ? "bg-white dark:bg-gray-800 border-blue-500 dark:border-blue-400 shadow-md ring-2 ring-blue-500/20"
-                                                : "bg-white dark:bg-gray-800 border-purple-500 dark:border-purple-400 shadow-md ring-2 ring-purple-500/20"
-                                              : "bg-white/80 dark:bg-gray-800/60 border-slate-200 dark:border-slate-700/80 hover:border-slate-300 hover:bg-white dark:hover:bg-gray-800 shadow-2xs"
-                                          }`}
+                                          className={`relative flex items-center justify-between p-3.5 rounded-xl text-left transition-all cursor-pointer border ${isTabActive
+                                            ? isMain
+                                              ? "bg-white dark:bg-gray-800 border-blue-500 dark:border-blue-400 shadow-md ring-2 ring-blue-500/20"
+                                              : "bg-white dark:bg-gray-800 border-purple-500 dark:border-purple-400 shadow-md ring-2 ring-purple-500/20"
+                                            : "bg-white/80 dark:bg-gray-800/60 border-slate-200 dark:border-slate-700/80 hover:border-slate-300 hover:bg-white dark:hover:bg-gray-800 shadow-2xs"
+                                            }`}
                                         >
                                           <div className="flex items-start gap-2.5 min-w-0 pr-2">
                                             <div
-                                              className={`p-2 rounded-lg shrink-0 mt-0.5 ${
-                                                isTabActive
-                                                  ? isMain
-                                                    ? "bg-blue-600 text-white shadow-xs"
-                                                    : "bg-purple-600 text-white shadow-xs"
-                                                  : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
-                                              }`}
+                                              className={`p-2 rounded-lg shrink-0 mt-0.5 ${isTabActive
+                                                ? isMain
+                                                  ? "bg-blue-600 text-white shadow-xs"
+                                                  : "bg-purple-600 text-white shadow-xs"
+                                                : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
+                                                }`}
                                             >
                                               <FileText className="w-4 h-4" />
                                             </div>
                                             <div className="flex flex-col min-w-0">
                                               <div className="flex items-center gap-1.5 mb-1">
                                                 <span
-                                                  className={`text-[9px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-md ${
-                                                    isMain
-                                                      ? "bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
-                                                      : "bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800"
-                                                  }`}
+                                                  className={`text-[9px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-md ${isMain
+                                                    ? "bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                                                    : "bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800"
+                                                    }`}
                                                 >
                                                   {isMain ? "Main Form" : "Child Form"}
                                                 </span>
@@ -18337,13 +18334,12 @@ export default function FormAnalyticsDashboard({
                                               </span>
                                             ) : (
                                               <span
-                                                className={`text-[10px] font-bold px-2.5 py-1 rounded-md transition-colors ${
-                                                  isTabActive
-                                                    ? isMain
-                                                      ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200/60"
-                                                      : "bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200/60"
-                                                    : "text-slate-400 border border-transparent"
-                                                }`}
+                                                className={`text-[10px] font-bold px-2.5 py-1 rounded-md transition-colors ${isTabActive
+                                                  ? isMain
+                                                    ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200/60"
+                                                    : "bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200/60"
+                                                  : "text-slate-400 border border-transparent"
+                                                  }`}
                                               >
                                                 {isTabActive ? "Viewing" : "Select"}
                                               </span>
@@ -18388,9 +18384,8 @@ export default function FormAnalyticsDashboard({
                                     return (
                                       <div
                                         key={q.id}
-                                        className={`p-3 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 transition-colors ${
-                                          isChecked ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""
-                                        }`}
+                                        className={`p-3 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 transition-colors ${isChecked ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""
+                                          }`}
                                       >
                                         <div className="flex items-start gap-3">
                                           <label className="mt-0.5 cursor-pointer">
