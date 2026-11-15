@@ -5867,17 +5867,29 @@ export default function FormAnalyticsDashboard({
     // 1. Check if the chassis has assigned tenants (on this form or parent form)
     const assignments = (form as any)?.chassisTenantAssignments || (form as any)?.parentForm?.chassisTenantAssignments;
     if (Array.isArray(assignments) && assignments.length > 0) {
-      const respChassis = String(
-        response.chassisNumber ||
-        response.answers?.chassis_number ||
-        response.answers?.chassisNumber ||
-        (typeof response.answers === "object" && response.answers ? Object.values(response.answers).find((v: any) => v && typeof v === "object" && v.chassisNumber)?.chassisNumber : "") ||
-        ""
-      ).trim().toLowerCase();
+      const chassisCandidates = new Set<string>();
+      if (response.chassisNumber) chassisCandidates.add(String(response.chassisNumber).trim().toLowerCase());
+      if ((response as any).systemChassisNumber) chassisCandidates.add(String((response as any).systemChassisNumber).trim().toLowerCase());
+      if ((response as any).system_chassis) chassisCandidates.add(String((response as any).system_chassis).trim().toLowerCase());
 
-      const matchedAssignment = assignments.find((a: any) =>
-        a.chassisNumber && respChassis && String(a.chassisNumber).trim().toLowerCase() === respChassis
-      );
+      if (response.answers && typeof response.answers === "object") {
+        const chassisKeyPatterns = ["chassis", "vin", "vehicle", "serial", "selected"];
+        for (const [key, val] of Object.entries(response.answers)) {
+          if (val !== undefined && val !== null && (typeof val === "string" || typeof val === "number")) {
+            const strVal = String(val).trim().toLowerCase();
+            if (!strVal) continue;
+            const kLower = key.toLowerCase();
+            if (chassisKeyPatterns.some(p => kLower.includes(p))) {
+              chassisCandidates.add(strVal);
+            }
+          }
+        }
+      }
+
+      const matchedAssignment = assignments.find((a: any) => {
+        const aChassis = String(a.chassisNumber || "").trim().toLowerCase();
+        return aChassis && chassisCandidates.has(aChassis);
+      });
 
       if (matchedAssignment && Array.isArray(matchedAssignment.assignedTenants) && matchedAssignment.assignedTenants.length > 0) {
         const isAssigned = matchedAssignment.assignedTenants.some(
@@ -8512,18 +8524,8 @@ export default function FormAnalyticsDashboard({
         }
       }
 
-      // Dispatch is tracked independently of status - a response can be
-      // Direct Ok (or any other status) AND already dispatched, but NEVER if it has active rework/rejection.
-      const respBiwStatus = String(response.biwReview?.status || "").toLowerCase();
-      const respTvsStatus = String(response.review?.reviewOption || response.review?.status || "").toLowerCase();
-      const isRespReworkOrRejected =
-        respBiwStatus === "rework" ||
-        respBiwStatus === "reworked" ||
-        respBiwStatus === "rejected" ||
-        respTvsStatus === "rework" ||
-        respTvsStatus === "rejected";
-
-      if (response.isDispatched && !isRespReworkOrRejected) {
+      // Dispatch is tracked independently of status - once marked dispatched, it remains counted as dispatched.
+      if (response.isDispatched) {
         dispatched++;
       }
     });

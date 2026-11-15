@@ -22,6 +22,36 @@ import { recordImportHistory } from './importHistoryController.js';
 // queries, which meant a user from a tenant a form was merely *shared* with
 // could never find, update, dispatch, review, reassign, or delete responses
 // on that shared form — every such call silently 404'd or matched nothing.
+// Helper to extract all possible chassis identifiers for matching assignments
+const extractResponseChassisCandidates = (response) => {
+  const candidates = new Set();
+  if (response.chassisNumber) candidates.add(String(response.chassisNumber).trim().toLowerCase());
+  if (response.systemChassisNumber) candidates.add(String(response.systemChassisNumber).trim().toLowerCase());
+
+  let answerObj = response.answers;
+  if (answerObj) {
+    if (typeof answerObj.toJSON === 'function') {
+      answerObj = answerObj.toJSON();
+    } else if (answerObj instanceof Map) {
+      answerObj = Object.fromEntries(answerObj);
+    }
+    if (typeof answerObj === 'object') {
+      const chassisKeyPatterns = ['chassis', 'vin', 'vehicle', 'serial', 'selected'];
+      for (const [key, val] of Object.entries(answerObj)) {
+        if (val !== undefined && val !== null && (typeof val === 'string' || typeof val === 'number')) {
+          const strVal = String(val).trim().toLowerCase();
+          if (!strVal) continue;
+          const kLower = key.toLowerCase();
+          if (chassisKeyPatterns.some(p => kLower.includes(p))) {
+            candidates.add(strVal);
+          }
+        }
+      }
+    }
+  }
+  return Array.from(candidates);
+};
+
 // This mirrors the correct pattern already used in getResponsesByForm:
 // resolve the response/form first, then only enforce the tenant boundary
 // when the acting user is neither the owner tenant, a shared tenant, nor
@@ -29,6 +59,13 @@ import { recordImportHistory } from './importHistoryController.js';
 const canAccessResponseTenant = async (req, response) => {
   if (!response) return false;
   if (req.user?.role === 'superadmin') return true;
+
+  const userTenantIdStr = req.user?.tenantId ? req.user.tenantId.toString() : null;
+  const responseTenantIdStr = response.tenantId ? response.tenantId.toString() : null;
+  const matchesResponseTenant = responseTenantIdStr && responseTenantIdStr === userTenantIdStr;
+  const matchesCreator = req.user?._id && response.createdBy && String(response.createdBy) === String(req.user._id);
+
+  if (matchesResponseTenant || matchesCreator) return true;
 
   const targetFormId = response.questionId || response.formId;
   const or_conditions = [{ id: targetFormId }];
@@ -46,7 +83,6 @@ const canAccessResponseTenant = async (req, response) => {
     $or: or_conditions,
   }).select('tenantId sharedWithTenants chassisTenantAssignments parentFormId parentForm').lean();
 
-  const userTenantIdStr = req.user?.tenantId ? req.user.tenantId.toString() : null;
   const isOwnerTenant = form?.tenantId && form.tenantId.toString() === userTenantIdStr;
   const isSharedTenant =
     form?.sharedWithTenants &&
@@ -55,16 +91,12 @@ const canAccessResponseTenant = async (req, response) => {
   if (Array.isArray(form?.chassisTenantAssignments) && userTenantIdStr) {
     const myAssignedChassis = form.chassisTenantAssignments
       .filter((a) => a.assignedTenants && a.assignedTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr))
-      .map((a) => a.chassisNumber)
+      .map((a) => String(a.chassisNumber || '').trim().toLowerCase())
       .filter(Boolean);
 
     if (myAssignedChassis.length > 0) {
-      const respChassis =
-        response.chassisNumber ||
-        (response.answers instanceof Map
-          ? response.answers.get('chassis_number') || response.answers.get('chassisNumber')
-          : response.answers?.chassis_number || response.answers?.chassisNumber);
-      if (respChassis && myAssignedChassis.includes(respChassis)) {
+      const respChassisCandidates = extractResponseChassisCandidates(response);
+      if (respChassisCandidates.some((c) => myAssignedChassis.includes(c))) {
         matchesAssignedChassis = true;
       }
     }
@@ -90,9 +122,15 @@ const canAccessResponseTenant = async (req, response) => {
     if (parentFormDoc) {
       const isParentOwner = parentFormDoc.tenantId && parentFormDoc.tenantId.toString() === userTenantIdStr;
       const isParentShared = Array.isArray(parentFormDoc.sharedWithTenants) && parentFormDoc.sharedWithTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr);
-      const isParentAssigned = Array.isArray(parentFormDoc.chassisTenantAssignments) && parentFormDoc.chassisTenantAssignments.some(
-        (a) => a.assignedTenants && a.assignedTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr)
-      );
+      const isParentAssigned = Array.isArray(parentFormDoc.chassisTenantAssignments) && (() => {
+        const myParentAssigned = parentFormDoc.chassisTenantAssignments
+          .filter((a) => a.assignedTenants && a.assignedTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr))
+          .map((a) => String(a.chassisNumber || '').trim().toLowerCase())
+          .filter(Boolean);
+        if (myParentAssigned.length === 0) return false;
+        const respChassisCandidates = extractResponseChassisCandidates(response);
+        return respChassisCandidates.some((c) => myParentAssigned.includes(c));
+      })();
       matchesParentFormAccess = Boolean(isParentOwner || isParentShared || isParentAssigned);
     }
   }
@@ -112,12 +150,6 @@ const canAccessResponseTenant = async (req, response) => {
               (Array.isArray(cf.sharedWithTenants) && cf.sharedWithTenants.some((t) => String(t?._id || t?.id || t) === userTenantIdStr))
     );
   }
-
-  // Response.tenantId itself always equals the form owner's tenant, so as a
-  // last resort also accept a direct match against it (covers responses
-  // whose form record may have since been deleted/moved).
-  const responseTenantIdStr = response.tenantId ? response.tenantId.toString() : null;
-  const matchesResponseTenant = responseTenantIdStr && responseTenantIdStr === userTenantIdStr;
 
   return Boolean(isOwnerTenant || isSharedTenant || matchesAssignedChassis || matchesParentFormAccess || matchesChildFormAccess || matchesResponseTenant);
 };
@@ -4567,15 +4599,12 @@ export const updateResponse = async (req, res) => {
             : (parentDoc?.chassisTenantAssignments || []);
 
           if (assignmentsToCheck.length > 0) {
-            const respChassis = String(
-              response.chassisNumber ||
-              (response.answers instanceof Map ? response.answers.get('chassis_number') || response.answers.get('chassisNumber') : response.answers?.chassis_number || response.answers?.chassisNumber) ||
-              ''
-            ).trim().toLowerCase();
+            const respChassisCandidates = extractResponseChassisCandidates(response);
 
-            const assignment = assignmentsToCheck.find(a =>
-              a.chassisNumber && respChassis && a.chassisNumber.toString().trim().toLowerCase() === respChassis
-            );
+            const assignment = assignmentsToCheck.find(a => {
+              const aChassis = String(a.chassisNumber || '').trim().toLowerCase();
+              return aChassis && respChassisCandidates.includes(aChassis);
+            });
 
             if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
               const userTenantIdStr = req.user.tenantId ? req.user.tenantId.toString() : '';
@@ -4630,13 +4659,6 @@ export const updateResponse = async (req, res) => {
           evidenceUrl: biwReview.evidenceUrl || '',
           flaggedQuestions: Array.isArray(biwReview.flaggedQuestions) ? biwReview.flaggedQuestions : []
         };
-
-        if (biwReview.status === 'Reworked' || biwReview.status === 'Rework' || biwReview.status === 'Rejected') {
-          response.isDispatched = false;
-          response.dispatchedAt = null;
-          response.dispatchedBy = null;
-          response.dispatchedByName = null;
-        }
       }
     }
 
@@ -4654,13 +4676,6 @@ export const updateResponse = async (req, res) => {
           reviewedByName: userUsername || userEmail || 'Reviewer',
           reviewedAt: new Date()
         };
-
-        if (revOption === 'Rework' || revOption === 'Rejected') {
-          response.isDispatched = false;
-          response.dispatchedAt = null;
-          response.dispatchedBy = null;
-          response.dispatchedByName = null;
-        }
       }
     }
 
@@ -6430,15 +6445,12 @@ export const getResponsesByForm = async (req, res) => {
             : (parentDoc?.chassisTenantAssignments || []);
 
           if (assignmentsToCheck.length > 0) {
-            const respChassis = String(
-              response.chassisNumber ||
-              (response.answers instanceof Map ? response.answers.get('chassis_number') || response.answers.get('chassisNumber') : response.answers?.chassis_number || response.answers?.chassisNumber) ||
-              ''
-            ).trim().toLowerCase();
+            const respChassisCandidates = extractResponseChassisCandidates(response);
 
-            const assignment = assignmentsToCheck.find(a =>
-              a.chassisNumber && respChassis && a.chassisNumber.toString().trim().toLowerCase() === respChassis
-            );
+            const assignment = assignmentsToCheck.find(a => {
+              const aChassis = String(a.chassisNumber || '').trim().toLowerCase();
+              return aChassis && respChassisCandidates.includes(aChassis);
+            });
 
             if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
               const isAssigned = assignment.assignedTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
@@ -6493,13 +6505,6 @@ export const getResponsesByForm = async (req, res) => {
             reviewedByName: userUsername || userEmail || 'Reviewer',
             reviewedAt: new Date()
           };
-
-          if (status === 'Reworked' || status === 'Rework' || status === 'Rejected') {
-            response.isDispatched = false;
-            response.dispatchedAt = null;
-            response.dispatchedBy = null;
-            response.dispatchedByName = null;
-          }
         }
 
         await response.save();
