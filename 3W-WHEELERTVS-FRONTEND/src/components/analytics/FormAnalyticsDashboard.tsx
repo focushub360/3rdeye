@@ -6700,7 +6700,11 @@ export default function FormAnalyticsDashboard({
     );
 
     // 1. If backend already provided rich followUpStatus or parentMatch, prioritize it
-    const fs = response?.followUpStatus || response?.parentMatch;
+    const respId = response?.id || response?._id;
+    const matchedFromTable = tableResponses?.find(
+      (tr: any) => (tr.id && (tr.id === respId || tr.id === response?.id)) || (tr._id && (tr._id === respId || tr._id === response?._id))
+    );
+    const fs = response?.followUpStatus || response?.parentMatch || matchedFromTable?.followUpStatus || (matchedFromTable as any)?.parentMatch;
     if (fs) {
       if (fs.status === "matched" || fs.isMatched === true) {
         const isParentMatch = fs.matchType === "parent" || isChildForm;
@@ -6720,7 +6724,7 @@ export default function FormAnalyticsDashboard({
         };
       }
 
-      if (fs.status === "unmatched" || (isChildForm && (!fs.isMatched || fs.matchType === "parent" || fs.status === "standalone"))) {
+      if (fs.status === "unmatched" || fs.isMatched === false || (isChildForm && fs.status === "standalone")) {
         return {
           status: "unmatched",
           badgeText: "⚠ No Parent Match",

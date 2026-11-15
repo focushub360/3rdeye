@@ -5406,7 +5406,7 @@ export const getResponsesByForm = async (req, res) => {
     );
 
     // Query parent/child matches if we have responses on this page and this form has parent/child relationships or follow-up responses
-    if (responses.length > 0 && !isAnalytics && (isChildForm || isParentForm || hasFollowUpResponsesInBatch)) {
+    if (responses.length > 0 && (isChildForm || isParentForm || hasFollowUpResponsesInBatch)) {
       const pageChassisList = responses.map(r => getChassisFromDoc(r)).filter(Boolean);
         const chassisStringsSet = new Set();
         pageChassisList.forEach(c => {
@@ -5530,12 +5530,18 @@ export const getResponsesByForm = async (req, res) => {
           formsToExtractKeys.forEach(f => {
             (f.sections || []).forEach(s => {
               (s.questions || []).forEach(q => {
-                if (q.id) {
-                  parentSearchConditions.push({ [`answers.${q.id}`]: { $in: chassisStrings } });
-                  parentSearchConditions.push({ [`answers.${q.id}_tracking`]: { $in: chassisStrings } });
-                }
-                if (q.text) {
-                  parentSearchConditions.push({ [`answers.${q.text}`]: { $in: chassisStrings } });
+                const isChassisQ = q.isTrackingNumber || q.isChassisQuestion || q.type === 'chassisNumber' ||
+                  (q.title && /chassis|vin|frame|identification/i.test(q.title)) ||
+                  (q.text && /chassis|vin|frame|identification/i.test(q.text)) ||
+                  (q.label && /chassis|vin|frame|identification/i.test(q.label));
+                if (isChassisQ) {
+                  if (q.id) {
+                    parentSearchConditions.push({ [`answers.${q.id}`]: { $in: chassisStrings } });
+                    parentSearchConditions.push({ [`answers.${q.id}_tracking`]: { $in: chassisStrings } });
+                  }
+                  if (q.text) {
+                    parentSearchConditions.push({ [`answers.${q.text}`]: { $in: chassisStrings } });
+                  }
                 }
               });
             });
@@ -5638,12 +5644,18 @@ export const getResponsesByForm = async (req, res) => {
           childFormDocs.forEach(f => {
             (f.sections || []).forEach(s => {
               (s.questions || []).forEach(q => {
-                if (q.id) {
-                  childSearchConditions.push({ [`answers.${q.id}`]: { $in: chassisStrings } });
-                  childSearchConditions.push({ [`answers.${q.id}_tracking`]: { $in: chassisStrings } });
-                }
-                if (q.text) {
-                  childSearchConditions.push({ [`answers.${q.text}`]: { $in: chassisStrings } });
+                const isChassisQ = q.isTrackingNumber || q.isChassisQuestion || q.type === 'chassisNumber' ||
+                  (q.title && /chassis|vin|frame|identification/i.test(q.title)) ||
+                  (q.text && /chassis|vin|frame|identification/i.test(q.text)) ||
+                  (q.label && /chassis|vin|frame|identification/i.test(q.label));
+                if (isChassisQ) {
+                  if (q.id) {
+                    childSearchConditions.push({ [`answers.${q.id}`]: { $in: chassisStrings } });
+                    childSearchConditions.push({ [`answers.${q.id}_tracking`]: { $in: chassisStrings } });
+                  }
+                  if (q.text) {
+                    childSearchConditions.push({ [`answers.${q.text}`]: { $in: chassisStrings } });
+                  }
                 }
               });
             });
