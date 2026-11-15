@@ -2690,7 +2690,7 @@ export default function FormAnalyticsDashboard({
         return saved === "true";
       }
     } catch (e) { }
-    return false;
+    return true;
   });
 
   const [tvsReviews, setTvsReviews] = useState<any[]>([]);
@@ -3986,6 +3986,25 @@ export default function FormAnalyticsDashboard({
   // spinner shows immediately on the default "dashboard" tab instead of a
   // flash of "No data" while the lazy fetch is still in flight.
   const [analyticsResponsesLoading, setAnalyticsResponsesLoading] = useState(true);
+
+  // Determine if the current form being viewed is a child/follow-up form
+  const isChildFollowUpForm = useMemo(() => {
+    return Boolean(
+      form?.parentFormId ||
+      form?.parentForm ||
+      form?.parentFormTitle ||
+      (form as any)?.isChild ||
+      (form as any)?.isChildForm ||
+      (form as any)?.isFollowUp ||
+      (form as any)?.type === "child" ||
+      (form as any)?.type === "followup" ||
+      (form as any)?.formType === "child" ||
+      (form as any)?.formType === "followup" ||
+      relatedFormData?.parentForm ||
+      (tableResponses?.length > 0 && tableResponses.some((r: any) => r.parentFormId || r.parentResponseId || r.followUpStatus?.matchType === "parent" || r.parentMatch?.matchType === "parent")) ||
+      (responses?.length > 0 && responses.some((r: any) => r.parentFormId || r.parentResponseId || r.followUpStatus?.matchType === "parent" || r.parentMatch?.matchType === "parent"))
+    );
+  }, [form, relatedFormData?.parentForm, tableResponses, responses]);
 
 
 
@@ -6685,16 +6704,18 @@ export default function FormAnalyticsDashboard({
     if (fs) {
       if (fs.status === "matched" || fs.isMatched === true) {
         const isParentMatch = fs.matchType === "parent" || isChildForm;
+        const realParentStatus = (fs.parentStatus && fs.parentStatus !== "pending") ? fs.parentStatus : "Direct Ok";
+        const realFollowUpStatus = (fs.followUpStatus && fs.followUpStatus !== "pending") ? fs.followUpStatus : "Direct Ok";
         return {
           status: "matched",
           badgeText: isParentMatch ? "✓ Parent Matched" : "✓ Follow-up Done",
           badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
           icon: CheckCircle2,
           subText: isParentMatch
-            ? (fs.parentStatus ? `Status: ${fs.parentStatus}` : "Linked to Parent")
-            : (fs.followUpStatus ? `Status: ${fs.followUpStatus}` : "Follow-up Complete"),
+            ? `Status: ${realParentStatus}`
+            : (fs.followUpStatus ? `Status: ${realFollowUpStatus}` : "Follow-up Complete"),
           tooltip: fs.details || (isParentMatch
-            ? `Matched parent chassis "${fs.matchedChassis || ""}" (Status: ${fs.parentStatus || "Accepted"}) by ${fs.parentSubmittedBy || "Inspector"}`
+            ? `Matched parent chassis "${fs.matchedChassis || ""}" (Status: ${realParentStatus}) by ${fs.parentSubmittedBy || "Inspector"}`
             : `Follow-up completed for chassis "${fs.matchedChassis || ""}" by ${fs.followUpSubmittedBy || "Inspector"}`)
         };
       }
@@ -6740,7 +6761,8 @@ export default function FormAnalyticsDashboard({
         (r: any) => (r.id && r.id === response.parentResponseId) || (r._id && r._id === response.parentResponseId)
       );
       if (parentInList) {
-        const parentStatus = tableDisplayStatuses[parentInList.id || parentInList._id] || parentInList.status || "Accepted";
+        let parentStatus = tableDisplayStatuses[parentInList.id || parentInList._id] || parentInList.status || "Accepted";
+        if (parentStatus === "pending") parentStatus = "Direct Ok";
         const parentSubmitter = parentInList.submittedBy || "Inspector";
         return {
           status: "matched",
@@ -6790,7 +6812,8 @@ export default function FormAnalyticsDashboard({
         (r: any) => r.id !== respId && getChassisOrItemId(r, chassisQuestionId) === unitId
       );
       if (parentInList) {
-        const parentStatus = tableDisplayStatuses[parentInList.id || parentInList._id] || parentInList.status || "Accepted";
+        let parentStatus = tableDisplayStatuses[parentInList.id || parentInList._id] || parentInList.status || "Accepted";
+        if (parentStatus === "pending") parentStatus = "Direct Ok";
         return {
           status: "matched",
           badgeText: "✓ Parent Matched",
@@ -11165,11 +11188,14 @@ export default function FormAnalyticsDashboard({
         rowsToExport = sortResponses(rowsToExport);
       }
 
+      const includeParentMatchInExcel = Boolean(isChildFollowUpForm && showParentMatchColumn);
+
       const headerRow: any[] = [
         "Timestamp",
         "Submitted By",
         "Status",
         "Chassis Number",
+        ...(includeParentMatchInExcel ? ["Parent Match", "Parent Inspection Status"] : []),
         "Review",
         "BIW Review",
         "BIW Reviewed By",
@@ -11283,6 +11309,18 @@ export default function FormAnalyticsDashboard({
           : "-";
         const biwRemarkVal = biwRev?.remark || "-";
 
+        let parentMatchText = "-";
+        let parentMatchStatusText = "-";
+        if (includeParentMatchInExcel) {
+          const pm = computeParentMatch(response);
+          parentMatchText = pm.badgeText || "-";
+          const fs = response?.followUpStatus || (response as any)?.parentMatch;
+          const directParentStatus = fs?.parentStatus && fs.parentStatus !== "pending"
+            ? fs.parentStatus
+            : (pm.subText?.startsWith("Status: ") ? pm.subText.replace("Status: ", "") : (pm.status === "matched" ? "Direct Ok" : "-"));
+          parentMatchStatusText = directParentStatus || "-";
+        }
+
         const rowData: any[] = [
           getResponseTimestamp(response)
             ? formatToDDMMYYYY(getResponseTimestamp(response)!)
@@ -11290,6 +11328,7 @@ export default function FormAnalyticsDashboard({
           response.submittedBy || response.createdBy || "Anonymous",
           statusVal,
           getResponseChassisValue(response),
+          ...(includeParentMatchInExcel ? [parentMatchText, parentMatchStatusText] : []),
           reviewVal,
           biwStatusVal,
           biwReviewedByVal,
@@ -13975,30 +14014,32 @@ export default function FormAnalyticsDashboard({
                       </div>
                     )}
 
-                    {/* Top Parent Match Tick Box */}
-                    <label
-                      className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer select-none shadow-2xs ${showParentMatchColumn
-                        ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700 ring-1 ring-indigo-400"
-                        : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
-                        }`}
-                      title={showParentMatchColumn ? "Untick to hide Parent Match column" : "Tick to show Parent Match column"}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={showParentMatchColumn}
-                        onChange={(e) => {
-                          const nextVal = e.target.checked;
-                          setShowParentMatchColumn(nextVal);
-                          try {
-                            const formKey = id || (form as any)?._id || "default";
-                            localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
-                          } catch (err) { }
-                        }}
-                        className="w-4 h-4 text-indigo-600 rounded border-gray-300 dark:border-gray-600 focus:ring-indigo-500 accent-indigo-600 cursor-pointer"
-                      />
-                      <Link2 className={`w-3.5 h-3.5 ${showParentMatchColumn ? "text-indigo-600 dark:text-indigo-400" : "text-gray-400"}`} />
-                      <span className="whitespace-nowrap">Parent Match</span>
-                    </label>
+                    {/* Top Parent Match Tick Box - Only for Follow-up / Child forms */}
+                    {isChildFollowUpForm && (
+                      <label
+                        className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer select-none shadow-2xs ${showParentMatchColumn
+                          ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700 ring-1 ring-indigo-400"
+                          : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
+                          }`}
+                        title={showParentMatchColumn ? "Untick to hide Parent Match column" : "Tick to show Parent Match column"}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={showParentMatchColumn}
+                          onChange={(e) => {
+                            const nextVal = e.target.checked;
+                            setShowParentMatchColumn(nextVal);
+                            try {
+                              const formKey = id || (form as any)?._id || "default";
+                              localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
+                            } catch (err) { }
+                          }}
+                          className="w-4 h-4 text-indigo-600 rounded border-gray-300 dark:border-gray-600 focus:ring-indigo-500 accent-indigo-600 cursor-pointer"
+                        />
+                        <Link2 className={`w-3.5 h-3.5 ${showParentMatchColumn ? "text-indigo-600 dark:text-indigo-400" : "text-gray-400"}`} />
+                        <span className="whitespace-nowrap">Parent Match</span>
+                      </label>
+                    )}
 
                     <button
                       onClick={() => setShowFilterModal(true)}
@@ -14273,29 +14314,31 @@ export default function FormAnalyticsDashboard({
                             </p>
                           )}
 
-                          <div className="pt-2 border-t border-gray-200 dark:border-gray-700 mt-2">
-                            <label className="flex items-center gap-3 p-2 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/30 cursor-pointer transition-colors group">
-                              <input
-                                type="checkbox"
-                                checked={showParentMatchColumn}
-                                onChange={(e) => {
-                                  const nextVal = e.target.checked;
-                                  setShowParentMatchColumn(nextVal);
-                                  try {
-                                    const formKey = id || form?._id || "default";
-                                    localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
-                                  } catch (err) { }
-                                }}
-                                className="w-4 h-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-indigo-600"
-                              />
-                              <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                                <Link2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                                <span className="text-xs font-bold text-gray-900 dark:text-gray-200 block truncate">
-                                  Parent Match Column
-                                </span>
-                              </div>
-                            </label>
-                          </div>
+                          {isChildFollowUpForm && (
+                            <div className="pt-2 border-t border-gray-200 dark:border-gray-700 mt-2">
+                              <label className="flex items-center gap-3 p-2 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/30 cursor-pointer transition-colors group">
+                                <input
+                                  type="checkbox"
+                                  checked={showParentMatchColumn}
+                                  onChange={(e) => {
+                                    const nextVal = e.target.checked;
+                                    setShowParentMatchColumn(nextVal);
+                                    try {
+                                      const formKey = id || form?._id || "default";
+                                      localStorage.setItem(`show_parent_match_${formKey}`, String(nextVal));
+                                    } catch (err) { }
+                                  }}
+                                  className="w-4 h-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded cursor-pointer accent-indigo-600"
+                                />
+                                <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                                  <Link2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                                  <span className="text-xs font-bold text-gray-900 dark:text-gray-200 block truncate">
+                                    Parent Match Column
+                                  </span>
+                                </div>
+                              </label>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -14842,7 +14885,7 @@ export default function FormAnalyticsDashboard({
                                 </div>
                               </div>
                             </th>
-                            {showParentMatchColumn && (
+                            {isChildFollowUpForm && showParentMatchColumn && (
                               <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-700 min-w-44 whitespace-nowrap bg-indigo-50/60 dark:bg-indigo-950/20">
                                 <div className="flex items-center justify-between gap-1.5">
                                   <div
@@ -15673,7 +15716,7 @@ export default function FormAnalyticsDashboard({
                                       </div>
                                     )}
                                   </td>
-                                  {showParentMatchColumn && (
+                                  {isChildFollowUpForm && showParentMatchColumn && (
                                     <td className="px-4 py-3 text-xs border border-gray-200 dark:border-gray-700 min-w-44 whitespace-nowrap bg-indigo-50/20 dark:bg-indigo-950/10">
                                       {(() => {
                                         const pm = computeParentMatch(response);
@@ -16156,7 +16199,7 @@ export default function FormAnalyticsDashboard({
                                 <td className="px-6 py-4 border border-gray-200 dark:border-gray-700">
                                   <div className="w-24 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
                                 </td>
-                                {showParentMatchColumn && (
+                                {isChildFollowUpForm && showParentMatchColumn && (
                                   <td className="px-4 py-4 border border-gray-200 dark:border-gray-700">
                                     <div className="w-24 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
                                   </td>
@@ -16185,7 +16228,7 @@ export default function FormAnalyticsDashboard({
                             <tr>
                               <td
                                 colSpan={
-                                  (showParentMatchColumn ? 10 : 9) +
+                                  ((isChildFollowUpForm && showParentMatchColumn) ? 10 : 9) +
                                   (form?.sections?.reduce(
                                     (acc: number, sec: Section) =>
                                       selectedResponsesSectionIds.includes(

@@ -5406,7 +5406,7 @@ export const getResponsesByForm = async (req, res) => {
     );
 
     // Query parent/child matches if we have responses on this page and this form has parent/child relationships or follow-up responses
-    if (responses.length > 0 && (isChildForm || isParentForm || hasFollowUpResponsesInBatch)) {
+    if (responses.length > 0 && !isAnalytics && (isChildForm || isParentForm || hasFollowUpResponsesInBatch)) {
       const pageChassisList = responses.map(r => getChassisFromDoc(r)).filter(Boolean);
         const chassisStringsSet = new Set();
         pageChassisList.forEach(c => {
@@ -5432,24 +5432,50 @@ export const getResponsesByForm = async (req, res) => {
                 { _id: { $in: validObjectIds } }
               ]
             })
-              .select('answers createdAt id _id status submittedBy chassisNumber parentResponseId')
+              .select('answers createdAt id _id status submittedBy chassisNumber parentResponseId biwReview')
               .lean()
               .then(parentResponses => {
                 parentResponses.forEach(pr => {
                   const prId = pr.id || (pr._id ? pr._id.toString() : null);
                   if (prId) parentByIdMap.set(prId, pr);
                   const pVal = getChassisFromDoc(pr, parentFormDoc);
+                  const prAns = pr.answers instanceof Map ? Object.fromEntries(pr.answers) : (pr.answers || {});
                   if (pVal) {
                     const norm = pVal.toLowerCase().trim();
+                    let realParentStatus = (pr.status && pr.status !== 'pending') ? pr.status : null;
+                    if (!realParentStatus && pr.biwReview?.status) {
+                      realParentStatus = pr.biwReview.status;
+                    }
+                    if (!realParentStatus && prAns) {
+                      let hasRework = false;
+                      let hasReject = false;
+                      for (const val of Object.values(prAns)) {
+                        if (val && typeof val === 'object' && val.status) {
+                          const s = String(val.status).toLowerCase().trim();
+                          if (s === 'rework' || s.includes('rework')) hasRework = true;
+                          if (s === 'rejected' || s === 'reject') hasReject = true;
+                        } else if (typeof val === 'string') {
+                          const s = val.toLowerCase().trim();
+                          if (s === 'rework' || s.includes('rework')) hasRework = true;
+                          if (s === 'rejected' || s === 'reject') hasReject = true;
+                        }
+                      }
+                      if (hasReject) realParentStatus = 'Rejected';
+                      else if (hasRework) realParentStatus = 'Rework 1';
+                      else realParentStatus = 'Direct Ok';
+                    }
+                    if (!realParentStatus) realParentStatus = 'Direct Ok';
+
                     if (!parentChassisMap.has(norm)) {
                       parentChassisMap.set(norm, {
                         hasResponse: true,
                         responseCount: 1,
                         latestCreatedAt: pr.createdAt,
-                        status: pr.status || 'Accepted',
+                        status: realParentStatus,
                         submittedBy: pr.submittedBy || 'Inspector',
                         responseId: prId,
-                        chassis: pVal
+                        chassis: pVal,
+                        answers: prAns
                       });
                     }
                   }
@@ -5542,7 +5568,7 @@ export const getResponsesByForm = async (req, res) => {
 
           matchPromises.push(
             Response.find(parentQuery)
-              .select('answers createdAt id _id status submittedBy chassisNumber parentResponseId')
+              .select('answers createdAt id _id status submittedBy chassisNumber parentResponseId biwReview')
               .sort({ createdAt: -1 })
               .limit(5000)
               .lean()
@@ -5555,12 +5581,36 @@ export const getResponsesByForm = async (req, res) => {
                 const prAns = pr.answers instanceof Map ? Object.fromEntries(pr.answers) : (pr.answers || {});
                 if (pVal) {
                   const norm = pVal.toLowerCase().trim();
+                  let realParentStatus = (pr.status && pr.status !== 'pending') ? pr.status : null;
+                  if (!realParentStatus && pr.biwReview?.status) {
+                    realParentStatus = pr.biwReview.status;
+                  }
+                  if (!realParentStatus && prAns) {
+                    let hasRework = false;
+                    let hasReject = false;
+                    for (const val of Object.values(prAns)) {
+                      if (val && typeof val === 'object' && val.status) {
+                        const s = String(val.status).toLowerCase().trim();
+                        if (s === 'rework' || s.includes('rework')) hasRework = true;
+                        if (s === 'rejected' || s === 'reject') hasReject = true;
+                      } else if (typeof val === 'string') {
+                        const s = val.toLowerCase().trim();
+                        if (s === 'rework' || s.includes('rework')) hasRework = true;
+                        if (s === 'rejected' || s === 'reject') hasReject = true;
+                      }
+                    }
+                    if (hasReject) realParentStatus = 'Rejected';
+                    else if (hasRework) realParentStatus = 'Rework 1';
+                    else realParentStatus = 'Direct Ok';
+                  }
+                  if (!realParentStatus) realParentStatus = 'Direct Ok';
+
                   if (!parentChassisMap.has(norm)) {
                     parentChassisMap.set(norm, {
                       hasResponse: true,
                       responseCount: 1,
                       latestCreatedAt: pr.createdAt,
-                      status: pr.status || 'Accepted',
+                      status: realParentStatus,
                       submittedBy: pr.submittedBy || 'Inspector',
                       responseId: prId,
                       chassis: pVal,
@@ -5829,6 +5879,7 @@ export const getResponsesByForm = async (req, res) => {
           if (pMatch) {
             const parentChassis = pMatch.chassis || getChassisFromDoc(pMatch, parentFormDoc) || chassisVal;
             const parentAnswers = pMatch.answers || (directParent ? (directParent.answers instanceof Map ? Object.fromEntries(directParent.answers) : (directParent.answers || {})) : {});
+            const finalParentStatus = (pMatch.status && pMatch.status !== 'pending') ? pMatch.status : 'Direct Ok';
             followUpStatus = {
               isMatched: true,
               matchType: 'parent',
@@ -5836,7 +5887,7 @@ export const getResponsesByForm = async (req, res) => {
               label: 'Parent Matched',
               badgeText: '✓ Parent Matched',
               color: 'emerald',
-              parentStatus: pMatch.status || 'Accepted',
+              parentStatus: finalParentStatus,
               parentSubmittedBy: pMatch.submittedBy || 'Inspector',
               parentCreatedAt: pMatch.createdAt || pMatch.latestCreatedAt,
               parentResponseId: pMatch.responseId || pMatch.id || response.parentResponseId,
@@ -5844,7 +5895,7 @@ export const getResponsesByForm = async (req, res) => {
               parentFormTitle: parentFormDoc?.title || form.parentFormTitle,
               parentFormId: parentFormDoc?.id || parentFormDoc?._id?.toString() || parentFormIdStr,
               matchedChassis: parentChassis,
-              details: `Matched parent chassis "${parentChassis}" (Status: ${pMatch.status || 'Accepted'}) by ${pMatch.submittedBy || 'Inspector'}`
+              details: `Matched parent chassis "${parentChassis}" (Status: ${finalParentStatus}) by ${pMatch.submittedBy || 'Inspector'}`
             };
           } else {
             followUpStatus = {
