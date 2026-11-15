@@ -1673,8 +1673,8 @@ export default function FormsAnalytics() {
       <div className="p-6">
         <div className="text-center py-12 max-w-md mx-auto">
           <div className={`rounded-2xl p-6 mb-4 border shadow-sm ${isAuthError
-              ? "bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800/40"
-              : "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800/40"
+            ? "bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800/40"
+            : "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800/40"
             }`}>
             {isAuthError ? (
               <LogIn className="w-12 h-12 text-blue-600 dark:text-blue-400 mx-auto mb-4" />
@@ -2276,33 +2276,6 @@ export default function FormsAnalytics() {
                   >
                     <Folder className="w-3.5 h-3.5" />
                     <span>Uploads</span>
-                  </button>
-                )}
-
-                {/* If parent form: quick Add Follow-up button */}
-                {!isChild && canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => handleOpenAddFollowUpModal(form, children)}
-                    className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg transition-colors flex items-center justify-center gap-1.5 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800"
-                    title="Add a new follow-up form connected to this parent"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add Follow-up</span>
-                  </button>
-                )}
-
-                {/* If child form: quick Unlink button */}
-                {isChild && parentIdForUnlink && (
-                  <button
-                    type="button"
-                    onClick={() => handleUnlinkChildForm(parentIdForUnlink, formId, form.title || "")}
-                    className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors flex items-center justify-center gap-1.5 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Unlink from Parent Form"
-                    disabled={deletingFormId === formId}
-                  >
-                    <Unlink className="w-3.5 h-3.5" />
-                    <span>Unlink</span>
                   </button>
                 )}
               </>
@@ -3091,8 +3064,8 @@ export default function FormsAnalytics() {
               <button
                 onClick={() => setActiveFollowUpTab("create")}
                 className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${activeFollowUpTab === "create"
-                    ? "border-purple-600 text-purple-700 dark:text-purple-400"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
+                  ? "border-purple-600 text-purple-700 dark:text-purple-400"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
                   }`}
               >
                 <Sparkles className="w-4 h-4" />
@@ -3101,8 +3074,8 @@ export default function FormsAnalytics() {
               <button
                 onClick={() => setActiveFollowUpTab("link")}
                 className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${activeFollowUpTab === "link"
-                    ? "border-purple-600 text-purple-700 dark:text-purple-400"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
+                  ? "border-purple-600 text-purple-700 dark:text-purple-400"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
                   }`}
               >
                 <Link2 className="w-4 h-4" />
@@ -3150,8 +3123,8 @@ export default function FormsAnalytics() {
                         type="button"
                         onClick={() => handleApplyPreset("standard")}
                         className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${selectedPresetFormat === "standard"
-                            ? "bg-purple-600 text-white border-purple-600 shadow-sm"
-                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-purple-400"
+                          ? "bg-purple-600 text-white border-purple-600 shadow-sm"
+                          : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-purple-400"
                           }`}
                       >
                         <div className="text-[10px] opacity-75 font-semibold">Standard</div>
@@ -3162,8 +3135,8 @@ export default function FormsAnalytics() {
                         type="button"
                         onClick={() => handleApplyPreset("xFormat")}
                         className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${selectedPresetFormat === "xFormat"
-                            ? "bg-purple-600 text-white border-purple-600 shadow-sm"
-                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-purple-400"
+                          ? "bg-purple-600 text-white border-purple-600 shadow-sm"
+                          : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-purple-400"
                           }`}
                       >
                         <div className="text-[10px] opacity-75 font-semibold">x-Format</div>
@@ -3174,8 +3147,8 @@ export default function FormsAnalytics() {
                         type="button"
                         onClick={() => handleApplyPreset("ordinal")}
                         className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${selectedPresetFormat === "ordinal"
-                            ? "bg-purple-600 text-white border-purple-600 shadow-sm"
-                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-purple-400"
+                          ? "bg-purple-600 text-white border-purple-600 shadow-sm"
+                          : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-purple-400"
                           }`}
                       >
                         <div className="text-[10px] opacity-75 font-semibold">Ordinal Format</div>
@@ -3186,8 +3159,8 @@ export default function FormsAnalytics() {
                         type="button"
                         onClick={() => handleApplyPreset("child")}
                         className={`px-3 py-2 rounded-lg text-xs font-medium text-left border transition-all cursor-pointer ${selectedPresetFormat === "child"
-                            ? "bg-purple-600 text-white border-purple-600 shadow-sm"
-                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-purple-400"
+                          ? "bg-purple-600 text-white border-purple-600 shadow-sm"
+                          : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-purple-400"
                           }`}
                       >
                         <div className="text-[10px] opacity-75 font-semibold">Child Format</div>
@@ -3235,8 +3208,8 @@ export default function FormsAnalytics() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <label
                         className={`flex items-start p-3 rounded-xl border cursor-pointer transition-all ${followUpSource === "parent"
-                            ? "border-purple-500 bg-purple-50/50 dark:bg-purple-950/20"
-                            : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                          ? "border-purple-500 bg-purple-50/50 dark:bg-purple-950/20"
+                          : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
                           }`}
                       >
                         <input
@@ -3259,8 +3232,8 @@ export default function FormsAnalytics() {
 
                       <label
                         className={`flex items-start p-3 rounded-xl border cursor-pointer transition-all ${followUpSource === "empty"
-                            ? "border-purple-500 bg-purple-50/50 dark:bg-purple-950/20"
-                            : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                          ? "border-purple-500 bg-purple-50/50 dark:bg-purple-950/20"
+                          : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
                           }`}
                       >
                         <input
@@ -3422,8 +3395,8 @@ export default function FormsAnalytics() {
               <div className="flex items-center gap-3">
                 <div
                   className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${deleteModalState.isOwner
-                      ? "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400"
-                      : "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400"
+                    ? "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400"
+                    : "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400"
                     }`}
                 >
                   <AlertCircle className="w-5 h-5" />
@@ -3453,8 +3426,8 @@ export default function FormsAnalytics() {
             <div className="p-5 space-y-4">
               <div
                 className={`p-3.5 border rounded-xl text-xs leading-relaxed ${deleteModalState.isOwner
-                    ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800/40 text-red-800 dark:text-red-300"
-                    : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/40 text-amber-800 dark:text-amber-300"
+                  ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800/40 text-red-800 dark:text-red-300"
+                  : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/40 text-amber-800 dark:text-amber-300"
                   }`}
               >
                 {deleteModalState.isOwner ? (
@@ -3472,8 +3445,8 @@ export default function FormsAnalytics() {
               <div>
                 <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
                   To confirm, type <span className={`font-bold select-all font-mono px-1.5 py-0.5 rounded ${deleteModalState.isOwner
-                      ? "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40"
-                      : "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40"
+                    ? "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40"
+                    : "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40"
                     }`}>{deleteModalState.formTitle}</span> below:
                 </label>
                 <input
