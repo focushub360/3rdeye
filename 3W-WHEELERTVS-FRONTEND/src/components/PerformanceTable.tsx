@@ -71,7 +71,7 @@ const PerformanceTable = ({
 
   // ✅ Cache key for performance data
   const getCacheKey = useCallback(() => {
-    const fKey = formIds ? formIds.slice().sort().join('-') : (formId || 'all');
+    const fKey = formIds ? (Array.isArray(formIds) ? formIds.slice().sort().join('-') : String(formIds)) : (formId || 'all');
     return `perf_v4_${fKey}_${perfStartDate}_${perfEndDate}_${performancePage}_${performancePageSize}`;
   }, [formId, formIds, perfStartDate, perfEndDate, performancePage, performancePageSize]);
 
@@ -128,6 +128,8 @@ const PerformanceTable = ({
           endDate: perfEndDate,
           formId,
           formIds,
+          page: performancePage,
+          limit: performancePageSize,
         });
       }
 

@@ -2398,9 +2398,10 @@ export const getPerformanceTable = async (req, res) => {
         $or: [
           { id: { $in: formIdList } },
           ...(formIdList.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => ({ _id: id }))),
+          { parentFormId: { $in: formIdList } }
         ],
       })
-        .select('id _id tenantId sharedWithTenants chassisTenantAssignments sections')
+        .select('id _id tenantId sharedWithTenants chassisTenantAssignments sections parentFormId')
         .maxTimeMS(30000)
         .lean()
       : Promise.resolve([]);
@@ -2418,9 +2419,18 @@ export const getPerformanceTable = async (req, res) => {
 
     if (formIdList.length > 0) {
       formDocs = formLookupResult || [];
-      formDoc = formDocs[0] || null;
+      const matchedParents = formDocs.map(f => f._id?.toString() || f.id).filter(Boolean);
+      const childDocs = matchedParents.length > 0 ? await Form.find({
+        $or: [
+          { parentFormId: { $in: matchedParents } },
+          { parentFormId: { $in: formIdList } }
+        ]
+      }).select('id _id tenantId sharedWithTenants chassisTenantAssignments sections parentFormId').lean() : [];
+
+      const combinedDocs = [...formDocs, ...childDocs];
+      formDoc = combinedDocs[0] || null;
       formIdVariants = [];
-      formDocs.forEach(f => {
+      combinedDocs.forEach(f => {
         if (f.id) formIdVariants.push(f.id);
         if (f._id) formIdVariants.push(f._id.toString());
         (f.sharedWithTenants || []).forEach(id => sharedWithTenants.push(id.toString()));
@@ -2447,7 +2457,7 @@ export const getPerformanceTable = async (req, res) => {
     const [totalResponsesInRange, allResponses] = await Promise.all([
       Response.countDocuments(responseBaseFilter).maxTimeMS(30000),
       Response.find(responseBaseFilter)
-        .select('createdBy submittedBy isDispatched biwReview status chassisNumber questionId createdAt id _id')
+        .select('createdBy submittedBy isDispatched biwReview status chassisNumber questionId createdAt id _id answers')
         .sort({ createdAt: -1 })
         .limit(10000)
         .maxTimeMS(30000)
@@ -2713,11 +2723,17 @@ export const getPerformanceTable = async (req, res) => {
 
     // Helper: Determine inspection status
     const getInspectionStatus = (response) => {
-      if (response.status) return response.status;
       let isRework = false;
       let isAccepted = false;
       let isRejected = false;
       let foundStatus = null;
+
+      if (response.biwReview?.status) {
+        const bs = String(response.biwReview.status).toLowerCase();
+        if (bs === 'accepted') isAccepted = true;
+        else if (bs === 'rejected') isRejected = true;
+        else if (bs === 'reworked' || bs === 'rework') isRework = true;
+      }
 
       const answersObj = response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers;
 
@@ -2735,7 +2751,7 @@ export const getPerformanceTable = async (req, res) => {
           if (!s) return;
           const sl = s.toLowerCase();
 
-          if (sl === 'rework' || sl === 'reworked' || sl.includes('re-rework')) {
+          if (sl === 'rework' || sl === 'reworked' || sl.includes('re-rework') || sl === 'defect' || sl === 'not ok') {
             isRework = true;
           } else if (
             sl === 'accepted' ||
@@ -2746,7 +2762,7 @@ export const getPerformanceTable = async (req, res) => {
             sl === 'rework accepted'
           ) {
             isAccepted = true;
-          } else if (sl === 'rejected' || sl === 'no') {
+          } else if (sl === 'rejected' || sl === 'no' || sl === 'fail') {
             isRejected = true;
           } else {
             foundStatus = s;
@@ -2757,8 +2773,13 @@ export const getPerformanceTable = async (req, res) => {
       if (isRejected) return 'Rejected';
       if (isRework) return 'Rework QC Pending';
       if (isAccepted) return 'Direct Ok';
+
+      if (response.status && response.status.toLowerCase() !== 'pending') {
+        return response.status;
+      }
+
       if (foundStatus) return foundStatus;
-      return 'Pending';
+      return 'Direct Ok';
     };
 
     // Initialize stats for all users
@@ -4150,6 +4171,18 @@ export const getQualitySummary = async (req, res) => {
         } : {}),
         ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : {})
       };
+      if (formKeys && formKeys.length > 0) {
+        const targetRespIds = await Response.find({
+          questionId: { $in: formKeys },
+          ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : {})
+        }).select('_id id').lean();
+        const validIds = [];
+        targetRespIds.forEach(r => {
+          if (r.id) validIds.push(String(r.id));
+          if (r._id) validIds.push(r._id.toString());
+        });
+        reviewFilter.responseId = { $in: validIds };
+      }
       const collReviews = await Review.aggregate([
         { $match: reviewFilter },
         { $group: { _id: '$reviewOption', count: { $sum: 1 } } }
@@ -4179,97 +4212,46 @@ export const getQualitySummary = async (req, res) => {
     summary.tvsReworkCount = tvsReworkCount;
     summary.pendingTvsReview = Math.max(0, totalChecked - tvsReviewedCount);
 
-    // Defect breakdown extraction from top defect responses
+    // Defect breakdown extraction from responses (answers and biwReview)
     const defectTypeMap = {};
     const inspectorDefectMap = {};
     const defectFormMap = {};
+    const inspectorDefectUnitCount = {};
+    let totalDefectUnits = 0;
 
-    (agg.defectResponses || []).forEach(dr => {
-      const fTitle = formTitleMap[dr.questionId] || 'Selected Form';
-      const rawName = (dr.submittedBy || 'Unknown Submitter').trim();
-      if (!inspectorDefectMap[rawName]) inspectorDefectMap[rawName] = {};
+    try {
+      const defectScanResponses = await Response.find({
+        questionId: { $in: formKeys },
+        isSectionSubmit: { $ne: true },
+        ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : {})
+      })
+        .select('answers submittedBy questionId biwReview')
+        .limit(3000)
+        .lean();
 
-      // 1. Defect extraction from answers
-      if (dr.answers && typeof dr.answers === 'object') {
-        const answersObj = dr.answers instanceof Map ? Object.fromEntries(dr.answers) : dr.answers;
-        for (const [key, val] of Object.entries(answersObj)) {
-          if (!val) continue;
-          let isDef = false;
-          if (typeof val === 'object' && val.status) {
-            const st = String(val.status).trim().toLowerCase();
-            if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok'].includes(st)) isDef = true;
-          } else if (typeof val === 'string') {
-            const vLow = val.trim().toLowerCase();
-            if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok'].includes(vLow)) isDef = true;
-          }
+      defectScanResponses.forEach(dr => {
+        const fTitle = formTitleMap[dr.questionId] || 'Selected Form';
+        const rawName = (dr.submittedBy || 'Unknown Submitter').trim();
+        if (!inspectorDefectMap[rawName]) inspectorDefectMap[rawName] = {};
 
-          if (isDef) {
-            const qTitle = questionTitleMap[key] || key;
-            defectTypeMap[qTitle] = (defectTypeMap[qTitle] || 0) + 1;
-            inspectorDefectMap[rawName][qTitle] = (inspectorDefectMap[rawName][qTitle] || 0) + 1;
-            if (!defectFormMap[qTitle]) defectFormMap[qTitle] = {};
-            defectFormMap[qTitle][fTitle] = (defectFormMap[qTitle][fTitle] || 0) + 1;
-          }
-        }
-      }
+        let hasDefect = false;
 
-      // 2. Defect extraction from biwReview flaggedQuestions and reason
-      if (dr.biwReview) {
-        if (Array.isArray(dr.biwReview.flaggedQuestions)) {
-          dr.biwReview.flaggedQuestions.forEach(fq => {
-            const fqTitle = (fq.questionText || fq.text || fq.title || questionTitleMap[fq.questionId] || fq.reason || '').trim();
-            if (fqTitle && !['other', 'none', '-', 'ok', 'accepted'].includes(fqTitle.toLowerCase())) {
-              defectTypeMap[fqTitle] = (defectTypeMap[fqTitle] || 0) + 1;
-              inspectorDefectMap[rawName][fqTitle] = (inspectorDefectMap[rawName][fqTitle] || 0) + 1;
-              if (!defectFormMap[fqTitle]) defectFormMap[fqTitle] = {};
-              defectFormMap[fqTitle][fTitle] = (defectFormMap[fqTitle][fTitle] || 0) + 1;
-            }
-          });
-        }
-        if (dr.biwReview.reason && typeof dr.biwReview.reason === 'string') {
-          const reasonTitle = dr.biwReview.reason.trim();
-          if (reasonTitle && !['other', 'none', '-', 'ok', 'accepted'].includes(reasonTitle.toLowerCase())) {
-            defectTypeMap[reasonTitle] = (defectTypeMap[reasonTitle] || 0) + 1;
-            inspectorDefectMap[rawName][reasonTitle] = (inspectorDefectMap[rawName][reasonTitle] || 0) + 1;
-            if (!defectFormMap[reasonTitle]) defectFormMap[reasonTitle] = {};
-            defectFormMap[reasonTitle][fTitle] = (defectFormMap[reasonTitle][fTitle] || 0) + 1;
-          }
-        }
-      }
-    });
-
-    // Fallback: If defectResponses matched 0 defects (common when imported responses have root status 'pending'),
-    // scan up to 300 responses for the target forms and extract defects directly from answers.
-    if (Object.keys(defectTypeMap).length === 0) {
-      try {
-        const fallbackResponses = await Response.find({
-          questionId: { $in: formKeys },
-          isSectionSubmit: { $ne: true }
-        })
-          .sort({ createdAt: -1 })
-          .limit(300)
-          .select('answers submittedBy questionId')
-          .lean();
-
-        fallbackResponses.forEach(dr => {
-          if (!dr.answers) return;
-          const fTitle = formTitleMap[dr.questionId] || 'Selected Form';
-          const rawName = (dr.submittedBy || 'Unknown Submitter').trim();
-          if (!inspectorDefectMap[rawName]) inspectorDefectMap[rawName] = {};
-
+        // 1. Defect extraction from answers
+        if (dr.answers && typeof dr.answers === 'object') {
           const answersObj = dr.answers instanceof Map ? Object.fromEntries(dr.answers) : dr.answers;
           for (const [key, val] of Object.entries(answersObj)) {
             if (!val || key === 'chassis_number' || key === 'chassis') continue;
             let isDef = false;
             if (typeof val === 'object' && val.status) {
               const st = String(val.status).trim().toLowerCase();
-              if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok'].includes(st)) isDef = true;
+              if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok', 'fail'].includes(st)) isDef = true;
             } else if (typeof val === 'string') {
               const vLow = val.trim().toLowerCase();
-              if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok'].includes(vLow)) isDef = true;
+              if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok', 'fail'].includes(vLow)) isDef = true;
             }
 
             if (isDef) {
+              hasDefect = true;
               const qTitle = questionTitleMap[key] || key;
               defectTypeMap[qTitle] = (defectTypeMap[qTitle] || 0) + 1;
               inspectorDefectMap[rawName][qTitle] = (inspectorDefectMap[rawName][qTitle] || 0) + 1;
@@ -4277,19 +4259,54 @@ export const getQualitySummary = async (req, res) => {
               defectFormMap[qTitle][fTitle] = (defectFormMap[qTitle][fTitle] || 0) + 1;
             }
           }
-        });
-      } catch (err) {
-        console.warn('[Quality Summary] Fallback defect extraction error:', err.message);
-      }
+        }
+
+        // 2. Defect extraction from biwReview
+        if (dr.biwReview) {
+          if (['Rejected', 'Reworked'].includes(dr.biwReview.status)) {
+            hasDefect = true;
+          }
+          if (Array.isArray(dr.biwReview.flaggedQuestions)) {
+            dr.biwReview.flaggedQuestions.forEach(fq => {
+              const fqTitle = (fq.questionText || fq.text || fq.title || questionTitleMap[fq.questionId] || fq.reason || '').trim();
+              if (fqTitle && !['other', 'none', '-', 'ok', 'accepted'].includes(fqTitle.toLowerCase())) {
+                defectTypeMap[fqTitle] = (defectTypeMap[fqTitle] || 0) + 1;
+                inspectorDefectMap[rawName][fqTitle] = (inspectorDefectMap[rawName][fqTitle] || 0) + 1;
+                if (!defectFormMap[fqTitle]) defectFormMap[fqTitle] = {};
+                defectFormMap[fqTitle][fTitle] = (defectFormMap[fqTitle][fTitle] || 0) + 1;
+              }
+            });
+          }
+          if (dr.biwReview.reason && typeof dr.biwReview.reason === 'string') {
+            const reasonTitle = dr.biwReview.reason.trim();
+            if (reasonTitle && !['other', 'none', '-', 'ok', 'accepted'].includes(reasonTitle.toLowerCase())) {
+              defectTypeMap[reasonTitle] = (defectTypeMap[reasonTitle] || 0) + 1;
+              inspectorDefectMap[rawName][reasonTitle] = (inspectorDefectMap[rawName][reasonTitle] || 0) + 1;
+              if (!defectFormMap[reasonTitle]) defectFormMap[reasonTitle] = {};
+              defectFormMap[reasonTitle][fTitle] = (defectFormMap[reasonTitle][fTitle] || 0) + 1;
+            }
+          }
+        }
+
+        if (hasDefect) {
+          totalDefectUnits++;
+          inspectorDefectUnitCount[rawName] = (inspectorDefectUnitCount[rawName] || 0) + 1;
+        }
+      });
+    } catch (err) {
+      console.warn('[Quality Summary] Defect extraction error:', err.message);
     }
 
     const computedDefectTotal = Object.values(defectTypeMap).reduce((a, b) => a + b, 0);
-    if (totalDefects === 0 && computedDefectTotal > 0) {
-      totalDefects = computedDefectTotal;
+    if (totalDefectUnits > totalDefects || totalDefects === 0) {
+      totalDefects = totalDefectUnits > 0 ? totalDefectUnits : computedDefectTotal;
       totalAccepted = Math.max(0, totalChecked - totalDefects);
       overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
       overallDefectRate = Math.max(0, Math.round((100 - overallAcceptRate) * 100) / 100);
       summary.defectCount = totalDefects;
+      summary.totalAccepted = totalAccepted;
+      summary.overallAcceptRate = overallAcceptRate;
+      summary.overallDefectRate = overallDefectRate;
     }
 
     const defectBreakdown = Object.entries(defectTypeMap)
@@ -4426,8 +4443,12 @@ export const getQualitySummary = async (req, res) => {
       const idStr = f.id ? f.id.toString() : '';
       const mongoIdStr = f._id ? f._id.toString() : '';
       const mCount = (masterFormCounts[idStr] || 0) + (masterFormCounts[mongoIdStr] || 0);
-      const activeMetric = formMetricMap[idStr] || formMetricMap[mongoIdStr];
-      const activeCount = activeMetric ? (activeMetric.totalChecked || 0) : 0;
+      const keys = [idStr, mongoIdStr].filter(Boolean);
+      let activeCount = 0;
+      keys.forEach(k => {
+        const m = formMetricMap[k];
+        if (m) activeCount += m.totalChecked || 0;
+      });
       return {
         id: idStr || mongoIdStr,
         _id: mongoIdStr,
@@ -4514,6 +4535,17 @@ export const getQualitySummary = async (req, res) => {
         inspectorAggMap[inspName].forms[fTitle].checked += item.totalChecked || 0;
         inspectorAggMap[inspName].forms[fTitle].defects += item.defectCount || 0;
         inspectorAggMap[inspName].forms[fTitle].acceptCount += Math.max(0, (item.totalChecked || 0) - (item.defectCount || 0));
+      }
+    });
+
+    // Reconcile inspector defect counts with extracted defect units from answers / biwReview
+    Object.keys(inspectorAggMap).forEach(inspName => {
+      const insp = inspectorAggMap[inspName];
+      const extractedDefects = inspectorDefectUnitCount[inspName]
+        ?? (inspectorDefectMap[inspName] ? Object.values(inspectorDefectMap[inspName]).reduce((a, b) => a + b, 0) : 0);
+      if (extractedDefects > 0 && (insp.defectCount === 0 || extractedDefects > insp.defectCount)) {
+        insp.defectCount = Math.min(insp.totalChecked, extractedDefects);
+        insp.rework1Count = Math.max(insp.rework1Count, insp.defectCount);
       }
     });
 

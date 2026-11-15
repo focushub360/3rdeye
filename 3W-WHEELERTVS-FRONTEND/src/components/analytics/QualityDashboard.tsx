@@ -225,11 +225,12 @@ export const QualityDashboard: React.FC = () => {
 
   // Preserve all available forms and counts across filtered fetches
   const masterFormsSummaryRef = useRef<any[] | null>(null);
+  const currentRequestIdRef = useRef<number>(0);
   const [availableFormOptions, setAvailableFormOptions] = useState<Array<{ id: string; _id?: string; title: string; totalChecked?: number; activeChecked?: number; masterTotal?: number; isChildForm?: boolean; parentFormId?: string | null; parentFormTitle?: string | null }>>(() => {
     try {
       const sortedFormKey = [...initialFormIds].sort().join(',');
       const cacheKey = `v22_${sortedFormKey}__`;
-      const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
+      const cached = getClientCachedData(cacheKey);
       if (cached?.data?.formOptions) return cached.data.formOptions;
     } catch (_) {}
     return [];
@@ -247,7 +248,7 @@ export const QualityDashboard: React.FC = () => {
     try {
       const sortedFormKey = [...initialFormIds].sort().join(',');
       const cacheKey = `v22_${sortedFormKey}__`;
-      const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
+      const cached = getClientCachedData(cacheKey);
       return cached ? cached.data : null;
     } catch (_) {
       return null;
@@ -314,6 +315,20 @@ export const QualityDashboard: React.FC = () => {
       return next;
     }, { replace: true });
   };
+
+  // Sync selectedFormIds whenever URL search parameters change externally
+  useEffect(() => {
+    const raw = searchParams.get('formIds') || searchParams.get('formId');
+    if (raw && raw !== 'all') {
+      const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
+      setSelectedFormIds(prev => {
+        if (prev.length === ids.length && prev.every((id, i) => id === ids[i])) return prev;
+        return ids;
+      });
+    } else if (!raw || raw === 'all') {
+      setSelectedFormIds(prev => prev.length === 0 ? prev : []);
+    }
+  }, [searchParams]);
 
   // Filter forms list by search query AND selectedFormIds
   const filteredForms = useMemo(() => {
@@ -929,9 +944,10 @@ export const QualityDashboard: React.FC = () => {
   }, [dateRange, customStartDate, customEndDate]);
 
   const fetchSummary = async (forceNetwork = false) => {
+    const requestId = ++currentRequestIdRef.current;
     const sortedFormKey = [...selectedFormIds].sort().join(',');
     const cacheKey = `v22_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
-    const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
+    const cached = getClientCachedData(cacheKey);
 
     // ─── 0ms SWR Instant Loading: Render immediately from cache ONLY IF VALID ────
     if (cached && isValidSummaryData(cached) && !forceNetwork) {
@@ -954,6 +970,7 @@ export const QualityDashboard: React.FC = () => {
         endDate,
         forceNetwork: true
       }).then(res => {
+        if (requestId !== currentRequestIdRef.current) return;
         const actualData = (res?.data?.summary) ? res.data : (res?.summary && res?.formsSummary ? res : (res?.data || res));
         if (actualData && isValidSummaryData(actualData)) {
           setClientCachedData(cacheKey, actualData);
@@ -991,6 +1008,11 @@ export const QualityDashboard: React.FC = () => {
       clearInterval(timerInterval);
       const endTime = performance.now();
       setLoadTimeMs(Math.round(endTime - startTime));
+
+      if (requestId !== currentRequestIdRef.current) {
+        console.log(`[Quality Dashboard] Discarding outdated response #${requestId} (active is #${currentRequestIdRef.current})`);
+        return;
+      }
       
       // Safely unwrap response whether client.ts returns payload directly or nested in data
       let actualData = res;
@@ -1047,11 +1069,15 @@ export const QualityDashboard: React.FC = () => {
         throw new Error('Invalid response structure');
       }
     } catch (err: any) {
-      console.error('Error fetching quality summary:', err);
-      setError(err.message || 'Failed to load summary data');
-      setLoadTimeMs(null);
+      if (requestId === currentRequestIdRef.current) {
+        console.error('Error fetching quality summary:', err);
+        setError(err.message || 'Failed to load summary data');
+        setLoadTimeMs(null);
+      }
     } finally {
-      setLoading(false);
+      if (requestId === currentRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -1182,8 +1208,18 @@ export const QualityDashboard: React.FC = () => {
 
   const selectedFormsInspections = useMemo(() => {
     if (selectedFormIds.length === 0) return data?.summary?.totalChecked || totalAllFormsInspections;
+    if (data?.summary?.totalChecked !== undefined && selectedFormIds.length > 0) {
+      return data.summary.totalChecked;
+    }
+    const idSet = new Set<string>();
+    selectedFormIds.forEach(id => {
+      idSet.add(id);
+      const match = allAvailableForms.find(f => f.id === id || f._id === id);
+      if (match?.id) idSet.add(match.id);
+      if (match?._id) idSet.add(match._id);
+    });
     return allAvailableForms
-      .filter(f => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id)))
+      .filter(f => idSet.has(f.id) || (f._id && idSet.has(f._id)))
       .reduce((sum, f) => sum + (f.totalChecked || 0), 0);
   }, [selectedFormIds, allAvailableForms, data?.summary?.totalChecked, totalAllFormsInspections]);
 
