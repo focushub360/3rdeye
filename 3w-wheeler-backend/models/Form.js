@@ -178,6 +178,10 @@ const FormSchema = new mongoose.Schema({
   followUpQuestions: [FollowUpQuestionSchema],
   parentFormId: String,
   parentFormTitle: String,
+  isChildForm: {
+    type: Boolean,
+    default: false
+  },
   childForms: [{
     formId: String,
     formTitle: String,

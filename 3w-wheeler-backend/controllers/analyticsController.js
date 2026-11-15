@@ -3433,7 +3433,7 @@ export const getQualitySummary = async (req, res) => {
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
     const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
-    const cacheKey = `quality_summary_v21_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v22_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers?.['cache-control'] === 'no-cache';
     if (!shouldBypassCache) {
       const cached = appCache.get(cacheKey);
@@ -3451,7 +3451,7 @@ export const getQualitySummary = async (req, res) => {
     }
 
     // 2. Fetch accessible forms (cached in memory for 5 minutes)
-    const formsMetaCacheKey = `forms_meta_${targetTenantId || 'all'}`;
+    const formsMetaCacheKey = `forms_meta_v22_${targetTenantId || 'all'}`;
     let formsMeta = appCache.get(formsMetaCacheKey);
 
     if (!formsMeta || shouldBypassCache) {
@@ -3473,9 +3473,56 @@ export const getQualitySummary = async (req, res) => {
         ];
       }
 
-      const accessibleForms = await Form.find(formQuery)
-        .select('id _id title sections tenantId')
+      // 1. Fetch base forms directly accessible to tenant
+      const baseForms = await Form.find(formQuery)
+        .select('id _id title sections tenantId childForms parentFormId parentFormTitle isChildForm')
         .lean();
+
+      // 2. Collect all linked child form IDs & parent form IDs
+      const linkedChildIds = [];
+      const accessibleParentIds = [];
+      baseForms.forEach(f => {
+        const fIds = [f.id, f._id ? f._id.toString() : ''].filter(Boolean);
+        accessibleParentIds.push(...fIds);
+        (f.childForms || []).forEach(cf => {
+          const cfId = typeof cf === 'string' ? cf : (cf.formId || cf.id || cf._id);
+          if (cfId) linkedChildIds.push(cfId.toString());
+        });
+        if (f.parentFormId) {
+          linkedChildIds.push(f.parentFormId.toString());
+        }
+      });
+
+      let additionalChildForms = [];
+      const additionalObjIds = linkedChildIds
+        .filter(id => mongoose.Types.ObjectId.isValid(id))
+        .map(id => new mongoose.Types.ObjectId(id));
+      const parentObjIds = accessibleParentIds
+        .filter(id => mongoose.Types.ObjectId.isValid(id))
+        .map(id => new mongoose.Types.ObjectId(id));
+
+      if (linkedChildIds.length > 0 || accessibleParentIds.length > 0) {
+        const extraQuery = {
+          $or: [
+            ...(linkedChildIds.length > 0 ? [
+              { _id: { $in: additionalObjIds } },
+              { id: { $in: linkedChildIds } }
+            ] : []),
+            ...(accessibleParentIds.length > 0 ? [
+              { parentFormId: { $in: [...accessibleParentIds, ...parentObjIds] } },
+              { 'childForms.formId': { $in: accessibleParentIds } }
+            ] : [])
+          ]
+        };
+        additionalChildForms = await Form.find(extraQuery)
+          .select('id _id title sections tenantId childForms parentFormId parentFormTitle isChildForm')
+          .lean();
+      }
+
+      const formMapById = new Map();
+      baseForms.forEach(f => formMapById.set(f._id.toString(), f));
+      additionalChildForms.forEach(f => formMapById.set(f._id.toString(), f));
+      const accessibleForms = Array.from(formMapById.values());
 
       const formTitleMap = {};
       const formChassisQuestionMap = {};
@@ -3546,7 +3593,7 @@ export const getQualitySummary = async (req, res) => {
     } = formsMeta;
 
     // 2b. Compute or retrieve master inspection counts for all accessible forms
-    const masterCountsKey = `master_form_counts_${userTenantId || 'superadmin'}`;
+    const masterCountsKey = `master_form_counts_v22_${userTenantId || 'superadmin'}`;
     let masterFormCounts = appCache.get(masterCountsKey);
 
     if (!masterFormCounts || req.query.forceNetwork === 'true') {
@@ -4088,6 +4135,12 @@ export const getQualitySummary = async (req, res) => {
     let tvsReworkCount = summary.tvsReworkCount || 0;
 
     try {
+      const startObj = startDate ? new Date(startDate) : null;
+      let endObj = null;
+      if (endDate) {
+        endObj = new Date(endDate);
+        endObj.setHours(23, 59, 59, 999);
+      }
       const reviewFilter = {
         ...(req.user?.tenantId ? {
           $or: [
@@ -4335,6 +4388,10 @@ export const getQualitySummary = async (req, res) => {
         id: f.id || f._id.toString(),
         _id: f._id.toString(),
         title: f.title,
+        isChildForm: Boolean(f.isChildForm || f.parentFormId),
+        parentFormId: f.parentFormId ? f.parentFormId.toString() : null,
+        parentFormTitle: f.parentFormTitle || null,
+        childForms: f.childForms || [],
         totalChecked: tChecked,
         acceptCount: aCount,
         defectCount: dCount,
@@ -4375,11 +4432,14 @@ export const getQualitySummary = async (req, res) => {
         id: idStr || mongoIdStr,
         _id: mongoIdStr,
         title: f.title,
+        isChildForm: Boolean(f.isChildForm || f.parentFormId),
+        parentFormId: f.parentFormId ? f.parentFormId.toString() : null,
+        parentFormTitle: f.parentFormTitle || null,
         totalChecked: isDateFiltered ? activeCount : mCount,
         activeChecked: activeCount,
         masterTotal: mCount
       };
-    }).sort((a, b) => b.totalChecked - a.totalChecked);
+    }).sort((a, b) => (b.totalChecked - a.totalChecked) || ((b.masterTotal || 0) - (a.masterTotal || 0)));
 
     // Inspector performance ratings
     let exemplaryCount = 0;
@@ -4711,7 +4771,11 @@ export const getQualitySummary = async (req, res) => {
       data: {
         summary: {
           totalChecked,
-          masterTotalChecked: Object.values(masterFormCounts).reduce((s, v) => s + v, 0),
+          masterTotalChecked: accessibleForms.reduce((sum, f) => {
+            const idStr = f.id ? f.id.toString() : '';
+            const mongoIdStr = f._id ? f._id.toString() : '';
+            return sum + (masterFormCounts[idStr] || 0) + (masterFormCounts[mongoIdStr] || 0);
+          }, 0),
           totalAccepted,
           totalDefects,
           totalRework1,

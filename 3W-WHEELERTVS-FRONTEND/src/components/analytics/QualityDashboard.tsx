@@ -86,6 +86,10 @@ export interface FormSummaryItem {
   id: string;
   _id: string;
   title: string;
+  isChildForm?: boolean;
+  parentFormId?: string | null;
+  parentFormTitle?: string | null;
+  childForms?: any[];
   totalChecked: number;
   acceptCount: number;
   defectCount: number;
@@ -101,6 +105,7 @@ export interface FormSummaryItem {
 interface SummaryData {
   summary: {
     totalChecked: number;
+    masterTotalChecked?: number;
     totalAccepted: number;
     totalDefects: number;
     totalRework1: number;
@@ -113,7 +118,17 @@ interface SummaryData {
     partiallyMetCount: number;
   };
   formsSummary?: FormSummaryItem[];
-  formOptions: Array<{ id: string; title: string; totalChecked?: number }>;
+  formOptions: Array<{
+    id: string;
+    _id?: string;
+    title: string;
+    totalChecked?: number;
+    activeChecked?: number;
+    masterTotal?: number;
+    isChildForm?: boolean;
+    parentFormId?: string | null;
+    parentFormTitle?: string | null;
+  }>;
   inspectors: InspectorSummary[];
   defectBreakdown: DefectItem[];
   dailyTrends: DailyTrendItem[];
@@ -126,7 +141,7 @@ const qualitySummaryClientCache = new Map<string, {
   timestamp: number;
 }>();
 
-const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v21_';
+const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v22_';
 
 const isValidSummaryData = (item: any): boolean => {
   const d = item?.data || item;
@@ -210,10 +225,10 @@ export const QualityDashboard: React.FC = () => {
 
   // Preserve all available forms and counts across filtered fetches
   const masterFormsSummaryRef = useRef<any[] | null>(null);
-  const [availableFormOptions, setAvailableFormOptions] = useState<Array<{ id: string; title: string; totalChecked?: number }>>(() => {
+  const [availableFormOptions, setAvailableFormOptions] = useState<Array<{ id: string; _id?: string; title: string; totalChecked?: number; activeChecked?: number; masterTotal?: number; isChildForm?: boolean; parentFormId?: string | null; parentFormTitle?: string | null }>>(() => {
     try {
       const sortedFormKey = [...initialFormIds].sort().join(',');
-      const cacheKey = `v18_${sortedFormKey}__`;
+      const cacheKey = `v22_${sortedFormKey}__`;
       const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
       if (cached?.data?.formOptions) return cached.data.formOptions;
     } catch (_) {}
@@ -231,7 +246,7 @@ export const QualityDashboard: React.FC = () => {
   const [data, setData] = useState<SummaryData | null>(() => {
     try {
       const sortedFormKey = [...initialFormIds].sort().join(',');
-      const cacheKey = `v18_${sortedFormKey}__`;
+      const cacheKey = `v22_${sortedFormKey}__`;
       const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
       return cached ? cached.data : null;
     } catch (_) {
@@ -249,7 +264,12 @@ export const QualityDashboard: React.FC = () => {
         id: f.id || f._id,
         _id: f._id || f.id,
         title: f.title || 'Untitled Form',
-        totalChecked: f.totalChecked || 0
+        totalChecked: f.totalChecked || 0,
+        activeChecked: f.totalChecked || 0,
+        masterTotal: f.masterTotal || f.totalChecked || 0,
+        isChildForm: Boolean(f.isChildForm || f.parentFormId),
+        parentFormId: f.parentFormId || null,
+        parentFormTitle: f.parentFormTitle || null
       }));
     }
     if (availableFormOptions.length > 0) return availableFormOptions;
@@ -910,7 +930,7 @@ export const QualityDashboard: React.FC = () => {
 
   const fetchSummary = async (forceNetwork = false) => {
     const sortedFormKey = [...selectedFormIds].sort().join(',');
-    const cacheKey = `v18_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
+    const cacheKey = `v22_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
     const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
 
     // ─── 0ms SWR Instant Loading: Render immediately from cache ONLY IF VALID ────
@@ -992,7 +1012,12 @@ export const QualityDashboard: React.FC = () => {
             id: f.id || f._id,
             _id: f._id || f.id,
             title: f.title || 'Untitled Form',
-            totalChecked: f.totalChecked || 0
+            totalChecked: f.totalChecked || 0,
+            activeChecked: f.totalChecked || 0,
+            masterTotal: f.masterTotal || f.totalChecked || 0,
+            isChildForm: Boolean(f.isChildForm || f.parentFormId),
+            parentFormId: f.parentFormId || null,
+            parentFormTitle: f.parentFormTitle || null
           }));
         }
         if ((!actualData.formsSummary || actualData.formsSummary.length === 0) && actualData.formOptions?.length > 0) {
@@ -1333,10 +1358,10 @@ export const QualityDashboard: React.FC = () => {
                       <span className="truncate">All My Forms</span>
                     </div>
                     <span className="text-[11px] font-medium text-gray-500 ml-2 whitespace-nowrap">
-                      {dateRange !== 'all' && (data?.summary?.masterTotalChecked || 12992) ? (
+                      {dateRange !== 'all' && (data?.summary?.masterTotalChecked || totalAllFormsInspections) ? (
                         <>
                           <strong className="text-blue-700">{totalAllFormsInspections.toLocaleString()}</strong> in period
-                          <span className="text-gray-400 text-[10px] ml-1 font-normal">({(data?.summary?.masterTotalChecked || 12992).toLocaleString()} all time)</span>
+                          <span className="text-gray-400 text-[10px] ml-1 font-normal">({(data?.summary?.masterTotalChecked || totalAllFormsInspections).toLocaleString()} all time)</span>
                         </>
                       ) : (
                         <>{totalAllFormsInspections.toLocaleString()} total</>
@@ -1347,12 +1372,13 @@ export const QualityDashboard: React.FC = () => {
                   {/* Individual Forms */}
                   {filteredDropdownForms.map(f => {
                     const isSelected = selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id));
+                    const isChild = Boolean((f as any).isChildForm || (f as any).parentFormId || (f.title && f.title.toLowerCase().includes('follow up')));
                     return (
                       <div
                         key={f.id || f._id}
                         onClick={() => {
                           setIsFormDropdownOpen(false);
-                          updateSelectedForms([f.id]);
+                          updateSelectedForms([f.id || (f as any)._id]);
                           setActiveTab('form-dashboard');
                         }}
                         className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs hover:bg-blue-50/70 group ${
@@ -1370,17 +1396,24 @@ export const QualityDashboard: React.FC = () => {
                               handleToggleForm(f.id, (f as any)._id);
                             }}
                             onChange={() => {}}
-                            className="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500 accent-blue-600 cursor-pointer"
+                            className="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500 accent-blue-600 cursor-pointer shrink-0"
                             title="Filter summary page to this form"
                           />
-                          <span className="truncate group-hover:text-blue-700" title={f.title}>{f.title}</span>
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="truncate group-hover:text-blue-700" title={f.title}>{f.title}</span>
+                            {isChild && (
+                              <span className="text-[10px] font-semibold text-purple-700 bg-purple-100/90 border border-purple-200/80 px-1.5 py-0.5 rounded-full shrink-0">
+                                Follow-up
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <span className={`text-[11px] font-semibold ml-2 whitespace-nowrap ${isSelected ? 'text-blue-700' : 'text-gray-500'}`}>
                             {f.totalChecked !== undefined ? f.totalChecked.toLocaleString() : '0'} units
-                            {dateRange !== 'all' && f.masterTotal !== undefined && f.masterTotal !== f.totalChecked && (
+                            {dateRange !== 'all' && (f as any).masterTotal !== undefined && (f as any).masterTotal !== f.totalChecked && (
                               <span className="text-[10px] text-gray-400 font-normal ml-1">
-                                ({f.masterTotal.toLocaleString()} all time)
+                                ({(f as any).masterTotal.toLocaleString()} all time)
                               </span>
                             )}
                           </span>

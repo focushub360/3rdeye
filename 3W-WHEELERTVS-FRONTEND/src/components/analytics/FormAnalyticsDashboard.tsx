@@ -6788,7 +6788,6 @@ export default function FormAnalyticsDashboard({
     }
 
     // Check if this response is a parent that has a child follow-up response in the list
-    const respId = response?.id || response?._id;
     const chassisVal = getResponseChassisValue(response);
     const unitId = getChassisOrItemId(response, chassisQuestionId);
 
