@@ -4814,6 +4814,10 @@ export default function FormAnalyticsDashboard({
         setForm(formData.form);
         console.log("[ANALYTICS DEBUG] Form fetched:", formData.form?.title);
 
+        if (formData.form.parentForm) {
+          setRelatedFormData((prev) => ({ ...prev, parentForm: formData.form.parentForm }));
+        }
+
         if (formData.form?.sections && formData.form.sections.length > 0) {
           setSelectedResponsesSectionIds(
             formData.form.sections.map((s: Section) => s.id),
@@ -4998,6 +5002,20 @@ export default function FormAnalyticsDashboard({
       });
       setTableResponses(data.responses || []);
       setTotalResponsesCount(data.pagination?.totalResponses || 0);
+
+      if (data.form) {
+        setForm((prev: any) => ({
+          ...(prev || {}),
+          ...data.form,
+          parentFormId: data.form.parentFormId || prev?.parentFormId,
+          parentFormTitle: data.form.parentFormTitle || prev?.parentFormTitle,
+          isChildForm: data.form.isChildForm ?? prev?.isChildForm,
+          isParentForm: data.form.isParentForm ?? prev?.isParentForm
+        }));
+        if (data.form.parentForm) {
+          setRelatedFormData((prev) => ({ ...prev, parentForm: data.form.parentForm }));
+        }
+      }
     } catch (err) {
       console.error("Error fetching responses page:", err);
       showToast("Failed to load responses. Please try again.", "error");
@@ -6642,11 +6660,31 @@ export default function FormAnalyticsDashboard({
 
   // Helper to compute Parent/Follow-up matching status and color coding
   const computeParentMatch = (response: any) => {
-    // 1. If backend already provided rich followUpStatus, prioritize it
-    const fs = response?.followUpStatus;
+    // Check if this form is a child/follow-up form or parent form
+    const isChildForm = Boolean(
+      form?.parentFormId ||
+      form?.parentForm ||
+      form?.parentFormTitle ||
+      (form as any)?.isChild ||
+      (form as any)?.isChildForm ||
+      (form as any)?.isFollowUp ||
+      relatedFormData?.parentForm ||
+      response?.parentFormId ||
+      response?.parentFormTitle ||
+      (tableResponses?.length > 0 && tableResponses.some((r: any) => r.parentFormId || r.parentResponseId || r.followUpStatus?.matchType === "parent" || r.parentMatch?.matchType === "parent")) ||
+      (responses?.length > 0 && responses.some((r: any) => r.parentFormId || r.parentResponseId || r.followUpStatus?.matchType === "parent" || r.parentMatch?.matchType === "parent"))
+    );
+    const isParentForm = Boolean(
+      (form?.childForms && form.childForms.length > 0) ||
+      (form as any)?.isParentForm ||
+      relatedFormData?.childForms?.length > 0
+    );
+
+    // 1. If backend already provided rich followUpStatus or parentMatch, prioritize it
+    const fs = response?.followUpStatus || response?.parentMatch;
     if (fs) {
-      if (fs.status === "matched") {
-        const isParentMatch = fs.matchType === "parent";
+      if (fs.status === "matched" || fs.isMatched === true) {
+        const isParentMatch = fs.matchType === "parent" || isChildForm;
         return {
           status: "matched",
           badgeText: isParentMatch ? "✓ Parent Matched" : "✓ Follow-up Done",
@@ -6661,7 +6699,7 @@ export default function FormAnalyticsDashboard({
         };
       }
 
-      if (fs.status === "unmatched") {
+      if (fs.status === "unmatched" || (isChildForm && (!fs.isMatched || fs.matchType === "parent" || fs.status === "standalone"))) {
         return {
           status: "unmatched",
           badgeText: "⚠ No Parent Match",
@@ -6728,10 +6766,6 @@ export default function FormAnalyticsDashboard({
     const chassisVal = getResponseChassisValue(response);
     const unitId = getChassisOrItemId(response, chassisQuestionId);
 
-    // Check if this form is a child/follow-up form or parent form
-    const isChildForm = Boolean(form?.parentFormId);
-    const isParentForm = Boolean(form?.childForms && form.childForms.length > 0);
-
     const hasChildMatch = responses?.some(
       (r: any) =>
         (r.parentResponseId && (r.parentResponseId === respId || r.parentResponseId === response?.id)) ||
@@ -6769,7 +6803,7 @@ export default function FormAnalyticsDashboard({
     }
 
     if (isChildForm) {
-      // Child form with no parent matched
+      // Child form with no parent matched -> Always "⚠ No Parent Match" (never "Main Record")
       return {
         status: "unmatched",
         badgeText: "⚠ No Parent Match",
@@ -6902,7 +6936,7 @@ export default function FormAnalyticsDashboard({
         if (pmBadge === avLower || pmBadge.includes(avLower) || avLower.includes(pmBadge)) return true;
         if (avLower.includes("parent") && (pmBadge.includes("parent") || pmStatus === "matched")) return true;
         if (avLower.includes("follow-up") && (pmBadge.includes("follow-up") || pmStatus === "pending")) return true;
-        if (avLower.includes("orphan") && (pmBadge.includes("no parent") || pmStatus === "unmatched")) return true;
+        if ((avLower.includes("orphan") || avLower.includes("no parent") || avLower.includes("mismatch") || avLower.includes("unmatched")) && (pmBadge.includes("no parent") || pmStatus === "unmatched")) return true;
         if (avLower.includes("overdue") && (pmBadge.includes("overdue") || pmStatus === "overdue")) return true;
         if (avLower.includes("main") && (pmBadge.includes("main") || pmStatus === "standalone")) return true;
         return false;

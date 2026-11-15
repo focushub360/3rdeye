@@ -1,4 +1,3 @@
-# 3rd Eye (3rdeye) Project Knowledge & Architecture Guide
 
 This document is the single source of truth for the **3rd Eye** (Focus 3rd Eye / 3rdeye / Focus Forms / VehicleIQ) ecosystem, documenting system architecture, multi-tenant security, form lifecycle, response handling, bulk Excel import pipeline, analytics, and operational workflows.
 

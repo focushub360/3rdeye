@@ -5279,8 +5279,15 @@ export const getResponsesByForm = async (req, res) => {
     } else {
       try {
         const formIdentifiers = [form.id, form._id ? form._id.toString() : null].filter(Boolean);
+        const objIds = formIdentifiers.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
+        const allIds = [...formIdentifiers, ...objIds];
         parentFormDoc = await Form.findOne({
-          'childForms.formId': { $in: formIdentifiers }
+          $or: [
+            { 'childForms.formId': { $in: allIds } },
+            { 'childForms.id': { $in: allIds } },
+            { 'childForms._id': { $in: objIds } },
+            { 'childForms.childFormId': { $in: allIds } }
+          ]
         }).lean();
         if (parentFormDoc) {
           parentFormIdStr = parentFormDoc._id ? parentFormDoc._id.toString() : parentFormDoc.id;
@@ -5983,7 +5990,13 @@ export const getResponsesByForm = async (req, res) => {
             isParentForm,
             isChildForm,
             childFormCount: childFormIds.length,
-            parentFormId: parentFormIdStr
+            parentFormId: parentFormIdStr,
+            parentFormTitle: parentFormDoc?.title || form.parentFormTitle,
+            parentForm: parentFormDoc ? {
+              id: parentFormDoc.id,
+              _id: parentFormDoc._id ? parentFormDoc._id.toString() : null,
+              title: parentFormDoc.title
+            } : undefined
           },
           pagination: {
             currentPage: options.page,
