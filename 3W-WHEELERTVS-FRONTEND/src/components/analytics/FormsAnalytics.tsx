@@ -1788,13 +1788,12 @@ export default function FormsAnalytics() {
     return (
       <div
         key={formId}
-        className={`card p-6 transition-all duration-200 ${
-          isChild
-            ? "border-l-4 border-l-purple-500 bg-gradient-to-r from-purple-50/15 via-white to-transparent dark:from-purple-950/10 dark:via-gray-900 shadow-xs hover:border-primary-300"
-            : isPinned
+        className={`card p-6 transition-all duration-200 ${isChild
+          ? "border-l-4 border-l-purple-500 bg-gradient-to-r from-purple-50/15 via-white to-transparent dark:from-purple-950/10 dark:via-gray-900 shadow-xs hover:border-primary-300"
+          : isPinned
             ? "border-amber-300 ring-1 ring-amber-200/60 dark:border-amber-600/50 bg-gradient-to-r from-amber-50/15 via-white to-transparent dark:from-amber-950/10 dark:via-gray-900 shadow-sm"
             : "hover:border-primary-300"
-        }`}
+          }`}
       >
         <div className="flex items-start justify-between mb-4 gap-3">
           <div className="flex-1 min-w-0">
@@ -1804,20 +1803,20 @@ export default function FormsAnalytics() {
               </h3>
 
               {isChild && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800 shadow-2xs">
-                  <GitBranch className="w-2.5 h-2.5 text-purple-600" />
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-900 border border-purple-300 dark:bg-purple-950/70 dark:text-purple-200 dark:border-purple-700 shadow-xs">
+                  <GitBranch className="w-3.5 h-3.5 text-purple-700 dark:text-purple-300" />
                   <span>Child Form</span>
                 </span>
               )}
 
               {isChild && parentTitle && (
                 <span
-                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800 shadow-2xs"
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-blue-50 text-blue-900 border border-blue-300 dark:bg-blue-950/70 dark:text-blue-100 dark:border-blue-700 shadow-xs"
                   title={`Follow-up form linked to: ${parentTitle}`}
                 >
-                  <Link2 className="w-2.5 h-2.5 text-indigo-500" />
-                  <span className="text-gray-500 dark:text-gray-400 font-normal">Parent:</span>
-                  <span className="font-semibold text-indigo-800 dark:text-indigo-200">{parentTitle}</span>
+                  <Link2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                  <span className="text-blue-700 dark:text-blue-300 font-semibold">Parent:</span>
+                  <span className="font-bold text-blue-950 dark:text-white">{parentTitle}</span>
                 </span>
               )}
 
@@ -1858,11 +1857,10 @@ export default function FormsAnalytics() {
               e.stopPropagation();
               togglePinForm(formId);
             }}
-            className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg transition-all flex items-center gap-1 text-xs font-semibold flex-shrink-0 ${
-              isPinned
-                ? "bg-amber-100/90 text-amber-800 hover:bg-amber-200 border border-amber-300 shadow-2xs dark:bg-amber-900/50 dark:text-amber-300 dark:border-amber-700"
-                : "text-gray-400 hover:text-amber-600 hover:bg-amber-50/70 border border-gray-200 hover:border-amber-300 dark:hover:bg-gray-800"
-            }`}
+            className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg transition-all flex items-center gap-1 text-xs font-semibold flex-shrink-0 ${isPinned
+              ? "bg-amber-100/90 text-amber-800 hover:bg-amber-200 border border-amber-300 shadow-2xs dark:bg-amber-900/50 dark:text-amber-300 dark:border-amber-700"
+              : "text-gray-400 hover:text-amber-600 hover:bg-amber-50/70 border border-gray-200 hover:border-amber-300 dark:hover:bg-gray-800"
+              }`}
             title={isPinned ? "Unpin form (click to unpin from top)" : "Pin form (click to show at the top)"}
           >
             <Pin className={`w-3.5 h-3.5 ${isPinned ? "fill-amber-600 text-amber-600 rotate-45" : ""}`} />
@@ -2129,19 +2127,18 @@ export default function FormsAnalytics() {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <span
-              className={`inline-flex items-center px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${
-                form.isVisible
-                  ? "bg-green-100 text-green-800"
-                  : "bg-yellow-100 text-yellow-800"
-              }`}
+              className={`inline-flex items-center px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${form.isVisible
+                ? "bg-green-100 text-green-800"
+                : "bg-yellow-100 text-yellow-800"
+                }`}
             >
               {form.isVisible ? "Public" : "Private"}
             </span>
 
             {/* Informational follow-up badge on parent card */}
             {!isChild && children.length > 0 && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800 shadow-2xs">
-                <GitBranch className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-900 border border-purple-300 dark:bg-purple-950/60 dark:text-purple-200 dark:border-purple-700 shadow-xs">
+                <GitBranch className="w-3.5 h-3.5 text-purple-700 dark:text-purple-300" />
                 <span>Has {children.length} Follow-up{children.length > 1 ? "s" : ""}</span>
               </span>
             )}
@@ -2149,21 +2146,19 @@ export default function FormsAnalytics() {
             {isOwner && (
               <>
                 <span
-                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${
-                    isLocationEnabled
-                      ? "bg-blue-100 text-blue-800"
-                      : "bg-neutral-200 text-neutral-700"
-                  }`}
+                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${isLocationEnabled
+                    ? "bg-blue-100 text-blue-800"
+                    : "bg-neutral-200 text-neutral-700"
+                    }`}
                 >
                   <MapPin className="w-3 h-3" />
                   {isLocationEnabled ? "Location Enabled" : "Location Disabled"}
                 </span>
                 <span
-                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2.5 sm:py-0.5 rounded-full text-[9px] sm:text-[10px] font-medium border ${
-                    form.viewType === "question-wise"
-                      ? "bg-orange-100 text-orange-800 border-orange-200"
-                      : "bg-blue-100 text-blue-800 border-blue-200"
-                  }`}
+                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2.5 sm:py-0.5 rounded-full text-[9px] sm:text-[10px] font-medium border ${form.viewType === "question-wise"
+                    ? "bg-orange-100 text-orange-800 border-orange-200"
+                    : "bg-blue-100 text-blue-800 border-blue-200"
+                    }`}
                 >
                   {form.viewType === "question-wise" ? (
                     <>
@@ -2186,49 +2181,43 @@ export default function FormsAnalytics() {
               <button
                 onClick={() => handleToggleVisibility(formId, form.isVisible)}
                 disabled={visibilityMutation.loading}
-                className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                  form.isVisible
-                    ? "bg-green-500 focus:ring-green-500"
-                    : "bg-red-500 focus:ring-red-500"
-                } ${visibilityMutation.loading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${form.isVisible
+                  ? "bg-green-500 focus:ring-green-500"
+                  : "bg-red-500 focus:ring-red-500"
+                  } ${visibilityMutation.loading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 title={form.isVisible ? "Active - Click to deactivate" : "Inactive - Click to activate"}
               >
                 <span
-                  className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${
-                    form.isVisible ? "translate-x-5 sm:translate-x-6" : "translate-x-1"
-                  }`}
+                  className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${form.isVisible ? "translate-x-5 sm:translate-x-6" : "translate-x-1"
+                    }`}
                 />
               </button>
               <button
                 onClick={() => handleToggleLocation(formId, form.locationEnabled)}
                 disabled={locationMutation.loading}
-                className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                  isLocationEnabled
-                    ? "bg-primary-600 focus:ring-primary-600"
-                    : "bg-neutral-400 focus:ring-neutral-400"
-                } ${locationMutation.loading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${isLocationEnabled
+                  ? "bg-primary-600 focus:ring-primary-600"
+                  : "bg-neutral-400 focus:ring-neutral-400"
+                  } ${locationMutation.loading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 title={isLocationEnabled ? "Location enabled - Click to disable" : "Location disabled - Click to enable"}
               >
                 <span
-                  className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${
-                    isLocationEnabled ? "translate-x-5 sm:translate-x-6" : "translate-x-1"
-                  }`}
+                  className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${isLocationEnabled ? "translate-x-5 sm:translate-x-6" : "translate-x-1"
+                    }`}
                 />
               </button>
               <button
                 onClick={() => handleToggleViewType(form._id || form.id, form.viewType)}
                 disabled={viewTypeMutation.loading}
-                className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                  form.viewType === "question-wise"
-                    ? "bg-orange-500 focus:ring-orange-500"
-                    : "bg-blue-500 focus:ring-blue-500"
-                } ${viewTypeMutation.loading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${form.viewType === "question-wise"
+                  ? "bg-orange-500 focus:ring-orange-500"
+                  : "bg-blue-500 focus:ring-blue-500"
+                  } ${viewTypeMutation.loading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 title={form.viewType === "question-wise" ? "Question-wise view - Click for Section-wise" : "Section-wise view - Click for Question-wise"}
               >
                 <span
-                  className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${
-                    form.viewType === "question-wise" ? "translate-x-5 sm:translate-x-6" : "translate-x-1"
-                  }`}
+                  className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${form.viewType === "question-wise" ? "translate-x-5 sm:translate-x-6" : "translate-x-1"
+                    }`}
                 />
               </button>
             </div>
