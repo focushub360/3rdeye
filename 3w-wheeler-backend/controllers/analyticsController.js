@@ -3572,6 +3572,22 @@ export const getQualitySummary = async (req, res) => {
     const { formId, formIds, startDate, endDate, tenantId: queryTenantId } = req.query;
     const { role, tenantId: userTenantId } = req.user;
 
+    // Parse date objects safely once at function level
+    let startObj = null;
+    let endObj = null;
+    if (startDate) {
+      startObj = new Date(startDate);
+      if (isNaN(startObj.getTime())) startObj = null;
+    }
+    if (endDate) {
+      endObj = new Date(endDate);
+      if (isNaN(endObj.getTime())) {
+        endObj = null;
+      } else {
+        endObj.setHours(23, 59, 59, 999);
+      }
+    }
+
     // Parse formIds (can be an array, comma-separated string, or single formId)
     const rawFormInput = formIds || formId;
     let selectedFormIdList = [];
@@ -3744,11 +3760,11 @@ export const getQualitySummary = async (req, res) => {
       questionMetaMap
     } = formsMeta;
 
-    // 2b. Compute or retrieve master inspection counts for all accessible forms
+    // 2b. Compute or retrieve master inspection counts for all accessible forms (cached 5 min)
     const masterCountsKey = `master_form_counts_v22_${userTenantId || 'superadmin'}`;
     let masterFormCounts = appCache.get(masterCountsKey);
 
-    if (!masterFormCounts || req.query.forceNetwork === 'true') {
+    if (!masterFormCounts) {
       const allAccessibleKeys = accessibleForms.flatMap(f => [f.id, f._id?.toString()]).filter(Boolean);
       const countAgg = await Response.aggregate([
         { $match: { questionId: { $in: allAccessibleKeys }, isSectionSubmit: { $ne: true } } },
@@ -4309,12 +4325,6 @@ export const getQualitySummary = async (req, res) => {
     let tvsReworkCount = summary.tvsReworkCount || 0;
 
     try {
-      const startObj = startDate ? new Date(startDate) : null;
-      let endObj = null;
-      if (endDate) {
-        endObj = new Date(endDate);
-        endObj.setHours(23, 59, 59, 999);
-      }
       const reviewFilter = {
         ...(req.user?.tenantId ? {
           $or: [
@@ -4325,16 +4335,13 @@ export const getQualitySummary = async (req, res) => {
         ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : {})
       };
       if (formKeys && formKeys.length > 0) {
-        const targetRespIds = await Response.find({
+        const validIds = await Response.distinct('_id', {
           questionId: { $in: formKeys },
           ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : {})
-        }).select('_id id').lean();
-        const validIds = [];
-        targetRespIds.forEach(r => {
-          if (r.id) validIds.push(String(r.id));
-          if (r._id) validIds.push(r._id.toString());
         });
-        reviewFilter.responseId = { $in: validIds };
+        if (validIds.length > 0 && validIds.length <= 5000) {
+          reviewFilter.responseId = { $in: validIds.map(String) };
+        }
       }
       const collReviews = await Review.aggregate([
         { $match: reviewFilter },
@@ -4379,7 +4386,7 @@ export const getQualitySummary = async (req, res) => {
         ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : {})
       })
         .select('answers submittedBy questionId biwReview review status')
-        .limit(3000)
+        .limit(1000)
         .lean();
 
       defectScanResponses.forEach(dr => {

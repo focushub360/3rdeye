@@ -6651,9 +6651,10 @@ export const getResponsesByForm = async (req, res) => {
 
   export const bulkImportBiwExcelReviews = async (req, res) => {
     try {
-      const { formId, reviews, fileName } = req.body;
+      const { formId, reviews, fileName, targetFormId } = req.body;
+      const effectiveFormId = targetFormId || formId;
 
-      if (!formId) {
+      if (!effectiveFormId) {
         return res.status(400).json({ success: false, message: 'formId is required' });
       }
 
@@ -6663,8 +6664,8 @@ export const getResponsesByForm = async (req, res) => {
 
       const form = await Form.findOne({
         $or: [
-          { id: formId },
-          ...(mongoose.Types.ObjectId.isValid(formId) ? [{ _id: formId }] : [])
+          { id: effectiveFormId },
+          ...(mongoose.Types.ObjectId.isValid(effectiveFormId) ? [{ _id: effectiveFormId }] : [])
         ]
       });
 
@@ -6678,6 +6679,20 @@ export const getResponsesByForm = async (req, res) => {
       const reviewerEmail = req.user?.email || '';
       const userIdStr = req.user?._id ? req.user._id.toString() : '';
 
+      // Check if this form has child forms or is a child form
+      let relatedTargetFormIds = [];
+      if (form.parentFormId) {
+        relatedTargetFormIds.push(form.parentFormId);
+      } else {
+        const childForms = await Form.find({
+          $or: [
+            { parentFormId: formKey },
+            { parentFormId: form._id.toString() }
+          ]
+        }).select('_id id title').lean();
+        relatedTargetFormIds = childForms.map(cf => cf.id || cf._id.toString());
+      }
+
       // Fetch all responses under this form
       const candidateResponses = await Response.find({
         $or: [
@@ -6685,7 +6700,7 @@ export const getResponsesByForm = async (req, res) => {
           { questionId: form._id.toString() },
           { formId: formKey },
           { formId: form._id.toString() },
-          ...(mongoose.Types.ObjectId.isValid(formId) ? [{ formId: new mongoose.Types.ObjectId(formId) }] : [])
+          ...(mongoose.Types.ObjectId.isValid(effectiveFormId) ? [{ formId: new mongoose.Types.ObjectId(effectiveFormId) }] : [])
         ]
       });
 
@@ -6833,13 +6848,13 @@ export const getResponsesByForm = async (req, res) => {
 
         if (tvsStatus) {
           const tvsReason = String(
-            row.tvsReason || row.tvsReworkReason || row['Rework Resion (Rust..)'] || ''
+            row.tvsReason || row.tvsReworkReason || row['Rework Resion (Rust..)'] || row['Rework and Rejected Resion (Rust..)'] || row['Rework and Rejected Reason'] || row.defectReason || ''
           ).trim();
           const tvsRejectReason = String(
             row.tvsRejectReason || row['Rework and Rejected Resion (Rust..)_1'] || ''
           ).trim();
-          const tvsRemark = String(row.tvsRemark || row['Remark_1'] || '').trim();
-          const tvsFileUrl = String(row.tvsFileUrl || row['File Upload_1'] || '').trim();
+          const tvsRemark = String(row.tvsRemark || row.remark || row['Remark'] || row['Remark_1'] || row['Remark / Feedback Note'] || '').trim();
+          const tvsFileUrl = String(row.tvsFileUrl || row.fileUrl || row.fileUpload || row['File Upload'] || row['File Upload_1'] || '').trim();
 
           const respIdStr = targetResponse._id ? targetResponse._id.toString() : targetResponse.id;
           await Review.findOneAndUpdate(
@@ -6870,6 +6885,82 @@ export const getResponsesByForm = async (req, res) => {
           rowUpdated = true;
         }
 
+        // 3. Process Target Tenant TVS Feedback (from cloned cols K-O)
+        const rawTargetTvsFeedback = String(
+          row.targetTvsFeedback || row['targetTvsFeedback'] || row['Target TVS Feedback'] || ''
+        ).trim().toLowerCase();
+
+        let targetTvsStatus = null;
+        if (rawTargetTvsFeedback.includes('accept')) {
+          targetTvsStatus = 'Accepted';
+        } else if (rawTargetTvsFeedback.includes('rework')) {
+          targetTvsStatus = 'Rework';
+        } else if (rawTargetTvsFeedback.includes('reject')) {
+          targetTvsStatus = 'Rejected';
+        }
+
+        if (targetTvsStatus && relatedTargetFormIds.length > 0) {
+          const targetChildResponse = await Response.findOne({
+            $and: [
+              {
+                $or: [
+                  { formId: { $in: relatedTargetFormIds } },
+                  { questionId: { $in: relatedTargetFormIds } }
+                ]
+              },
+              {
+                $or: [
+                  { chassisNumber: rawChassis },
+                  { chassisNumber: normalizedChassis },
+                  { systemChassisNumber: rawChassis },
+                  { parentResponseId: targetResponse._id ? targetResponse._id.toString() : targetResponse.id }
+                ]
+              }
+            ]
+          }).sort({ createdAt: -1 });
+
+          if (targetChildResponse) {
+            const targetTvsReason = String(row.targetTvsReason || row.targetTvsReworkReason || '').trim();
+            const targetTvsRejectReason = String(row.targetTvsRejectReason || '').trim();
+            const targetTvsRemark = String(row.targetTvsRemark || '').trim();
+            const targetTvsFileUrl = String(row.targetTvsFileUrl || '').trim();
+
+            const childRespIdStr = targetChildResponse._id ? targetChildResponse._id.toString() : targetChildResponse.id;
+            await Review.findOneAndUpdate(
+              { responseId: childRespIdStr, reviewerId: req.user._id },
+              {
+                responseId: childRespIdStr,
+                reviewerId: req.user._id,
+                reviewerName: reviewerName,
+                reviewerEmail: reviewerEmail,
+                submitterId: targetChildResponse.submittedBy || targetChildResponse.createdBy?.toString() || 'System',
+                reviewOption: targetTvsStatus,
+                scoreChange: 0,
+                tenantId: targetChildResponse.tenantId || req.user.tenantId
+              },
+              { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
+
+            targetChildResponse.review = {
+              reviewOption: targetTvsStatus,
+              reviewerId: req.user._id,
+              reviewerName: reviewerName,
+              createdAt: new Date(),
+              remark: targetTvsRemark,
+              reason: targetTvsReason || targetTvsRejectReason,
+              evidenceUrl: targetTvsFileUrl
+            };
+            targetChildResponse.markModified('review');
+            await targetChildResponse.save();
+            rowUpdated = true;
+            try {
+              emitResponseUpdated(targetChildResponse.formId || targetChildResponse.questionId, targetChildResponse);
+            } catch (sockErr) {
+              console.warn('[BIW EXCEL IMPORT] Target Child Socket emit failed:', sockErr.message);
+            }
+          }
+        }
+
         if (rowUpdated) {
           await targetResponse.save();
           try {
@@ -6884,18 +6975,22 @@ export const getResponsesByForm = async (req, res) => {
       }
 
       // Record in history log
+      const isTvsImport = reviews.some(r => r.tvsFeedback || r['TVS Feed back'] || r['TVS Feedback']);
+      const reviewActionType = isTvsImport ? 'EXCEL_TVS_REVIEW_IMPORT' : 'EXCEL_BIW_REVIEW_IMPORT';
+      const reviewActionTitle = isTvsImport ? 'TVS Review Excel Import' : 'BIW Review Excel Import';
+
       recordImportHistory({
         tenantId: req.user?.tenantId,
         userId: req.user?._id,
         userName: reviewerName,
         userEmail: reviewerEmail,
         userRole: req.user?.role || 'admin',
-        actionType: 'EXCEL_BIW_REVIEW_IMPORT',
-        actionTitle: 'BIW Review Excel Import',
+        actionType: reviewActionType,
+        actionTitle: reviewActionTitle,
         formId: formKey,
-        formTitle: form.title || 'BIW Review',
-        fileName: fileName || 'BIW_Review_Import.xlsx',
-        batchId: `biw-review-${Date.now()}`,
+        formTitle: form.title || (isTvsImport ? 'TVS Review' : 'BIW Review'),
+        fileName: fileName || (isTvsImport ? 'TVS_Review_Import.xlsx' : 'BIW_Review_Import.xlsx'),
+        batchId: `${isTvsImport ? 'tvs' : 'biw'}-review-${Date.now()}`,
         dataCount: {
           total: reviews.length,
           success: updatedCount,

@@ -164,7 +164,7 @@ const getClientCachedData = (key: string) => {
         return parsed;
       }
     }
-  } catch (_) {}
+  } catch (_) { }
   return null;
 };
 
@@ -181,7 +181,7 @@ const getLastGoodCachedData = () => {
         return parsed;
       }
     }
-  } catch (_) {}
+  } catch (_) { }
   return null;
 };
 
@@ -196,7 +196,7 @@ const setClientCachedData = (key: string, data: any) => {
     sessionStorage.setItem(`${SWR_STORAGE_KEY_PREFIX}last_good`, json);
     localStorage.setItem(`${SWR_STORAGE_KEY_PREFIX}${key}`, json);
     localStorage.setItem(`${SWR_STORAGE_KEY_PREFIX}last_good`, json);
-  } catch (_) {}
+  } catch (_) { }
 };
 
 export const QualityDashboard: React.FC = () => {
@@ -232,7 +232,7 @@ export const QualityDashboard: React.FC = () => {
       const cacheKey = `v22_${sortedFormKey}__`;
       const cached = getClientCachedData(cacheKey);
       if (cached?.data?.formOptions) return cached.data.formOptions;
-    } catch (_) {}
+    } catch (_) { }
     return [];
   });
   const [customStartDate, setCustomStartDate] = useState<string>('');
@@ -982,7 +982,7 @@ export const QualityDashboard: React.FC = () => {
             masterFormsSummaryRef.current = actualData.formsSummary;
           }
         }
-      }).catch(() => {});
+      }).catch(() => { });
       return;
     }
 
@@ -997,14 +997,14 @@ export const QualityDashboard: React.FC = () => {
       }, 100);
 
       const startTime = performance.now();
-      
+
       const res = await apiClient.getQualitySummary({
         formIds: selectedFormIds.length > 0 ? selectedFormIds : undefined,
         startDate,
         endDate,
-        forceNetwork: true
+        forceNetwork: forceNetwork
       });
-      
+
       clearInterval(timerInterval);
       const endTime = performance.now();
       setLoadTimeMs(Math.round(endTime - startTime));
@@ -1013,7 +1013,7 @@ export const QualityDashboard: React.FC = () => {
         console.log(`[Quality Dashboard] Discarding outdated response #${requestId} (active is #${currentRequestIdRef.current})`);
         return;
       }
-      
+
       // Safely unwrap response whether client.ts returns payload directly or nested in data
       let actualData = res;
       if (actualData?.data?.summary) {
@@ -1097,11 +1097,14 @@ export const QualityDashboard: React.FC = () => {
           sessionStorage.removeItem(k);
         }
       }
-    } catch (_) {}
+    } catch (_) { }
   }, []);
 
   useEffect(() => {
-    fetchSummary(true);
+    const timer = setTimeout(() => {
+      fetchSummary(false);
+    }, 80);
+    return () => clearTimeout(timer);
   }, [selectedFormIds, startDate, endDate]);
 
   useEffect(() => {
@@ -1120,7 +1123,7 @@ export const QualityDashboard: React.FC = () => {
 
   const handleExportExcel = () => {
     if (!data) return;
-    
+
     // Summary Sheet
     const summaryRows = [
       ['Quality & Performance Summary'],
@@ -1233,7 +1236,7 @@ export const QualityDashboard: React.FC = () => {
     }
     if (selectedFormIds.length === 1) {
       const single = allAvailableForms.find(f => f.id === selectedFormIds[0] || (f._id && f._id === selectedFormIds[0]));
-      return single 
+      return single
         ? `${single.title} (${single.totalChecked !== undefined ? single.totalChecked.toLocaleString() : '...'} inspections)`
         : '1 Form Selected';
     }
@@ -1307,11 +1310,10 @@ export const QualityDashboard: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsFormDropdownOpen(prev => !prev)}
-              className={`flex items-center justify-between gap-2 px-3 py-2 text-sm font-medium border rounded-lg bg-white shadow-xs transition-all max-w-[280px] sm:max-w-[360px] cursor-pointer hover:border-blue-400 ${
-                selectedFormIds.length > 0
-                  ? 'border-blue-500 ring-2 ring-blue-100 text-blue-900 bg-blue-50/20'
-                  : 'border-gray-300 text-gray-800'
-              }`}
+              className={`flex items-center justify-between gap-2 px-3 py-2 text-sm font-medium border rounded-lg bg-white shadow-xs transition-all max-w-[280px] sm:max-w-[360px] cursor-pointer hover:border-blue-400 ${selectedFormIds.length > 0
+                ? 'border-blue-500 ring-2 ring-blue-100 text-blue-900 bg-blue-50/20'
+                : 'border-gray-300 text-gray-800'
+                }`}
               title={formButtonLabel}
             >
               <div className="flex items-center gap-2 truncate">
@@ -1377,11 +1379,10 @@ export const QualityDashboard: React.FC = () => {
                   {/* "All My Forms" option */}
                   <div
                     onClick={handleSelectAllForms}
-                    className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs font-semibold ${
-                      selectedFormIds.length === 0
-                        ? 'bg-blue-50 text-blue-900 font-bold'
-                        : 'text-gray-700 hover:bg-gray-50'
-                    }`}
+                    className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs font-semibold ${selectedFormIds.length === 0
+                      ? 'bg-blue-50 text-blue-900 font-bold'
+                      : 'text-gray-700 hover:bg-gray-50'
+                      }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <input
@@ -1417,11 +1418,10 @@ export const QualityDashboard: React.FC = () => {
                           updateSelectedForms([f.id || (f as any)._id]);
                           setActiveTab('form-dashboard');
                         }}
-                        className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs hover:bg-blue-50/70 group ${
-                          isSelected
-                            ? 'bg-blue-50/70 text-blue-900 font-bold'
-                            : 'text-gray-700'
-                        }`}
+                        className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs hover:bg-blue-50/70 group ${isSelected
+                          ? 'bg-blue-50/70 text-blue-900 font-bold'
+                          : 'text-gray-700'
+                          }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
                           <input
@@ -1431,7 +1431,7 @@ export const QualityDashboard: React.FC = () => {
                               e.stopPropagation();
                               handleToggleForm(f.id, (f as any)._id);
                             }}
-                            onChange={() => {}}
+                            onChange={() => { }}
                             className="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500 accent-blue-600 cursor-pointer shrink-0"
                             title="Filter summary page to this form"
                           />
@@ -1567,15 +1567,22 @@ export const QualityDashboard: React.FC = () => {
           <button
             onClick={() => fetchSummary(true)}
             disabled={loading}
-            className="p-2 rounded-lg bg-white border border-gray-300 hover:bg-gray-50"
+            className="p-2 rounded-lg bg-white border border-gray-300 hover:bg-gray-50 cursor-pointer"
             title="Refresh Data"
           >
             <RefreshCw className={`w-4 h-4 text-gray-600 ${loading ? 'animate-spin' : ''}`} />
           </button>
 
+          {loading && (
+            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50/90 text-blue-700 border border-blue-200/70 rounded-lg text-xs font-semibold animate-pulse shadow-2xs">
+              <RefreshCw className="w-3 h-3 animate-spin text-blue-600" />
+              <span>Filtering...</span>
+            </span>
+          )}
+
           <button
             onClick={handleExportExcel}
-            className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-colors"
+            className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-colors cursor-pointer"
           >
             <FileSpreadsheet className="w-4 h-4 mr-2" />
             Export Excel
@@ -1584,7 +1591,12 @@ export const QualityDashboard: React.FC = () => {
       </div>
 
       <div className="flex-1 p-4 md:p-6 w-full space-y-6 pb-16">
-        
+
+        {/* Sleek Minimal Loading Line (Zero layout shift, buttery smooth) */}
+        <div className={`h-1 w-full -mt-2 -mb-2 rounded-full overflow-hidden transition-opacity duration-300 ${loading ? 'opacity-100' : 'opacity-0'}`}>
+          <div className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 animate-pulse w-full"></div>
+        </div>
+
         {/* Error State */}
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center">
@@ -1593,20 +1605,11 @@ export const QualityDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* Background Revalidating Indicator */}
-        {loading && data && (
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50/80 border border-blue-200 text-blue-700 text-xs font-semibold rounded-lg animate-pulse shadow-2xs mb-2">
-            <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
-            Syncing latest quality metrics in background...
-          </div>
-        )}
-
-        {/* Loading Overlay State (only on first load with 0 cache) */}
+        {/* Loading Skeleton State (only on initial load when 0 cache exists) */}
         {loading && !data && (
-          <div className="flex flex-col items-center justify-center py-20">
-            <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-4" />
-            <p className="text-gray-600 font-medium">Aggregating responses...</p>
-            <p className="text-xs text-gray-400 mt-2">{(elapsedMs / 1000).toFixed(1)}s elapsed</p>
+          <div className="flex flex-col items-center justify-center py-16 bg-white rounded-xl border border-gray-200 shadow-2xs animate-pulse">
+            <RefreshCw className="w-7 h-7 text-blue-500 animate-spin mb-3" />
+            <p className="text-gray-700 font-semibold text-sm">Filtering summary metrics...</p>
           </div>
         )}
 
@@ -1623,11 +1626,10 @@ export const QualityDashboard: React.FC = () => {
                 <>
                   <button
                     onClick={() => setActiveTab('form-dashboard')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-lg transition-all shadow-xs whitespace-nowrap cursor-pointer text-xs ${
-                      activeTab === 'form-dashboard'
-                        ? 'bg-blue-600 text-white shadow-blue-200'
-                        : 'bg-white text-blue-700 hover:bg-blue-100/70 border border-blue-300'
-                    }`}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-lg transition-all shadow-xs whitespace-nowrap cursor-pointer text-xs ${activeTab === 'form-dashboard'
+                      ? 'bg-blue-600 text-white shadow-blue-200'
+                      : 'bg-white text-blue-700 hover:bg-blue-100/70 border border-blue-300'
+                      }`}
                     title="View this form's analytics dashboard below"
                   >
                     <BarChart3 className="w-3.5 h-3.5" />
@@ -1635,11 +1637,10 @@ export const QualityDashboard: React.FC = () => {
                   </button>
                   <button
                     onClick={() => setActiveTab('form-responses')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-lg transition-all shadow-xs whitespace-nowrap cursor-pointer text-xs ${
-                      activeTab === 'form-responses'
-                        ? 'bg-emerald-600 text-white shadow-emerald-200'
-                        : 'bg-white text-emerald-700 hover:bg-emerald-100/70 border border-emerald-300'
-                    }`}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-lg transition-all shadow-xs whitespace-nowrap cursor-pointer text-xs ${activeTab === 'form-responses'
+                      ? 'bg-emerald-600 text-white shadow-emerald-200'
+                      : 'bg-white text-emerald-700 hover:bg-emerald-100/70 border border-emerald-300'
+                      }`}
                     title="View this form's responses table below"
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -1649,11 +1650,10 @@ export const QualityDashboard: React.FC = () => {
               ) : (
                 <button
                   onClick={() => setActiveTab('combined-dashboard')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-lg transition-all shadow-xs whitespace-nowrap cursor-pointer text-xs ${
-                    activeTab === 'combined-dashboard'
-                      ? 'bg-blue-600 text-white shadow-blue-200'
-                      : 'bg-white text-blue-700 hover:bg-blue-100/70 border border-blue-300'
-                  }`}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-lg transition-all shadow-xs whitespace-nowrap cursor-pointer text-xs ${activeTab === 'combined-dashboard'
+                    ? 'bg-blue-600 text-white shadow-blue-200'
+                    : 'bg-white text-blue-700 hover:bg-blue-100/70 border border-blue-300'
+                    }`}
                   title="View combined analytics dashboard below"
                 >
                   <BarChart3 className="w-3.5 h-3.5" />
@@ -1674,7 +1674,7 @@ export const QualityDashboard: React.FC = () => {
 
         {/* Top Summary Metric Cards */}
         {activeSummary && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 transition-opacity duration-200 ${loading && data ? 'opacity-80' : 'opacity-100'}`}>
             <div className="bg-white p-5 rounded-xl border border-gray-200">
               <div className="flex justify-between items-start mb-2">
                 <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Checked</p>
@@ -1717,7 +1717,7 @@ export const QualityDashboard: React.FC = () => {
 
         {/* Overall Inspection Trend Donut & Pipeline Summary Box (Requested like FormAnalytics) */}
         {data && (
-          <div className="bg-white rounded-xl border border-gray-200 p-5 md:p-6 shadow-xs space-y-4">
+          <div className={`bg-white rounded-xl border border-gray-200 p-5 md:p-6 shadow-xs space-y-4 transition-opacity duration-200 ${loading && data ? 'opacity-80' : 'opacity-100'}`}>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg text-white shadow-xs">
@@ -1738,22 +1738,20 @@ export const QualityDashboard: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setHoveredSlice('all')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                    hoveredSlice === 'all'
-                      ? 'bg-white text-gray-900 shadow-xs border border-gray-200'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${hoveredSlice === 'all'
+                    ? 'bg-white text-gray-900 shadow-xs border border-gray-200'
+                    : 'text-gray-600 hover:text-gray-900'
+                    }`}
                 >
                   All Statuses ({summaryPieDetails.counts.total.toLocaleString()})
                 </button>
                 <button
                   type="button"
                   onClick={() => setHoveredSlice('accepted')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                    hoveredSlice === 'accepted'
-                      ? 'bg-green-600 text-white shadow-xs'
-                      : 'text-green-700 hover:bg-green-50'
-                  }`}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all ${hoveredSlice === 'accepted'
+                    ? 'bg-green-600 text-white shadow-xs'
+                    : 'text-green-700 hover:bg-green-50'
+                    }`}
                 >
                   <span className="w-2 h-2 rounded-full bg-green-400"></span>
                   Accepted ({((summaryPieDetails.counts.directOk || 0) + (summaryPieDetails.counts.reworkCompleted || 0)).toLocaleString()})
@@ -1761,11 +1759,10 @@ export const QualityDashboard: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setHoveredSlice('rework')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                    hoveredSlice === 'rework'
-                      ? 'bg-amber-500 text-white shadow-xs'
-                      : 'text-amber-700 hover:bg-amber-50'
-                  }`}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all ${hoveredSlice === 'rework'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'text-amber-700 hover:bg-amber-50'
+                    }`}
                 >
                   <span className="w-2 h-2 rounded-full bg-amber-400"></span>
                   Rework ({summaryPieDetails.counts.na.toLocaleString()})
@@ -1773,11 +1770,10 @@ export const QualityDashboard: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setHoveredSlice('rejected')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                    hoveredSlice === 'rejected'
-                      ? 'bg-red-600 text-white shadow-xs'
-                      : 'text-red-700 hover:bg-red-50'
-                  }`}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all ${hoveredSlice === 'rejected'
+                    ? 'bg-red-600 text-white shadow-xs'
+                    : 'text-red-700 hover:bg-red-50'
+                    }`}
                 >
                   <span className="w-2 h-2 rounded-full bg-red-400"></span>
                   Rejected ({summaryPieDetails.counts.no.toLocaleString()})
@@ -1845,153 +1841,147 @@ export const QualityDashboard: React.FC = () => {
 
                 {/* Center / Left: Doughnut Chart */}
                 <div className="flex-1 w-full min-w-0 flex flex-col items-center justify-center">
-                <div
-                  className="relative w-full max-w-[320px] h-[240px] sm:h-[260px] flex items-center justify-center"
-                  onMouseLeave={() => setHoveredSlice('all')}
-                >
-                  <Doughnut data={pieChartData} options={pieChartOptions} />
                   <div
-                    className="absolute pointer-events-none flex flex-col items-center justify-center select-none"
-                    style={{ top: "calc(50% - 10px)", left: "50%", transform: "translate(-50%, -50%)" }}
+                    className="relative w-full max-w-[320px] h-[240px] sm:h-[260px] flex items-center justify-center"
+                    onMouseLeave={() => setHoveredSlice('all')}
                   >
-                    <span className="text-2xl sm:text-3xl font-black text-gray-900 leading-none tracking-tight">
-                      {hoveredSlice === 'directOk'
-                        ? summaryPieDetails.counts.directOk.toLocaleString()
-                        : hoveredSlice === 'reworkCompleted'
-                        ? summaryPieDetails.counts.reworkCompleted.toLocaleString()
-                        : hoveredSlice === 'rejected'
-                        ? summaryPieDetails.counts.no.toLocaleString()
-                        : hoveredSlice === 'rework'
-                        ? summaryPieDetails.counts.na.toLocaleString()
-                        : ((summaryPieDetails.counts.directOk || 0) + (summaryPieDetails.counts.reworkCompleted || 0)).toLocaleString()}
-                    </span>
-                    <span className={`text-[10px] font-bold tracking-wider mt-1 uppercase ${
-                      hoveredSlice === 'directOk' ? 'text-green-600' :
-                      hoveredSlice === 'reworkCompleted' ? 'text-blue-600' :
-                      hoveredSlice === 'rejected' ? 'text-red-600' :
-                      hoveredSlice === 'rework' ? 'text-amber-600' : 'text-gray-500'
-                    }`}>
-                      {hoveredSlice === 'directOk' ? 'DIRECT OK' :
-                       hoveredSlice === 'reworkCompleted' ? 'REWORK ACC' :
-                       hoveredSlice === 'rejected' ? 'REJECTED' :
-                       hoveredSlice === 'rework' ? 'REWORK' : 'ACCEPTED'}
-                    </span>
+                    <Doughnut data={pieChartData} options={pieChartOptions} />
+                    <div
+                      className="absolute pointer-events-none flex flex-col items-center justify-center select-none"
+                      style={{ top: "calc(50% - 10px)", left: "50%", transform: "translate(-50%, -50%)" }}
+                    >
+                      <span className="text-2xl sm:text-3xl font-black text-gray-900 leading-none tracking-tight">
+                        {hoveredSlice === 'directOk'
+                          ? summaryPieDetails.counts.directOk.toLocaleString()
+                          : hoveredSlice === 'reworkCompleted'
+                            ? summaryPieDetails.counts.reworkCompleted.toLocaleString()
+                            : hoveredSlice === 'rejected'
+                              ? summaryPieDetails.counts.no.toLocaleString()
+                              : hoveredSlice === 'rework'
+                                ? summaryPieDetails.counts.na.toLocaleString()
+                                : ((summaryPieDetails.counts.directOk || 0) + (summaryPieDetails.counts.reworkCompleted || 0)).toLocaleString()}
+                      </span>
+                      <span className={`text-[10px] font-bold tracking-wider mt-1 uppercase ${hoveredSlice === 'directOk' ? 'text-green-600' :
+                        hoveredSlice === 'reworkCompleted' ? 'text-blue-600' :
+                          hoveredSlice === 'rejected' ? 'text-red-600' :
+                            hoveredSlice === 'rework' ? 'text-amber-600' : 'text-gray-500'
+                        }`}>
+                        {hoveredSlice === 'directOk' ? 'DIRECT OK' :
+                          hoveredSlice === 'reworkCompleted' ? 'REWORK ACC' :
+                            hoveredSlice === 'rejected' ? 'REJECTED' :
+                              hoveredSlice === 'rework' ? 'REWORK' : 'ACCEPTED'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 4 Legend Badges Underneath Chart with exact color dots */}
+                  <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 mt-3">
+                    <div
+                      onClick={() => setHoveredSlice('directOk')}
+                      onMouseEnter={() => setHoveredSlice('directOk')}
+                      className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${hoveredSlice === 'directOk' ? 'bg-green-100 text-green-800 ring-1 ring-green-400' : 'text-gray-700 hover:text-green-700 hover:bg-green-50'
+                        }`}
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>
+                      <span>Direct Ok</span>
+                    </div>
+                    <div
+                      onClick={() => setHoveredSlice('reworkCompleted')}
+                      onMouseEnter={() => setHoveredSlice('reworkCompleted')}
+                      className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${hoveredSlice === 'reworkCompleted' ? 'bg-blue-100 text-blue-800 ring-1 ring-blue-400' : 'text-gray-700 hover:text-blue-700 hover:bg-blue-50'
+                        }`}
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                      <span>Rework Accepted</span>
+                    </div>
+                    <div
+                      onClick={() => setHoveredSlice('rejected')}
+                      onMouseEnter={() => setHoveredSlice('rejected')}
+                      className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${hoveredSlice === 'rejected' ? 'bg-red-100 text-red-800 ring-1 ring-red-400' : 'text-gray-700 hover:text-red-700 hover:bg-red-50'
+                        }`}
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                      <span>Rejected</span>
+                    </div>
+                    <div
+                      onClick={() => setHoveredSlice('rework')}
+                      onMouseEnter={() => setHoveredSlice('rework')}
+                      className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${hoveredSlice === 'rework' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-400' : 'text-gray-700 hover:text-amber-700 hover:bg-amber-50'
+                        }`}
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+                      <span>Rework</span>
+                    </div>
                   </div>
                 </div>
 
-                {/* 4 Legend Badges Underneath Chart with exact color dots */}
-                <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 mt-3">
-                  <div 
-                    onClick={() => setHoveredSlice('directOk')}
-                    onMouseEnter={() => setHoveredSlice('directOk')}
-                    className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${
-                      hoveredSlice === 'directOk' ? 'bg-green-100 text-green-800 ring-1 ring-green-400' : 'text-gray-700 hover:text-green-700 hover:bg-green-50'
-                    }`}
-                  >
-                    <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>
-                    <span>Direct Ok</span>
+                {/* Right: 4 Pipeline / Dispatch Cards placed Top-to-Bottom */}
+                <div className="flex flex-row sm:flex-col gap-2.5 flex-wrap sm:flex-nowrap justify-center items-center flex-shrink-0">
+                  {/* Dispatched */}
+                  <div className="text-center p-2.5 bg-indigo-50/70 rounded-xl border border-indigo-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                    <div className="text-xs sm:text-sm font-bold text-indigo-600">
+                      {summaryPieDetails.dispatched}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-indigo-700 whitespace-nowrap">
+                      Dispatched
+                    </div>
+                    <div className="text-[9px] text-gray-500 font-medium">
+                      ({summaryPieDetails.counts.dispatched.toLocaleString()})
+                    </div>
                   </div>
-                  <div 
-                    onClick={() => setHoveredSlice('reworkCompleted')}
-                    onMouseEnter={() => setHoveredSlice('reworkCompleted')}
-                    className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${
-                      hoveredSlice === 'reworkCompleted' ? 'bg-blue-100 text-blue-800 ring-1 ring-blue-400' : 'text-gray-700 hover:text-blue-700 hover:bg-blue-50'
-                    }`}
-                  >
-                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                    <span>Rework Accepted</span>
-                  </div>
-                  <div 
-                    onClick={() => setHoveredSlice('rejected')}
-                    onMouseEnter={() => setHoveredSlice('rejected')}
-                    className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${
-                      hoveredSlice === 'rejected' ? 'bg-red-100 text-red-800 ring-1 ring-red-400' : 'text-gray-700 hover:text-red-700 hover:bg-red-50'
-                    }`}
-                  >
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
-                    <span>Rejected</span>
-                  </div>
-                  <div 
-                    onClick={() => setHoveredSlice('rework')}
-                    onMouseEnter={() => setHoveredSlice('rework')}
-                    className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${
-                      hoveredSlice === 'rework' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-400' : 'text-gray-700 hover:text-amber-700 hover:bg-amber-50'
-                    }`}
-                  >
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
-                    <span>Rework</span>
-                  </div>
-                </div>
-              </div>
 
-              {/* Right: 4 Pipeline / Dispatch Cards placed Top-to-Bottom */}
-              <div className="flex flex-row sm:flex-col gap-2.5 flex-wrap sm:flex-nowrap justify-center items-center flex-shrink-0">
-                {/* Dispatched */}
-                <div className="text-center p-2.5 bg-indigo-50/70 rounded-xl border border-indigo-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
-                  <div className="text-xs sm:text-sm font-bold text-indigo-600">
-                    {summaryPieDetails.dispatched}%
+                  {/* Pending Dispatch */}
+                  <div className="text-center p-2.5 bg-amber-50/70 rounded-xl border border-amber-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                    <div className="text-xs sm:text-sm font-bold text-amber-600">
+                      {summaryPieDetails.pendingDispatch}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-amber-700 whitespace-nowrap">
+                      Pending Dispatch
+                    </div>
+                    <div className="text-[9px] text-gray-500 font-medium">
+                      ({summaryPieDetails.counts.pendingDispatch.toLocaleString()})
+                    </div>
                   </div>
-                  <div className="text-[10px] sm:text-[11px] font-semibold text-indigo-700 whitespace-nowrap">
-                    Dispatched
-                  </div>
-                  <div className="text-[9px] text-gray-500 font-medium">
-                    ({summaryPieDetails.counts.dispatched.toLocaleString()})
-                  </div>
-                </div>
 
-                {/* Pending Dispatch */}
-                <div className="text-center p-2.5 bg-amber-50/70 rounded-xl border border-amber-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
-                  <div className="text-xs sm:text-sm font-bold text-amber-600">
-                    {summaryPieDetails.pendingDispatch}%
+                  {/* Total BIW Review */}
+                  <div className="text-center p-2.5 bg-teal-50/70 rounded-xl border border-teal-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                    <div className="text-xs sm:text-sm font-bold text-teal-600">
+                      {summaryPieDetails.biwReviewed}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-teal-700 whitespace-nowrap">
+                      Total BIW Review
+                    </div>
+                    <div className="text-[9px] text-gray-500 font-medium">
+                      ({summaryPieDetails.counts.biwReviewed.toLocaleString()})
+                    </div>
                   </div>
-                  <div className="text-[10px] sm:text-[11px] font-semibold text-amber-700 whitespace-nowrap">
-                    Pending Dispatch
-                  </div>
-                  <div className="text-[9px] text-gray-500 font-medium">
-                    ({summaryPieDetails.counts.pendingDispatch.toLocaleString()})
-                  </div>
-                </div>
 
-                {/* Total BIW Review */}
-                <div className="text-center p-2.5 bg-teal-50/70 rounded-xl border border-teal-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
-                  <div className="text-xs sm:text-sm font-bold text-teal-600">
-                    {summaryPieDetails.biwReviewed}%
-                  </div>
-                  <div className="text-[10px] sm:text-[11px] font-semibold text-teal-700 whitespace-nowrap">
-                    Total BIW Review
-                  </div>
-                  <div className="text-[9px] text-gray-500 font-medium">
-                    ({summaryPieDetails.counts.biwReviewed.toLocaleString()})
-                  </div>
-                </div>
-
-                {/* Pending Data */}
-                <div className="text-center p-2.5 bg-rose-50/70 rounded-xl border border-rose-200 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
-                  <div className="text-xs sm:text-sm font-bold text-rose-600">
-                    {summaryPieDetails.pendingData}%
-                  </div>
-                  <div className="text-[10px] sm:text-[11px] font-semibold text-rose-700 whitespace-nowrap">
-                    Pending Data
-                  </div>
-                  <div className="text-[9px] text-gray-500 font-medium">
-                    ({summaryPieDetails.counts.pendingData.toLocaleString()})
+                  {/* Pending Data */}
+                  <div className="text-center p-2.5 bg-rose-50/70 rounded-xl border border-rose-200 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                    <div className="text-xs sm:text-sm font-bold text-rose-600">
+                      {summaryPieDetails.pendingData}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-rose-700 whitespace-nowrap">
+                      Pending Data
+                    </div>
+                    <div className="text-[9px] text-gray-500 font-medium">
+                      ({summaryPieDetails.counts.pendingData.toLocaleString()})
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
 
             {/* Bottom: 6 Core Inspection Status Cards */}
             <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-6 gap-2 pt-3 border-t border-gray-100">
               {/* Total Submissions */}
-              <div 
+              <div
                 onClick={() => setHoveredSlice('all')}
                 onMouseEnter={() => setHoveredSlice('all')}
-                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${
-                  hoveredSlice === 'all'
-                    ? 'bg-purple-100/90 border-purple-400 ring-2 ring-purple-300'
-                    : 'bg-purple-50/70 border-purple-100 hover:bg-purple-100/60'
-                }`}
+                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${hoveredSlice === 'all'
+                  ? 'bg-purple-100/90 border-purple-400 ring-2 ring-purple-300'
+                  : 'bg-purple-50/70 border-purple-100 hover:bg-purple-100/60'
+                  }`}
               >
                 <div className="text-xs sm:text-sm font-bold text-purple-600">
                   100%
@@ -2005,14 +1995,13 @@ export const QualityDashboard: React.FC = () => {
               </div>
 
               {/* Direct Ok */}
-              <div 
+              <div
                 onClick={() => setHoveredSlice('directOk')}
                 onMouseEnter={() => setHoveredSlice('directOk')}
-                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${
-                  hoveredSlice === 'directOk'
-                    ? 'bg-green-100/90 border-green-400 ring-2 ring-green-300'
-                    : 'bg-green-50/70 border-green-100 hover:bg-green-100/60'
-                }`}
+                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${hoveredSlice === 'directOk'
+                  ? 'bg-green-100/90 border-green-400 ring-2 ring-green-300'
+                  : 'bg-green-50/70 border-green-100 hover:bg-green-100/60'
+                  }`}
               >
                 <div className="text-xs sm:text-sm font-bold text-green-600">
                   {summaryPieDetails.directOk}%
@@ -2026,14 +2015,13 @@ export const QualityDashboard: React.FC = () => {
               </div>
 
               {/* Rework Accepted */}
-              <div 
+              <div
                 onClick={() => setHoveredSlice('reworkCompleted')}
                 onMouseEnter={() => setHoveredSlice('reworkCompleted')}
-                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${
-                  hoveredSlice === 'reworkCompleted'
-                    ? 'bg-blue-100/90 border-blue-400 ring-2 ring-blue-300'
-                    : 'bg-blue-50/70 border-blue-100 hover:bg-blue-100/60'
-                }`}
+                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${hoveredSlice === 'reworkCompleted'
+                  ? 'bg-blue-100/90 border-blue-400 ring-2 ring-blue-300'
+                  : 'bg-blue-50/70 border-blue-100 hover:bg-blue-100/60'
+                  }`}
               >
                 <div className="text-xs sm:text-sm font-bold text-blue-600">
                   {summaryPieDetails.reworkCompleted}%
@@ -2047,14 +2035,13 @@ export const QualityDashboard: React.FC = () => {
               </div>
 
               {/* Rework */}
-              <div 
+              <div
                 onClick={() => setHoveredSlice('rework')}
                 onMouseEnter={() => setHoveredSlice('rework')}
-                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${
-                  hoveredSlice === 'rework'
-                    ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300'
-                    : 'bg-amber-50/70 border-amber-100 hover:bg-amber-100/60'
-                }`}
+                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${hoveredSlice === 'rework'
+                  ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300'
+                  : 'bg-amber-50/70 border-amber-100 hover:bg-amber-100/60'
+                  }`}
               >
                 <div className="text-xs sm:text-sm font-bold text-amber-600">
                   {summaryPieDetails.na}%
@@ -2068,14 +2055,13 @@ export const QualityDashboard: React.FC = () => {
               </div>
 
               {/* Rejected */}
-              <div 
+              <div
                 onClick={() => setHoveredSlice('rejected')}
                 onMouseEnter={() => setHoveredSlice('rejected')}
-                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${
-                  hoveredSlice === 'rejected'
-                    ? 'bg-red-100/90 border-red-400 ring-2 ring-red-300'
-                    : 'bg-red-50/70 border-red-100 hover:bg-red-100/60'
-                }`}
+                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${hoveredSlice === 'rejected'
+                  ? 'bg-red-100/90 border-red-400 ring-2 ring-red-300'
+                  : 'bg-red-50/70 border-red-100 hover:bg-red-100/60'
+                  }`}
               >
                 <div className="text-xs sm:text-sm font-bold text-red-600">
                   {summaryPieDetails.no}%
@@ -2089,14 +2075,13 @@ export const QualityDashboard: React.FC = () => {
               </div>
 
               {/* Total Defects */}
-              <div 
+              <div
                 onClick={() => setHoveredSlice('rejected')}
                 onMouseEnter={() => setHoveredSlice('rejected')}
-                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${
-                  hoveredSlice === 'rejected'
-                    ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-300'
-                    : 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/60'
-                }`}
+                className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${hoveredSlice === 'rejected'
+                  ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-300'
+                  : 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/60'
+                  }`}
               >
                 <div className="text-xs sm:text-sm font-bold text-rose-600">
                   {summaryPieDetails.defects}%
@@ -2115,12 +2100,11 @@ export const QualityDashboard: React.FC = () => {
               <div className="pt-4 border-t border-gray-100">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${
-                      hoveredSlice === 'directOk' || hoveredSlice === 'accepted' ? 'bg-green-500 animate-pulse' :
+                    <span className={`w-2.5 h-2.5 rounded-full ${hoveredSlice === 'directOk' || hoveredSlice === 'accepted' ? 'bg-green-500 animate-pulse' :
                       hoveredSlice === 'reworkCompleted' ? 'bg-blue-500 animate-pulse' :
-                      hoveredSlice === 'rework' ? 'bg-amber-500 animate-pulse' :
-                      hoveredSlice === 'rejected' ? 'bg-red-500 animate-pulse' : 'bg-blue-600'
-                    }`}></span>
+                        hoveredSlice === 'rework' ? 'bg-amber-500 animate-pulse' :
+                          hoveredSlice === 'rejected' ? 'bg-red-500 animate-pulse' : 'bg-blue-600'
+                      }`}></span>
                     <h4 className="text-xs sm:text-sm font-bold text-gray-800">
                       {hoveredSlice === 'directOk' && 'Form-Wise Direct Ok Contribution'}
                       {hoveredSlice === 'reworkCompleted' && 'Form-Wise Rework Accepted Contribution'}
@@ -2207,11 +2191,10 @@ export const QualityDashboard: React.FC = () => {
                     return (
                       <div
                         key={form.id || form._id}
-                        className={`p-2.5 rounded-lg border transition-all text-xs flex flex-col gap-1.5 ${
-                          hoveredSlice !== 'all'
-                            ? 'bg-white shadow-xs border-blue-300 ring-1 ring-blue-100'
-                            : 'bg-gray-50/80 hover:bg-blue-50/50 border-gray-200/80'
-                        }`}
+                        className={`p-2.5 rounded-lg border transition-all text-xs flex flex-col gap-1.5 ${hoveredSlice !== 'all'
+                          ? 'bg-white shadow-xs border-blue-300 ring-1 ring-blue-100'
+                          : 'bg-gray-50/80 hover:bg-blue-50/50 border-gray-200/80'
+                          }`}
                       >
                         <div className="flex items-center justify-between font-semibold text-gray-800">
                           <span className="truncate pr-2 font-medium">{form.title}</span>
@@ -2256,11 +2239,10 @@ export const QualityDashboard: React.FC = () => {
                 <>
                   <button
                     onClick={() => setActiveTab('form-dashboard')}
-                    className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center transition-colors whitespace-nowrap ${
-                      activeTab === 'form-dashboard'
-                        ? 'bg-white text-blue-700 border-b-2 border-blue-600 shadow-xs'
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
+                    className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center transition-colors whitespace-nowrap ${activeTab === 'form-dashboard'
+                      ? 'bg-white text-blue-700 border-b-2 border-blue-600 shadow-xs'
+                      : 'text-gray-600 hover:bg-gray-100'
+                      }`}
                   >
                     <BarChart3 className="w-4 h-4 mr-2 text-blue-600" />
                     <span>Form Dashboard</span>
@@ -2272,11 +2254,10 @@ export const QualityDashboard: React.FC = () => {
                   </button>
                   <button
                     onClick={() => setActiveTab('form-responses')}
-                    className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center transition-colors whitespace-nowrap ${
-                      activeTab === 'form-responses'
-                        ? 'bg-white text-emerald-700 border-b-2 border-emerald-600 shadow-xs'
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
+                    className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center transition-colors whitespace-nowrap ${activeTab === 'form-responses'
+                      ? 'bg-white text-emerald-700 border-b-2 border-emerald-600 shadow-xs'
+                      : 'text-gray-600 hover:bg-gray-100'
+                      }`}
                   >
                     <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
                     <span>Form Responses</span>
@@ -2286,11 +2267,10 @@ export const QualityDashboard: React.FC = () => {
               {selectedFormIds.length > 1 && (
                 <button
                   onClick={() => setActiveTab('combined-dashboard')}
-                  className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center transition-colors whitespace-nowrap ${
-                    activeTab === 'combined-dashboard'
-                      ? 'bg-white text-blue-700 border-b-2 border-blue-600 shadow-xs'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
+                  className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center transition-colors whitespace-nowrap ${activeTab === 'combined-dashboard'
+                    ? 'bg-white text-blue-700 border-b-2 border-blue-600 shadow-xs'
+                    : 'text-gray-600 hover:bg-gray-100'
+                    }`}
                 >
                   <BarChart3 className="w-4 h-4 mr-2 text-blue-600" />
                   <span>Combined Dashboard</span>
@@ -2338,11 +2318,12 @@ export const QualityDashboard: React.FC = () => {
 
             {/* Content Area */}
             <div className="flex-1 flex flex-col bg-white">
-              
+
               {/* EMBEDDED FORM DASHBOARD */}
               {activeTab === 'form-dashboard' && selectedSingleFormId && (
                 <div className="p-2 sm:p-4 bg-gray-50/50 min-h-[600px]">
                   <FormAnalyticsDashboard
+                    key={`dash-${selectedSingleFormId}`}
                     formId={selectedSingleFormId}
                     embedded={true}
                     initialTab="dashboard"
@@ -2354,6 +2335,7 @@ export const QualityDashboard: React.FC = () => {
               {activeTab === 'form-responses' && selectedSingleFormId && (
                 <div className="p-2 sm:p-4 bg-gray-50/50 min-h-[600px]">
                   <FormAnalyticsDashboard
+                    key={`resp-${selectedSingleFormId}`}
                     formId={selectedSingleFormId}
                     embedded={true}
                     initialTab="responses"
@@ -2459,15 +2441,15 @@ export const QualityDashboard: React.FC = () => {
                             const isCurrentSelected = selectedFormIds.includes(form.id) || selectedFormIds.includes(form._id);
                             const passRateColor =
                               form.acceptRate >= 95 ? 'text-green-600 bg-green-50 border-green-200' :
-                              form.acceptRate >= 80 ? 'text-blue-600 bg-blue-50 border-blue-200' :
-                              form.acceptRate > 0 ? 'text-amber-600 bg-amber-50 border-amber-200' :
-                              'text-gray-500 bg-gray-50 border-gray-200';
+                                form.acceptRate >= 80 ? 'text-blue-600 bg-blue-50 border-blue-200' :
+                                  form.acceptRate > 0 ? 'text-amber-600 bg-amber-50 border-amber-200' :
+                                    'text-gray-500 bg-gray-50 border-gray-200';
 
                             const progressBg =
                               form.acceptRate >= 95 ? 'bg-green-500' :
-                              form.acceptRate >= 80 ? 'bg-blue-500' :
-                              form.acceptRate > 0 ? 'bg-amber-500' :
-                              'bg-gray-300';
+                                form.acceptRate >= 80 ? 'bg-blue-500' :
+                                  form.acceptRate > 0 ? 'bg-amber-500' :
+                                    'bg-gray-300';
 
                             return (
                               <div
@@ -2787,33 +2769,33 @@ export const QualityDashboard: React.FC = () => {
                         {mergedInspectors
                           .filter(i => String(i.name || '').toLowerCase().includes((searchInspector || '').toLowerCase()))
                           .map((insp, idx) => (
-                          <tr key={idx} className="hover:bg-blue-50/50 transition-colors group">
-                            <td className="px-6 py-4 font-medium text-gray-900">
-                              {insp.name}
-                              {insp.tenantName && (
-                                <span className="ml-1.5 text-xs font-normal text-gray-500">
-                                  ({insp.tenantName})
+                            <tr key={idx} className="hover:bg-blue-50/50 transition-colors group">
+                              <td className="px-6 py-4 font-medium text-gray-900">
+                                {insp.name}
+                                {insp.tenantName && (
+                                  <span className="ml-1.5 text-xs font-normal text-gray-500">
+                                    ({insp.tenantName})
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 text-center font-semibold">{insp.totalChecked}</td>
+                              <td className="px-6 py-4 text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  <span className="text-green-600 font-medium">{insp.acceptCount}</span>
+                                  <span className="text-gray-300">/</span>
+                                  <span className="text-red-600 font-medium">{insp.defectCount}</span>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 text-center font-bold text-green-600">{insp.acceptRate}%</td>
+                              <td className="px-6 py-4 text-center font-bold text-red-500">{insp.defectRate}%</td>
+                              <td className="px-6 py-4">
+                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${getTierColor(insp.tier)}`}>
+                                  {renderArrow(insp.arrow)}
+                                  <span className="ml-1.5">{insp.performanceStatus}</span>
                                 </span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 text-center font-semibold">{insp.totalChecked}</td>
-                            <td className="px-6 py-4 text-center">
-                              <div className="flex items-center justify-center gap-2">
-                                <span className="text-green-600 font-medium">{insp.acceptCount}</span>
-                                <span className="text-gray-300">/</span>
-                                <span className="text-red-600 font-medium">{insp.defectCount}</span>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 text-center font-bold text-green-600">{insp.acceptRate}%</td>
-                            <td className="px-6 py-4 text-center font-bold text-red-500">{insp.defectRate}%</td>
-                            <td className="px-6 py-4">
-                              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${getTierColor(insp.tier)}`}>
-                                {renderArrow(insp.arrow)}
-                                <span className="ml-1.5">{insp.performanceStatus}</span>
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
+                              </td>
+                            </tr>
+                          ))}
                       </tbody>
                     </table>
                   </div>
@@ -2841,8 +2823,8 @@ export const QualityDashboard: React.FC = () => {
                       <p className="text-xs font-semibold text-red-700 uppercase tracking-wider">BIW Defects / Rework</p>
                       <p className="text-2xl font-black text-red-700 mt-1">{biwOverallSummary.totalDefect.toLocaleString()}</p>
                       <p className="text-[11px] text-red-600 mt-0.5 font-bold">
-                        {biwOverallSummary.totalReviewed > 0 
-                          ? ((biwOverallSummary.totalDefect / biwOverallSummary.totalReviewed) * 100).toFixed(1) + '%' 
+                        {biwOverallSummary.totalReviewed > 0
+                          ? ((biwOverallSummary.totalDefect / biwOverallSummary.totalReviewed) * 100).toFixed(1) + '%'
                           : '0%'} defect rate
                       </p>
                     </div>
@@ -2888,7 +2870,7 @@ export const QualityDashboard: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    
+
                     {/* 2. Form-Wise BIW Review Breakdown */}
                     <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-xs flex flex-col">
                       <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
@@ -2915,11 +2897,10 @@ export const QualityDashboard: React.FC = () => {
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-2 flex-shrink-0">
-                                  <span className={`px-2 py-0.5 rounded-full text-xs font-black ${
-                                    passRate >= 95 ? 'bg-green-100 text-green-800' :
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-black ${passRate >= 95 ? 'bg-green-100 text-green-800' :
                                     passRate >= 80 ? 'bg-blue-100 text-blue-800' :
-                                    'bg-red-100 text-red-800'
-                                  }`}>
+                                      'bg-red-100 text-red-800'
+                                    }`}>
                                     {passRate}% Rate
                                   </span>
                                   <button
@@ -2979,7 +2960,7 @@ export const QualityDashboard: React.FC = () => {
                             const percentage = Math.max(5, (defect.count / maxCount) * 100);
                             return (
                               <div key={idx} className="bg-white p-3 rounded-xl border border-gray-200 relative overflow-hidden shadow-xs hover:border-red-200 transition-colors">
-                                <div 
+                                <div
                                   className="absolute top-0 left-0 h-full bg-red-50/70 z-0 transition-all duration-700"
                                   style={{ width: `${percentage}%` }}
                                 />
@@ -3063,9 +3044,9 @@ export const QualityDashboard: React.FC = () => {
               {/* OVERALL RESPONSES TABLE */}
               {activeTab === 'overall' && (
                 <div className="min-h-[550px]">
-                  <OverallResponsesTable 
-                    rawResponses={data.rawResponses} 
-                    formOptions={allAvailableForms} 
+                  <OverallResponsesTable
+                    rawResponses={data.rawResponses}
+                    formOptions={allAvailableForms}
                     initialFormFilter={selectedFormIds.length === 1 ? selectedFormIds[0] : 'all'}
                     selectedFormIds={selectedFormIds}
                   />

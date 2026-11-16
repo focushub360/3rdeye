@@ -30,7 +30,10 @@ interface BiwReviewExcelModalProps {
   formId: string;
   form?: Form | null;
   formTitle: string;
+  targetTenantForm?: any;
+  targetTenantTitle?: string;
   currentChassisNumbers?: string[];
+  responses?: any[];
   onImportSuccess?: () => void;
 }
 
@@ -40,7 +43,10 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
   formId,
   form,
   formTitle,
+  targetTenantForm,
+  targetTenantTitle,
   currentChassisNumbers = [],
+  responses = [],
   onImportSuccess
 }) => {
   const [activeTab, setActiveTab] = useState<"import" | "template" | "email">("import");
@@ -95,10 +101,20 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
 
   const handleDownloadTemplate = async () => {
     try {
+      const targetTenantName =
+        typeof targetTenantForm?.tenantId === "object"
+          ? targetTenantForm?.tenantId?.name || targetTenantForm?.tenantId?.title
+          : targetTenantForm?.organizationName || "";
+
       await downloadBiwReviewTemplate({
         form,
         formTitle,
-        chassisNumbers: prefillChassis ? uniqueChassisList : []
+        chassisNumbers: prefillChassis ? uniqueChassisList : [],
+        responses,
+        targetTenantForm,
+        targetTenantTitle,
+        targetTenantName,
+        filename: `BIW template - ${(formTitle || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
       });
     } catch (err: any) {
       alert(`Error downloading template: ${err.message || err}`);
@@ -346,6 +362,9 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                           <th className="p-2.5">BIW Defect / Reason</th>
                           <th className="p-2.5">Remark</th>
                           <th className="p-2.5">TVS Feedback</th>
+                          {parsedRows.some((row) => row.targetTvsFeedback) && (
+                            <th className="p-2.5">TVS Feedback ({targetTenantTitle || "Target Tenant"})</th>
+                          )}
                           <th className="p-2.5">File Upload</th>
                         </tr>
                       </thead>
@@ -404,6 +423,17 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                                   <span className="text-gray-400">-</span>
                                 )}
                               </td>
+                              {parsedRows.some((row) => row.targetTvsFeedback) && (
+                                <td className="p-2.5">
+                                  {r.targetTvsFeedback ? (
+                                    <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
+                                      {r.targetTvsFeedback}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )}
+                                </td>
+                              )}
                               <td className="p-2.5">
                                 {r.biwFileUrl ? (
                                   <a

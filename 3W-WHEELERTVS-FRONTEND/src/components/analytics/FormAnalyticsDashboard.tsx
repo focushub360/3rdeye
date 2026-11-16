@@ -2621,7 +2621,7 @@ export default function FormAnalyticsDashboard({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Downloads BIW template pre-loaded with current table chassis & reviews according to any active form
+  // Downloads BIW template pre-loaded with current table chassis, BIW reviews & TVS reviews cloned for targeted tenant
   const handleDownloadBiwTemplate = async () => {
     try {
       const targetChassis = (responses || [])
@@ -2648,14 +2648,33 @@ export default function FormAnalyticsDashboard({
         })
         .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import");
 
+      const isChild = Boolean(
+        (form as any)?.isFollowUpForm ||
+        (form as any)?.parentFormId ||
+        form?.parentForm ||
+        relatedFormData.parentForm
+      );
+
+      const mainDoc = isChild ? (form?.parentForm || relatedFormData.parentForm || form) : form;
+      const targetTenantDoc = isChild ? form : (relatedFormData.childForms?.[0] || null);
+
+      const targetTenantName =
+        typeof targetTenantDoc?.tenantId === "object"
+          ? targetTenantDoc?.tenantId?.name || targetTenantDoc?.tenantId?.title
+          : targetTenantDoc?.organizationName || "";
+
       await downloadBiwReviewTemplate({
-        form,
+        form: mainDoc,
         formTitle: form?.title || "Inspection",
         chassisNumbers: targetChassis,
         responses,
-        filename: `BIW template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
+        targetTenantForm: targetTenantDoc,
+        targetTenantTitle: targetTenantDoc?.title || "",
+        targetTenantName,
+        childResponses: relatedFormData.childResponses || {},
+        filename: `BIW Review Template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
       });
-      showToast("BIW template downloaded with current status!", "success");
+      showToast("BIW Review template downloaded (with cloned TVS review columns for target tenant)!", "success");
     } catch (err: any) {
       showToast(`Failed to generate template: ${err.message || err}`, "error");
     }
@@ -19277,6 +19296,16 @@ export default function FormAnalyticsDashboard({
         formId={id || ""}
         form={form}
         formTitle={form?.title || "Form Analytics"}
+        targetTenantForm={
+          ((form as any)?.isFollowUpForm || (form as any)?.parentFormId || form?.parentForm || relatedFormData.parentForm)
+            ? form
+            : (relatedFormData.childForms?.[0] || null)
+        }
+        targetTenantTitle={
+          ((form as any)?.isFollowUpForm || (form as any)?.parentFormId || form?.parentForm || relatedFormData.parentForm)
+            ? form?.title
+            : (relatedFormData.childForms?.[0]?.title || "")
+        }
         currentChassisNumbers={Array.from(
           new Set(
             responses.flatMap((r) => {
@@ -19302,8 +19331,9 @@ export default function FormAnalyticsDashboard({
             }).filter(Boolean)
           )
         )}
+        responses={responses}
         onImportSuccess={() => {
-          showToast("BIW Reviews imported successfully!", "success");
+          showToast("BIW & TVS Reviews imported successfully!", "success");
           fetchResponsesPage(responsesPage || 1);
           refreshDashboardData();
         }}
