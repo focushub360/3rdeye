@@ -23,6 +23,11 @@ export interface BiwExcelRow {
   // Metadata for preview
   rowIndex?: number;
   matched?: boolean;
+  workerName?: string;
+  isNewlyEnteredOrModified?: boolean;
+  hasReviewData?: boolean;
+  isDefect?: boolean;
+  isAccepted?: boolean;
 }
 
 export const BIW_REVIEW_COLUMNS = [
@@ -150,6 +155,7 @@ export function extractFormDefectReasons(form?: Form | null, responses?: any[]):
 export async function downloadBiwReviewTemplate(options: {
   form?: Form | null;
   formTitle?: string;
+  mainTenantName?: string;
   chassisNumbers?: string[];
   responses?: any[];
   filename?: string;
@@ -161,6 +167,7 @@ export async function downloadBiwReviewTemplate(options: {
   const {
     form,
     formTitle,
+    mainTenantName,
     chassisNumbers = [],
     responses = [],
     filename,
@@ -171,7 +178,16 @@ export async function downloadBiwReviewTemplate(options: {
   } = options;
 
   const hasTargetTenant = Boolean(targetTenantForm);
-  const targetLabel = targetTenantName || targetTenantTitle || "Target Tenant";
+  const mainTitle = formTitle || form?.title || "Main Form";
+  const mainTenant = mainTenantName || "";
+  const targetTitle = targetTenantTitle || targetTenantForm?.title || "Child Form";
+  const targetTenant = targetTenantName || "";
+
+  const mainHeaderLabel = hasTargetTenant
+    ? `1st: ${mainTitle}${mainTenant ? ` | ${mainTenant}` : ""}`
+    : `${mainTitle}${mainTenant ? ` | ${mainTenant}` : ""}`;
+
+  const targetHeaderLabel = `2nd: ${targetTitle}${targetTenant ? ` | ${targetTenant}` : ""}`;
 
   const defectOptions = extractFormDefectReasons(form, responses);
   const targetDefectOptions = hasTargetTenant ? extractFormDefectReasons(targetTenantForm, responses) : [];
@@ -180,27 +196,27 @@ export async function downloadBiwReviewTemplate(options: {
   // 1. Prepare Main Sheet Data (Header + Rows)
   const mainSheetData: any[][] = [];
 
-  // Header row: Columns A-E (BIW), F-J (Main TVS), and if target tenant, K-O (Target Tenant TVS cloned!)
+  // Header row: Columns A-E (BIW), F-J (1st Main TVS), and K-O (2nd Target Tenant TVS cloned!)
   const headers = [
     "Chassis Number",
     "BIW Feed back(Accept,Rework,Reject)",
     "Rework and Rejected Resion (Rust..)",
     "Remark",
     "File Upload",
-    "TVS Feed back",
-    "Rework Resion (Rust..)",
-    "Rework and Rejected Resion (Rust..)",
-    "Remark",
-    "File Upload"
+    `TVS Feed back (${mainHeaderLabel})`,
+    `Rework Resion (Rust..) - ${mainTitle}`,
+    `Rework and Rejected Resion (Rust..) - ${mainTitle}`,
+    `Remark - ${mainTitle}`,
+    `File Upload - ${mainTitle}`
   ];
 
   if (hasTargetTenant) {
     headers.push(
-      `TVS Feed back (${targetLabel})`,
-      `Rework Resion (Rust..) - ${targetLabel}`,
-      `Rework and Rejected Resion (Rust..) - ${targetLabel}`,
-      `Remark - ${targetLabel}`,
-      `File Upload - ${targetLabel}`
+      `TVS Feed back (${targetHeaderLabel})`,
+      `Rework Resion (Rust..) - ${targetTitle}`,
+      `Rework and Rejected Resion (Rust..) - ${targetTitle}`,
+      `Remark - ${targetTitle}`,
+      `File Upload - ${targetTitle}`
     );
   }
 
@@ -342,8 +358,8 @@ export async function downloadBiwReviewTemplate(options: {
     { wch: 36 }, // Rework and Rejected Resion (Rust..)
     { wch: 24 }, // Remark
     { wch: 22 }, // File Upload
-    { wch: 20 }, // TVS Feed back
-    { wch: 28 }, // Rework Resion (Rust..)
+    { wch: 38 }, // TVS Feed back (1st Main Form)
+    { wch: 30 }, // Rework Resion (Rust..)
     { wch: 36 }, // Rework and Rejected Resion (Rust..)
     { wch: 24 }, // Remark
     { wch: 22 }  // File Upload
@@ -351,8 +367,8 @@ export async function downloadBiwReviewTemplate(options: {
 
   if (hasTargetTenant) {
     colWidths.push(
-      { wch: 28 }, // TVS Feed back (Target Tenant)
-      { wch: 34 }, // Rework Resion
+      { wch: 38 }, // TVS Feed back (2nd Target Tenant)
+      { wch: 30 }, // Rework Resion
       { wch: 36 }, // Rework and Rejected Resion
       { wch: 24 }, // Remark
       { wch: 22 }  // File Upload
@@ -633,18 +649,17 @@ export function generateBiwEmailSummaryHtml(options: {
       </thead>
       <tbody>
         ${rows
-          .map(
-            (r, i) => `
+      .map(
+        (r, i) => `
           <tr style="border-bottom: 1px solid #e2e8f0; background: ${i % 2 === 0 ? "#ffffff" : "#f8fafc"};">
             <td style="padding: 10px 12px; font-weight: bold; color: #0f172a;">${r.chassisNumber}</td>
             <td style="padding: 10px 12px;">
-              <span style="padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; background: ${
-                String(r.biwFeedback).toLowerCase().includes("accept")
-                  ? "#dcfce7; color: #166534;"
-                  : String(r.biwFeedback).toLowerCase().includes("rework")
-                  ? "#fef9c3; color: #854d0e;"
-                  : "#fee2e2; color: #991b1b;"
-              }">
+              <span style="padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; background: ${String(r.biwFeedback).toLowerCase().includes("accept")
+            ? "#dcfce7; color: #166534;"
+            : String(r.biwFeedback).toLowerCase().includes("rework")
+              ? "#fef9c3; color: #854d0e;"
+              : "#fee2e2; color: #991b1b;"
+          }">
                 ${r.biwFeedback || "—"}
               </span>
             </td>
@@ -652,8 +667,8 @@ export function generateBiwEmailSummaryHtml(options: {
             <td style="padding: 10px 12px; color: #64748b;">${r.biwRemark || "—"}</td>
             <td style="padding: 10px 12px; color: #475569;">${r.tvsFeedback || "—"}</td>
           </tr>`
-          )
-          .join("")}
+      )
+      .join("")}
       </tbody>
     </table>
 
@@ -673,11 +688,11 @@ Total Units: ${rows.length} | Accepted: ${accepted} | Rework: ${rework} | Reject
 CHASSIS UNIT DETAILS:
 ----------------------------------------------------------------------------------------------------
 ${rows
-  .map(
-    (r) =>
-      `• ${r.chassisNumber} | BIW: ${r.biwFeedback || "N/A"} | Defect: ${r.biwReason || "None"} | Remark: ${r.biwRemark || "None"} | TVS: ${r.tvsFeedback || "N/A"}`
-  )
-  .join("\n")}
+      .map(
+        (r) =>
+          `• ${r.chassisNumber} | BIW: ${r.biwFeedback || "N/A"} | Defect: ${r.biwReason || "None"} | Remark: ${r.biwRemark || "None"} | TVS: ${r.tvsFeedback || "N/A"}`
+      )
+      .join("\n")}
 ----------------------------------------------------------------------------------------------------
 `;
 
@@ -1075,18 +1090,17 @@ export function generateTvsEmailSummaryHtml(options: {
     </thead>
     <tbody>
       ${rows
-        .map(
-          (r, i) => `
+      .map(
+        (r, i) => `
         <tr style="border-bottom: 1px solid #e2e8f0; background: ${i % 2 === 0 ? "#ffffff" : "#f8fafc"};">
           <td style="padding: 10px 12px; font-weight: bold; color: #0f172a;">${r.chassisNumber}</td>
           <td style="padding: 10px 12px;">
-            <span style="padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; background: ${
-              String(r.tvsFeedback).toLowerCase().includes("accept")
-                ? "#dcfce7; color: #166534;"
-                : String(r.tvsFeedback).toLowerCase().includes("rework")
-                ? "#fef9c3; color: #854d0e;"
-                : "#fee2e2; color: #991b1b;"
-            }">
+            <span style="padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; background: ${String(r.tvsFeedback).toLowerCase().includes("accept")
+            ? "#dcfce7; color: #166534;"
+            : String(r.tvsFeedback).toLowerCase().includes("rework")
+              ? "#fef9c3; color: #854d0e;"
+              : "#fee2e2; color: #991b1b;"
+          }">
               ${r.tvsFeedback || "—"}
             </span>
           </td>
@@ -1094,8 +1108,8 @@ export function generateTvsEmailSummaryHtml(options: {
           <td style="padding: 10px 12px; color: #64748b;">${r.tvsRemark || "—"}</td>
           <td style="padding: 10px 12px; color: #4f46e5; font-weight: 500;">${r.targetFormTitle || formTitle}</td>
         </tr>`
-        )
-        .join("")}
+      )
+      .join("")}
     </tbody>
   </table>
 
@@ -1114,11 +1128,11 @@ Total Units: ${rows.length} | Accepted: ${accepted} | Rework: ${rework} | Reject
 CHASSIS UNIT DETAILS:
 ----------------------------------------------------------------------------------------------------
 ${rows
-  .map(
-    (r) =>
-      `• ${r.chassisNumber} | TVS Status: ${r.tvsFeedback || "N/A"} | Defect: ${r.tvsReason || "None"} | Remark: ${r.tvsRemark || "None"} | Target: ${r.targetFormTitle || formTitle}`
-  )
-  .join("\n")}
+      .map(
+        (r) =>
+          `• ${r.chassisNumber} | TVS Status: ${r.tvsFeedback || "N/A"} | Defect: ${r.tvsReason || "None"} | Remark: ${r.tvsRemark || "None"} | Target: ${r.targetFormTitle || formTitle}`
+      )
+      .join("\n")}
 ----------------------------------------------------------------------------------------------------
 `;
 

@@ -4696,6 +4696,10 @@ export const getQualitySummary = async (req, res) => {
           biwRejectCount: 0,
           biwDefectCount: 0,
           biwReviewedCount: 0,
+          tvsAcceptCount: 0,
+          tvsRejectCount: 0,
+          tvsReworkCount: 0,
+          tvsReviewedCount: 0,
           dispatchedCount: 0,
           forms: {}
         };
@@ -4712,6 +4716,10 @@ export const getQualitySummary = async (req, res) => {
       inspectorAggMap[inspName].biwRejectCount += item.biwRejectCount || 0;
       inspectorAggMap[inspName].biwDefectCount += item.biwDefectCount || 0;
       inspectorAggMap[inspName].biwReviewedCount += item.biwReviewedCount || 0;
+      inspectorAggMap[inspName].tvsAcceptCount += item.tvsAcceptCount || 0;
+      inspectorAggMap[inspName].tvsRejectCount += item.tvsRejectCount || 0;
+      inspectorAggMap[inspName].tvsReworkCount += item.tvsReworkCount || 0;
+      inspectorAggMap[inspName].tvsReviewedCount += item.tvsReviewedCount || 0;
       inspectorAggMap[inspName].dispatchedCount += item.dispatchedCount || 0;
 
       if (formKey) {
@@ -4769,6 +4777,11 @@ export const getQualitySummary = async (req, res) => {
       const biwAcceptRate = biwTotal > 0 ? Math.round((insp.biwAcceptCount / biwTotal) * 100) : 0;
       const biwDefectRate = Math.max(0, 100 - biwAcceptRate);
 
+      const tvsDefectTotal = (insp.tvsRejectCount || 0) + (insp.tvsReworkCount || 0);
+      const tvsTotal = insp.tvsReviewedCount || (insp.tvsAcceptCount + tvsDefectTotal);
+      const tvsAcceptRate = tvsTotal > 0 ? Math.round((insp.tvsAcceptCount / tvsTotal) * 100) : 0;
+      const tvsDefectRate = Math.max(0, 100 - tvsAcceptRate);
+
       const topDefects = Object.entries(inspectorDefectMap[insp.name] || {})
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
@@ -4799,6 +4812,13 @@ export const getQualitySummary = async (req, res) => {
         arrow,
         biwAcceptRate,
         biwDefectRate,
+        tvsAcceptCount: insp.tvsAcceptCount || 0,
+        tvsRejectCount: insp.tvsRejectCount || 0,
+        tvsReworkCount: insp.tvsReworkCount || 0,
+        tvsDefectCount: tvsDefectTotal,
+        tvsReviewedCount: tvsTotal,
+        tvsAcceptRate,
+        tvsDefectRate,
         performanceScore: biwTotal > 0 ? Math.round((insp.biwAcceptCount / biwTotal) * 100) : acceptRate,
         topDefects,
         forms: insp.forms

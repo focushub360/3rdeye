@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   X,
   FileSpreadsheet,
@@ -13,7 +13,11 @@ import {
   Loader2,
   ExternalLink,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  User,
+  Award,
+  ShieldAlert,
+  Filter
 } from "lucide-react";
 import {
   downloadBiwReviewTemplate,
@@ -30,8 +34,10 @@ interface BiwReviewExcelModalProps {
   formId: string;
   form?: Form | null;
   formTitle: string;
+  mainTenantName?: string;
   targetTenantForm?: any;
   targetTenantTitle?: string;
+  targetTenantName?: string;
   currentChassisNumbers?: string[];
   responses?: any[];
   onImportSuccess?: () => void;
@@ -43,8 +49,10 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
   formId,
   form,
   formTitle,
+  mainTenantName,
   targetTenantForm,
   targetTenantTitle,
+  targetTenantName,
   currentChassisNumbers = [],
   responses = [],
   onImportSuccess
@@ -54,6 +62,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
   const [parsedRows, setParsedRows] = useState<BiwExcelRow[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [filterMode, setFilterMode] = useState<"newly_entered" | "all_entered" | "all">("newly_entered");
   const [importResult, setImportResult] = useState<{
     total: number;
     updatedCount: number;
@@ -67,10 +76,229 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
   const [copiedText, setCopiedText] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Self-fetch form responses if responses prop is empty so metadata (worker, previous status) is always available
+  const [internalResponses, setInternalResponses] = useState<any[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchResponses = async () => {
+      try {
+        const res = await apiClient.getResponses(formId, { limit: 1000 });
+        const list = res?.responses || (Array.isArray(res) ? res : (res?.data?.responses || []));
+
+        let parentList: any[] = [];
+        const parentId = (form as any)?.parentFormId || (form as any)?.parentForm?._id || (form as any)?.parentForm?.id;
+        if (parentId && parentId !== formId) {
+          try {
+            const pRes = await apiClient.getResponses(parentId, { limit: 1000 });
+            parentList = pRes?.responses || (Array.isArray(pRes) ? pRes : (pRes?.data?.responses || []));
+          } catch (_) {}
+        }
+
+        if (isMounted) {
+          const combined = [...(list || []), ...parentList];
+          if (combined.length > 0) {
+            setInternalResponses(combined);
+          }
+        }
+      } catch (err) {
+        console.warn("Could not fetch form responses in modal:", err);
+      }
+    };
+
+    fetchResponses();
+    return () => { isMounted = false; };
+  }, [formId, form]);
+
+  const allAvailableResponses = useMemo(() => {
+    const map = new Map<string, any>();
+    internalResponses.forEach((r) => {
+      const ch = (r.chassisNumber || (r as any).systemChassisNumber || "").toString().trim().toUpperCase();
+      if (ch) map.set(ch, r);
+    });
+    responses.forEach((r) => {
+      const ch = (r.chassisNumber || (r as any).systemChassisNumber || "").toString().trim().toUpperCase();
+      if (ch) map.set(ch, r);
+    });
+    return Array.from(map.values());
+  }, [internalResponses, responses]);
+
   // Available unique chassis numbers
   const uniqueChassisList = useMemo(() => {
-    return Array.from(new Set(currentChassisNumbers.map((c) => String(c).trim()).filter(Boolean)));
-  }, [currentChassisNumbers]);
+    const set = new Set<string>();
+    currentChassisNumbers.forEach((c) => { if (c) set.add(String(c).trim()); });
+    allAvailableResponses.forEach((r) => {
+      const ch = (r.chassisNumber || (r as any).systemChassisNumber || "").toString().trim();
+      if (ch) set.add(ch);
+    });
+    return Array.from(set);
+  }, [currentChassisNumbers, allAvailableResponses]);
+
+  // Lookup map to associate chassis with response metadata (inspector/worker, previous status, etc.)
+  const responseByChassisMap = useMemo(() => {
+    const map = new Map<string, any>();
+    allAvailableResponses.forEach((r) => {
+      const ch = (r.chassisNumber || (r as any).systemChassisNumber || "").toString().trim().toUpperCase();
+      if (ch) map.set(ch, r);
+    });
+    return map;
+  }, [allAvailableResponses]);
+
+  // Check if this workbook has TVS reviews or remarks entered
+  const workbookHasTvsOrRemarks = useMemo(() => {
+    return parsedRows.some(
+      (r) =>
+        Boolean(r.tvsFeedback && r.tvsFeedback.trim()) ||
+        Boolean(r.targetTvsFeedback && r.targetTvsFeedback.trim()) ||
+        Boolean(r.biwRemark && r.biwRemark.trim()) ||
+        Boolean(r.tvsRemark && r.tvsRemark.trim()) ||
+        Boolean(r.targetTvsRemark && r.targetTvsRemark.trim())
+    );
+  }, [parsedRows]);
+
+  // Enrich parsed rows with worker attribution, review data checks, and change detection
+  const enrichedParsedRows = useMemo(() => {
+    return parsedRows.map((r) => {
+      const chKey = (r.chassisNumber || "").trim().toUpperCase();
+      const matchedResp = responseByChassisMap.get(chKey);
+      const workerName = (matchedResp?.submittedBy || matchedResp?.createdBy?.name || (matchedResp ? "Inspector" : "Unassigned")).trim();
+      const currentStatus = matchedResp?.status || "Pending";
+
+      const biwFb = (r.biwFeedback || "").trim();
+      const biwRea = (r.biwReason || "").trim();
+      const biwRem = (r.biwRemark || "").trim();
+      const biwFile = (r.biwFileUrl || "").trim();
+
+      const tvsFb = (r.tvsFeedback || "").trim();
+      const tvsRea = (r.tvsReason || r.tvsRejectReason || "").trim();
+      const tvsRem = (r.tvsRemark || "").trim();
+      const tvsFile = (r.tvsFileUrl || "").trim();
+
+      const targetTvsFb = (r.targetTvsFeedback || "").trim();
+      const targetTvsRea = (r.targetTvsReason || r.targetTvsRejectReason || "").trim();
+      const targetTvsRem = (r.targetTvsRemark || "").trim();
+      const targetTvsFile = (r.targetTvsFileUrl || "").trim();
+
+      const hasReviewData = Boolean(
+        biwFb || biwRea || biwRem || biwFile ||
+        tvsFb || tvsRea || tvsRem || tvsFile ||
+        targetTvsFb || targetTvsRea || targetTvsRem || targetTvsFile
+      );
+
+      // Check DB existing reviews
+      const dbBiwStatus = matchedResp?.biwReview?.status ? String(matchedResp.biwReview.status).toLowerCase().trim() : "";
+      const dbBiwReason = (matchedResp?.biwReview?.reason || matchedResp?.biwReview?.flaggedQuestions?.[0]?.questionText || "").trim().toLowerCase();
+      const dbTvsStatus = (matchedResp?.review?.reviewOption || matchedResp?.review?.status)
+        ? String(matchedResp.review.reviewOption || matchedResp.review.status).toLowerCase().trim()
+        : "";
+      const dbTvsReason = (matchedResp?.review?.reason || "").trim().toLowerCase();
+
+      const hasTvsInput = Boolean(tvsFb || tvsRea || tvsRem || tvsFile);
+      const hasTargetTvsInput = Boolean(targetTvsFb || targetTvsRea || targetTvsRem || targetTvsFile);
+      const hasRemark = Boolean(biwRem || tvsRem || targetTvsRem);
+
+      // Check if BIW feedback is identical to what was already saved in DB
+      const biwMatchesDb = Boolean(
+        dbBiwStatus &&
+        biwFb &&
+        (biwFb.toLowerCase() === dbBiwStatus || (biwFb.toLowerCase() === "rework" && dbBiwStatus === "reworked")) &&
+        (!biwRea || biwRea.toLowerCase() === dbBiwReason)
+      );
+
+      // Check if TVS feedback is identical to what was already saved in DB
+      const tvsMatchesDb = Boolean(
+        dbTvsStatus &&
+        tvsFb &&
+        (tvsFb.toLowerCase() === dbTvsStatus || (tvsFb.toLowerCase() === "rework" && dbTvsStatus === "reworked")) &&
+        (!tvsRea || tvsRea.toLowerCase() === dbTvsReason)
+      );
+
+      // Newly entered or modified review:
+      // 1. Any TVS or Target TVS feedback entered (or changed from DB)
+      // 2. Any remark / note typed by the reviewer
+      // 3. Any defect reason entered/changed
+      // 4. Any BIW status entered on an unreviewed unit or changed from DB status
+      // 5. File upload attached
+      const hasNewTvs = (hasTvsInput && !tvsMatchesDb) || hasTargetTvsInput;
+      const hasNewRemark = hasRemark;
+      const hasNewReason = Boolean(
+        (biwRea && biwRea.toLowerCase() !== dbBiwReason) ||
+        (tvsRea && tvsRea.toLowerCase() !== dbTvsReason) ||
+        targetTvsRea
+      );
+      const hasNewBiw = Boolean(
+        biwFb &&
+        !biwMatchesDb &&
+        (!dbBiwStatus || !biwFb.toLowerCase().includes(dbBiwStatus))
+      );
+
+      // If workbook has TVS reviews or remarks, bare prefilled BIW rows without any remarks or TVS are skipped
+      let isNewlyEnteredOrModified = false;
+      if (workbookHasTvsOrRemarks) {
+        isNewlyEnteredOrModified = Boolean(
+          hasNewTvs ||
+          hasNewRemark ||
+          hasNewReason ||
+          (hasNewBiw && hasRemark)
+        );
+      } else {
+        isNewlyEnteredOrModified = Boolean(
+          hasNewTvs ||
+          hasNewRemark ||
+          hasNewReason ||
+          hasNewBiw ||
+          biwFile || tvsFile || targetTvsFile
+        );
+      }
+
+      // Defect impact:
+      const allFeedbackStr = `${biwFb} ${tvsFb} ${targetTvsFb}`.toLowerCase();
+      const isDefect = allFeedbackStr.includes("rework") || allFeedbackStr.includes("reject") || Boolean(biwRea || tvsRea || targetTvsRea);
+      const isAccepted = !isDefect && allFeedbackStr.includes("accept");
+
+      return {
+        ...r,
+        workerName,
+        currentStatus,
+        hasReviewData,
+        isNewlyEnteredOrModified,
+        isDefect,
+        isAccepted
+      };
+    });
+  }, [parsedRows, responseByChassisMap, workbookHasTvsOrRemarks]);
+
+  // Slices for tab filtering
+  const newlyEnteredRows = useMemo(() => {
+    return enrichedParsedRows.filter((r) => r.isNewlyEnteredOrModified);
+  }, [enrichedParsedRows]);
+
+  const allEnteredRows = useMemo(() => {
+    return enrichedParsedRows.filter((r) => r.hasReviewData);
+  }, [enrichedParsedRows]);
+
+  const displayedRows = useMemo(() => {
+    if (filterMode === "newly_entered") {
+      return newlyEnteredRows.length > 0 ? newlyEnteredRows : (allEnteredRows.length > 0 ? allEnteredRows : enrichedParsedRows);
+    }
+    if (filterMode === "all_entered") {
+      return allEnteredRows.length > 0 ? allEnteredRows : enrichedParsedRows;
+    }
+    return enrichedParsedRows;
+  }, [filterMode, newlyEnteredRows, allEnteredRows, enrichedParsedRows]);
+
+  // Reviews to actually import: only sends entered reviews instead of 300+ empty template rows
+  const rowsToImport = useMemo(() => {
+    if (filterMode === "all") {
+      return parsedRows;
+    }
+    if (filterMode === "all_entered") {
+      return allEnteredRows.length > 0 ? allEnteredRows : parsedRows;
+    }
+    return newlyEnteredRows.length > 0
+      ? newlyEnteredRows
+      : (allEnteredRows.length > 0 ? allEnteredRows : parsedRows);
+  }, [filterMode, newlyEnteredRows, allEnteredRows, parsedRows]);
 
   if (!isOpen) return null;
 
@@ -91,6 +319,8 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         matched: chassisSet.has(r.chassisNumber.toUpperCase())
       }));
       setParsedRows(annotated);
+      // Default to showing newly entered reviews alone
+      setFilterMode("newly_entered");
     } catch (err: any) {
       alert(`Error reading Excel file: ${err.message || String(err)}`);
       setParsedRows([]);
@@ -101,19 +331,27 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
 
   const handleDownloadTemplate = async () => {
     try {
-      const targetTenantName =
-        typeof targetTenantForm?.tenantId === "object"
+      const resolvedTargetTenantName =
+        targetTenantName ||
+        (typeof targetTenantForm?.tenantId === "object"
           ? targetTenantForm?.tenantId?.name || targetTenantForm?.tenantId?.title
-          : targetTenantForm?.organizationName || "";
+          : targetTenantForm?.organizationName || "");
+
+      const resolvedMainTenantName =
+        mainTenantName ||
+        (typeof form?.tenantId === "object"
+          ? (form?.tenantId as any)?.name || (form?.tenantId as any)?.title
+          : "");
 
       await downloadBiwReviewTemplate({
         form,
         formTitle,
+        mainTenantName: resolvedMainTenantName,
         chassisNumbers: prefillChassis ? uniqueChassisList : [],
         responses,
         targetTenantForm,
         targetTenantTitle,
-        targetTenantName,
+        targetTenantName: resolvedTargetTenantName,
         filename: `BIW template - ${(formTitle || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
       });
     } catch (err: any) {
@@ -122,7 +360,10 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
   };
 
   const handleExecuteImport = async () => {
-    if (parsedRows.length === 0) return;
+    if (rowsToImport.length === 0) {
+      alert("No review rows found to import.");
+      return;
+    }
 
     setIsImporting(true);
     setImportResult(null);
@@ -130,7 +371,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
     try {
       const res = await apiClient.importBiwReviews(
         formId,
-        parsedRows,
+        rowsToImport,
         selectedFile?.name || "BIW_Review_Import.xlsx"
       );
 
@@ -324,19 +565,69 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
               {/* Parsed Rows Preview Table */}
               {!isParsing && parsedRows.length > 0 && (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider">
-                        Extracted Review Rows ({parsedRows.length})
-                      </h4>
-                      <span className="text-xs text-gray-500">
-                        ({parsedRows.filter((r) => r.matched).length} matched with form responses)
-                      </span>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    {/* View mode toggle pills */}
+                    <div className="flex items-center gap-1.5 p-1 bg-gray-100 dark:bg-gray-800/80 rounded-xl border border-gray-200 dark:border-gray-700">
+                      <button
+                        type="button"
+                        onClick={() => setFilterMode("newly_entered")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          filterMode === "newly_entered"
+                            ? "bg-indigo-600 text-white shadow-xs"
+                            : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                        }`}
+                        title="Display only the chassis units where you entered reviews in this Excel file"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                        <span>Newly Entered Alone</span>
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                          filterMode === "newly_entered" ? "bg-white/20 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                        }`}>
+                          {newlyEnteredRows.length}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFilterMode("all_entered")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          filterMode === "all_entered"
+                            ? "bg-indigo-600 text-white shadow-xs"
+                            : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                        }`}
+                        title="Display all chassis units that contain any review input"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
+                        <span>All Entered Reviews</span>
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                          filterMode === "all_entered" ? "bg-white/20 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                        }`}>
+                          {allEnteredRows.length}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFilterMode("all")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          filterMode === "all"
+                            ? "bg-indigo-600 text-white shadow-xs"
+                            : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                        }`}
+                        title="Display all rows from the Excel template including blank rows"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-blue-400" />
+                        <span>All Template Rows</span>
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                          filterMode === "all" ? "bg-white/20 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                        }`}>
+                          {enrichedParsedRows.length}
+                        </span>
+                      </button>
                     </div>
+
                     <button
                       onClick={handleExecuteImport}
-                      disabled={isImporting}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all flex items-center gap-2"
+                      disabled={isImporting || rowsToImport.length === 0}
+                      className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 disabled:opacity-50 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all flex items-center gap-2"
                     >
                       {isImporting ? (
                         <>
@@ -346,7 +637,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                       ) : (
                         <>
                           <Check className="w-4 h-4" />
-                          Apply & Import {parsedRows.length} Reviews
+                          Apply & Import {rowsToImport.length} Review{rowsToImport.length !== 1 ? 's' : ''}
                         </>
                       )}
                     </button>
@@ -354,22 +645,28 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
 
                   <div className="border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden max-h-72 overflow-y-auto">
                     <table className="w-full text-xs text-left">
-                      <thead className="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-semibold sticky top-0 border-b border-gray-200 dark:border-gray-700">
+                      <thead className="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-semibold sticky top-0 border-b border-gray-200 dark:border-gray-700 z-10">
                         <tr>
                           <th className="p-2.5">Row</th>
                           <th className="p-2.5">Chassis Number</th>
+                          <th className="p-2.5">Worker / Inspector</th>
                           <th className="p-2.5">BIW Feedback</th>
                           <th className="p-2.5">BIW Defect / Reason</th>
                           <th className="p-2.5">Remark</th>
-                          <th className="p-2.5">TVS Feedback</th>
+                          <th className="p-2.5">
+                            TVS Feedback ({targetTenantForm ? `1st: ${formTitle || "Main"}${mainTenantName ? ` | ${mainTenantName}` : ""}` : (mainTenantName || "Main Form")})
+                          </th>
                           {parsedRows.some((row) => row.targetTvsFeedback) && (
-                            <th className="p-2.5">TVS Feedback ({targetTenantTitle || "Target Tenant"})</th>
+                            <th className="p-2.5">
+                              TVS Feedback (2nd: {targetTenantTitle || "Target Tenant"}{targetTenantName ? ` | ${targetTenantName}` : ""})
+                            </th>
                           )}
+                          <th className="p-2.5">Worker Impact</th>
                           <th className="p-2.5">File Upload</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                        {parsedRows.map((r, i) => {
+                        {displayedRows.map((r, i) => {
                           const biwStatus = r.biwFeedback?.toLowerCase() || "";
                           const isAccept = biwStatus.includes("accept");
                           const isRework = biwStatus.includes("rework");
@@ -378,7 +675,11 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                           return (
                             <tr
                               key={i}
-                              className="hover:bg-gray-50/80 dark:hover:bg-gray-800/40 transition-colors"
+                              className={`transition-colors ${
+                                r.isNewlyEnteredOrModified
+                                  ? "bg-indigo-50/40 dark:bg-indigo-950/20 hover:bg-indigo-50/80 dark:hover:bg-indigo-950/40"
+                                  : "hover:bg-gray-50/80 dark:hover:bg-gray-800/40"
+                              }`}
                             >
                               <td className="p-2.5 text-gray-400">{r.rowIndex || i + 1}</td>
                               <td className="p-2.5 font-bold flex items-center gap-1.5">
@@ -388,6 +689,16 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                                 ) : (
                                   <span className="w-2 h-2 rounded-full bg-amber-400" title="Will query in form" />
                                 )}
+                              </td>
+                              <td className="p-2.5">
+                                <div className="flex items-center gap-1.5">
+                                  <div className="w-5 h-5 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-[10px] font-black">
+                                    <User className="w-3 h-3" />
+                                  </div>
+                                  <span className="font-semibold text-gray-800 dark:text-gray-200">
+                                    {r.workerName || "Inspector"}
+                                  </span>
+                                </div>
                               </td>
                               <td className="p-2.5">
                                 {r.biwFeedback ? (
@@ -434,6 +745,21 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                                   )}
                                 </td>
                               )}
+                              <td className="p-2.5">
+                                {r.isDefect ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-100 text-red-800 border border-red-200">
+                                    <AlertTriangle className="w-3 h-3 text-red-600 flex-shrink-0" />
+                                    <span>Rework Flagged (Worker Defect)</span>
+                                  </span>
+                                ) : r.isAccepted ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-green-100 text-green-800 border border-green-200">
+                                    <CheckCircle2 className="w-3 h-3 text-green-600 flex-shrink-0" />
+                                    <span>Accepted (+1 Quality)</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400">—</span>
+                                )}
+                              </td>
                               <td className="p-2.5">
                                 {r.biwFileUrl ? (
                                   <a

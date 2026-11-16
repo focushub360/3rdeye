@@ -369,13 +369,64 @@ export const QualityDashboard: React.FC = () => {
       ? data.inspectors.filter(i => inspectorSet.has(String(i.name || '').toLowerCase().trim()))
       : data.inspectors;
     const filtered = pool.filter(insp => (insp.biwAcceptCount > 0 || insp.biwDefectCount > 0));
-    if (!biwInspectorSearch.trim()) return filtered;
+    const sorted = [...filtered].sort((a, b) => (b.biwAcceptRate - a.biwAcceptRate) || (b.biwAcceptCount - a.biwAcceptCount) || (a.biwDefectCount - b.biwDefectCount) || ((b.totalChecked || 0) - (a.totalChecked || 0)));
+    if (!biwInspectorSearch.trim()) return sorted;
     const q = biwInspectorSearch.toLowerCase().trim();
-    return filtered.filter(insp => insp.name.toLowerCase().includes(q));
+    return sorted.filter(insp => insp.name.toLowerCase().includes(q));
   }, [data?.inspectors, biwFormItems, selectedFormIds, biwInspectorSearch]);
 
+  // TVS Tab State and Form-Related Data Memos
+  const [tvsInspectorSearch, setTvsInspectorSearch] = useState<string>('');
+  const [tvsInspectorViewMode, setTvsInspectorViewMode] = useState<'cards' | 'table'>('cards');
+
+  const tvsFormItems = useMemo(() => {
+    if (!enrichedFormsSummary) return [];
+    if (selectedFormIds.length === 0) return enrichedFormsSummary;
+    return enrichedFormsSummary.filter((f: any) => selectedFormIds.includes(f.id) || (f._id && selectedFormIds.includes(f._id)));
+  }, [enrichedFormsSummary, selectedFormIds]);
+
+  const tvsOverallSummary = useMemo(() => {
+    const totalAccept = tvsFormItems.reduce((sum: number, f: any) => sum + (f.tvsAcceptCount || 0), 0);
+    const totalReject = tvsFormItems.reduce((sum: number, f: any) => sum + (f.tvsRejectCount || 0), 0);
+    const totalRework = tvsFormItems.reduce((sum: number, f: any) => sum + (f.tvsReworkCount || 0), 0);
+    const totalDefect = totalReject + totalRework;
+    const totalReviewed = tvsFormItems.reduce((sum: number, f: any) => sum + (f.tvsReviewedCount || 0), 0) || (totalAccept + totalDefect);
+    const rate = totalReviewed > 0 ? Math.round((totalAccept / totalReviewed) * 10000) / 100 : 0;
+    return { totalAccept, totalReject, totalRework, totalDefect, totalReviewed, rate };
+  }, [tvsFormItems]);
+
+  const tvsInspectors = useMemo(() => {
+    if (!data?.inspectors) return [];
+    const inspectorSet = new Set<string>();
+    (tvsFormItems || []).forEach((f: any) => {
+      (f.inspectors || []).forEach((n: string) => { if (n) inspectorSet.add(n.toLowerCase().trim()); });
+    });
+    const pool = (selectedFormIds.length > 0 && inspectorSet.size > 0)
+      ? data.inspectors.filter(i => inspectorSet.has(String(i.name || '').toLowerCase().trim()))
+      : data.inspectors;
+    const mapped = pool.map(insp => {
+      const tAccept = insp.tvsAcceptCount !== undefined ? insp.tvsAcceptCount : (insp.acceptCount || 0);
+      const tDefect = insp.tvsDefectCount !== undefined ? insp.tvsDefectCount : (insp.defectCount || 0);
+      const tReviewed = insp.tvsReviewedCount !== undefined ? insp.tvsReviewedCount : (tAccept + tDefect);
+      const tRate = insp.tvsAcceptRate !== undefined ? insp.tvsAcceptRate : (tReviewed > 0 ? Math.round((tAccept / tReviewed) * 100) : (insp.acceptRate || 0));
+      return {
+        ...insp,
+        tvsAcceptCount: tAccept,
+        tvsDefectCount: tDefect,
+        tvsReviewedCount: tReviewed,
+        tvsAcceptRate: tRate,
+      };
+    });
+    const filtered = mapped.filter(insp => (insp.tvsReviewedCount > 0 || insp.totalChecked > 0));
+    const sorted = [...filtered].sort((a, b) => (b.tvsAcceptRate - a.tvsAcceptRate) || (b.tvsAcceptCount - a.tvsAcceptCount) || (a.tvsDefectCount - b.tvsDefectCount) || ((b.totalChecked || 0) - (a.totalChecked || 0)));
+    if (!tvsInspectorSearch.trim()) return sorted;
+    const q = tvsInspectorSearch.toLowerCase().trim();
+    return sorted.filter(insp => insp.name.toLowerCase().includes(q));
+  }, [data?.inspectors, tvsFormItems, selectedFormIds, tvsInspectorSearch]);
+
   // Overall Quality Pie Chart State & Real Data Sync
-  const [hoveredSlice, setHoveredSlice] = useState<'all' | 'directOk' | 'reworkCompleted' | 'accepted' | 'rework' | 'rejected'>('all');
+  type HoveredSliceType = 'all' | 'directOk' | 'reworkCompleted' | 'accepted' | 'rework' | 'rejected' | 'pendingDispatch' | 'pendingData' | 'pendingTvs' | 'dispatched' | 'biwReviewed' | 'tvsReviewed' | 'tvsAccepted' | 'tvsDefects';
+  const [hoveredSlice, setHoveredSlice] = useState<HoveredSliceType>('all');
   const [pieSearchQuery, setPieSearchQuery] = useState<string>('');
 
   // Forms strictly scoped to active selection (or all if nothing selected)
@@ -880,6 +931,138 @@ export const QualityDashboard: React.FC = () => {
     }
   }), [biwOverallSummary, activeSelectedForms, selectedFormIds]);
 
+  const tvsPieChartData = useMemo(() => {
+    const accepted = tvsOverallSummary.totalAccept || 0;
+    const defects = tvsOverallSummary.totalDefect || 0;
+    if (accepted === 0 && defects === 0) {
+      return {
+        labels: ['No Data'],
+        datasets: [{
+          data: [1],
+          backgroundColor: ['#e5e7eb'],
+          borderColor: ['#ffffff'],
+          borderWidth: 2,
+        }]
+      };
+    }
+    return {
+      labels: ['TVS Accepted', 'TVS Defects / Rework'],
+      datasets: [
+        {
+          data: [accepted, defects],
+          backgroundColor: ['#10b981', '#ef4444'],
+          borderColor: ['#ffffff', '#ffffff'],
+          borderWidth: 2,
+          hoverOffset: 6
+        }
+      ]
+    };
+  }, [tvsOverallSummary]);
+
+  const tvsCenterTextPlugin = useMemo(
+    () => ({
+      id: 'tvsDonutCenterText',
+      afterDatasetsDraw(chart: any) {
+        const meta = chart.getDatasetMeta(0);
+        if (!meta || !meta.data || !meta.data[0]) return;
+        const { ctx } = chart;
+        const { x, y } = meta.data[0];
+
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        ctx.font = 'bold 20px Inter, system-ui, -apple-system, sans-serif';
+        ctx.fillStyle = tvsOverallSummary.rate >= 90 ? '#059669' : tvsOverallSummary.rate >= 75 ? '#2563eb' : '#dc2626';
+        ctx.fillText(`${tvsOverallSummary.rate}%`, x, y - 7);
+
+        ctx.font = 'bold 9px Inter, system-ui, -apple-system, sans-serif';
+        ctx.fillStyle = '#6b7280';
+        ctx.fillText('COMPLIANCE', x, y + 12);
+
+        ctx.restore();
+      },
+    }),
+    [tvsOverallSummary],
+  );
+
+  const tvsPieOptions: any = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '72%',
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(17, 24, 39, 0.95)',
+        titleFont: { size: 12, weight: 'bold' as const },
+        bodyFont: { size: 11 },
+        padding: 8,
+        cornerRadius: 6,
+        callbacks: {
+          label: (context: any) => {
+            const label = context.label || '';
+            const val = Number(context.raw) || 0;
+            const total = tvsOverallSummary.totalReviewed || 1;
+            const pct = ((val / total) * 100).toFixed(1);
+            return ` ${label}: ${val.toLocaleString()} (${pct}%)`;
+          },
+          afterBody: (context: any) => {
+            if (!context || !context[0]) return [];
+            const isAccepted = context[0].dataIndex === 0;
+            const activeForms = activeSelectedForms;
+            const total = isAccepted ? tvsOverallSummary.totalAccept : tvsOverallSummary.totalDefect;
+            const lines: string[] = ['', 'Form-Wise Numbers:'];
+            activeForms.forEach((f: any) => {
+              const count = isAccepted ? (f.tvsAcceptCount || 0) : ((f.tvsRejectCount || 0) + (f.tvsReworkCount || 0));
+              const pct = total > 0 ? ((count / total) * 100).toFixed(1) : '0';
+              if (count > 0 || activeForms.length <= 3) {
+                lines.push(` • ${f.title}: ${count.toLocaleString()} (${pct}%)`);
+              }
+            });
+            return lines;
+          }
+        }
+      }
+    }
+  }), [tvsOverallSummary, activeSelectedForms, selectedFormIds]);
+
+  const tvsDefectBreakdown = useMemo(() => {
+    if (data?.rawResponses && data.rawResponses.length > 0) {
+      const map: Record<string, number> = {};
+      data.rawResponses.forEach((r: any) => {
+        if (selectedFormIds.length > 0 && !selectedFormIds.includes(r.formId) && !selectedFormIds.includes(r.questionId)) {
+          return;
+        }
+        if (r.review) {
+          if (Array.isArray(r.review.flaggedQuestions)) {
+            r.review.flaggedQuestions.forEach((fq: any) => {
+              const title = (fq.questionText || fq.text || fq.title || fq.reason || '').trim();
+              if (title && !['other', 'none', '-', 'ok', 'accepted'].includes(title.toLowerCase())) {
+                map[title] = (map[title] || 0) + 1;
+              }
+            });
+          }
+          const reason = (r.review.reason || r.review.remark || '').trim();
+          if (reason && !['other', 'none', '-', 'ok', 'accepted'].includes(reason.toLowerCase())) {
+            map[reason] = (map[reason] || 0) + 1;
+          }
+        }
+        if (['Rejected', 'Rework', 'Reworked'].includes(r.review?.status || r.review?.reviewOption)) {
+          if (Array.isArray(r.defects)) {
+            r.defects.forEach((d: string) => {
+              if (d && typeof d === 'string' && !['other', 'none', '-'].includes(d.toLowerCase())) {
+                map[d] = (map[d] || 0) + 1;
+              }
+            });
+          }
+        }
+      });
+      const entries = Object.entries(map).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+      if (entries.length > 0) return entries;
+    }
+    return data?.defectBreakdown || [];
+  }, [data?.rawResponses, data?.defectBreakdown, selectedFormIds]);
+
   const centerTextPlugin = useMemo(
     () => ({
       id: 'qualityDonutCenterText',
@@ -893,19 +1076,62 @@ export const QualityDashboard: React.FC = () => {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
-        let displayCount = activeSummary?.totalAccepted || 0;
+        let displayCount = ((summaryPieDetails.counts.directOk || 0) + (summaryPieDetails.counts.reworkCompleted || 0));
         let displayLabel = 'ACCEPTED';
+        let displayColor = '#16a34a';
 
-        if (hoveredSlice === 'rework') {
-          displayCount = activeSummary?.totalRework1 || 0;
+        if (hoveredSlice === 'directOk') {
+          displayCount = summaryPieDetails.counts.directOk || 0;
+          displayLabel = 'DIRECT OK';
+          displayColor = '#16a34a';
+        } else if (hoveredSlice === 'reworkCompleted') {
+          displayCount = summaryPieDetails.counts.reworkCompleted || 0;
+          displayLabel = 'REWORK ACC';
+          displayColor = '#2563eb';
+        } else if (hoveredSlice === 'rework') {
+          displayCount = summaryPieDetails.counts.na || 0;
           displayLabel = 'REWORK';
+          displayColor = '#d97706';
         } else if (hoveredSlice === 'rejected') {
-          displayCount = Math.max(0, (activeSummary?.totalDefects || 0) - (activeSummary?.totalRework1 || 0));
+          displayCount = summaryPieDetails.counts.no || 0;
           displayLabel = 'REJECTED';
+          displayColor = '#dc2626';
+        } else if (hoveredSlice === 'pendingDispatch') {
+          displayCount = summaryPieDetails.counts.pendingDispatch || 0;
+          displayLabel = 'PENDING DISPATCH';
+          displayColor = '#d97706';
+        } else if (hoveredSlice === 'pendingData') {
+          displayCount = summaryPieDetails.counts.pendingData || 0;
+          displayLabel = 'PENDING BIW DATA';
+          displayColor = '#e11d48';
+        } else if (hoveredSlice === 'pendingTvs') {
+          displayCount = summaryPieDetails.counts.pendingTvs || 0;
+          displayLabel = 'PENDING TVS';
+          displayColor = '#d97706';
+        } else if (hoveredSlice === 'dispatched') {
+          displayCount = summaryPieDetails.counts.dispatched || 0;
+          displayLabel = 'DISPATCHED';
+          displayColor = '#4f46e5';
+        } else if (hoveredSlice === 'biwReviewed') {
+          displayCount = summaryPieDetails.counts.biwReviewed || 0;
+          displayLabel = 'BIW REVIEWED';
+          displayColor = '#0d9488';
+        } else if (hoveredSlice === 'tvsReviewed') {
+          displayCount = summaryPieDetails.counts.tvsReviewed || 0;
+          displayLabel = 'TVS REVIEWED';
+          displayColor = '#9333ea';
+        } else if (hoveredSlice === 'tvsAccepted') {
+          displayCount = summaryPieDetails.counts.tvsAccepted || 0;
+          displayLabel = 'TVS ACCEPTED';
+          displayColor = '#059669';
+        } else if (hoveredSlice === 'tvsDefects') {
+          displayCount = summaryPieDetails.counts.tvsDefects || 0;
+          displayLabel = 'TVS DEFECTS';
+          displayColor = '#e11d48';
         }
 
         ctx.font = 'bold 22px Inter, system-ui, -apple-system, sans-serif';
-        ctx.fillStyle = hoveredSlice === 'rework' ? '#d97706' : hoveredSlice === 'rejected' ? '#dc2626' : '#16a34a';
+        ctx.fillStyle = displayColor;
         ctx.fillText(Number(displayCount).toLocaleString(), x, y - 8);
 
         ctx.font = 'bold 10px Inter, system-ui, -apple-system, sans-serif';
@@ -915,7 +1141,7 @@ export const QualityDashboard: React.FC = () => {
         ctx.restore();
       },
     }),
-    [data, hoveredSlice],
+    [data, hoveredSlice, summaryPieDetails],
   );
 
   // Compute start/end dates
@@ -1787,7 +2013,15 @@ export const QualityDashboard: React.FC = () => {
                 {/* Left: 4 TVS Review Pipeline Cards placed Top-to-Bottom */}
                 <div className="flex flex-col gap-2.5 justify-center items-center flex-shrink-0">
                   {/* Total TVS Review */}
-                  <div className="text-center p-2.5 bg-purple-50/70 rounded-xl border border-purple-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                  <div
+                    onClick={() => setHoveredSlice(hoveredSlice === 'tvsReviewed' ? 'all' : 'tvsReviewed')}
+                    onMouseEnter={() => setHoveredSlice('tvsReviewed')}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
+                      hoveredSlice === 'tvsReviewed'
+                        ? 'bg-purple-100/90 border-purple-400 ring-2 ring-purple-300'
+                        : 'bg-purple-50/70 border-purple-100 hover:bg-purple-100/60 hover:shadow-xs'
+                    }`}
+                  >
                     <div className="text-xs sm:text-sm font-bold text-purple-600">
                       {summaryPieDetails.tvsReviewed}%
                     </div>
@@ -1800,7 +2034,15 @@ export const QualityDashboard: React.FC = () => {
                   </div>
 
                   {/* Pending TVS Review */}
-                  <div className="text-center p-2.5 bg-amber-50/70 rounded-xl border border-amber-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                  <div
+                    onClick={() => setHoveredSlice(hoveredSlice === 'pendingTvs' ? 'all' : 'pendingTvs')}
+                    onMouseEnter={() => setHoveredSlice('pendingTvs')}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
+                      hoveredSlice === 'pendingTvs'
+                        ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300'
+                        : 'bg-amber-50/70 border-amber-100 hover:bg-amber-100/60 hover:shadow-xs'
+                    }`}
+                  >
                     <div className="text-xs sm:text-sm font-bold text-amber-600">
                       {summaryPieDetails.pendingTvs}%
                     </div>
@@ -1813,7 +2055,15 @@ export const QualityDashboard: React.FC = () => {
                   </div>
 
                   {/* TVS Accepted */}
-                  <div className="text-center p-2.5 bg-emerald-50/70 rounded-xl border border-emerald-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                  <div
+                    onClick={() => setHoveredSlice(hoveredSlice === 'tvsAccepted' ? 'all' : 'tvsAccepted')}
+                    onMouseEnter={() => setHoveredSlice('tvsAccepted')}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
+                      hoveredSlice === 'tvsAccepted'
+                        ? 'bg-emerald-100/90 border-emerald-400 ring-2 ring-emerald-300'
+                        : 'bg-emerald-50/70 border-emerald-100 hover:bg-emerald-100/60 hover:shadow-xs'
+                    }`}
+                  >
                     <div className="text-xs sm:text-sm font-bold text-emerald-600">
                       {summaryPieDetails.tvsAccepted}%
                     </div>
@@ -1826,7 +2076,15 @@ export const QualityDashboard: React.FC = () => {
                   </div>
 
                   {/* TVS Defects / Rework */}
-                  <div className="text-center p-2.5 bg-rose-50/70 rounded-xl border border-rose-200 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                  <div
+                    onClick={() => setHoveredSlice(hoveredSlice === 'tvsDefects' ? 'all' : 'tvsDefects')}
+                    onMouseEnter={() => setHoveredSlice('tvsDefects')}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
+                      hoveredSlice === 'tvsDefects'
+                        ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-300'
+                        : 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/60 hover:shadow-xs'
+                    }`}
+                  >
                     <div className="text-xs sm:text-sm font-bold text-rose-600">
                       {summaryPieDetails.tvsDefects}%
                     </div>
@@ -1859,17 +2117,50 @@ export const QualityDashboard: React.FC = () => {
                               ? summaryPieDetails.counts.no.toLocaleString()
                               : hoveredSlice === 'rework'
                                 ? summaryPieDetails.counts.na.toLocaleString()
-                                : ((summaryPieDetails.counts.directOk || 0) + (summaryPieDetails.counts.reworkCompleted || 0)).toLocaleString()}
+                                : hoveredSlice === 'pendingDispatch'
+                                  ? summaryPieDetails.counts.pendingDispatch.toLocaleString()
+                                  : hoveredSlice === 'pendingData'
+                                    ? summaryPieDetails.counts.pendingData.toLocaleString()
+                                    : hoveredSlice === 'pendingTvs'
+                                      ? summaryPieDetails.counts.pendingTvs.toLocaleString()
+                                      : hoveredSlice === 'dispatched'
+                                        ? summaryPieDetails.counts.dispatched.toLocaleString()
+                                        : hoveredSlice === 'biwReviewed'
+                                          ? summaryPieDetails.counts.biwReviewed.toLocaleString()
+                                          : hoveredSlice === 'tvsReviewed'
+                                            ? summaryPieDetails.counts.tvsReviewed.toLocaleString()
+                                            : hoveredSlice === 'tvsAccepted'
+                                              ? summaryPieDetails.counts.tvsAccepted.toLocaleString()
+                                              : hoveredSlice === 'tvsDefects'
+                                                ? summaryPieDetails.counts.tvsDefects.toLocaleString()
+                                                : ((summaryPieDetails.counts.directOk || 0) + (summaryPieDetails.counts.reworkCompleted || 0)).toLocaleString()}
                       </span>
-                      <span className={`text-[10px] font-bold tracking-wider mt-1 uppercase ${hoveredSlice === 'directOk' ? 'text-green-600' :
+                      <span className={`text-[10px] font-bold tracking-wider mt-1 uppercase ${
+                        hoveredSlice === 'directOk' ? 'text-green-600' :
                         hoveredSlice === 'reworkCompleted' ? 'text-blue-600' :
-                          hoveredSlice === 'rejected' ? 'text-red-600' :
-                            hoveredSlice === 'rework' ? 'text-amber-600' : 'text-gray-500'
-                        }`}>
+                        hoveredSlice === 'rejected' ? 'text-red-600' :
+                        hoveredSlice === 'rework' ? 'text-amber-600' :
+                        hoveredSlice === 'pendingDispatch' ? 'text-amber-600' :
+                        hoveredSlice === 'pendingData' ? 'text-rose-600' :
+                        hoveredSlice === 'pendingTvs' ? 'text-amber-600' :
+                        hoveredSlice === 'dispatched' ? 'text-indigo-600' :
+                        hoveredSlice === 'biwReviewed' ? 'text-teal-600' :
+                        hoveredSlice === 'tvsReviewed' ? 'text-purple-600' :
+                        hoveredSlice === 'tvsAccepted' ? 'text-emerald-600' :
+                        hoveredSlice === 'tvsDefects' ? 'text-rose-600' : 'text-gray-500'
+                      }`}>
                         {hoveredSlice === 'directOk' ? 'DIRECT OK' :
                           hoveredSlice === 'reworkCompleted' ? 'REWORK ACC' :
-                            hoveredSlice === 'rejected' ? 'REJECTED' :
-                              hoveredSlice === 'rework' ? 'REWORK' : 'ACCEPTED'}
+                          hoveredSlice === 'rejected' ? 'REJECTED' :
+                          hoveredSlice === 'rework' ? 'REWORK' :
+                          hoveredSlice === 'pendingDispatch' ? 'PENDING DISPATCH' :
+                          hoveredSlice === 'pendingData' ? 'PENDING BIW DATA' :
+                          hoveredSlice === 'pendingTvs' ? 'PENDING TVS' :
+                          hoveredSlice === 'dispatched' ? 'DISPATCHED' :
+                          hoveredSlice === 'biwReviewed' ? 'BIW REVIEWED' :
+                          hoveredSlice === 'tvsReviewed' ? 'TVS REVIEWED' :
+                          hoveredSlice === 'tvsAccepted' ? 'TVS ACCEPTED' :
+                          hoveredSlice === 'tvsDefects' ? 'TVS DEFECTS' : 'ACCEPTED'}
                       </span>
                     </div>
                   </div>
@@ -1877,7 +2168,7 @@ export const QualityDashboard: React.FC = () => {
                   {/* 4 Legend Badges Underneath Chart with exact color dots */}
                   <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 mt-3">
                     <div
-                      onClick={() => setHoveredSlice('directOk')}
+                      onClick={() => setHoveredSlice(hoveredSlice === 'directOk' ? 'all' : 'directOk')}
                       onMouseEnter={() => setHoveredSlice('directOk')}
                       className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${hoveredSlice === 'directOk' ? 'bg-green-100 text-green-800 ring-1 ring-green-400' : 'text-gray-700 hover:text-green-700 hover:bg-green-50'
                         }`}
@@ -1886,7 +2177,7 @@ export const QualityDashboard: React.FC = () => {
                       <span>Direct Ok</span>
                     </div>
                     <div
-                      onClick={() => setHoveredSlice('reworkCompleted')}
+                      onClick={() => setHoveredSlice(hoveredSlice === 'reworkCompleted' ? 'all' : 'reworkCompleted')}
                       onMouseEnter={() => setHoveredSlice('reworkCompleted')}
                       className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${hoveredSlice === 'reworkCompleted' ? 'bg-blue-100 text-blue-800 ring-1 ring-blue-400' : 'text-gray-700 hover:text-blue-700 hover:bg-blue-50'
                         }`}
@@ -1895,7 +2186,7 @@ export const QualityDashboard: React.FC = () => {
                       <span>Rework Accepted</span>
                     </div>
                     <div
-                      onClick={() => setHoveredSlice('rejected')}
+                      onClick={() => setHoveredSlice(hoveredSlice === 'rejected' ? 'all' : 'rejected')}
                       onMouseEnter={() => setHoveredSlice('rejected')}
                       className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${hoveredSlice === 'rejected' ? 'bg-red-100 text-red-800 ring-1 ring-red-400' : 'text-gray-700 hover:text-red-700 hover:bg-red-50'
                         }`}
@@ -1904,7 +2195,7 @@ export const QualityDashboard: React.FC = () => {
                       <span>Rejected</span>
                     </div>
                     <div
-                      onClick={() => setHoveredSlice('rework')}
+                      onClick={() => setHoveredSlice(hoveredSlice === 'rework' ? 'all' : 'rework')}
                       onMouseEnter={() => setHoveredSlice('rework')}
                       className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${hoveredSlice === 'rework' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-400' : 'text-gray-700 hover:text-amber-700 hover:bg-amber-50'
                         }`}
@@ -1918,7 +2209,15 @@ export const QualityDashboard: React.FC = () => {
                 {/* Right: 4 Pipeline / Dispatch Cards placed Top-to-Bottom */}
                 <div className="flex flex-row sm:flex-col gap-2.5 flex-wrap sm:flex-nowrap justify-center items-center flex-shrink-0">
                   {/* Dispatched */}
-                  <div className="text-center p-2.5 bg-indigo-50/70 rounded-xl border border-indigo-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                  <div
+                    onClick={() => setHoveredSlice(hoveredSlice === 'dispatched' ? 'all' : 'dispatched')}
+                    onMouseEnter={() => setHoveredSlice('dispatched')}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
+                      hoveredSlice === 'dispatched'
+                        ? 'bg-indigo-100/90 border-indigo-400 ring-2 ring-indigo-300'
+                        : 'bg-indigo-50/70 border-indigo-100 hover:bg-indigo-100/60 hover:shadow-xs'
+                    }`}
+                  >
                     <div className="text-xs sm:text-sm font-bold text-indigo-600">
                       {summaryPieDetails.dispatched}%
                     </div>
@@ -1931,7 +2230,15 @@ export const QualityDashboard: React.FC = () => {
                   </div>
 
                   {/* Pending Dispatch */}
-                  <div className="text-center p-2.5 bg-amber-50/70 rounded-xl border border-amber-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                  <div
+                    onClick={() => setHoveredSlice(hoveredSlice === 'pendingDispatch' ? 'all' : 'pendingDispatch')}
+                    onMouseEnter={() => setHoveredSlice('pendingDispatch')}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
+                      hoveredSlice === 'pendingDispatch'
+                        ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300'
+                        : 'bg-amber-50/70 border-amber-100 hover:bg-amber-100/60 hover:shadow-xs'
+                    }`}
+                  >
                     <div className="text-xs sm:text-sm font-bold text-amber-600">
                       {summaryPieDetails.pendingDispatch}%
                     </div>
@@ -1944,7 +2251,15 @@ export const QualityDashboard: React.FC = () => {
                   </div>
 
                   {/* Total BIW Review */}
-                  <div className="text-center p-2.5 bg-teal-50/70 rounded-xl border border-teal-100 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                  <div
+                    onClick={() => setHoveredSlice(hoveredSlice === 'biwReviewed' ? 'all' : 'biwReviewed')}
+                    onMouseEnter={() => setHoveredSlice('biwReviewed')}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
+                      hoveredSlice === 'biwReviewed'
+                        ? 'bg-teal-100/90 border-teal-400 ring-2 ring-teal-300'
+                        : 'bg-teal-50/70 border-teal-100 hover:bg-teal-100/60 hover:shadow-xs'
+                    }`}
+                  >
                     <div className="text-xs sm:text-sm font-bold text-teal-600">
                       {summaryPieDetails.biwReviewed}%
                     </div>
@@ -1957,7 +2272,15 @@ export const QualityDashboard: React.FC = () => {
                   </div>
 
                   {/* Pending Data */}
-                  <div className="text-center p-2.5 bg-rose-50/70 rounded-xl border border-rose-200 shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all hover:shadow-xs">
+                  <div
+                    onClick={() => setHoveredSlice(hoveredSlice === 'pendingData' ? 'all' : 'pendingData')}
+                    onMouseEnter={() => setHoveredSlice('pendingData')}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
+                      hoveredSlice === 'pendingData'
+                        ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-300'
+                        : 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/60 hover:shadow-xs'
+                    }`}
+                  >
                     <div className="text-xs sm:text-sm font-bold text-rose-600">
                       {summaryPieDetails.pendingData}%
                     </div>
@@ -2100,17 +2423,30 @@ export const QualityDashboard: React.FC = () => {
               <div className="pt-4 border-t border-gray-100">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${hoveredSlice === 'directOk' || hoveredSlice === 'accepted' ? 'bg-green-500 animate-pulse' :
+                    <span className={`w-2.5 h-2.5 rounded-full ${
+                      hoveredSlice === 'directOk' || hoveredSlice === 'accepted' ? 'bg-green-500 animate-pulse' :
                       hoveredSlice === 'reworkCompleted' ? 'bg-blue-500 animate-pulse' :
-                        hoveredSlice === 'rework' ? 'bg-amber-500 animate-pulse' :
-                          hoveredSlice === 'rejected' ? 'bg-red-500 animate-pulse' : 'bg-blue-600'
-                      }`}></span>
+                      hoveredSlice === 'rework' || hoveredSlice === 'pendingDispatch' || hoveredSlice === 'pendingTvs' ? 'bg-amber-500 animate-pulse' :
+                      hoveredSlice === 'rejected' || hoveredSlice === 'pendingData' || hoveredSlice === 'tvsDefects' ? 'bg-red-500 animate-pulse' :
+                      hoveredSlice === 'dispatched' ? 'bg-indigo-500 animate-pulse' :
+                      hoveredSlice === 'biwReviewed' ? 'bg-teal-500 animate-pulse' :
+                      hoveredSlice === 'tvsReviewed' ? 'bg-purple-500 animate-pulse' :
+                      hoveredSlice === 'tvsAccepted' ? 'bg-emerald-500 animate-pulse' : 'bg-blue-600'
+                    }`}></span>
                     <h4 className="text-xs sm:text-sm font-bold text-gray-800">
                       {hoveredSlice === 'directOk' && 'Form-Wise Direct Ok Contribution'}
                       {hoveredSlice === 'reworkCompleted' && 'Form-Wise Rework Accepted Contribution'}
                       {hoveredSlice === 'accepted' && 'Form-Wise Accepted Contributions'}
                       {hoveredSlice === 'rework' && 'Form-Wise Ongoing Rework Contribution'}
                       {hoveredSlice === 'rejected' && 'Form-Wise Rejected Contribution'}
+                      {hoveredSlice === 'pendingDispatch' && 'Form-Wise Pending Dispatch Contribution'}
+                      {hoveredSlice === 'pendingData' && 'Form-Wise Pending Data (BIW Review) Contribution'}
+                      {hoveredSlice === 'pendingTvs' && 'Form-Wise Pending TVS Review Contribution'}
+                      {hoveredSlice === 'dispatched' && 'Form-Wise Dispatched Contribution'}
+                      {hoveredSlice === 'biwReviewed' && 'Form-Wise BIW Review Contribution'}
+                      {hoveredSlice === 'tvsReviewed' && 'Form-Wise TVS Review Contribution'}
+                      {hoveredSlice === 'tvsAccepted' && 'Form-Wise TVS Accepted Contribution'}
+                      {hoveredSlice === 'tvsDefects' && 'Form-Wise TVS Defects Contribution'}
                       {hoveredSlice === 'all' && `Form-Wise Quality & Volume Contribution (${filteredFormSummaryList.length} ${selectedFormIds.length > 0 ? 'selected ' : ''}forms)`}
                     </h4>
                   </div>
@@ -2138,7 +2474,34 @@ export const QualityDashboard: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
-                  {filteredFormSummaryList.map((form) => {
+                  {[...filteredFormSummaryList].sort((a: any, b: any) => {
+                    if (hoveredSlice === 'all') return 0;
+                    const getVal = (f: any) => {
+                      const rwk = f.rework1Count || 0;
+                      const rej = f.rejectedCount !== undefined ? f.rejectedCount : Math.max(0, (f.defectCount || 0) - rwk);
+                      const acc = f.acceptCount || 0;
+                      const rwkAcc = f.reworkAcceptedCount || 0;
+                      const dirOk = f.directOkCount !== undefined ? f.directOkCount : Math.max(0, acc - rwkAcc);
+                      const disp = f.dispatchedCount || 0;
+                      const biw = f.biwReviewedCount !== undefined ? f.biwReviewedCount : ((f.biwAcceptCount || 0) + (f.biwDefectCount || 0));
+                      const tvs = f.tvsReviewedCount || 0;
+                      if (hoveredSlice === 'directOk') return dirOk;
+                      if (hoveredSlice === 'reworkCompleted') return rwkAcc;
+                      if (hoveredSlice === 'accepted') return acc;
+                      if (hoveredSlice === 'rework') return rwk;
+                      if (hoveredSlice === 'rejected') return rej;
+                      if (hoveredSlice === 'pendingDispatch') return Math.max(0, (dirOk + rwkAcc) - disp);
+                      if (hoveredSlice === 'pendingData') return Math.max(0, disp - biw);
+                      if (hoveredSlice === 'pendingTvs') return Math.max(0, disp - tvs);
+                      if (hoveredSlice === 'dispatched') return disp;
+                      if (hoveredSlice === 'biwReviewed') return biw;
+                      if (hoveredSlice === 'tvsReviewed') return tvs;
+                      if (hoveredSlice === 'tvsAccepted') return f.tvsAcceptCount || 0;
+                      if (hoveredSlice === 'tvsDefects') return (f.tvsRejectCount || 0) + (f.tvsReworkCount || 0);
+                      return 0;
+                    };
+                    return getVal(b) - getVal(a);
+                  }).map((form) => {
                     const rework = form.rework1Count || 0;
                     const rejected = form.rejectedCount !== undefined ? form.rejectedCount : Math.max(0, (form.defectCount || 0) - rework);
                     const accepted = form.acceptCount || 0;
@@ -2146,6 +2509,21 @@ export const QualityDashboard: React.FC = () => {
 
                     const reworkAccepted = form.reworkAcceptedCount || 0;
                     const directOk = form.directOkCount !== undefined ? form.directOkCount : Math.max(0, accepted - reworkAccepted);
+
+                    // Form-level pipeline and review metrics
+                    const formDispatched = form.dispatchedCount || 0;
+                    const formBiwReviewed = form.biwReviewedCount !== undefined
+                      ? form.biwReviewedCount
+                      : ((form.biwAcceptCount || 0) + (form.biwDefectCount || 0));
+                    const formTvsReviewed = form.tvsReviewedCount || 0;
+                    const formTvsAccepted = form.tvsAcceptCount || 0;
+                    const formTvsReject = form.tvsRejectCount || 0;
+                    const formTvsRework = form.tvsReworkCount || 0;
+                    const formTvsDefects = formTvsReject + formTvsRework;
+
+                    const formPendingDispatch = Math.max(0, (directOk + reworkAccepted) - formDispatched);
+                    const formPendingData = Math.max(0, formDispatched - formBiwReviewed);
+                    const formPendingTvs = Math.max(0, formDispatched - formTvsReviewed);
 
                     let displayCount = total;
                     let displayPct = '100';
@@ -2186,6 +2564,62 @@ export const QualityDashboard: React.FC = () => {
                         : '0';
                       tagColor = 'text-red-700 bg-red-50 border-red-300';
                       activeLabel = 'Rejected';
+                    } else if (hoveredSlice === 'pendingDispatch') {
+                      displayCount = formPendingDispatch;
+                      displayPct = summaryPieDetails.counts.pendingDispatch > 0
+                        ? ((formPendingDispatch / summaryPieDetails.counts.pendingDispatch) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-amber-700 bg-amber-50 border-amber-300';
+                      activeLabel = 'Pending Dispatch';
+                    } else if (hoveredSlice === 'pendingData') {
+                      displayCount = formPendingData;
+                      displayPct = summaryPieDetails.counts.pendingData > 0
+                        ? ((formPendingData / summaryPieDetails.counts.pendingData) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-rose-700 bg-rose-50 border-rose-300';
+                      activeLabel = 'Pending BIW Data';
+                    } else if (hoveredSlice === 'pendingTvs') {
+                      displayCount = formPendingTvs;
+                      displayPct = summaryPieDetails.counts.pendingTvs > 0
+                        ? ((formPendingTvs / summaryPieDetails.counts.pendingTvs) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-amber-700 bg-amber-50 border-amber-300';
+                      activeLabel = 'Pending TVS';
+                    } else if (hoveredSlice === 'dispatched') {
+                      displayCount = formDispatched;
+                      displayPct = summaryPieDetails.counts.dispatched > 0
+                        ? ((formDispatched / summaryPieDetails.counts.dispatched) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-indigo-700 bg-indigo-50 border-indigo-300';
+                      activeLabel = 'Dispatched';
+                    } else if (hoveredSlice === 'biwReviewed') {
+                      displayCount = formBiwReviewed;
+                      displayPct = summaryPieDetails.counts.biwReviewed > 0
+                        ? ((formBiwReviewed / summaryPieDetails.counts.biwReviewed) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-teal-700 bg-teal-50 border-teal-300';
+                      activeLabel = 'BIW Reviewed';
+                    } else if (hoveredSlice === 'tvsReviewed') {
+                      displayCount = formTvsReviewed;
+                      displayPct = summaryPieDetails.counts.tvsReviewed > 0
+                        ? ((formTvsReviewed / summaryPieDetails.counts.tvsReviewed) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-purple-700 bg-purple-50 border-purple-300';
+                      activeLabel = 'TVS Reviewed';
+                    } else if (hoveredSlice === 'tvsAccepted') {
+                      displayCount = formTvsAccepted;
+                      displayPct = summaryPieDetails.counts.tvsAccepted > 0
+                        ? ((formTvsAccepted / summaryPieDetails.counts.tvsAccepted) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-emerald-700 bg-emerald-50 border-emerald-300';
+                      activeLabel = 'TVS Accepted';
+                    } else if (hoveredSlice === 'tvsDefects') {
+                      displayCount = formTvsDefects;
+                      displayPct = summaryPieDetails.counts.tvsDefects > 0
+                        ? ((formTvsDefects / summaryPieDetails.counts.tvsDefects) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-rose-700 bg-rose-50 border-rose-300';
+                      activeLabel = 'TVS Defects';
                     }
 
                     return (
@@ -2203,25 +2637,88 @@ export const QualityDashboard: React.FC = () => {
                             {displayCount.toLocaleString()} {hoveredSlice !== 'all' ? `(${displayPct}%)` : 'units'}
                           </span>
                         </div>
-                        <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden flex">
-                          <div style={{ width: `${(accepted / (total || 1)) * 100}%` }} className="bg-green-500 h-full" title={`Accepted: ${accepted}`} />
-                          <div style={{ width: `${(rework / (total || 1)) * 100}%` }} className="bg-amber-400 h-full" title={`Rework: ${rework}`} />
-                          <div style={{ width: `${(rejected / (total || 1)) * 100}%` }} className="bg-red-500 h-full" title={`Rejected: ${rejected}`} />
-                        </div>
-                        <div className="flex justify-between items-center text-[10px] text-gray-500">
-                          <span className={`${hoveredSlice === 'directOk' ? 'text-green-700 font-extrabold underline' : 'text-green-700 font-bold'}`}>
-                            {directOk.toLocaleString()} Direct Ok
-                          </span>
-                          <span className={`${hoveredSlice === 'reworkCompleted' ? 'text-blue-700 font-extrabold underline' : 'text-blue-700 font-medium'}`}>
-                            {reworkAccepted.toLocaleString()} Rework Acc
-                          </span>
-                          <span className={`${hoveredSlice === 'rework' ? 'text-amber-700 font-extrabold underline' : 'text-amber-700 font-medium'}`}>
-                            {rework.toLocaleString()} Rew
-                          </span>
-                          <span className={`${hoveredSlice === 'rejected' ? 'text-red-700 font-extrabold underline' : 'text-red-700 font-medium'}`}>
-                            {rejected.toLocaleString()} Rej
-                          </span>
-                        </div>
+
+                        {/* Mini Progress Bar reflecting active pipeline metric */}
+                        {hoveredSlice === 'pendingDispatch' || hoveredSlice === 'dispatched' ? (
+                          <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden flex">
+                            <div style={{ width: `${(formDispatched / ((directOk + reworkAccepted) || 1)) * 100}%` }} className="bg-indigo-500 h-full" title={`Dispatched: ${formDispatched}`} />
+                            <div style={{ width: `${(formPendingDispatch / ((directOk + reworkAccepted) || 1)) * 100}%` }} className="bg-amber-400 h-full" title={`Pending Dispatch: ${formPendingDispatch}`} />
+                          </div>
+                        ) : hoveredSlice === 'pendingData' || hoveredSlice === 'biwReviewed' ? (
+                          <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden flex">
+                            <div style={{ width: `${(formBiwReviewed / (formDispatched || 1)) * 100}%` }} className="bg-teal-500 h-full" title={`BIW Reviewed: ${formBiwReviewed}`} />
+                            <div style={{ width: `${(formPendingData / (formDispatched || 1)) * 100}%` }} className="bg-rose-400 h-full" title={`Pending Data: ${formPendingData}`} />
+                          </div>
+                        ) : hoveredSlice === 'pendingTvs' || hoveredSlice === 'tvsReviewed' || hoveredSlice === 'tvsAccepted' || hoveredSlice === 'tvsDefects' ? (
+                          <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden flex">
+                            <div style={{ width: `${(formTvsAccepted / (formDispatched || 1)) * 100}%` }} className="bg-emerald-500 h-full" title={`TVS Accepted: ${formTvsAccepted}`} />
+                            <div style={{ width: `${(formTvsDefects / (formDispatched || 1)) * 100}%` }} className="bg-rose-500 h-full" title={`TVS Defects: ${formTvsDefects}`} />
+                            <div style={{ width: `${(formPendingTvs / (formDispatched || 1)) * 100}%` }} className="bg-amber-400 h-full" title={`Pending TVS: ${formPendingTvs}`} />
+                          </div>
+                        ) : (
+                          <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden flex">
+                            <div style={{ width: `${(accepted / (total || 1)) * 100}%` }} className="bg-green-500 h-full" title={`Accepted: ${accepted}`} />
+                            <div style={{ width: `${(rework / (total || 1)) * 100}%` }} className="bg-amber-400 h-full" title={`Rework: ${rework}`} />
+                            <div style={{ width: `${(rejected / (total || 1)) * 100}%` }} className="bg-red-500 h-full" title={`Rejected: ${rejected}`} />
+                          </div>
+                        )}
+
+                        {/* Sub-Stats Row reflecting specific breakdown */}
+                        {hoveredSlice === 'pendingDispatch' || hoveredSlice === 'dispatched' ? (
+                          <div className="flex justify-between items-center text-[10px] text-gray-500">
+                            <span className="text-gray-700 font-medium">
+                              {(directOk + reworkAccepted).toLocaleString()} Approved
+                            </span>
+                            <span className={`${hoveredSlice === 'dispatched' ? 'text-indigo-700 font-extrabold underline' : 'text-indigo-700 font-medium'}`}>
+                              {formDispatched.toLocaleString()} Dispatched ({directOk + reworkAccepted > 0 ? ((formDispatched / (directOk + reworkAccepted)) * 100).toFixed(1) : 0}%)
+                            </span>
+                            <span className={`${hoveredSlice === 'pendingDispatch' ? 'text-amber-700 font-extrabold underline' : 'text-amber-700 font-medium'}`}>
+                              {formPendingDispatch.toLocaleString()} Pending ({directOk + reworkAccepted > 0 ? ((formPendingDispatch / (directOk + reworkAccepted)) * 100).toFixed(1) : 0}%)
+                            </span>
+                          </div>
+                        ) : hoveredSlice === 'pendingData' || hoveredSlice === 'biwReviewed' ? (
+                          <div className="flex justify-between items-center text-[10px] text-gray-500">
+                            <span className="text-gray-700 font-medium">
+                              {formDispatched.toLocaleString()} Dispatched
+                            </span>
+                            <span className={`${hoveredSlice === 'biwReviewed' ? 'text-teal-700 font-extrabold underline' : 'text-teal-700 font-medium'}`}>
+                              {formBiwReviewed.toLocaleString()} BIW ({formDispatched > 0 ? ((formBiwReviewed / formDispatched) * 100).toFixed(1) : 0}%)
+                            </span>
+                            <span className={`${hoveredSlice === 'pendingData' ? 'text-rose-700 font-extrabold underline' : 'text-rose-700 font-medium'}`}>
+                              {formPendingData.toLocaleString()} Pending Data ({formDispatched > 0 ? ((formPendingData / formDispatched) * 100).toFixed(1) : 0}%)
+                            </span>
+                          </div>
+                        ) : hoveredSlice === 'pendingTvs' || hoveredSlice === 'tvsReviewed' || hoveredSlice === 'tvsAccepted' || hoveredSlice === 'tvsDefects' ? (
+                          <div className="flex justify-between items-center text-[10px] text-gray-500">
+                            <span className={`${hoveredSlice === 'tvsAccepted' ? 'text-emerald-700 font-extrabold underline' : 'text-emerald-700 font-medium'}`}>
+                              {formTvsAccepted.toLocaleString()} Acc
+                            </span>
+                            <span className={`${hoveredSlice === 'tvsDefects' ? 'text-rose-700 font-extrabold underline' : 'text-rose-700 font-medium'}`}>
+                              {formTvsDefects.toLocaleString()} Def/Rew
+                            </span>
+                            <span className={`${hoveredSlice === 'tvsReviewed' ? 'text-purple-700 font-extrabold underline' : 'text-purple-700 font-medium'}`}>
+                              {formTvsReviewed.toLocaleString()} Reviewed
+                            </span>
+                            <span className={`${hoveredSlice === 'pendingTvs' ? 'text-amber-700 font-extrabold underline' : 'text-amber-700 font-medium'}`}>
+                              {formPendingTvs.toLocaleString()} Pending TVS ({formDispatched > 0 ? ((formPendingTvs / formDispatched) * 100).toFixed(1) : 0}%)
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex justify-between items-center text-[10px] text-gray-500">
+                            <span className={`${hoveredSlice === 'directOk' ? 'text-green-700 font-extrabold underline' : 'text-green-700 font-bold'}`}>
+                              {directOk.toLocaleString()} Direct Ok
+                            </span>
+                            <span className={`${hoveredSlice === 'reworkCompleted' ? 'text-blue-700 font-extrabold underline' : 'text-blue-700 font-medium'}`}>
+                              {reworkAccepted.toLocaleString()} Rework Acc
+                            </span>
+                            <span className={`${hoveredSlice === 'rework' ? 'text-amber-700 font-extrabold underline' : 'text-amber-700 font-medium'}`}>
+                              {rework.toLocaleString()} Rew
+                            </span>
+                            <span className={`${hoveredSlice === 'rejected' ? 'text-red-700 font-extrabold underline' : 'text-red-700 font-medium'}`}>
+                              {rejected.toLocaleString()} Rej
+                            </span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -2291,7 +2788,7 @@ export const QualityDashboard: React.FC = () => {
                 className={`flex-1 py-3 px-4 text-sm font-semibold flex items-center justify-center transition-colors whitespace-nowrap ${activeTab === 'tvs' ? 'bg-white text-blue-700 border-b-2 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
               >
                 <Award className="w-4 h-4 mr-2" />
-                Inspector TVS Performance
+                TVS Quality & Defect Breakdown
               </button>
               <button
                 onClick={() => setActiveTab('biw')}
@@ -2721,83 +3218,322 @@ export const QualityDashboard: React.FC = () => {
                 </div>
               )}
 
-              {/* INSPECTOR TVS PERFORMANCE TAB */}
+              {/* TVS QUALITY & DEFECT BREAKDOWN TAB */}
               {activeTab === 'tvs' && (
-                <div className="flex flex-col">
-                  {selectedFormIds.length > 0 && (
-                    <div className="bg-blue-50 border-b border-blue-100 px-6 py-2.5 flex items-center justify-between text-xs text-blue-900">
-                      <div className="flex items-center gap-2">
-                        <Filter className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Filtered by: <b>{selectedFormTitles.join(', ') || 'Selected Form'}</b> ({activeSummary?.totalChecked || 0} inspections)</span>
-                      </div>
-                      <button
-                        onClick={() => updateSelectedForms([])}
-                        className="text-blue-600 hover:text-blue-800 font-bold underline cursor-pointer"
-                      >
-                        Show All Forms
-                      </button>
+                <div className="p-6 space-y-6">
+                  {/* Form-Related TVS Summary Banner */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="bg-purple-50/60 border border-purple-200 rounded-xl p-4">
+                      <p className="text-xs font-semibold text-purple-700 uppercase tracking-wider">Total TVS Reviewed</p>
+                      <p className="text-2xl font-black text-purple-950 mt-1">{tvsOverallSummary.totalReviewed.toLocaleString()}</p>
+                      <p className="text-[11px] text-purple-600 mt-0.5">Across {tvsFormItems.length} selected form{tvsFormItems.length > 1 ? 's' : ''}</p>
                     </div>
-                  )}
-                  <div className="p-4 border-b border-gray-100 bg-white flex justify-between items-center">
-                    <div className="text-xs text-gray-500 font-medium">
-                      Showing {mergedInspectors.filter(i => String(i.name || '').toLowerCase().includes((searchInspector || '').toLowerCase())).length} inspector{mergedInspectors.length !== 1 ? 's' : ''}
+
+                    <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-4">
+                      <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">TVS Accepted</p>
+                      <p className="text-2xl font-black text-emerald-800 mt-1">{tvsOverallSummary.totalAccept.toLocaleString()}</p>
+                      <p className="text-[11px] text-emerald-600 mt-0.5 font-bold">{tvsOverallSummary.rate}% Compliance</p>
                     </div>
-                    <div className="relative w-64">
-                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="text"
-                        placeholder="Search inspector..."
-                        value={searchInspector}
-                        onChange={(e) => setSearchInspector(e.target.value)}
-                        className="w-full pl-9 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none"
-                      />
+
+                    <div className="bg-red-50/60 border border-red-200 rounded-xl p-4">
+                      <p className="text-xs font-semibold text-red-700 uppercase tracking-wider">TVS Defects / Rework</p>
+                      <p className="text-2xl font-black text-red-700 mt-1">{tvsOverallSummary.totalDefect.toLocaleString()}</p>
+                      <p className="text-[11px] text-red-600 mt-0.5 font-bold">
+                        {tvsOverallSummary.totalReviewed > 0
+                          ? ((tvsOverallSummary.totalDefect / tvsOverallSummary.totalReviewed) * 100).toFixed(1) + '%'
+                          : '0%'} defect rate
+                      </p>
+                    </div>
+
+                    <div className="bg-indigo-50/60 border border-indigo-200 rounded-xl p-4">
+                      <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Active TVS Inspectors</p>
+                      <p className="text-2xl font-black text-indigo-900 mt-1">{tvsInspectors.length}</p>
+                      <p className="text-[11px] text-indigo-600 mt-0.5">Assigned to selected forms</p>
                     </div>
                   </div>
-                  <div className="overflow-x-auto max-h-[600px] overflow-y-auto p-0">
-                    <table className="w-full text-left text-sm whitespace-nowrap">
-                      <thead className="bg-gray-50 sticky top-0 z-10 border-b border-gray-200">
-                        <tr>
-                          <th className="px-6 py-3 font-semibold text-gray-700">Inspector</th>
-                          <th className="px-6 py-3 font-semibold text-gray-700 text-center">Total Checked</th>
-                          <th className="px-6 py-3 font-semibold text-gray-700 text-center">Pass / Fail</th>
-                          <th className="px-6 py-3 font-semibold text-gray-700 text-center">Accept Rate</th>
-                          <th className="px-6 py-3 font-semibold text-gray-700 text-center">Defect Rate</th>
-                          <th className="px-6 py-3 font-semibold text-gray-700">Performance Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {mergedInspectors
-                          .filter(i => String(i.name || '').toLowerCase().includes((searchInspector || '').toLowerCase()))
-                          .map((insp, idx) => (
-                            <tr key={idx} className="hover:bg-blue-50/50 transition-colors group">
-                              <td className="px-6 py-4 font-medium text-gray-900">
-                                {insp.name}
-                                {insp.tenantName && (
-                                  <span className="ml-1.5 text-xs font-normal text-gray-500">
-                                    ({insp.tenantName})
-                                  </span>
-                                )}
-                              </td>
-                              <td className="px-6 py-4 text-center font-semibold">{insp.totalChecked}</td>
-                              <td className="px-6 py-4 text-center">
-                                <div className="flex items-center justify-center gap-2">
-                                  <span className="text-green-600 font-medium">{insp.acceptCount}</span>
-                                  <span className="text-gray-300">/</span>
-                                  <span className="text-red-600 font-medium">{insp.defectCount}</span>
+
+                  {/* Main Grid: TVS Pie Chart (Left), Form-Wise Breakdown (Middle), Top Defect Types (Right) */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                    {/* 1. TVS Quality & Review Distribution Donut / Pie Chart */}
+                    <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-xs flex flex-col">
+                      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                        <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                          <PieChartIcon className="w-5 h-5 text-purple-600" />
+                          <span>TVS Quality Distribution</span>
+                        </h4>
+                        <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100">
+                          {tvsOverallSummary.rate}% Pass
+                        </span>
+                      </div>
+
+                      <div className="h-64 relative flex items-center justify-center my-auto">
+                        <Doughnut data={tvsPieChartData} options={tvsPieOptions} plugins={[tvsCenterTextPlugin]} />
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-gray-100 grid grid-cols-2 gap-2 text-xs">
+                        <div className="bg-emerald-50/70 border border-emerald-100 rounded-lg p-2.5 text-center">
+                          <span className="text-[11px] text-emerald-700 font-semibold block">Accepted</span>
+                          <span className="text-base font-black text-emerald-900">{tvsOverallSummary.totalAccept.toLocaleString()}</span>
+                          <span className="text-[10px] text-emerald-600 block mt-0.5 font-medium">{tvsOverallSummary.rate}%</span>
+                        </div>
+                        <div className="bg-red-50/70 border border-red-100 rounded-lg p-2.5 text-center">
+                          <span className="text-[11px] text-red-700 font-semibold block">Defects / Rework</span>
+                          <span className="text-base font-black text-red-900">{tvsOverallSummary.totalDefect.toLocaleString()}</span>
+                          <span className="text-[10px] text-red-600 block mt-0.5 font-medium">
+                            {tvsOverallSummary.totalReviewed > 0 ? (100 - tvsOverallSummary.rate).toFixed(1) : '0'}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 2. Form-Wise TVS Review Breakdown */}
+                    <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-xs flex flex-col">
+                      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                        <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                          <CheckCircle2 className="w-5 h-5 text-purple-600" />
+                          <span>Form-Wise TVS Quality Breakdown</span>
+                        </h4>
+                        <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
+                          {tvsFormItems.length} Form{tvsFormItems.length > 1 ? 's' : ''}
+                        </span>
+                      </div>
+
+                      <div className="space-y-3.5 max-h-[460px] overflow-y-auto pr-1">
+                        {tvsFormItems.map((form) => {
+                          const formTotal = (form.tvsReviewedCount || 0) || ((form.tvsAcceptCount || 0) + (form.tvsRejectCount || 0) + (form.tvsReworkCount || 0));
+                          const defects = (form.tvsRejectCount || 0) + (form.tvsReworkCount || 0);
+                          const passRate = formTotal > 0 ? Math.round(((form.tvsAcceptCount || 0) / formTotal) * 1000) / 10 : (form.totalChecked > 0 ? 100 : 0);
+                          return (
+                            <div key={form.id || form._id} className="p-4 rounded-xl border border-gray-200/90 hover:border-purple-300 bg-gray-50/40 hover:bg-white transition-all shadow-xs">
+                              <div className="flex items-center justify-between gap-3 mb-2">
+                                <div className="min-w-0">
+                                  <h5 className="font-bold text-sm text-gray-900 truncate" title={form.title}>{form.title}</h5>
+                                  <p className="text-xs text-gray-500 mt-0.5">
+                                    {formTotal > 0 ? `${formTotal.toLocaleString()} units reviewed` : `${form.totalChecked.toLocaleString()} total inspected`}
+                                  </p>
                                 </div>
-                              </td>
-                              <td className="px-6 py-4 text-center font-bold text-green-600">{insp.acceptRate}%</td>
-                              <td className="px-6 py-4 text-center font-bold text-red-500">{insp.defectRate}%</td>
-                              <td className="px-6 py-4">
-                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${getTierColor(insp.tier)}`}>
-                                  {renderArrow(insp.arrow)}
-                                  <span className="ml-1.5">{insp.performanceStatus}</span>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-black ${passRate >= 95 ? 'bg-green-100 text-green-800' :
+                                    passRate >= 80 ? 'bg-blue-100 text-blue-800' :
+                                      'bg-red-100 text-red-800'
+                                    }`}>
+                                    {passRate}% Rate
+                                  </span>
+                                  <button
+                                    onClick={() => navigate(`/forms/${form.id || form._id}/analytics?tab=responses`)}
+                                    className="p-1 hover:bg-gray-100 text-gray-500 hover:text-purple-600 rounded transition-colors"
+                                    title="View responses"
+                                  >
+                                    <FileSpreadsheet className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Progress bar */}
+                              <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden flex my-2">
+                                <div className="bg-green-500 h-full transition-all duration-500" style={{ width: `${passRate}%` }} />
+                                <div className="bg-red-500 h-full transition-all duration-500" style={{ width: `${100 - passRate}%` }} />
+                              </div>
+
+                              {/* Badges */}
+                              <div className="flex items-center justify-between text-xs pt-1 text-gray-600">
+                                <div className="flex items-center gap-3">
+                                  <span className="font-semibold text-green-700">✓ Accepted: <b className="font-black text-green-900">{form.tvsAcceptCount || 0}</b></span>
+                                  <span className="font-semibold text-red-600">✕ Defects: <b className="font-black text-red-800">{defects}</b></span>
+                                </div>
+                                <span className="text-[11px] text-gray-400 font-medium">
+                                  {form.totalInspectors} inspector{form.totalInspectors !== 1 ? 's' : ''}
                                 </span>
-                              </td>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {tvsFormItems.length === 0 && (
+                          <div className="py-12 text-center text-gray-400 text-sm">
+                            No forms found for the current selection.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 3. Top Defect Types & Flagged Defect Breakdown */}
+                    <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-xs flex flex-col">
+                      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                        <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5 text-red-500" />
+                          <span>Top Defect Types & Flagged Issues</span>
+                        </h4>
+                        <span className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">
+                          {tvsDefectBreakdown.length} Categories
+                        </span>
+                      </div>
+
+                      <div className="max-h-[460px] overflow-y-auto pr-1 space-y-2.5">
+                        {tvsDefectBreakdown.length > 0 ? (
+                          tvsDefectBreakdown.map((defect: any, idx: number) => {
+                            const maxCount = tvsDefectBreakdown[0].count;
+                            const percentage = Math.max(5, (defect.count / maxCount) * 100);
+                            return (
+                              <div key={idx} className="bg-white p-3 rounded-xl border border-gray-200 relative overflow-hidden shadow-xs hover:border-red-200 transition-colors">
+                                <div
+                                  className="absolute top-0 left-0 h-full bg-red-50/70 z-0 transition-all duration-700"
+                                  style={{ width: `${percentage}%` }}
+                                />
+                                <div className="relative z-10 flex justify-between items-center gap-3">
+                                  <span className="font-semibold text-gray-900 truncate text-xs sm:text-sm">{defect.name}</span>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    <span className="text-[11px] text-gray-500 font-medium">#{idx + 1}</span>
+                                    <span className="font-black text-red-700 bg-red-100/80 border border-red-200 px-2 py-0.5 rounded-md text-xs">
+                                      {defect.count}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="py-20 flex flex-col items-center justify-center text-gray-400">
+                            <CheckCircle2 className="w-12 h-12 mb-3 text-green-500 opacity-70" />
+                            <p className="font-medium text-gray-600">Zero defects reported in TVS review for selected forms</p>
+                            <p className="text-xs text-gray-400 mt-1">All inspection units meet quality standards</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* 3. Inspector TVS Validation Overview */}
+                  <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-xs">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-100">
+                      <div>
+                        <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                          <Award className="w-5 h-5 text-purple-600" />
+                          <span>Inspector TVS Performance</span>
+                        </h4>
+                        <p className="text-xs text-gray-500 mt-0.5">Validation metrics for staff assigned to selected forms</p>
+                      </div>
+                      <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+                        <div className="flex items-center bg-gray-100 p-0.5 rounded-lg text-xs font-semibold">
+                          <button
+                            onClick={() => setTvsInspectorViewMode('cards')}
+                            className={`flex items-center px-2.5 py-1 rounded-md transition-all ${tvsInspectorViewMode === 'cards' ? 'bg-white text-purple-700 shadow-xs font-bold' : 'text-gray-600 hover:text-gray-900'}`}
+                          >
+                            <LayoutGrid className="w-3.5 h-3.5 mr-1" />
+                            Cards
+                          </button>
+                          <button
+                            onClick={() => setTvsInspectorViewMode('table')}
+                            className={`flex items-center px-2.5 py-1 rounded-md transition-all ${tvsInspectorViewMode === 'table' ? 'bg-white text-purple-700 shadow-xs font-bold' : 'text-gray-600 hover:text-gray-900'}`}
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 mr-1" />
+                            Table
+                          </button>
+                        </div>
+                        <div className="relative w-full sm:w-56">
+                          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            value={tvsInspectorSearch}
+                            onChange={(e) => setTvsInspectorSearch(e.target.value)}
+                            placeholder="Search inspector..."
+                            className="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500 text-gray-800 placeholder-gray-400"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {tvsInspectorViewMode === 'cards' ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[360px] overflow-y-auto pr-1">
+                        {tvsInspectors.map((insp: any, idx: number) => (
+                          <div key={idx} className="bg-gray-50/70 p-3 rounded-xl border border-gray-200 flex items-center justify-between hover:bg-white transition-colors shadow-xs">
+                            <div className="min-w-0 pr-2 flex items-center gap-2">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-black flex-shrink-0 ${
+                                idx === 0 ? "bg-amber-100 text-amber-800 border border-amber-300" :
+                                idx === 1 ? "bg-slate-200 text-slate-700 border border-slate-300" :
+                                idx === 2 ? "bg-amber-50 text-amber-700 border border-amber-200" :
+                                "bg-gray-100 text-gray-500"
+                              }`}>
+                                #{idx + 1}
+                              </span>
+                              <div className="min-w-0">
+                                <span className="font-semibold text-gray-800 truncate text-xs block">{insp.name}</span>
+                                {insp.tenantName && (
+                                  <span className="text-[10px] text-gray-400 truncate block mt-0.5">({insp.tenantName})</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs flex-shrink-0">
+                              <div className="text-center px-1.5 py-0.5 rounded bg-green-50 border border-green-100">
+                                <p className="text-[9px] text-green-700 uppercase font-black">Acc</p>
+                                <p className="font-black text-green-800">{insp.tvsAcceptCount || 0}</p>
+                              </div>
+                              <div className="text-center px-1.5 py-0.5 rounded bg-red-50 border border-red-100">
+                                <p className="text-[9px] text-red-700 uppercase font-black">Def</p>
+                                <p className="font-black text-red-700">{insp.tvsDefectCount || 0}</p>
+                              </div>
+                              <div className="text-center pl-2 border-l border-gray-200">
+                                <p className="text-[9px] text-gray-400 uppercase font-bold">Rate</p>
+                                <p className="font-black text-gray-900">{insp.tvsAcceptRate}%</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+
+                        {tvsInspectors.length === 0 && (
+                          <div className="col-span-full py-8 text-center text-xs text-gray-400">
+                            No inspectors found matching "{tvsInspectorSearch}"
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto max-h-[360px] overflow-y-auto p-0">
+                        <table className="w-full text-left text-sm whitespace-nowrap">
+                          <thead className="bg-gray-50 sticky top-0 z-10 border-b border-gray-200">
+                            <tr>
+                              <th className="px-6 py-3 font-semibold text-gray-700">Inspector</th>
+                              <th className="px-6 py-3 font-semibold text-gray-700 text-center">Total Checked</th>
+                              <th className="px-6 py-3 font-semibold text-gray-700 text-center">Pass / Fail</th>
+                              <th className="px-6 py-3 font-semibold text-gray-700 text-center">Accept Rate</th>
+                              <th className="px-6 py-3 font-semibold text-gray-700 text-center">Defect Rate</th>
+                              <th className="px-6 py-3 font-semibold text-gray-700">Performance Status</th>
                             </tr>
-                          ))}
-                      </tbody>
-                    </table>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {tvsInspectors.map((insp: any, idx: number) => (
+                              <tr key={idx} className="hover:bg-blue-50/50 transition-colors group">
+                                <td className="px-6 py-4 font-medium text-gray-900">
+                                  {insp.name}
+                                  {insp.tenantName && (
+                                    <span className="ml-1.5 text-xs font-normal text-gray-500">
+                                      ({insp.tenantName})
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-6 py-4 text-center font-semibold">{insp.tvsReviewedCount || insp.totalChecked}</td>
+                                <td className="px-6 py-4 text-center">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <span className="text-green-600 font-medium">{insp.tvsAcceptCount || insp.acceptCount}</span>
+                                    <span className="text-gray-300">/</span>
+                                    <span className="text-red-600 font-medium">{insp.tvsDefectCount !== undefined ? insp.tvsDefectCount : insp.defectCount}</span>
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 text-center font-bold text-green-600">{insp.tvsAcceptRate}%</td>
+                                <td className="px-6 py-4 text-center font-bold text-red-500">{100 - insp.tvsAcceptRate}%</td>
+                                <td className="px-6 py-4">
+                                  <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${getTierColor(insp.tier)}`}>
+                                    {renderArrow(insp.arrow)}
+                                    <span className="ml-1.5">{insp.performanceStatus || (insp.tvsAcceptRate >= 90 ? 'Compliant' : 'Needs Review')}</span>
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -3013,7 +3749,17 @@ export const QualityDashboard: React.FC = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[360px] overflow-y-auto pr-1">
                       {biwInspectors.map((insp, idx) => (
                         <div key={idx} className="bg-gray-50/70 p-3 rounded-xl border border-gray-200 flex items-center justify-between hover:bg-white transition-colors shadow-xs">
-                          <span className="font-semibold text-gray-800 truncate text-xs max-w-[120px] sm:max-w-[140px]">{insp.name}</span>
+                          <div className="min-w-0 pr-2 flex items-center gap-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-black flex-shrink-0 ${
+                              idx === 0 ? "bg-amber-100 text-amber-800 border border-amber-300" :
+                              idx === 1 ? "bg-slate-200 text-slate-700 border border-slate-300" :
+                              idx === 2 ? "bg-amber-50 text-amber-700 border border-amber-200" :
+                              "bg-gray-100 text-gray-500"
+                            }`}>
+                              #{idx + 1}
+                            </span>
+                            <span className="font-semibold text-gray-800 truncate text-xs block max-w-[120px] sm:max-w-[140px]">{insp.name}</span>
+                          </div>
                           <div className="flex items-center gap-2.5 text-xs">
                             <div className="text-center px-1.5 py-0.5 rounded bg-green-50 border border-green-100">
                               <p className="text-[9px] text-green-700 uppercase font-black">Acc</p>

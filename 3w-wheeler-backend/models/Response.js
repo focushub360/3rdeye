@@ -220,6 +220,12 @@ const ResponseSchema = new mongoose.Schema({
   },
   review: {
     type: mongoose.Schema.Types.Mixed
+  },
+  parentReview: {
+    type: mongoose.Schema.Types.Mixed
+  },
+  childReview: {
+    type: mongoose.Schema.Types.Mixed
   }
 }, {
   timestamps: true,

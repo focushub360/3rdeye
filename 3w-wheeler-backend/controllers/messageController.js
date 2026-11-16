@@ -86,19 +86,45 @@ export const getMessagesByResponse = async (req, res) => {
     
     console.log("[getMessagesByResponse] responseId:", responseId);
     
-    // Support matching by string UUID id, ObjectId _id, or mapped response
+    // Support matching by string UUID id, ObjectId _id, or mapped parent/child response
     const allResponseIds = [responseId];
-    try {
-      const resp = mongoose.Types.ObjectId.isValid(responseId)
-        ? await Response.findById(responseId).select('id _id review submittedBy').lean()
-        : await Response.findOne({ id: responseId }).select('id _id review submittedBy').lean();
-      if (resp) {
-        if (resp.id) allResponseIds.push(String(resp.id));
-        if (resp._id) allResponseIds.push(String(resp._id));
-      }
-    } catch {}
+    let mainResp = null;
+    let pairedResp = null;
 
-    const uniqueIds = [...new Set(allResponseIds)];
+    try {
+      mainResp = mongoose.Types.ObjectId.isValid(responseId)
+        ? await Response.findById(responseId).lean()
+        : await Response.findOne({ id: responseId }).lean();
+
+      if (mainResp) {
+        if (mainResp.id) allResponseIds.push(String(mainResp.id));
+        if (mainResp._id) allResponseIds.push(String(mainResp._id));
+
+        // If this response is a child pointing to a parent
+        if (mainResp.parentResponseId) {
+          allResponseIds.push(String(mainResp.parentResponseId));
+          pairedResp = mongoose.Types.ObjectId.isValid(mainResp.parentResponseId)
+            ? await Response.findById(mainResp.parentResponseId).lean()
+            : await Response.findOne({ id: mainResp.parentResponseId }).lean();
+        }
+
+        // If this response is a parent having child responses
+        if (!pairedResp) {
+          pairedResp = await Response.findOne({
+            parentResponseId: { $in: [String(mainResp._id), String(mainResp.id)].filter(Boolean) }
+          }).lean();
+        }
+
+        if (pairedResp) {
+          if (pairedResp.id) allResponseIds.push(String(pairedResp.id));
+          if (pairedResp._id) allResponseIds.push(String(pairedResp._id));
+        }
+      }
+    } catch (e) {
+      console.warn('[getMessagesByResponse] Error resolving paired response:', e.message);
+    }
+
+    const uniqueIds = [...new Set(allResponseIds.filter(Boolean))];
 
     let messages = await ChatMessage.find({ 
       responseId: { $in: uniqueIds }
@@ -108,15 +134,14 @@ export const getMessagesByResponse = async (req, res) => {
       .sort({ createdAt: 1 })
       .lean();
 
-    // If no chat messages found, but Response has review remark/feedback, ensure initial message is returned
-    if (messages.length === 0) {
+    // If no chat messages found, synthesize opening review messages for both responses if available
+    if (messages.length === 0 && (mainResp || pairedResp)) {
       try {
-        const resp = mongoose.Types.ObjectId.isValid(responseId)
-          ? await Response.findById(responseId).lean()
-          : await Response.findOne({ id: responseId }).lean();
-        const curRev = resp?.review;
-        const revMsg = curRev?.remark || curRev?.reason || curRev?.message;
-        if (curRev && revMsg) {
+        const synthFromReview = async (r, labelPrefix) => {
+          const curRev = r?.review;
+          const revMsg = curRev?.remark || curRev?.reason || curRev?.message;
+          if (!curRev || !revMsg) return null;
+
           const reviewerId = curRev.reviewedBy;
           let reviewerDoc = null;
           if (reviewerId && mongoose.Types.ObjectId.isValid(reviewerId)) {
@@ -126,15 +151,15 @@ export const getMessagesByResponse = async (req, res) => {
             ? `${reviewerDoc.firstName || ''} ${reviewerDoc.lastName || ''}`.trim() || reviewerDoc.username || reviewerDoc.email
             : (curRev.reviewedByName || curRev.reviewer || 'Reviewer');
 
-          messages = [{
-            _id: 'rev-auto-init-' + String(resp._id || resp.id),
-            responseId: String(resp.id || responseId),
+          return {
+            _id: 'rev-auto-init-' + String(r._id || r.id),
+            responseId: String(r.id || r._id),
             from: {
               _id: reviewerId,
               name: reviewerName,
               email: reviewerDoc?.email || ''
             },
-            message: revMsg,
+            message: `${labelPrefix ? `[${labelPrefix}] ` : ''}${revMsg}`,
             questionTitles: Array.isArray(curRev.flaggedQuestions)
               ? curRev.flaggedQuestions.map(q => typeof q === 'object' ? q.questionText || q.title || q.text || q.questionId : String(q))
               : [],
@@ -144,13 +169,26 @@ export const getMessagesByResponse = async (req, res) => {
                   title: typeof q === 'object' ? q.questionText || q.title || q.text : String(q)
                 }))
               : [],
-            createdAt: curRev.reviewedAt || resp.updatedAt || new Date(),
+            createdAt: curRev.reviewedAt || r.updatedAt || new Date(),
             isReviewFeedback: true,
             reviewOption: curRev.reviewOption || curRev.status
-          }];
+          };
+        };
+
+        const synthMessages = [];
+        if (pairedResp) {
+          const m = await synthFromReview(pairedResp, '1st Form');
+          if (m) synthMessages.push(m);
+        }
+        if (mainResp) {
+          const m = await synthFromReview(mainResp, pairedResp ? '2nd Form' : '');
+          if (m) synthMessages.push(m);
+        }
+        if (synthMessages.length > 0) {
+          messages = synthMessages;
         }
       } catch (synthErr) {
-        console.warn('[getMessagesByResponse] Synthesizing review message failed:', synthErr.message);
+        console.warn('[getMessagesByResponse] Synthesizing review messages failed:', synthErr.message);
       }
     }
 

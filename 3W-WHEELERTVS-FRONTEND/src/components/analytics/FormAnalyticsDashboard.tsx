@@ -2621,6 +2621,61 @@ export default function FormAnalyticsDashboard({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const [tenantsMap, setTenantsMap] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    let mounted = true;
+    apiClient
+      .getTenantsMinimal()
+      .then((res: any) => {
+        if (!mounted) return;
+        const list = res?.tenants || res?.data?.tenants || [];
+        const map = new Map<string, string>();
+        list.forEach((t: any) => {
+          const id = String(t._id || t.id || "");
+          const name = t.companyName || t.name || t.slug;
+          if (id && name) map.set(id, name);
+        });
+        setTenantsMap(map);
+      })
+      .catch((err) => console.warn("Could not load tenants for template labels:", err));
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const resolveDocTenantName = useCallback((doc: any): string => {
+    if (!doc) return "";
+    if (typeof doc.tenantId === "object" && doc.tenantId) {
+      const t = doc.tenantId;
+      const n = t.companyName || t.name || t.title || t.slug;
+      if (n) return String(n).trim();
+    }
+    const tId = String(doc.tenantId || "");
+    if (tId && tenantsMap.has(tId)) {
+      return tenantsMap.get(tId) || "";
+    }
+    if (doc.tenantName) return String(doc.tenantName).trim();
+    if (doc.organizationName) return String(doc.organizationName).trim();
+    if (Array.isArray(doc.chassisTenantAssignments)) {
+      for (const a of doc.chassisTenantAssignments) {
+        if (Array.isArray(a.assignedTenants)) {
+          for (const tid of a.assignedTenants) {
+            const strId = String(typeof tid === "object" && tid ? (tid._id || tid.id) : tid);
+            if (strId && tenantsMap.has(strId)) return tenantsMap.get(strId) || "";
+          }
+        }
+      }
+    }
+    const title = String(doc.title || "").trim();
+    const parts = title.split(/\s+/);
+    const last = parts[parts.length - 1];
+    if (last && last.length >= 2 && last.length <= 15 && !/^\d+$/.test(last)) {
+      return last;
+    }
+    return "";
+  }, [tenantsMap]);
+
   // Downloads BIW template pre-loaded with current table chassis, BIW reviews & TVS reviews cloned for targeted tenant
   const handleDownloadBiwTemplate = async () => {
     try {
@@ -2655,21 +2710,48 @@ export default function FormAnalyticsDashboard({
         relatedFormData.parentForm
       );
 
-      const mainDoc = isChild ? (form?.parentForm || relatedFormData.parentForm || form) : form;
-      const targetTenantDoc = isChild ? form : (relatedFormData.childForms?.[0] || null);
+      let mainDoc = isChild ? (form?.parentForm || relatedFormData.parentForm || form) : form;
+      if (isChild && (!mainDoc || mainDoc === form || !mainDoc.sections?.length) && (form as any)?.parentFormId) {
+        try {
+          const parentRes = await apiClient.request<{ form: any }>(`/forms/${(form as any).parentFormId}`);
+          if (parentRes?.form) {
+            mainDoc = parentRes.form;
+          }
+        } catch (_) {}
+      }
 
-      const targetTenantName =
-        typeof targetTenantDoc?.tenantId === "object"
-          ? targetTenantDoc?.tenantId?.name || targetTenantDoc?.tenantId?.title
-          : targetTenantDoc?.organizationName || "";
+      let targetTenantDoc = isChild ? form : (relatedFormData.childForms?.[0] || null);
+      if (!isChild && form?.childForms?.[0]) {
+        const cId = form.childForms[0].formId || form.childForms[0].id || form.childForms[0]._id;
+        if (cId && (!targetTenantDoc || !targetTenantDoc.sections?.length)) {
+          try {
+            const childRes = await apiClient.request<{ form: any }>(`/forms/${cId}`);
+            if (childRes?.form) {
+              targetTenantDoc = childRes.form;
+            }
+          } catch (_) {}
+        }
+      }
+
+      const mainTenantName = resolveDocTenantName(mainDoc);
+      const targetTenantName = resolveDocTenantName(targetTenantDoc);
+
+      const mainTitle = isChild
+        ? (mainDoc?.title || (form as any)?.parentFormTitle || "Main Form")
+        : (form?.title || "Main Form");
+
+      const targetTitle = isChild
+        ? (form?.title || "Child Form")
+        : (targetTenantDoc?.title || "");
 
       await downloadBiwReviewTemplate({
         form: mainDoc,
-        formTitle: form?.title || "Inspection",
+        formTitle: mainTitle,
+        mainTenantName,
         chassisNumbers: targetChassis,
         responses,
         targetTenantForm: targetTenantDoc,
-        targetTenantTitle: targetTenantDoc?.title || "",
+        targetTenantTitle: targetTitle,
         targetTenantName,
         childResponses: relatedFormData.childResponses || {},
         filename: `BIW Review Template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
@@ -6390,11 +6472,37 @@ export default function FormAnalyticsDashboard({
         targetId,
       );
 
-      // Fetch messages
+      // Fetch messages for target response
       const response = await apiClient.get<any[]>(
         `/messages/response/${targetId}`,
       );
-      const messages = Array.isArray(response.data) ? response.data : [];
+      let messages = Array.isArray(response.data) ? response.data : [];
+
+      // Check if this response has a paired response (parent or child)
+      const pairedId =
+        (chatResponse as any)?.parentResponseId ||
+        (chatResponse as any)?.followUpStatus?.parentResponseId ||
+        (chatResponse as any)?.followUpStatus?.followUpResponseId ||
+        (chatResponse as any)?.childResponseId;
+
+      if (pairedId && String(pairedId) !== String(targetId)) {
+        try {
+          const pairedResp = await apiClient.get<any[]>(`/messages/response/${pairedId}`);
+          const pairedMsgs = Array.isArray(pairedResp.data) ? pairedResp.data : [];
+          const seen = new Set(messages.map((m: any) => String(m._id || m.id)));
+          for (const pm of pairedMsgs) {
+            const key = String(pm._id || pm.id);
+            if (!seen.has(key)) {
+              seen.add(key);
+              messages.push(pm);
+            }
+          }
+          messages.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        } catch (e) {
+          console.warn("[ChatModal] Error fetching paired chat messages:", e);
+        }
+      }
+
       setChatMessages(messages);
 
       // Fetch reviews from API
@@ -15697,57 +15805,45 @@ export default function FormAnalyticsDashboard({
                                       const serverRev = (response as any).review;
                                       const localRev = reviewedBy[response.id];
                                       const tvsRev = tvsReviews.find((r) => String(r.responseId || r.response_id || "") === String(response.id));
+                                      const parentRev = (response as any).parentReview || (response as any).followUpStatus?.parentReview;
+                                      const childRev = (response as any).childReview || (response as any).followUpStatus?.childReview;
 
-                                      const status =
-                                        serverRev?.status ||
-                                        serverRev?.reviewOption ||
-                                        localRev?.option ||
-                                        localRev?.status ||
-                                        tvsRev?.status ||
-                                        tvsRev?.reviewOption ||
-                                        selectedReviewOptions[response.id] ||
-                                        null;
+                                      const extractReviewData = (rev: any, fallbackReviewer?: any) => {
+                                        if (!rev) return null;
+                                        const status = rev.status || rev.reviewOption || rev.option || null;
+                                        const reviewer = (typeof rev.reviewer === "object"
+                                          ? rev.reviewer?.name || rev.reviewer?.email
+                                          : rev.reviewerName || rev.reviewer) || (typeof fallbackReviewer === "object" ? fallbackReviewer?.name : fallbackReviewer) || null;
+                                        const reviewDate = rev.reviewedAt || rev.createdAt || null;
+                                        const remark = rev.remark || rev.reason || rev.message || null;
+                                        const rawFlagged = (rev.flaggedQuestions && rev.flaggedQuestions.length > 0)
+                                          ? rev.flaggedQuestions
+                                          : (Array.isArray(rev.questionContexts) ? rev.questionContexts : []);
+                                        const flaggedCategories: string[] = rawFlagged
+                                          .map((q: any) => typeof q === "string" ? q : q?.questionText || q?.title || q?.text || q?.questionId || "")
+                                          .filter(Boolean);
 
-                                      const reviewer =
-                                        (typeof serverRev?.reviewer === "object"
-                                          ? serverRev?.reviewer?.name || serverRev?.reviewer?.email
-                                          : serverRev?.reviewerName || serverRev?.reviewer) ||
-                                        localRev?.name ||
-                                        localRev?.reviewer ||
-                                        tvsRev?.reviewer?.name ||
-                                        tvsRev?.reviewer ||
-                                        null;
+                                        if (!status && !remark && flaggedCategories.length === 0) return null;
+                                        return { status, reviewer, reviewDate, remark, flaggedCategories };
+                                      };
 
-                                      const reviewDate =
-                                        serverRev?.reviewedAt ||
-                                        serverRev?.createdAt ||
-                                        tvsRev?.createdAt ||
-                                        null;
+                                      const selfRevData = extractReviewData(serverRev || localRev || tvsRev, reviewedBy[response.id]);
+                                      const parentRevData = extractReviewData(parentRev);
+                                      const childRevData = extractReviewData(childRev);
 
-                                      const remark =
-                                        serverRev?.remark ||
-                                        serverRev?.reason ||
-                                        serverRev?.message ||
-                                        tvsRev?.remark ||
-                                        null;
+                                      // Main Form Review (1st) vs Target/Child Form Review (2nd)
+                                      const mainRevData = isChildFollowUpForm ? parentRevData : selfRevData;
+                                      const mainTitle = isChildFollowUpForm
+                                        ? ((response as any).parentFormTitle || (response as any).followUpStatus?.parentFormTitle || relatedFormData?.parentForm?.title || "1st: Main Form")
+                                        : (form?.title || "1st: Main Form");
 
-                                      const rawFlagged =
-                                        (serverRev?.flaggedQuestions && serverRev.flaggedQuestions.length > 0)
-                                          ? serverRev.flaggedQuestions
-                                          : (Array.isArray(tvsRev?.flaggedQuestions) && tvsRev.flaggedQuestions.length > 0
-                                            ? tvsRev.flaggedQuestions
-                                            : (Array.isArray(tvsRev?.questionContexts) ? tvsRev.questionContexts : []));
+                                      const childRevDataFinal = isChildFollowUpForm ? selfRevData : childRevData;
+                                      const childTitle = isChildFollowUpForm
+                                        ? (form?.title || "2nd: Child Form")
+                                        : ((response as any).childFormTitle || (response as any).followUpStatus?.childFormTitle || "2nd: Child Form");
 
-                                      const flaggedCategories: string[] = rawFlagged
-                                        .map((q: any) =>
-                                          typeof q === "string"
-                                            ? q
-                                            : q?.questionText || q?.title || q?.text || q?.questionId || ""
-                                        )
-                                        .filter(Boolean);
-
-                                      // If no review has been performed yet
-                                      if (!status && !remark) {
+                                      // If neither review exists
+                                      if (!mainRevData && !childRevDataFinal) {
                                         return (
                                           <div
                                             onClick={(e) => {
@@ -15764,90 +15860,70 @@ export default function FormAnalyticsDashboard({
                                         );
                                       }
 
-                                      const normStatus = String(status || "").toLowerCase().trim();
-                                      const isAccepted = normStatus === "accepted";
-                                      const isRejected = normStatus === "rejected";
-                                      const isRework = normStatus.includes("rework");
+                                      const renderReviewBadge = (revData: any, titlePrefix: string) => {
+                                        const normStatus = String(revData.status || "").toLowerCase().trim();
+                                        const isAccepted = normStatus === "accepted";
+                                        const isRejected = normStatus === "rejected";
+                                        const isRework = normStatus.includes("rework");
 
-                                      const badgeClass = isAccepted
-                                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-green-300 dark:border-green-800"
-                                        : isRejected
-                                          ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border-red-300 dark:border-red-800"
-                                          : isRework
-                                            ? "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 border-purple-300 dark:border-purple-800"
-                                            : "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-300 dark:border-blue-800";
+                                        const badgeClass = isAccepted
+                                          ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-green-300 dark:border-green-800"
+                                          : isRejected
+                                            ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border-red-300 dark:border-red-800"
+                                            : isRework
+                                              ? "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 border-purple-300 dark:border-purple-800"
+                                              : "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-300 dark:border-blue-800";
 
-                                      const emoji = isAccepted ? "✅" : isRejected ? "❌" : isRework ? "🔄" : "💬";
-                                      const label = isAccepted ? "Accepted" : isRejected ? "Rejected" : isRework ? "Rework" : status;
+                                        const emoji = isAccepted ? "✅" : isRejected ? "❌" : isRework ? "🔄" : "💬";
+                                        const label = isAccepted ? "Accepted" : isRejected ? "Rejected" : isRework ? "Rework" : revData.status;
 
-                                      return (
-                                        <div className="flex flex-col gap-1 items-center justify-center text-center">
-                                          {/* Status badge + Reviewer */}
-                                          <div className="flex items-center gap-1.5 flex-wrap justify-center">
-                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase border shadow-2xs ${badgeClass}`}>
-                                              <span>{emoji}</span>
-                                              <span>{label}</span>
-                                            </span>
-                                            {reviewer && (
-                                              <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium truncate max-w-[120px]" title={`Reviewed by ${reviewer}`}>
-                                                by <span className="font-semibold text-gray-700 dark:text-gray-300">{reviewer}</span>
+                                        return (
+                                          <div
+                                            key={titlePrefix}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setChatResponse(response);
+                                              setShowChatModal(true);
+                                            }}
+                                            className="p-1.5 rounded-lg border border-indigo-100 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 shadow-2xs hover:border-indigo-400 dark:hover:border-indigo-500 cursor-pointer text-left transition-all w-full mb-1.5 last:mb-0 group"
+                                            title="Click to open chassis discussion & review"
+                                          >
+                                            <div className="flex items-center justify-between gap-1 mb-1">
+                                              <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 truncate max-w-[130px]" title={titlePrefix}>
+                                                {titlePrefix}
                                               </span>
+                                              <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold uppercase border shadow-2xs ${badgeClass}`}>
+                                                <span>{emoji}</span>
+                                                <span>{label}</span>
+                                              </span>
+                                            </div>
+                                            {revData.reviewer && (
+                                              <p className="text-[9px] text-gray-500 dark:text-gray-400 truncate">
+                                                by <span className="font-semibold text-gray-700 dark:text-gray-300">{revData.reviewer}</span>
+                                              </p>
+                                            )}
+                                            {revData.remark && (
+                                              <p className="text-[10px] text-gray-800 dark:text-gray-200 italic line-clamp-2 leading-tight break-words mt-0.5" title={revData.remark}>
+                                                "{revData.remark}"
+                                              </p>
+                                            )}
+                                            {revData.flaggedCategories?.length > 0 && (
+                                              <div className="flex flex-wrap gap-0.5 mt-0.5">
+                                                {revData.flaggedCategories.slice(0, 2).map((cat: string, ci: number) => (
+                                                  <span key={ci} className="text-[9px] px-1 py-0.2 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 truncate max-w-[140px]" title={cat}>
+                                                    ⚠️ {cat}
+                                                  </span>
+                                                ))}
+                                              </div>
                                             )}
                                           </div>
+                                        );
+                                      };
 
-                                          {/* Defect Categories (Flagged Questions) */}
-                                          {flaggedCategories.length > 0 && (
-                                            <div className="flex flex-wrap gap-1 justify-center mt-0.5 max-w-full">
-                                              {flaggedCategories.map((cat, i) => (
-                                                <span
-                                                  key={i}
-                                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 max-w-[200px] truncate"
-                                                  title={`Defect Category: ${cat}`}
-                                                >
-                                                  <span>⚠️</span>
-                                                  <span className="truncate">{cat}</span>
-                                                </span>
-                                              ))}
-                                            </div>
-                                          )}
-
-                                          {/* Chat Message / Feedback Snippet */}
-                                          {remark ? (
-                                            <div
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                setChatResponse(response);
-                                                setShowChatModal(true);
-                                              }}
-                                              className="w-full mt-1 flex items-start gap-1.5 p-1.5 bg-white dark:bg-gray-800 rounded border border-indigo-100 dark:border-indigo-900/50 hover:border-indigo-300 dark:hover:border-indigo-600 shadow-2xs cursor-pointer text-left transition-all group"
-                                              title="Click to view full discussion thread"
-                                            >
-                                              <MessageCircle className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
-                                              <div className="flex-1 min-w-0">
-                                                <p className="text-[11px] text-gray-800 dark:text-gray-200 italic line-clamp-2 leading-tight break-words">
-                                                  "{remark}"
-                                                </p>
-                                                {reviewDate && (
-                                                  <span className="text-[9px] text-gray-400 block mt-0.5">
-                                                    {new Date(reviewDate).toLocaleDateString()} {new Date(reviewDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                  </span>
-                                                )}
-                                              </div>
-                                            </div>
-                                          ) : (
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                setChatResponse(response);
-                                                setShowChatModal(true);
-                                              }}
-                                              className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
-                                              title="Open chassis chat"
-                                            >
-                                              <MessageCircle className="w-3 h-3" />
-                                              <span>View Discussion</span>
-                                            </button>
-                                          )}
+                                      return (
+                                        <div className="flex flex-col items-center justify-center w-full">
+                                          {mainRevData && renderReviewBadge(mainRevData, `1st: ${mainTitle.replace(/^1st:\s*/i, "")}`)}
+                                          {childRevDataFinal && renderReviewBadge(childRevDataFinal, `2nd: ${childTitle.replace(/^2nd:\s*/i, "")}`)}
                                         </div>
                                       );
                                     })()}
@@ -18907,38 +18983,80 @@ export default function FormAnalyticsDashboard({
                       (msg) => !msg.message?.startsWith("[BIW Review]")
                     );
 
-                    // If a TVS Review has arisen (e.g. Rejected or Rework) with reviewer remark/feedback,
-                    // and this feedback is not yet in chatMessages list, synthesize the reviewer's opening message!
-                    const curRev = chatResponse?.review;
-                    const revStatus = curRev?.reviewOption || curRev?.status;
-                    const revRemark = curRev?.remark || curRev?.reason || curRev?.message;
-
                     let visibleChatMessages = [...list];
-                    if (revStatus && revRemark && list.every((m) => m.message !== revRemark)) {
-                      const reviewerName = typeof curRev.reviewer === "object"
-                        ? curRev.reviewer?.name || curRev.reviewer?.email
-                        : (curRev.reviewedByName || curRev.reviewer || "Reviewer");
-                      const reviewerId = typeof curRev.reviewer === "object"
-                        ? curRev.reviewer?._id || curRev.reviewer?.id
-                        : curRev.reviewedBy;
-                      const flaggedTitles = Array.isArray(curRev.flaggedQuestions)
-                        ? curRev.flaggedQuestions.map((q: any) => typeof q === "object" ? q.questionText || q.title || q.text || q.questionId : String(q))
-                        : [];
 
-                      const synthMsg = {
-                        _id: "synthetic-review-msg",
+                    // Check both Main Form (1st) and Target/Child Form (2nd) TVS reviews
+                    const curRev = chatResponse?.review;
+                    const parentRev = (chatResponse as any)?.parentReview || (chatResponse as any)?.followUpStatus?.parentReview;
+                    const childRev = (chatResponse as any)?.childReview || (chatResponse as any)?.followUpStatus?.childReview;
+
+                    const rev1 = isChildFollowUpForm ? parentRev : curRev;
+                    const rev1Title = isChildFollowUpForm
+                      ? ((chatResponse as any)?.parentFormTitle || (chatResponse as any)?.followUpStatus?.parentFormTitle || relatedFormData?.parentForm?.title || "Main Form")
+                      : (form?.title || "Main Form");
+
+                    const rev2 = isChildFollowUpForm ? curRev : childRev;
+                    const rev2Title = isChildFollowUpForm
+                      ? (form?.title || "Child Form")
+                      : ((chatResponse as any)?.childFormTitle || (chatResponse as any)?.followUpStatus?.childFormTitle || "Child Form");
+
+                    const createSynthReviewMsg = (revObj: any, titleTag: string, idSuffix: string) => {
+                      if (!revObj) return null;
+                      const status = revObj.reviewOption || revObj.status;
+                      const remark = revObj.remark || revObj.reason || revObj.message;
+                      if (!status && !remark) return null;
+
+                      const reviewerName = typeof revObj.reviewer === "object"
+                        ? revObj.reviewer?.name || revObj.reviewer?.email
+                        : (revObj.reviewedByName || revObj.reviewerName || revObj.reviewer || "Reviewer");
+                      const reviewerId = typeof revObj.reviewer === "object"
+                        ? revObj.reviewer?._id || revObj.reviewer?.id
+                        : (revObj.reviewedBy || revObj.reviewerId);
+                      const flaggedTitles = Array.isArray(revObj.flaggedQuestions)
+                        ? revObj.flaggedQuestions.map((q: any) => typeof q === "object" ? q.questionText || q.title || q.text || q.questionId : String(q))
+                        : (revObj.reason ? [revObj.reason] : []);
+
+                      const displayRemark = remark || `TVS Review: ${status}`;
+                      return {
+                        _id: `synthetic-review-msg-${idSuffix}`,
                         isReviewFeedback: true,
-                        reviewOption: revStatus,
+                        reviewOption: status || "Reviewed",
                         from: {
                           _id: reviewerId,
                           name: reviewerName,
-                          email: typeof curRev.reviewer === "object" ? curRev.reviewer?.email : ""
+                          email: typeof revObj.reviewer === "object" ? revObj.reviewer?.email : ""
                         },
-                        message: revRemark,
+                        message: `[${titleTag}] ${displayRemark}`,
                         questionTitles: flaggedTitles,
-                        createdAt: curRev.reviewedAt || curRev.createdAt || new Date().toISOString()
+                        createdAt: revObj.reviewedAt || revObj.createdAt || new Date().toISOString()
                       };
-                      visibleChatMessages = [synthMsg, ...visibleChatMessages];
+                    };
+
+                    // Check if 1st TVS review message is already present in visibleChatMessages
+                    if (rev1) {
+                      const r1Remark = rev1.remark || rev1.reason;
+                      const alreadyInList = r1Remark && visibleChatMessages.some((m) => m.message && m.message.includes(r1Remark));
+                      if (!alreadyInList) {
+                        const m1 = createSynthReviewMsg(rev1, `1st: ${rev1Title.replace(/^1st:\s*/i, "")}`, "1");
+                        if (m1) visibleChatMessages.unshift(m1);
+                      }
+                    }
+
+                    // Check if 2nd TVS review message is already present in visibleChatMessages
+                    if (rev2) {
+                      const r2Remark = rev2.remark || rev2.reason;
+                      const alreadyInList = r2Remark && visibleChatMessages.some((m) => m.message && m.message.includes(r2Remark));
+                      if (!alreadyInList) {
+                        const m2 = createSynthReviewMsg(rev2, `2nd: ${rev2Title.replace(/^2nd:\s*/i, "")}`, "2");
+                        if (m2) {
+                          // Insert after m1 if m1 was unshifted, or at the start
+                          if (rev1 && visibleChatMessages.length > 0 && visibleChatMessages[0]._id === "synthetic-review-msg-1") {
+                            visibleChatMessages.splice(1, 0, m2);
+                          } else {
+                            visibleChatMessages.unshift(m2);
+                          }
+                        }
+                      }
                     }
 
                     if (visibleChatMessages.length === 0) {
@@ -19294,8 +19412,21 @@ export default function FormAnalyticsDashboard({
         isOpen={isBiwExcelModalOpen}
         onClose={() => setIsBiwExcelModalOpen(false)}
         formId={id || ""}
-        form={form}
-        formTitle={form?.title || "Form Analytics"}
+        form={
+          ((form as any)?.isFollowUpForm || (form as any)?.parentFormId || form?.parentForm || relatedFormData.parentForm)
+            ? (form?.parentForm || relatedFormData.parentForm || form)
+            : form
+        }
+        formTitle={
+          ((form as any)?.isFollowUpForm || (form as any)?.parentFormId || form?.parentForm || relatedFormData.parentForm)
+            ? (form?.parentForm?.title || (form as any)?.parentFormTitle || relatedFormData.parentForm?.title || form?.title || "Main Form")
+            : (form?.title || "Main Form")
+        }
+        mainTenantName={resolveDocTenantName(
+          ((form as any)?.isFollowUpForm || (form as any)?.parentFormId || form?.parentForm || relatedFormData.parentForm)
+            ? (form?.parentForm || relatedFormData.parentForm || form)
+            : form
+        )}
         targetTenantForm={
           ((form as any)?.isFollowUpForm || (form as any)?.parentFormId || form?.parentForm || relatedFormData.parentForm)
             ? form
@@ -19306,9 +19437,14 @@ export default function FormAnalyticsDashboard({
             ? form?.title
             : (relatedFormData.childForms?.[0]?.title || "")
         }
+        targetTenantName={resolveDocTenantName(
+          ((form as any)?.isFollowUpForm || (form as any)?.parentFormId || form?.parentForm || relatedFormData.parentForm)
+            ? form
+            : (relatedFormData.childForms?.[0] || null)
+        )}
         currentChassisNumbers={Array.from(
           new Set(
-            responses.flatMap((r) => {
+            (responses.length > 0 ? responses : tableResponses).flatMap((r) => {
               const a = r.answers || {};
               const vals: string[] = [];
               if (r.chassisNumber) vals.push(String(r.chassisNumber).trim());
@@ -19331,7 +19467,7 @@ export default function FormAnalyticsDashboard({
             }).filter(Boolean)
           )
         )}
-        responses={responses}
+        responses={responses.length > 0 ? responses : tableResponses}
         onImportSuccess={() => {
           showToast("BIW & TVS Reviews imported successfully!", "success");
           fetchResponsesPage(responsesPage || 1);
