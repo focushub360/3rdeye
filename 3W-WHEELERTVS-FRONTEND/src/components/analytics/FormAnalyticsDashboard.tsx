@@ -2717,7 +2717,7 @@ export default function FormAnalyticsDashboard({
           if (parentRes?.form) {
             mainDoc = parentRes.form;
           }
-        } catch (_) {}
+        } catch (_) { }
       }
 
       let targetTenantDoc = isChild ? form : (relatedFormData.childForms?.[0] || null);
@@ -2729,7 +2729,7 @@ export default function FormAnalyticsDashboard({
             if (childRes?.form) {
               targetTenantDoc = childRes.form;
             }
-          } catch (_) {}
+          } catch (_) { }
         }
       }
 
@@ -4377,7 +4377,11 @@ export default function FormAnalyticsDashboard({
   const reviewFormTabs = useMemo(() => {
     if (!chatResponse) return [];
 
-    const parentFormObj = form?.parentForm?.sections?.length ? form.parentForm : relatedFormData.parentForm;
+    const parentFormObj = form?.parentForm?.sections?.length
+      ? form.parentForm
+      : relatedFormData.parentForm?.sections?.length
+        ? relatedFormData.parentForm
+        : (form?.parentForm || relatedFormData.parentForm);
     const childDocs = (form?.childForms || []).map((cf: any) => {
       const found = (relatedFormData.childForms || []).find(
         (rf: any) => rf.id === (cf.formId || cf.id) || rf._id === (cf.formId || cf.id)
@@ -4437,9 +4441,13 @@ export default function FormAnalyticsDashboard({
         id: "main",
         title: parentFormObj?.title || (chatResponse as any)?.parentFormTitle || (form as any)?.parentFormTitle || "Main Form",
         badge: "Main Form",
-        questions: (parentFormObj?.sections || []).flatMap((s: any) =>
-          (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
-        ),
+        questions: (() => {
+          const secQ = (parentFormObj?.sections || []).flatMap((s: any) =>
+            (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+          );
+          if (secQ.length > 0) return secQ;
+          return (parentFormObj?.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId);
+        })(),
         answers:
           (chatResponse as any)?.parentAnswers ||
           (chatResponse as any)?.followUpStatus?.parentAnswers ||
@@ -4687,7 +4695,6 @@ export default function FormAnalyticsDashboard({
         };
         setTableResponses((prev) => prev.map(updateReviewFn));
         setResponses((prev) => prev.map(updateReviewFn));
-        setResponseStatuses((prev) => ({ ...prev, [responseId]: newStatus }));
         setChatFilters((prev) => ({ ...prev, questions: [] }));
 
         // Invalidate browser-level cached summary items
@@ -4700,7 +4707,7 @@ export default function FormAnalyticsDashboard({
             const k = localStorage.key(i);
             if (k && k.includes('quality_summary')) localStorage.removeItem(k);
           }
-        } catch (_) {}
+        } catch (_) { }
 
         fetchSummary();
         fetchPerformanceTable();
@@ -5311,15 +5318,23 @@ export default function FormAnalyticsDashboard({
       setTotalResponsesCount(data.pagination?.totalResponses || 0);
 
       if (data.form) {
-        setForm((prev: any) => ({
-          ...(prev || {}),
-          ...data.form,
-          parentFormId: data.form.parentFormId || prev?.parentFormId,
-          parentFormTitle: data.form.parentFormTitle || prev?.parentFormTitle,
-          isChildForm: data.form.isChildForm ?? prev?.isChildForm,
-          isParentForm: data.form.isParentForm ?? prev?.isParentForm
-        }));
-        if (data.form.parentForm) {
+        setForm((prev: any) => {
+          const mergedParentForm = data.form.parentForm?.sections?.length
+            ? data.form.parentForm
+            : prev?.parentForm?.sections?.length
+              ? prev.parentForm
+              : (data.form.parentForm || prev?.parentForm);
+          return {
+            ...(prev || {}),
+            ...data.form,
+            parentFormId: data.form.parentFormId || prev?.parentFormId,
+            parentFormTitle: data.form.parentFormTitle || prev?.parentFormTitle,
+            isChildForm: data.form.isChildForm ?? prev?.isChildForm,
+            isParentForm: data.form.isParentForm ?? prev?.isParentForm,
+            parentForm: mergedParentForm,
+          };
+        });
+        if (data.form.parentForm?.sections?.length) {
           setRelatedFormData((prev) => ({ ...prev, parentForm: data.form.parentForm }));
         }
       }
@@ -6135,40 +6150,14 @@ export default function FormAnalyticsDashboard({
   }, [tableResponses, responses, responseStatuses, chassisQuestionId]);
 
   // Helper to determine if a response has an eligible status for BIW Review
-  // Rule: BIW review can ONLY be performed on "Direct Ok", "Accepted", "Rework Accepted", and "Rework Completed"
-  // Responses with defects / rework (e.g. "Rework 1", "Rework 2", "Rework", "Rejected") cannot receive BIW review
+  // Any valid response can receive an independent BIW Review
   const isBiwEligibleResponse = (r: Response | null | undefined): boolean => {
-    if (!r) return false;
-    const respId = r.id || (r as any)._id;
-    const status =
-      tableDisplayStatuses[r.id] ||
-      tableDisplayStatuses[(r as any)._id] ||
-      (respId ? tableDisplayStatuses[respId] : null) ||
-      responseStatuses[r.id] ||
-      responseStatuses[(r as any)._id] ||
-      (respId ? responseStatuses[respId] : null) ||
-      computeFastRowStatus(r, chassisQuestionId) ||
-      (r.status && r.status !== "pending" ? r.status : "Direct Ok");
-
-    return (
-      status === "Direct Ok" ||
-      status === "Rework Accepted" ||
-      status === "Rework Completed" ||
-      status === "Accepted"
-    );
+    return Boolean(r);
   };
 
   // Only assigned tenant reviewers (or superadmin / admin / form owner) can perform BIW review / review feedback
   const canUserBiwReview = (response: Response | null | undefined): { canReview: boolean; reason?: string } => {
     if (!response) return { canReview: false, reason: "No response selected" };
-
-    // 0. Status check: BIW review can ONLY be performed for Direct Ok, Accepted, or Rework Accepted
-    if (!isBiwEligibleResponse(response)) {
-      return {
-        canReview: false,
-        reason: "BIW review can only be filled for Direct Ok, Accepted, or Rework Accepted.",
-      };
-    }
 
     if (user?.role === "superadmin" || user?.role === "admin") return { canReview: true };
 
@@ -6607,8 +6596,15 @@ export default function FormAnalyticsDashboard({
         apiClient
           .request<{ form: any }>(`/forms/${parentId}`, { forceNetwork: true })
           .then((res: any) => {
-            if (res?.form) {
-              setRelatedFormData((prev) => ({ ...prev, parentForm: res.form }));
+            const fetchedParent = res?.form || res;
+            if (fetchedParent && (fetchedParent.sections?.length || fetchedParent.questions?.length)) {
+              setRelatedFormData((prev) => ({ ...prev, parentForm: fetchedParent }));
+              setForm((prev: any) => ({
+                ...(prev || {}),
+                parentForm: fetchedParent,
+                parentFormId: fetchedParent.id || fetchedParent._id || prev?.parentFormId,
+                parentFormTitle: fetchedParent.title || prev?.parentFormTitle,
+              }));
             }
           })
           .catch((err) => console.warn("Could not load parent form details:", err));
@@ -7872,8 +7868,7 @@ export default function FormAnalyticsDashboard({
       setSelectedDispatchIds([]);
       setShowBulkDispatchConfirm(false);
       showToast(
-        `Dispatch enabled for ${selectedDispatchIds.length} response${
-          selectedDispatchIds.length === 1 ? "" : "s"
+        `Dispatch enabled for ${selectedDispatchIds.length} response${selectedDispatchIds.length === 1 ? "" : "s"
         }.`,
         "success"
       );
@@ -9963,7 +9958,7 @@ export default function FormAnalyticsDashboard({
       });
 
       uniqueResponses.forEach((response) => {
-        const biwStatus = response.biwReview?.status || (response as any).review?.status || (response as any).tvsReview?.status;
+        const biwStatus = response.biwReview?.status;
         if (!biwStatus) return;
 
         const sNorm = String(biwStatus).trim().toLowerCase();
@@ -9971,13 +9966,11 @@ export default function FormAnalyticsDashboard({
         const isRework = sNorm.includes("rework");
         if (!isRejected && !isRework) return; // Do not count Accepted as defects
 
-        // Collect flagged questions across ALL review sources (biwReview, review, questionContexts, tvsReview)
+        // Collect flagged questions strictly from biwReview only (TVS chat review belongs to TVS Defect Distribution)
         const rawFlagged = [
           ...(Array.isArray(response.biwReview?.flaggedQuestions) ? response.biwReview.flaggedQuestions : []),
-          ...(Array.isArray((response as any).review?.flaggedQuestions) ? (response as any).review.flaggedQuestions : []),
-          ...(Array.isArray((response as any).review?.questionContexts) ? (response as any).review.questionContexts : []),
-          ...(Array.isArray((response as any).tvsReview?.flaggedQuestions) ? (response as any).tvsReview.flaggedQuestions : []),
           ...(Array.isArray((response as any).biwReview?.questionContexts) ? (response as any).biwReview.questionContexts : []),
+          ...(Array.isArray((response as any).biwReview?.defects) ? (response as any).biwReview.defects : []),
         ];
 
         // Deduplicate per response so each defect category is counted once per submission
@@ -10058,7 +10051,7 @@ export default function FormAnalyticsDashboard({
           }
 
           // Category is required — uncategorized reviews without specific defect questions are omitted from category breakdown
-          const specificReason = (response.biwReview?.remark || response.biwReview?.reason || (response as any).review?.remark || (response as any).review?.reason || "")?.trim();
+          const specificReason = (response.biwReview?.remark || response.biwReview?.reason || "")?.trim();
           if (!foundDefectAnswer && specificReason) {
             if (specificReason.toLowerCase() !== "general" && !specificReason.toLowerCase().includes("general biw")) {
               const genId = "biw-reason-" + specificReason.toLowerCase().replace(/[^a-z0-9]/g, "-");
@@ -13976,7 +13969,16 @@ export default function FormAnalyticsDashboard({
               </span>
               <span className="text-gray-400">•</span>
               <span className="text-gray-600 dark:text-gray-300 font-medium">
-                Showing <strong className="text-gray-900 dark:text-white font-bold">{filteredResponses.length}</strong> of {responses.length} inspections
+                {isChartLoading && responses.length === 0 ? (
+                  <span className="inline-flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+                    <span>Loading inspections...</span>
+                  </span>
+                ) : (
+                  <>
+                    Showing <strong className="text-gray-900 dark:text-white font-bold">{filteredResponses.length}</strong> of {responses.length} inspections
+                  </>
+                )}
               </span>
             </div>
             <div className="flex items-center gap-2">

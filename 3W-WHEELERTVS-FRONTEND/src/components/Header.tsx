@@ -562,9 +562,9 @@ export default function Header() {
                         <ChevronRight className="w-3 h-3 ml-1 rotate-90" />
                       </Link>
 
-                      <div className={`absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-white dark:bg-gray-900 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 flex z-50 overflow-hidden transition-all duration-200 ${isAnalyticsHovered ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'} ${hoveredFormId ? 'w-[28rem]' : 'w-64'}`}>
+                      <div className={`absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-white dark:bg-gray-900 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 flex z-50 overflow-hidden transition-all duration-200 ${isAnalyticsHovered ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'} ${hoveredFormId ? 'w-[34rem] sm:w-[40rem] md:w-[44rem]' : 'w-80 sm:w-96'}`}>
                         {/* Left Pane - Forms List */}
-                        <div className="w-64 max-h-80 overflow-y-auto py-1.5 flex-shrink-0">
+                        <div className="w-80 sm:w-96 max-h-96 overflow-y-auto py-1.5 flex-shrink-0">
                           {visibleForms.length === 0 ? (
                             <div className="px-4 py-3 text-sm text-gray-400 dark:text-gray-500 italic">
                               No forms available
@@ -580,15 +580,15 @@ export default function Header() {
                                   onMouseEnter={() => setHoveredFormId(formId)}
                                   onClick={() => navigate(`/forms/${formId}/analytics`)}
                                   className={`
-                                    flex items-center justify-between px-4 py-2.5 text-sm text-left w-full transition-colors duration-150
+                                    flex items-center justify-between px-4 py-2.5 text-xs sm:text-sm text-left w-full transition-colors duration-150
                                     ${isCurrentHovered
                                       ? "bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400 font-semibold"
                                       : "text-gray-755 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50"
                                     }
                                   `}
                                 >
-                                  <span className="truncate pr-2">{form.title}</span>
-                                  <ChevronRight className={`w-3.5 h-3.5 transition-transform ${isCurrentHovered ? 'text-primary-500 dark:text-primary-400 transform translate-x-0.5' : 'text-gray-300 dark:text-gray-655'}`} />
+                                  <span className="pr-2 leading-snug break-words" title={form.title}>{form.title}</span>
+                                  <ChevronRight className={`w-3.5 h-3.5 shrink-0 transition-transform ${isCurrentHovered ? 'text-primary-500 dark:text-primary-400 transform translate-x-0.5' : 'text-gray-300 dark:text-gray-655'}`} />
                                 </button>
                               );
                             })
@@ -597,7 +597,7 @@ export default function Header() {
 
                         {/* Right Pane - Tabs List */}
                         {hoveredFormId && activeForm && (
-                          <div className="w-48 bg-gray-50/50 dark:bg-gray-800/40 p-2 max-h-80 overflow-y-auto flex flex-col space-y-1 border-l border-gray-100 dark:border-gray-800 flex-shrink-0">
+                          <div className="w-48 sm:w-52 bg-gray-50/50 dark:bg-gray-800/40 p-2 max-h-96 overflow-y-auto flex flex-col space-y-1 border-l border-gray-100 dark:border-gray-800 flex-shrink-0">
                             {activeFormTabs.length === 0 ? (
                               <div className="px-3 py-3 text-xs text-gray-400 dark:text-gray-500 italic text-center">
                                 No permitted actions

@@ -1558,7 +1558,7 @@ export const QualityDashboard: React.FC = () => {
 
             {/* Dropdown Menu Popover */}
             {isFormDropdownOpen && (
-              <div className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-[94vw] sm:w-[580px] md:w-[640px] max-w-[96vw] bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
                 {/* Search Bar */}
                 <div className="p-2.5 border-b border-gray-100 bg-gray-50/80 flex items-center gap-2">
                   <div className="relative flex-1">
@@ -1567,7 +1567,7 @@ export const QualityDashboard: React.FC = () => {
                       type="text"
                       value={formSearchQuery}
                       onChange={(e) => setFormSearchQuery(e.target.value)}
-                      placeholder="Search forms..."
+                      placeholder="Search forms by name..."
                       className="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-800 placeholder-gray-400"
                       autoFocus
                     />
@@ -1584,7 +1584,7 @@ export const QualityDashboard: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleSelectAllForms}
-                      className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 px-2 py-1 hover:bg-blue-50 rounded"
+                      className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 px-2 py-1 hover:bg-blue-50 rounded cursor-pointer"
                     >
                       All
                     </button>
@@ -1592,7 +1592,7 @@ export const QualityDashboard: React.FC = () => {
                       <button
                         type="button"
                         onClick={handleClearAllForms}
-                        className="text-[11px] font-semibold text-red-600 hover:text-red-800 px-2 py-1 hover:bg-red-50 rounded"
+                        className="text-[11px] font-semibold text-red-600 hover:text-red-800 px-2 py-1 hover:bg-red-50 rounded cursor-pointer"
                       >
                         Reset
                       </button>
@@ -1601,7 +1601,7 @@ export const QualityDashboard: React.FC = () => {
                 </div>
 
                 {/* Form Options List */}
-                <div className="max-h-72 overflow-y-auto divide-y divide-gray-100 p-1">
+                <div className="max-h-80 sm:max-h-96 overflow-y-auto divide-y divide-gray-100 p-1">
                   {/* "All My Forms" option */}
                   <div
                     onClick={handleSelectAllForms}
@@ -1616,9 +1616,9 @@ export const QualityDashboard: React.FC = () => {
                         checked={selectedFormIds.length === 0}
                         onClick={(e) => e.stopPropagation()}
                         onChange={handleSelectAllForms}
-                        className="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500 accent-blue-600 cursor-pointer"
+                        className="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500 accent-blue-600 cursor-pointer shrink-0"
                       />
-                      <span className="truncate">All My Forms</span>
+                      <span className="font-bold text-gray-900">All My Forms</span>
                     </div>
                     <span className="text-[11px] font-medium text-gray-500 ml-2 whitespace-nowrap">
                       {dateRange !== 'all' && (data?.summary?.masterTotalChecked || totalAllFormsInspections) ? (
@@ -1649,7 +1649,7 @@ export const QualityDashboard: React.FC = () => {
                           : 'text-gray-700'
                           }`}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
                           <input
                             type="checkbox"
                             checked={isSelected}
@@ -1661,8 +1661,8 @@ export const QualityDashboard: React.FC = () => {
                             className="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500 accent-blue-600 cursor-pointer shrink-0"
                             title="Filter summary page to this form"
                           />
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="truncate group-hover:text-blue-700" title={f.title}>{f.title}</span>
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <span className="font-semibold text-gray-800 group-hover:text-blue-700 leading-snug break-words" title={f.title}>{f.title}</span>
                             {isChild && (
                               <span className="text-[10px] font-semibold text-purple-700 bg-purple-100/90 border border-purple-200/80 px-1.5 py-0.5 rounded-full shrink-0">
                                 Follow-up
@@ -1671,7 +1671,7 @@ export const QualityDashboard: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <span className={`text-[11px] font-semibold ml-2 whitespace-nowrap ${isSelected ? 'text-blue-700' : 'text-gray-500'}`}>
+                          <span className={`text-[11px] font-semibold whitespace-nowrap ${isSelected ? 'text-blue-700' : 'text-gray-500'}`}>
                             {f.totalChecked !== undefined ? f.totalChecked.toLocaleString() : '0'} units
                             {dateRange !== 'all' && (f as any).masterTotal !== undefined && (f as any).masterTotal !== f.totalChecked && (
                               <span className="text-[10px] text-gray-400 font-normal ml-1">
@@ -1679,7 +1679,7 @@ export const QualityDashboard: React.FC = () => {
                               </span>
                             )}
                           </span>
-                          <span className="opacity-0 group-hover:opacity-100 text-[10px] font-bold text-blue-600 bg-white px-1.5 py-0.5 rounded border border-blue-200 shadow-2xs flex items-center gap-0.5 transition-opacity">
+                          <span className="opacity-0 group-hover:opacity-100 text-[10px] font-bold text-blue-600 bg-white px-2 py-0.5 rounded border border-blue-200 shadow-2xs flex items-center gap-1 transition-opacity">
                             <BarChart3 className="w-3 h-3" />
                             Dashboard
                           </span>

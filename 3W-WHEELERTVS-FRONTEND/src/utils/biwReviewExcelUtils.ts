@@ -37,7 +37,6 @@ export const BIW_REVIEW_COLUMNS = [
   "Remark",
   "File Upload",
   "TVS Feed back",
-  "Rework Resion (Rust..)",
   "Rework and Rejected Resion (Rust..)",
   "Remark",
   "File Upload"
@@ -196,7 +195,7 @@ export async function downloadBiwReviewTemplate(options: {
   // 1. Prepare Main Sheet Data (Header + Rows)
   const mainSheetData: any[][] = [];
 
-  // Header row: Columns A-E (BIW), F-J (1st Main TVS), and K-O (2nd Target Tenant TVS cloned!)
+  // Header row: Columns A-E (BIW), F-I (1st Main TVS), and J-M (2nd Target Tenant TVS cloned!)
   const headers = [
     "Chassis Number",
     "BIW Feed back(Accept,Rework,Reject)",
@@ -204,7 +203,6 @@ export async function downloadBiwReviewTemplate(options: {
     "Remark",
     "File Upload",
     `TVS Feed back (${mainHeaderLabel})`,
-    `Rework Resion (Rust..) - ${mainTitle}`,
     `Rework and Rejected Resion (Rust..) - ${mainTitle}`,
     `Remark - ${mainTitle}`,
     `File Upload - ${mainTitle}`
@@ -213,7 +211,6 @@ export async function downloadBiwReviewTemplate(options: {
   if (hasTargetTenant) {
     headers.push(
       `TVS Feed back (${targetHeaderLabel})`,
-      `Rework Resion (Rust..) - ${targetTitle}`,
       `Rework and Rejected Resion (Rust..) - ${targetTitle}`,
       `Remark - ${targetTitle}`,
       `File Upload - ${targetTitle}`
@@ -310,10 +307,9 @@ export async function downloadBiwReviewTemplate(options: {
       biwRemark,   // Col 4 (D): BIW Remark
       biwFileUrl,  // Col 5 (E): BIW File URL
       tvsStatus,   // Col 6 (F): TVS Feed back
-      tvsReason,   // Col 7 (G): TVS Rework Reason
-      "",          // Col 8 (H): TVS Rework & Rejected Reason
-      tvsRemark,   // Col 9 (I): TVS Remark
-      tvsFileUrl   // Col 10 (J): TVS File URL
+      tvsReason,   // Col 7 (G): TVS Reason (Rework and Rejected Reason)
+      tvsRemark,   // Col 8 (H): TVS Remark
+      tvsFileUrl   // Col 9 (I): TVS File URL
     ];
 
     if (hasTargetTenant) {
@@ -338,11 +334,10 @@ export async function downloadBiwReviewTemplate(options: {
       }
 
       row.push(
-        targetTvsStatus,   // Col 11 (K): TVS Feed back (Target Tenant)
-        targetTvsReason,   // Col 12 (L): Rework Resion
-        "",                // Col 13 (M): Rework and Rejected Resion
-        targetTvsRemark,   // Col 14 (N): Remark
-        targetTvsFileUrl   // Col 15 (O): File Upload
+        targetTvsStatus,   // Col 10 (J): TVS Feed back (Target Tenant)
+        targetTvsReason,   // Col 11 (K): Rework and Rejected Reason
+        targetTvsRemark,   // Col 12 (L): Remark
+        targetTvsFileUrl   // Col 13 (M): File Upload
       );
     }
 
@@ -359,7 +354,6 @@ export async function downloadBiwReviewTemplate(options: {
     { wch: 24 }, // Remark
     { wch: 22 }, // File Upload
     { wch: 38 }, // TVS Feed back (1st Main Form)
-    { wch: 30 }, // Rework Resion (Rust..)
     { wch: 36 }, // Rework and Rejected Resion (Rust..)
     { wch: 24 }, // Remark
     { wch: 22 }  // File Upload
@@ -368,7 +362,6 @@ export async function downloadBiwReviewTemplate(options: {
   if (hasTargetTenant) {
     colWidths.push(
       { wch: 38 }, // TVS Feed back (2nd Target Tenant)
-      { wch: 30 }, // Rework Resion
       { wch: 36 }, // Rework and Rejected Resion
       { wch: 24 }, // Remark
       { wch: 22 }  // File Upload
@@ -378,8 +371,8 @@ export async function downloadBiwReviewTemplate(options: {
   mainWs["!cols"] = colWidths;
 
   // Header Styles
-  const endCol = hasTargetTenant ? 14 : 9;
-  const range = XLSX.utils.decode_range(mainWs["!ref"] || (hasTargetTenant ? "A1:O1" : "A1:J1"));
+  const endCol = hasTargetTenant ? 12 : 8;
+  const range = XLSX.utils.decode_range(mainWs["!ref"] || (hasTargetTenant ? "A1:M1" : "A1:I1"));
 
   for (let c = range.s.c; c <= range.e.c; c++) {
     const cellRef = XLSX.utils.encode_cell({ r: 0, c });
@@ -388,9 +381,9 @@ export async function downloadBiwReviewTemplate(options: {
     let fillBg = "1E293B"; // Dark slate
     if (c >= 1 && c <= 4) {
       fillBg = "1E40AF"; // BIW Royal Blue
-    } else if (c >= 5 && c <= 9) {
+    } else if (c >= 5 && c <= 8) {
       fillBg = "065F46"; // TVS Emerald Green (matches user screenshot!)
-    } else if (c >= 10 && c <= 14) {
+    } else if (c >= 9 && c <= 12) {
       fillBg = "0F766E"; // Target Tenant Deep Teal
     }
 
@@ -420,7 +413,7 @@ export async function downloadBiwReviewTemplate(options: {
         font: { name: "Calibri", sz: 10, color: { rgb: "1E293B" } },
         alignment: {
           vertical: "center",
-          horizontal: c === 0 || c === 1 || c === 5 || c === 10 ? "center" : "left"
+          horizontal: c === 0 || c === 1 || c === 5 || c === 9 ? "center" : "left"
         },
         border: {
           top: { style: "thin", color: { rgb: "E2E8F0" } },
@@ -489,24 +482,21 @@ export async function downloadBiwReviewTemplate(options: {
     let dataValidationsXml = "";
     if (hasTargetTenant && targetDefectOptions.length > 0) {
       dataValidationsXml =
-        `<dataValidations count="8">` +
+        `<dataValidations count="6">` +
         `<dataValidation sqref="B2:B2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
         `<dataValidation sqref="C2:C2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
         `<dataValidation sqref="F2:F2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
         `<dataValidation sqref="G2:G2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
-        `<dataValidation sqref="H2:H2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
-        `<dataValidation sqref="K2:K2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
-        `<dataValidation sqref="L2:L2000" allowBlank="1" type="list"><formula1>TargetDefectList</formula1></dataValidation>` +
-        `<dataValidation sqref="M2:M2000" allowBlank="1" type="list"><formula1>TargetDefectList</formula1></dataValidation>` +
+        `<dataValidation sqref="J2:J2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
+        `<dataValidation sqref="K2:K2000" allowBlank="1" type="list"><formula1>TargetDefectList</formula1></dataValidation>` +
         `</dataValidations>`;
     } else {
       dataValidationsXml =
-        `<dataValidations count="5">` +
+        `<dataValidations count="4">` +
         `<dataValidation sqref="B2:B2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
         `<dataValidation sqref="C2:C2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
         `<dataValidation sqref="F2:F2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
         `<dataValidation sqref="G2:G2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
-        `<dataValidation sqref="H2:H2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
         `</dataValidations>`;
     }
 
@@ -562,6 +552,18 @@ export async function parseBiwReviewWorkbook(file: File): Promise<BiwExcelRow[]>
     }
   }
 
+  // Inspect headers to detect if legacy 15-column template with duplicate reason columns was uploaded
+  const headerTexts: string[] = [];
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    const v = ws[XLSX.utils.encode_cell({ r: headerRowIndex, c })]?.v;
+    headerTexts.push(String(v || "").trim().toLowerCase());
+  }
+  const isLegacyDuplicateTvs = headerTexts.length >= 10 && (
+    (headerTexts[6] || "").includes("rework") || (headerTexts[6] || "").includes("resion") || (headerTexts[6] || "").includes("reason")
+  ) && (
+    (headerTexts[7] || "").includes("rework") || (headerTexts[7] || "").includes("resion") || (headerTexts[7] || "").includes("reason")
+  );
+
   // Read data rows
   for (let r = headerRowIndex + 1; r <= range.e.r; r++) {
     const getVal = (c: number): string => {
@@ -573,6 +575,37 @@ export async function parseBiwReviewWorkbook(file: File): Promise<BiwExcelRow[]>
     // If the chassis number cell is completely blank, skip row
     if (!chassis) continue;
 
+    let tvsFeedback = "";
+    let tvsReason = "";
+    let tvsRemark = "";
+    let tvsFileUrl = "";
+    let targetTvsFeedback = "";
+    let targetTvsReason = "";
+    let targetTvsRemark = "";
+    let targetTvsFileUrl = "";
+
+    if (isLegacyDuplicateTvs) {
+      // Legacy 15-col format: F(5)=TVS FB, G(6)=Reason 1, H(7)=Reason 2, I(8)=Remark, J(9)=File, K(10)=Target FB, L(11)=Target R1, M(12)=Target R2, N(13)=Target Remark, O(14)=Target File
+      tvsFeedback = getVal(5);
+      tvsReason = getVal(6) || getVal(7);
+      tvsRemark = getVal(8);
+      tvsFileUrl = getVal(9);
+      targetTvsFeedback = getVal(10);
+      targetTvsReason = getVal(11) || getVal(12);
+      targetTvsRemark = getVal(13);
+      targetTvsFileUrl = getVal(14);
+    } else {
+      // Clean 9/13-col format: F(5)=TVS FB, G(6)=Reason, H(7)=Remark, I(8)=File, J(9)=Target FB, K(10)=Target Reason, L(11)=Target Remark, M(12)=Target File
+      tvsFeedback = getVal(5);
+      tvsReason = getVal(6);
+      tvsRemark = getVal(7);
+      tvsFileUrl = getVal(8);
+      targetTvsFeedback = getVal(9);
+      targetTvsReason = getVal(10);
+      targetTvsRemark = getVal(11);
+      targetTvsFileUrl = getVal(12);
+    }
+
     const row: BiwExcelRow = {
       rowIndex: r + 1,
       chassisNumber: chassis,
@@ -580,17 +613,16 @@ export async function parseBiwReviewWorkbook(file: File): Promise<BiwExcelRow[]>
       biwReason: getVal(2),
       biwRemark: getVal(3),
       biwFileUrl: getVal(4),
-      tvsFeedback: getVal(5),
-      tvsReason: getVal(6),
-      tvsRejectReason: getVal(7),
-      tvsRemark: getVal(8),
-      tvsFileUrl: getVal(9),
-      // Cloned F to J for Target Tenant (Cols K to O / 10 to 14):
-      targetTvsFeedback: getVal(10),
-      targetTvsReason: getVal(11),
-      targetTvsRejectReason: getVal(12),
-      targetTvsRemark: getVal(13),
-      targetTvsFileUrl: getVal(14)
+      tvsFeedback,
+      tvsReason,
+      tvsRejectReason: tvsReason,
+      tvsRemark,
+      tvsFileUrl,
+      targetTvsFeedback,
+      targetTvsReason,
+      targetTvsRejectReason: targetTvsReason,
+      targetTvsRemark,
+      targetTvsFileUrl
     };
 
     rows.push(row);
