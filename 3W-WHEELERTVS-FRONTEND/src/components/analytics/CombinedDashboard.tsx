@@ -414,8 +414,8 @@ export const CombinedDashboard: React.FC<CombinedDashboardProps> = ({
     const defectsPercent = (totalDefects / total) * 100;
 
     const dispatchedPercent = (totalDispatched / total) * 100;
-    const pendingDispatchCount = Math.max(0, total - totalDispatched);
-    const pendingDispatchPercent = (pendingDispatchCount / total) * 100;
+    const pendingDispatchCount = Math.max(0, (directOk + reworkCompleted) - totalDispatched);
+    const pendingDispatchPercent = total > 0 ? (pendingDispatchCount / total) * 100 : 0;
 
     const biwReviewedCount = Math.min(total, totalBiwReviewed);
     const pendingDataCount = Math.max(0, totalDispatched - biwReviewedCount);

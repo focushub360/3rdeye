@@ -469,18 +469,19 @@ export const QualityDashboard: React.FC = () => {
     const overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
     const overallDefectRate = totalChecked > 0 ? Math.round((totalDefects / totalChecked) * 10000) / 100 : 0;
 
+    const reworkAcceptedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.reworkAcceptedCount || 0), 0);
+    const rejectedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.rejectedCount !== undefined ? f.rejectedCount : Math.max(0, (f.defectCount || 0) - (f.rework1Count || 0))), 0);
+    const directOkCount = matchedForms.reduce((sum: number, f: any) => sum + (f.directOkCount !== undefined ? f.directOkCount : Math.max(0, (f.acceptCount || 0) - (f.reworkAcceptedCount || 0))), 0);
+
     const totalDispatched = matchedForms.reduce((sum: number, f: any) => sum + (f.dispatchedCount || 0), 0);
-    const pendingDispatch = Math.max(0, totalChecked - totalDispatched);
+    const pendingDispatch = Math.max(0, (directOkCount + reworkAcceptedCount) - totalDispatched);
     const totalBiwReviewed = matchedForms.reduce((sum: number, f: any) => sum + (f.biwReviewedCount !== undefined ? f.biwReviewedCount : ((f.biwAcceptCount || 0) + (f.biwDefectCount || 0))), 0);
     const pendingBiw = Math.max(0, totalDispatched - totalBiwReviewed);
     const tvsReviewedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsReviewedCount || 0), 0);
     const tvsAcceptCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsAcceptCount || 0), 0);
     const tvsRejectCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsRejectCount || 0), 0);
     const tvsReworkCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsReworkCount || 0), 0);
-    const pendingTvsReview = Math.max(0, totalChecked - tvsReviewedCount);
-    const reworkAcceptedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.reworkAcceptedCount || 0), 0);
-    const rejectedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.rejectedCount !== undefined ? f.rejectedCount : Math.max(0, (f.defectCount || 0) - (f.rework1Count || 0))), 0);
-    const directOkCount = matchedForms.reduce((sum: number, f: any) => sum + (f.directOkCount !== undefined ? f.directOkCount : Math.max(0, (f.acceptCount || 0) - (f.reworkAcceptedCount || 0))), 0);
+    const pendingTvsReview = Math.max(0, totalDispatched - tvsReviewedCount);
 
     const inspectorSet = new Set<string>();
     matchedForms.forEach((f: any) => {
@@ -2566,57 +2567,59 @@ export const QualityDashboard: React.FC = () => {
                       activeLabel = 'Rejected';
                     } else if (hoveredSlice === 'pendingDispatch') {
                       displayCount = formPendingDispatch;
-                      displayPct = summaryPieDetails.counts.pendingDispatch > 0
-                        ? ((formPendingDispatch / summaryPieDetails.counts.pendingDispatch) * 100).toFixed(1)
+                      const formApproved = (directOk + reworkAccepted);
+                      displayPct = formApproved > 0
+                        ? ((formPendingDispatch / formApproved) * 100).toFixed(1)
                         : '0';
                       tagColor = 'text-amber-700 bg-amber-50 border-amber-300';
                       activeLabel = 'Pending Dispatch';
                     } else if (hoveredSlice === 'pendingData') {
                       displayCount = formPendingData;
-                      displayPct = summaryPieDetails.counts.pendingData > 0
-                        ? ((formPendingData / summaryPieDetails.counts.pendingData) * 100).toFixed(1)
+                      displayPct = formDispatched > 0
+                        ? ((formPendingData / formDispatched) * 100).toFixed(1)
                         : '0';
                       tagColor = 'text-rose-700 bg-rose-50 border-rose-300';
                       activeLabel = 'Pending BIW Data';
                     } else if (hoveredSlice === 'pendingTvs') {
                       displayCount = formPendingTvs;
-                      displayPct = summaryPieDetails.counts.pendingTvs > 0
-                        ? ((formPendingTvs / summaryPieDetails.counts.pendingTvs) * 100).toFixed(1)
+                      displayPct = formDispatched > 0
+                        ? ((formPendingTvs / formDispatched) * 100).toFixed(1)
                         : '0';
                       tagColor = 'text-amber-700 bg-amber-50 border-amber-300';
                       activeLabel = 'Pending TVS';
                     } else if (hoveredSlice === 'dispatched') {
                       displayCount = formDispatched;
-                      displayPct = summaryPieDetails.counts.dispatched > 0
-                        ? ((formDispatched / summaryPieDetails.counts.dispatched) * 100).toFixed(1)
+                      const formApproved = (directOk + reworkAccepted);
+                      displayPct = formApproved > 0
+                        ? ((formDispatched / formApproved) * 100).toFixed(1)
                         : '0';
                       tagColor = 'text-indigo-700 bg-indigo-50 border-indigo-300';
                       activeLabel = 'Dispatched';
                     } else if (hoveredSlice === 'biwReviewed') {
                       displayCount = formBiwReviewed;
-                      displayPct = summaryPieDetails.counts.biwReviewed > 0
-                        ? ((formBiwReviewed / summaryPieDetails.counts.biwReviewed) * 100).toFixed(1)
+                      displayPct = formDispatched > 0
+                        ? ((formBiwReviewed / formDispatched) * 100).toFixed(1)
                         : '0';
                       tagColor = 'text-teal-700 bg-teal-50 border-teal-300';
                       activeLabel = 'BIW Reviewed';
                     } else if (hoveredSlice === 'tvsReviewed') {
                       displayCount = formTvsReviewed;
-                      displayPct = summaryPieDetails.counts.tvsReviewed > 0
-                        ? ((formTvsReviewed / summaryPieDetails.counts.tvsReviewed) * 100).toFixed(1)
+                      displayPct = formDispatched > 0
+                        ? ((formTvsReviewed / formDispatched) * 100).toFixed(1)
                         : '0';
                       tagColor = 'text-purple-700 bg-purple-50 border-purple-300';
                       activeLabel = 'TVS Reviewed';
                     } else if (hoveredSlice === 'tvsAccepted') {
                       displayCount = formTvsAccepted;
-                      displayPct = summaryPieDetails.counts.tvsAccepted > 0
-                        ? ((formTvsAccepted / summaryPieDetails.counts.tvsAccepted) * 100).toFixed(1)
+                      displayPct = formDispatched > 0
+                        ? ((formTvsAccepted / formDispatched) * 100).toFixed(1)
                         : '0';
                       tagColor = 'text-emerald-700 bg-emerald-50 border-emerald-300';
                       activeLabel = 'TVS Accepted';
                     } else if (hoveredSlice === 'tvsDefects') {
                       displayCount = formTvsDefects;
-                      displayPct = summaryPieDetails.counts.tvsDefects > 0
-                        ? ((formTvsDefects / summaryPieDetails.counts.tvsDefects) * 100).toFixed(1)
+                      displayPct = formDispatched > 0
+                        ? ((formTvsDefects / formDispatched) * 100).toFixed(1)
                         : '0';
                       tagColor = 'text-rose-700 bg-rose-50 border-rose-300';
                       activeLabel = 'TVS Defects';
@@ -2632,7 +2635,10 @@ export const QualityDashboard: React.FC = () => {
                       >
                         <div className="flex items-center justify-between font-semibold text-gray-800">
                           <span className="truncate pr-2 font-medium">{form.title}</span>
-                          <span className={`px-2 py-0.5 rounded text-[11px] font-black border ${tagColor}`}>
+                          <span
+                            title={hoveredSlice === 'pendingDispatch' && summaryPieDetails.counts.pendingDispatch > 0 ? `${displayCount.toLocaleString()} units (${((formPendingDispatch / summaryPieDetails.counts.pendingDispatch) * 100).toFixed(1)}% of all forms pending dispatch)` : undefined}
+                            className={`px-2 py-0.5 rounded text-[11px] font-black border ${tagColor}`}
+                          >
                             {hoveredSlice !== 'all' ? `${activeLabel}: ` : ''}
                             {displayCount.toLocaleString()} {hoveredSlice !== 'all' ? `(${displayPct}%)` : 'units'}
                           </span>

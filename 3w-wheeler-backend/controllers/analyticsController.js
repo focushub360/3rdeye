@@ -4294,13 +4294,14 @@ export const getQualitySummary = async (req, res) => {
     let overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
     let overallDefectRate = Math.max(0, Math.round((100 - overallAcceptRate) * 100) / 100);
 
-    const totalDispatched = summary.dispatchedCount || 0;
-    const pendingDispatch = Math.max(0, totalChecked - totalDispatched);
-    const totalBiwReviewed = summary.biwReviewedCount || 0;
-    const pendingBiw = Math.max(0, totalDispatched - totalBiwReviewed);
     const reworkAcceptedCount = summary.reworkAcceptedCount || 0;
     const rejectedCount = summary.rejectedCount !== undefined ? summary.rejectedCount : Math.max(0, totalDefects - totalRework1);
     const directOkCount = Math.max(0, totalAccepted - reworkAcceptedCount);
+
+    const totalDispatched = summary.dispatchedCount || 0;
+    const pendingDispatch = Math.max(0, (directOkCount + reworkAcceptedCount) - totalDispatched);
+    const totalBiwReviewed = summary.biwReviewedCount || 0;
+    const pendingBiw = Math.max(0, totalDispatched - totalBiwReviewed);
 
     summary.totalChecked = totalChecked;
     summary.totalAccepted = totalAccepted;
@@ -4370,7 +4371,7 @@ export const getQualitySummary = async (req, res) => {
     summary.tvsAcceptCount = tvsAcceptCount;
     summary.tvsRejectCount = tvsRejectCount;
     summary.tvsReworkCount = tvsReworkCount;
-    summary.pendingTvsReview = Math.max(0, totalChecked - tvsReviewedCount);
+    summary.pendingTvsReview = Math.max(0, totalDispatched - tvsReviewedCount);
 
     // Defect breakdown extraction from responses (answers and biwReview)
     const defectTypeMap = {};
@@ -4603,7 +4604,7 @@ export const getQualitySummary = async (req, res) => {
         rejectedCount: finalRej,
         directOkCount: directOk,
         dispatchedCount: dDispatched,
-        pendingDispatchCount: Math.max(0, tChecked - dDispatched),
+        pendingDispatchCount: Math.max(0, (directOk + rwAccepted) - dDispatched),
         biwAcceptCount: bAccept,
         biwRejectCount: bReject,
         biwDefectCount: bDefect,
@@ -4613,7 +4614,7 @@ export const getQualitySummary = async (req, res) => {
         tvsRejectCount: tvsReject,
         tvsReworkCount: tvsRework,
         tvsReviewedCount: tvsReviewed,
-        pendingTvsCount: Math.max(0, tChecked - tvsReviewed),
+        pendingTvsCount: Math.max(0, dDispatched - tvsReviewed),
         biwAcceptRate: biwRate,
         acceptRate: aRate,
         defectRate: dRate,
@@ -5028,7 +5029,7 @@ export const getQualitySummary = async (req, res) => {
           tvsAcceptCount: summary.tvsAcceptCount || 0,
           tvsRejectCount: summary.tvsRejectCount || 0,
           tvsReworkCount: summary.tvsReworkCount || 0,
-          pendingTvsReview: summary.pendingTvsReview !== undefined ? summary.pendingTvsReview : Math.max(0, totalChecked - (summary.tvsReviewedCount || 0)),
+          pendingTvsReview: summary.pendingTvsReview !== undefined ? summary.pendingTvsReview : Math.max(0, totalDispatched - (summary.tvsReviewedCount || 0)),
           overallAcceptRate,
           overallDefectRate,
           totalInspectors: inspectorList.length,
