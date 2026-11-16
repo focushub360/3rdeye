@@ -6159,7 +6159,7 @@ export default function FormAnalyticsDashboard({
   const canUserBiwReview = (response: Response | null | undefined): { canReview: boolean; reason?: string } => {
     if (!response) return { canReview: false, reason: "No response selected" };
 
-    if (user?.role === "superadmin" || user?.role === "admin") return { canReview: true };
+    if (user?.role === "superadmin" || user?.role === "admin" || user?.role === "subadmin" || user?.role === "tenant_admin") return { canReview: true };
 
     const userTenantStr = String((user?.tenantId as any)?._id || (user?.tenantId as any)?.id || user?.tenantId || "");
     const formTenantStr = String((form?.tenantId as any)?._id || (form?.tenantId as any)?.id || form?.tenantId || "");

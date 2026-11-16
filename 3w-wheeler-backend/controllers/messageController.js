@@ -11,22 +11,44 @@ export const sendMessage = async (req, res) => {
   try {
     const { toEmail, message, responseId, formId, questionIds, questionTitles, questionContexts, tenantId } = req.body;
     
-    // Validation: If chassis has assigned tenants, chat must arise from assigned tenant alone.
-    // Creator/other tenants can only reply once a message or review feedback has arisen.
+    // Validation: If chassis has assigned tenants, chat must arise from assigned tenant, form owner, or admin.
+    // Other tenants can only reply once a message or review feedback has arisen.
     if (responseId && req.user.role !== 'superadmin') {
-      const resp = await Response.findById(responseId);
+      const isRespObjId = mongoose.Types.ObjectId.isValid(responseId);
+      const resp = await Response.findOne({
+        $or: [
+          { id: responseId },
+          ...(isRespObjId ? [{ _id: new mongoose.Types.ObjectId(responseId) }] : [])
+        ]
+      });
       if (resp) {
-        const form = await Form.findById(resp.formId || formId);
+        const targetFormId = resp.formId || resp.questionId || formId;
+        const isFormObjId = targetFormId && mongoose.Types.ObjectId.isValid(targetFormId);
+        const form = targetFormId
+          ? await Form.findOne({
+              $or: [
+                { id: targetFormId },
+                ...(isFormObjId ? [{ _id: new mongoose.Types.ObjectId(targetFormId) }] : [])
+              ]
+            })
+          : null;
         if (form && Array.isArray(form.chassisTenantAssignments) && form.chassisTenantAssignments.length > 0) {
-          const respChassis = String(resp.chassisNumber || resp.answers?.chassis_number || '').trim().toLowerCase();
+          const respChassis = String(
+            resp.chassisNumber ||
+            (resp.answers instanceof Map ? resp.answers.get('chassis_number') || resp.answers.get('chassisNumber') : resp.answers?.chassis_number || resp.answers?.chassisNumber) ||
+            ''
+          ).trim().toLowerCase();
           const assignment = form.chassisTenantAssignments.find(
             a => a.chassisNumber && respChassis && String(a.chassisNumber).trim().toLowerCase() === respChassis
           );
           if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
             const userTenantStr = req.user.tenantId ? req.user.tenantId.toString() : '';
             const isAssignedTenant = assignment.assignedTenants.some(t => t.toString() === userTenantStr);
+            const isFormOwner = (form.tenantId && form.tenantId.toString() === userTenantStr);
+            const isSharedTenant = Array.isArray(form.sharedWithTenants) && form.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantStr);
+            const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
 
-            if (!isAssignedTenant) {
+            if (!isAssignedTenant && !isFormOwner && !isSharedTenant && !isAdmin) {
               const existingMsgCount = await ChatMessage.countDocuments({ responseId });
               const hasReviewArisen = Boolean(resp.biwReview?.status || resp.review?.status || resp.review?.message);
               if (existingMsgCount === 0 && !hasReviewArisen) {

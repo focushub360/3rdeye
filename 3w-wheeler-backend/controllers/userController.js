@@ -987,7 +987,11 @@ export const submitReview = async (req, res) => {
         if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
           const userTenantIdStr = (req.user?.tenantId || tenantId || '').toString();
           const isAssigned = assignment.assignedTenants.some(t => t.toString() === userTenantIdStr);
-          if (!isAssigned) {
+          const isFormOwner = Boolean(formObj?.tenantId && formObj.tenantId.toString() === userTenantIdStr);
+          const isSharedTenant = Array.isArray(formObj?.sharedWithTenants) && formObj.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
+          const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superadmin';
+
+          if (!isAssigned && !isFormOwner && !isSharedTenant && !isAdmin) {
             return res.status(403).json({
               success: false,
               message: 'Only assigned tenant reviewers can submit reviews for this chassis.'
