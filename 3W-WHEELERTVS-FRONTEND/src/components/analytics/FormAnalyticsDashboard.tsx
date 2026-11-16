@@ -1150,6 +1150,11 @@ const computeQuestionPerformanceStats = (
 
   form.sections.forEach((section) => {
     section.questions.forEach((question: any) => {
+      const qText = String(question.text || question.title || "").trim();
+      const isTracking = question.isTrackingNumber || question.isChassisQuestion || question.type === "chassisNumber" ||
+        /^(chassis(\s*number)?|vin|frame(\s*number)?|identification(\s*number)?)$/i.test(qText);
+      if (isTracking) return;
+
       const entry = {
         id: question.id,
         text: question.text,
@@ -1302,6 +1307,7 @@ const computeQuestionPerformanceStats = (
           if (!fq) return;
           const qId = typeof fq === "object" ? (fq.questionId || fq.id) : String(fq);
           const qText = (typeof fq === "object" ? (fq.questionText || fq.text || fq.title || "") : "").trim();
+          if (/^(chassis(\s*number)?|vin|frame(\s*number)?|identification(\s*number)?)$/i.test(qText)) return;
           const dedupKey = (qId ? String(qId).trim() : "") || qText.toLowerCase();
           if (!dedupKey || seenQKeys.has(dedupKey)) return;
           seenQKeys.add(dedupKey);
@@ -4377,6 +4383,14 @@ export default function FormAnalyticsDashboard({
   const reviewFormTabs = useMemo(() => {
     if (!chatResponse) return [];
 
+    const isCheckpoint = (q: any) =>
+      !q.parentId &&
+      !q.showWhen?.questionId &&
+      !q.isTrackingNumber &&
+      !q.isChassisQuestion &&
+      q.type !== "chassisNumber" &&
+      !/^(chassis(\s*number)?|vin|frame(\s*number)?|identification(\s*number)?)$/i.test(String(q.text || q.title || "").trim());
+
     const parentFormObj = form?.parentForm?.sections?.length
       ? form.parentForm
       : relatedFormData.parentForm?.sections?.length
@@ -4443,10 +4457,10 @@ export default function FormAnalyticsDashboard({
         badge: "Main Form",
         questions: (() => {
           const secQ = (parentFormObj?.sections || []).flatMap((s: any) =>
-            (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+            (s.questions || []).filter(isCheckpoint)
           );
           if (secQ.length > 0) return secQ;
-          return (parentFormObj?.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId);
+          return (parentFormObj?.questions || []).filter(isCheckpoint);
         })(),
         answers:
           (chatResponse as any)?.parentAnswers ||
@@ -4464,7 +4478,7 @@ export default function FormAnalyticsDashboard({
         title: form?.title || "Child Form",
         badge: "Child Form",
         questions: (form?.sections || []).flatMap((s: any) =>
-          (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+          (s.questions || []).filter(isCheckpoint)
         ),
         answers: (
           responses.find((r) => r.id === chatResponse?.id) ||
@@ -4482,7 +4496,7 @@ export default function FormAnalyticsDashboard({
         title: form?.title || "Main Form",
         badge: "Main Form",
         questions: (form?.sections || []).flatMap((s: any) =>
-          (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+          (s.questions || []).filter(isCheckpoint)
         ),
         answers: (
           responses.find((r) => r.id === chatResponse?.id) ||
@@ -4503,7 +4517,7 @@ export default function FormAnalyticsDashboard({
           title: cf.formTitle || cf.title || `Child Form ${idx + 1}`,
           badge: "Child Form",
           questions: (cf.sections || []).flatMap((s: any) =>
-            (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+            (s.questions || []).filter(isCheckpoint)
           ),
           answers:
             matchedChildResp?.answers ||
@@ -4523,7 +4537,7 @@ export default function FormAnalyticsDashboard({
         title: form?.title || "Form",
         badge: "Form",
         questions: (form?.sections || []).flatMap((s: any) =>
-          (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+          (s.questions || []).filter(isCheckpoint)
         ),
         answers: (
           responses.find((r) => r.id === chatResponse?.id) ||
@@ -10394,6 +10408,8 @@ export default function FormAnalyticsDashboard({
               ? (qc.title || qc.questionText || qc.text || questionTextMap.get(qId) || qId)
               : (questionTextMap.get(qId) || qId);
 
+            if (/^(chassis(\s*number)?|vin|frame(\s*number)?|identification(\s*number)?)$/i.test(String(qText).trim())) return;
+
             if (!qMap.has(qId)) {
               qMap.set(qId, {
                 id: qId,
@@ -10432,6 +10448,8 @@ export default function FormAnalyticsDashboard({
               const qText = typeof fq === "object"
                 ? (fq.questionText || fq.title || fq.text || questionTextMap.get(qId) || qId)
                 : (questionTextMap.get(qId) || qId);
+
+              if (/^(chassis(\s*number)?|vin|frame(\s*number)?|identification(\s*number)?)$/i.test(String(qText).trim())) return;
 
               if (!qMap.has(qId)) {
                 qMap.set(qId, { id: qId, text: qText, rejected: 0, rework: 0, accepted: 0 });
