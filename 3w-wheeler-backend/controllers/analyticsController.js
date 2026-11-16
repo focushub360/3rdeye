@@ -2047,6 +2047,18 @@ export const getInspectorSummary = async (req, res) => {
         let isRejected = false;
         let foundStatus = null;
 
+        if (r.review?.status || r.review?.reviewOption) {
+          const rs = String(r.review.status || r.review.reviewOption).toLowerCase();
+          if (rs.includes('reject')) isRejected = true;
+          else if (rs.includes('rework')) isRework = true;
+          else if (rs.includes('accept') || rs.includes('ok')) isAccepted = true;
+        }
+        if (r.status) {
+          const st = String(r.status).toLowerCase();
+          if (st.includes('reject')) isRejected = true;
+          else if (st.includes('rework')) isRework = true;
+        }
+
         const answersObj = r.answers instanceof Map ? Object.fromEntries(r.answers) : r.answers;
         if (answersObj) {
           Object.values(answersObj).forEach(ans => {
@@ -2102,26 +2114,77 @@ export const getInspectorSummary = async (req, res) => {
       });
     });
 
+    // First, lookup all users matching submitter names across these responses
+    const submitterNames = [...new Set(
+      responses
+        .map(r => (r.submittedBy || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim())
+        .filter(n => n && n.toLowerCase() !== 'excel import' && n.toLowerCase() !== 'anonymous')
+    )];
+
+    let submitterUsers = [];
+    if (submitterNames.length > 0) {
+      const orClauses = [];
+      submitterNames.forEach(name => {
+        const cleanLower = name.toLowerCase();
+        orClauses.push({ email: cleanLower });
+        orClauses.push({ username: { $regex: new RegExp(`^${name}$`, 'i') } });
+        orClauses.push({ $expr: { $eq: [{ $toLower: { $concat: ['$firstName', ' ', '$lastName'] } }, cleanLower] } });
+        orClauses.push({ $expr: { $eq: [{ $toLower: { $concat: ['$firstName', '$lastName'] } }, cleanLower.replace(/\s+/g, '')] } });
+
+        const parts = name.split(' ').filter(Boolean);
+        if (parts.length >= 2) {
+          const first = parts.slice(0, -1).join(' ');
+          const last = parts[parts.length - 1];
+          orClauses.push({
+            firstName: { $regex: new RegExp(`^${first}`, 'i') },
+            lastName: { $regex: new RegExp(`^${last}`, 'i') }
+          });
+        }
+      });
+      submitterUsers = await User.find({ $or: orClauses }).lean();
+    }
+
+    const nameToUserMap = {};
+    submitterUsers.forEach(u => {
+      const fn = `${u.firstName || ''} ${u.lastName || ''}`.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (fn) nameToUserMap[fn] = u;
+      if (u.username) nameToUserMap[u.username.toLowerCase()] = u;
+      if (u.email) nameToUserMap[u.email.toLowerCase()] = u;
+      if (u.firstName) nameToUserMap[u.firstName.toLowerCase()] = u;
+    });
+
     // Now aggregate per inspector and date
     const inspectorData = {};
     for (const r of responses) {
-      const creatorId = r.createdBy?.toString();
-      if (!creatorId) continue;
+      const rawSub = (r.submittedBy || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+      let matchedInspUser = null;
+      if (rawSub && rawSub.toLowerCase() !== 'excel import') {
+        matchedInspUser = nameToUserMap[rawSub.toLowerCase()];
+      }
+
+      const inspectorId = matchedInspUser ? matchedInspUser._id.toString() : (r.createdBy?.toString() || rawSub || 'unknown');
+      const inspectorName = matchedInspUser
+        ? `${matchedInspUser.firstName} ${matchedInspUser.lastName}`.trim()
+        : (rawSub || 'Unknown Inspector');
+
+      if (!inspectorId || inspectorId === 'unknown') continue;
 
       // Extract date string YYYY-MM-DD in IST (Asia/Kolkata)
-      const d = new Date(r.createdAt);
-      // Adjust to IST manually to be safe
-      const istDate = new Date(d.getTime() + (5.5 * 60 * 60 * 1000));
+      const rawDate = r.createdAt ? new Date(r.createdAt) : new Date();
+      const validTime = !isNaN(rawDate.getTime()) ? rawDate.getTime() : Date.now();
+      const istDate = new Date(validTime + (5.5 * 60 * 60 * 1000));
       const dateIST = istDate.toISOString().split('T')[0];
       const formId = r.questionId?.toString() || 'unknown';
-      const key = `${creatorId}_${dateIST}_${formId}`;
+      const key = `${inspectorId}_${dateIST}_${formId}`;
 
       if (!inspectorData[key]) {
         inspectorData[key] = {
-          userId: creatorId,
+          userId: inspectorId,
+          inspectorName: inspectorName,
+          matchedUser: matchedInspUser,
           date: dateIST,
           formId: formId,
-          tenantId: r.tenantId,
+          tenantId: matchedInspUser?.tenantId || r.tenantId,
           totalInspection: 0,
           statusCounts: {
             'Direct Ok': 0,
@@ -2152,7 +2215,7 @@ export const getInspectorSummary = async (req, res) => {
     // Join with User, Tenant, and Shift details
     const finalSummary = [];
     const entryKeys = Object.keys(inspectorData);
-    const userIds = [...new Set(entryKeys.map(k => inspectorData[k].userId))];
+    const userIds = [...new Set(entryKeys.map(k => inspectorData[k].userId).filter(id => mongoose.Types.ObjectId.isValid(id)))];
     const formIdsToFetch = [...new Set(entryKeys.map(k => inspectorData[k].formId))].filter(id => id !== 'unknown');
 
     const users = await User.find({ _id: { $in: userIds } }).lean();
@@ -2163,17 +2226,16 @@ export const getInspectorSummary = async (req, res) => {
       ]
     }).lean();
 
-    const tenantIds = [...new Set(users.map(u => u.tenantId))];
+    const tenantIds = [...new Set([...users.map(u => u.tenantId), ...submitterUsers.map(u => u.tenantId)].filter(Boolean))];
     const tenants = await Tenant.find({ _id: { $in: tenantIds } }).lean();
     const shifts = await Shift.find({ tenantId: { $in: tenantIds }, isActive: true }).lean();
 
     for (const key of entryKeys) {
       const stats = inspectorData[key];
-      const user = users.find(u => u._id.toString() === stats.userId);
-      if (!user) continue;
+      const user = users.find(u => u._id.toString() === stats.userId) || stats.matchedUser;
 
-      const tenant = tenants.find(t => t._id.toString() === user.tenantId?.toString());
-      const shift = shifts.find(s => s.assignedInspectors.some(id => id.toString() === stats.userId));
+      const tenant = user ? tenants.find(t => t._id.toString() === user.tenantId?.toString()) : null;
+      const shift = user ? shifts.find(s => s.assignedInspectors.some(id => id.toString() === stats.userId)) : null;
       const formInfo = fetchedForms.find(f => f.id === stats.formId || f._id.toString() === stats.formId);
 
       finalSummary.push({
@@ -2181,12 +2243,12 @@ export const getInspectorSummary = async (req, res) => {
         date: stats.date,
         shift: shift ? shift.displayName : 'N/A',
         formTitle: formInfo ? formInfo.title : 'N/A',
-        qcInspector: `${user.firstName} ${user.lastName}`,
-        role: user.role,
-        username: user.username,
-        email: user.email,
-        isActive: user.isActive,
-        status: user.status,
+        qcInspector: user ? `${user.firstName} ${user.lastName}`.trim() : (stats.inspectorName || 'Unknown Inspector'),
+        role: user ? user.role : 'inspector',
+        username: user ? user.username : '',
+        email: user ? user.email : '',
+        isActive: user ? user.isActive : true,
+        status: user ? user.status : 'active',
         totalInspection: stats.totalInspection,
         statusCounts: stats.statusCounts,
         userId: stats.userId,
@@ -2558,6 +2620,55 @@ export const getPerformanceTable = async (req, res) => {
       }
     }
 
+    // Also fetch users matching submittedBy names from responses so that accountability
+    // is attributed to the actual inspector rather than the user account that submitted/created the record.
+    const submitterNamesFromResponses = [...new Set(
+      filteredResponses
+        .map(r => (r.submittedBy || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim())
+        .filter(n => n && n.toLowerCase() !== 'excel import' && n.toLowerCase() !== 'anonymous')
+    )];
+
+    if (submitterNamesFromResponses.length > 0) {
+      console.log(`[Performance Table] Searching users for ${submitterNamesFromResponses.length} submitter names`);
+      const orClauses = [];
+      submitterNamesFromResponses.forEach(name => {
+        const cleanLower = name.toLowerCase();
+        orClauses.push({ email: cleanLower });
+        orClauses.push({ username: { $regex: new RegExp(`^${name}$`, 'i') } });
+        orClauses.push({ $expr: { $eq: [{ $toLower: { $concat: ['$firstName', ' ', '$lastName'] } }, cleanLower] } });
+        orClauses.push({ $expr: { $eq: [{ $toLower: { $concat: ['$firstName', '$lastName'] } }, cleanLower.replace(/\s+/g, '')] } });
+
+        const parts = name.split(' ').filter(Boolean);
+        if (parts.length >= 2) {
+          const first = parts.slice(0, -1).join(' ');
+          const last = parts[parts.length - 1];
+          orClauses.push({
+            firstName: { $regex: new RegExp(`^${first}`, 'i') },
+            lastName: { $regex: new RegExp(`^${last}`, 'i') }
+          });
+        }
+      });
+
+      if (orClauses.length > 0) {
+        try {
+          const submitterUsers = await User.find({ $or: orClauses })
+            .select('firstName lastName username email role tenantId isActive status performanceScore totalReviews acceptedCount rejectedCount reworkCount')
+            .populate('tenantId', 'name companyName')
+            .maxTimeMS(30000)
+            .lean();
+
+          if (submitterUsers.length > 0) {
+            const existingIds = new Set(users.map(u => u._id.toString()));
+            const newUsers = submitterUsers.filter(u => !existingIds.has(u._id.toString()));
+            users = [...users, ...newUsers];
+            console.log(`[Performance Table] Added ${newUsers.length} users matched from submittedBy names`);
+          }
+        } catch (sErr) {
+          console.error('Error fetching users by submittedBy names:', sErr);
+        }
+      }
+    }
+
     // Get response IDs for review fetching
     const responseIds = [];
     filteredResponses.forEach(r => {
@@ -2728,6 +2839,18 @@ export const getPerformanceTable = async (req, res) => {
       let isRejected = false;
       let foundStatus = null;
 
+      // Check TVS Review (by response ID in reviewsByResponseId or on response document)
+      const rId1 = response._id ? response._id.toString() : '';
+      const rId2 = response.id ? String(response.id) : '';
+      const tvsReview = reviewsByResponseId.get(rId1) || reviewsByResponseId.get(rId2) || response.tvsReview || response.review;
+      const tvsStatus = tvsReview?.reviewOption || tvsReview?.status;
+      if (tvsStatus) {
+        const ts = String(tvsStatus).toLowerCase();
+        if (ts.includes('reject')) isRejected = true;
+        else if (ts.includes('rework')) isRework = true;
+        else if (ts.includes('accept') || ts.includes('ok')) isAccepted = true;
+      }
+
       if (response.biwReview?.status) {
         const bs = String(response.biwReview.status).toLowerCase();
         if (bs === 'accepted') isAccepted = true;
@@ -2775,6 +2898,9 @@ export const getPerformanceTable = async (req, res) => {
       if (isAccepted) return 'Direct Ok';
 
       if (response.status && response.status.toLowerCase() !== 'pending') {
+        const rsl = response.status.toLowerCase();
+        if (rsl.includes('reject')) return 'Rejected';
+        if (rsl.includes('rework')) return 'Rework QC Pending';
         return response.status;
       }
 
@@ -2966,12 +3092,17 @@ export const getPerformanceTable = async (req, res) => {
       stats.reviewPending = stats.biwReviewPending;
       stats.tvsReviewPending = Math.max(0, stats.totalSubmitted - stats.tvsTotalReviewed);
 
-      const effectiveReviewed = stats.biwTotalReviewed > 0 ? stats.biwTotalReviewed : stats.tvsTotalReviewed;
-      const effectiveAccepted = stats.biwTotalReviewed > 0 ? stats.biwAccepted : stats.tvsAccepted;
+      const totalReviewed = stats.biwTotalReviewed + stats.tvsTotalReviewed;
+      const totalAccepted = stats.biwAccepted + stats.tvsAccepted;
 
-      stats.performanceScore = effectiveReviewed > 0
-        ? Math.round((effectiveAccepted / effectiveReviewed) * 100)
-        : (stats.totalSubmitted > 0 ? 100 : 0);
+      if (totalReviewed > 0) {
+        stats.performanceScore = Math.round((totalAccepted / totalReviewed) * 100);
+      } else if (stats.totalSubmitted > 0) {
+        const defects = stats.reworkQcPending + stats.rejected;
+        stats.performanceScore = Math.round((Math.max(0, stats.totalSubmitted - defects) / stats.totalSubmitted) * 100);
+      } else {
+        stats.performanceScore = 0;
+      }
 
       if (stats.responses.length > 0) {
         const chassisGroups = new Map();
@@ -3676,6 +3807,8 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $or: [
                           { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                          { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
+                          { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
                           { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
                         ]
                       },
@@ -3690,6 +3823,8 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $or: [
                           { $eq: ['$biwReview.status', 'Reworked'] },
+                          { $in: ['$review.status', ['Rework', 'Reworked']] },
+                          { $in: ['$review.reviewOption', ['Rework', 'Reworked']] },
                           { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
                         ]
                       },
@@ -3713,6 +3848,8 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $or: [
                           { $eq: ['$biwReview.status', 'Rejected'] },
+                          { $eq: ['$review.status', 'Rejected'] },
+                          { $eq: ['$review.reviewOption', 'Rejected'] },
                           { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'reject' } }
                         ]
                       },
@@ -3797,6 +3934,8 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $or: [
                           { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                          { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
+                          { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
                           { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
                         ]
                       },
@@ -3811,6 +3950,8 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $or: [
                           { $eq: ['$biwReview.status', 'Reworked'] },
+                          { $in: ['$review.status', ['Rework', 'Reworked']] },
+                          { $in: ['$review.reviewOption', ['Rework', 'Reworked']] },
                           { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
                         ]
                       },
@@ -3834,6 +3975,8 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $or: [
                           { $eq: ['$biwReview.status', 'Rejected'] },
+                          { $eq: ['$review.status', 'Rejected'] },
+                          { $eq: ['$review.reviewOption', 'Rejected'] },
                           { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'reject' } }
                         ]
                       },
@@ -3923,6 +4066,8 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $or: [
                           { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                          { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
+                          { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
                           { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
                         ]
                       },
@@ -3937,6 +4082,8 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $or: [
                           { $eq: ['$biwReview.status', 'Reworked'] },
+                          { $in: ['$review.status', ['Rework', 'Reworked']] },
+                          { $in: ['$review.reviewOption', ['Rework', 'Reworked']] },
                           { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
                         ]
                       },
@@ -3960,6 +4107,8 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $or: [
                           { $eq: ['$biwReview.status', 'Rejected'] },
+                          { $eq: ['$review.status', 'Rejected'] },
+                          { $eq: ['$review.reviewOption', 'Rejected'] },
                           { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'reject' } }
                         ]
                       },
@@ -4055,6 +4204,8 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $or: [
                           { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                          { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
+                          { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
                           { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
                         ]
                       },
@@ -4069,6 +4220,8 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $or: [
                           { $eq: ['$biwReview.status', 'Reworked'] },
+                          { $in: ['$review.status', ['Rework', 'Reworked']] },
+                          { $in: ['$review.reviewOption', ['Rework', 'Reworked']] },
                           { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
                         ]
                       },
@@ -4225,7 +4378,7 @@ export const getQualitySummary = async (req, res) => {
         isSectionSubmit: { $ne: true },
         ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : {})
       })
-        .select('answers submittedBy questionId biwReview')
+        .select('answers submittedBy questionId biwReview review status')
         .limit(3000)
         .lean();
 
@@ -4285,6 +4438,32 @@ export const getQualitySummary = async (req, res) => {
               if (!defectFormMap[reasonTitle]) defectFormMap[reasonTitle] = {};
               defectFormMap[reasonTitle][fTitle] = (defectFormMap[reasonTitle][fTitle] || 0) + 1;
             }
+          }
+        }
+
+        // 3. Defect extraction from TVS review
+        if (dr.review) {
+          const revStatus = dr.review.status || dr.review.reviewOption;
+          if (['Rejected', 'Rework', 'Reworked'].includes(revStatus)) {
+            hasDefect = true;
+          }
+          if (Array.isArray(dr.review.flaggedQuestions)) {
+            dr.review.flaggedQuestions.forEach(fq => {
+              const fqTitle = (fq.questionText || fq.text || fq.title || questionTitleMap[fq.questionId] || fq.reason || '').trim();
+              if (fqTitle && !['other', 'none', '-', 'ok', 'accepted'].includes(fqTitle.toLowerCase())) {
+                defectTypeMap[fqTitle] = (defectTypeMap[fqTitle] || 0) + 1;
+                inspectorDefectMap[rawName][fqTitle] = (inspectorDefectMap[rawName][fqTitle] || 0) + 1;
+                if (!defectFormMap[fqTitle]) defectFormMap[fqTitle] = {};
+                defectFormMap[fqTitle][fTitle] = (defectFormMap[fqTitle][fTitle] || 0) + 1;
+              }
+            });
+          }
+          const revReason = (dr.review.reason || dr.review.remark || '').trim();
+          if (revReason && !['other', 'none', '-', 'ok', 'accepted'].includes(revReason.toLowerCase())) {
+            defectTypeMap[revReason] = (defectTypeMap[revReason] || 0) + 1;
+            inspectorDefectMap[rawName][revReason] = (inspectorDefectMap[rawName][revReason] || 0) + 1;
+            if (!defectFormMap[revReason]) defectFormMap[revReason] = {};
+            defectFormMap[revReason][fTitle] = (defectFormMap[revReason][fTitle] || 0) + 1;
           }
         }
 

@@ -481,9 +481,33 @@ export const getAllForms = async (req, res) => {
       }
     }
 
-    // Filter by visibility
-    if (isVisible !== undefined) {
-      query.isVisible = isVisible === 'true';
+    // Filter by visibility / hide
+    if (['inspector', 'subadmin'].includes(req.user.role)) {
+      // Subadmins and inspectors NEVER see hidden forms
+      const hideCondition = [
+        { isHidden: { $ne: true } },
+        { isVisible: { $ne: false } }
+      ];
+      if (query.$and) {
+        query.$and.push(...hideCondition);
+      } else if (query.$or) {
+        query = {
+          $and: [
+            { $or: query.$or },
+            ...hideCondition
+          ]
+        };
+      } else {
+        query.isHidden = { $ne: true };
+        query.isVisible = { $ne: false };
+      }
+    } else {
+      if (isVisible !== undefined) {
+        query.isVisible = isVisible === 'true';
+      }
+      if (req.query.isHidden !== undefined) {
+        query.isHidden = req.query.isHidden === 'true';
+      }
     }
 
     // Filter by active status
@@ -530,6 +554,7 @@ export const getAllForms = async (req, res) => {
       .filter(Boolean);
 
     let responseCountsMap = new Map();
+    let latestActivityMap = new Map();
     if (formIdsForCounts.length > 0) {
       const currentTenantId = req.user?.tenantId?.toString();
 
@@ -586,19 +611,33 @@ export const getAllForms = async (req, res) => {
                   "$questionId",
                   { $toString: "$formId" }
                 ]
-              }
+              },
+              createdAt: 1,
+              updatedAt: 1
             }
           },
           {
             $group: {
               _id: "$resolvedFormId",
-              count: { $sum: 1 }
+              count: { $sum: 1 },
+              latestResponseAt: { $max: "$createdAt" },
+              latestResponseUpdated: { $max: "$updatedAt" }
             }
           }
         ]);
 
-        countAgg.forEach(({ _id, count }) => {
-          if (_id) responseCountsMap.set(_id.toString(), count);
+        countAgg.forEach(({ _id, count, latestResponseAt, latestResponseUpdated }) => {
+          if (_id) {
+            const strId = _id.toString();
+            responseCountsMap.set(strId, count);
+            const maxTimestamp = Math.max(
+              latestResponseAt ? new Date(latestResponseAt).getTime() : 0,
+              latestResponseUpdated ? new Date(latestResponseUpdated).getTime() : 0
+            );
+            if (maxTimestamp > 0) {
+              latestActivityMap.set(strId, new Date(maxTimestamp).toISOString());
+            }
+          }
         });
       }
 
@@ -654,9 +693,24 @@ export const getAllForms = async (req, res) => {
       const count1 = id1 ? (responseCountsMap.get(id1) || 0) : 0;
       const count2 = (id2 && id2 !== id1) ? (responseCountsMap.get(id2) || 0) : 0;
       const responseCount = count1 + count2;
+
+      const act1 = id1 ? latestActivityMap.get(id1) : null;
+      const act2 = id2 ? latestActivityMap.get(id2) : null;
+      const actTime1 = act1 ? new Date(act1).getTime() : 0;
+      const actTime2 = act2 ? new Date(act2).getTime() : 0;
+      const latestRespTime = Math.max(actTime1, actTime2);
+      const latestResponseAt = latestRespTime > 0 ? new Date(latestRespTime).toISOString() : null;
+
+      const formUpd = form.updatedAt ? new Date(form.updatedAt).getTime() : 0;
+      const formCre = form.createdAt ? new Date(form.createdAt).getTime() : 0;
+      const latestActiveTimestamp = Math.max(latestRespTime, formUpd, formCre);
+      const lastActivityAt = latestActiveTimestamp > 0 ? new Date(latestActiveTimestamp).toISOString() : form.createdAt;
+
       return {
         ...form,
-        responseCount
+        responseCount,
+        latestResponseAt,
+        lastActivityAt
       };
     });
 
@@ -803,6 +857,16 @@ export const getFormById = async (req, res) => {
         return res.status(403).json({
           success: false,
           message: 'Access denied. This form is not available for your organization.'
+        });
+      }
+    }
+
+    // Check if form is hidden for inspectors and subadmins
+    if (req.user && ['inspector', 'subadmin'].includes(req.user.role)) {
+      if (form.isHidden === true || form.isVisible === false) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. This form is currently hidden by administration.'
         });
       }
     }
@@ -1302,7 +1366,7 @@ export const deleteForm = async (req, res) => {
 export const updateFormVisibility = async (req, res) => {
   try {
     const { id } = req.params;
-    const { isVisible } = req.body;
+    let { isVisible, isHidden } = req.body;
 
     // Use the helper function to find form by either custom id or MongoDB _id
     const form = await findFormByIdentifier(id);
@@ -1342,7 +1406,20 @@ export const updateFormVisibility = async (req, res) => {
       });
     }
 
-    form.isVisible = isVisible;
+    // Synchronize isHidden and isVisible
+    if (typeof isHidden === 'boolean') {
+      form.isHidden = isHidden;
+      if (typeof isVisible !== 'boolean') {
+        form.isVisible = !isHidden;
+      }
+    }
+    if (typeof isVisible === 'boolean') {
+      form.isVisible = isVisible;
+      if (typeof isHidden !== 'boolean') {
+        form.isHidden = !isVisible;
+      }
+    }
+
     await form.save();
 
     clearFormCache();
@@ -1350,7 +1427,7 @@ export const updateFormVisibility = async (req, res) => {
 
     res.json({
       success: true,
-      message: `Form ${isVisible ? 'published' : 'unpublished'} successfully`,
+      message: `Form ${form.isHidden ? 'hidden from inspectors & subadmins' : 'made visible'} successfully`,
       data: { form }
     });
 

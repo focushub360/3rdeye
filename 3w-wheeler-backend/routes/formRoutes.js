@@ -116,6 +116,7 @@ router.delete('/:id', deleteForm);
 
 // Form management
 router.patch('/:id/visibility', updateFormVisibility);
+router.patch('/:id/hide', updateFormVisibility);
 router.get('/:id/location', getFormLocationEnabled);
 router.patch('/:id/location', updateFormLocationEnabled);
 router.patch('/:id/view-type', updateFormViewType);

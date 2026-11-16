@@ -149,8 +149,12 @@ export const login = async (req, res) => {
       : Promise.resolve(null);
       
     const formsPromise = (user.role !== 'superadmin' && user.tenantId)
-      ? Form.find({ tenantId: user.tenantId, isGlobal: false })
-          .select('id _id title category isGlobal parentFormId childForms tenantId status isActive createdAt')
+      ? Form.find({
+          tenantId: user.tenantId,
+          isGlobal: false,
+          ...(['inspector', 'subadmin'].includes(user.role) ? { isHidden: { $ne: true }, isVisible: { $ne: false } } : {})
+        })
+          .select('id _id title category isGlobal parentFormId childForms tenantId status isActive isHidden isVisible createdAt')
           .sort({ createdAt: -1 })
           .limit(50)
           .lean()

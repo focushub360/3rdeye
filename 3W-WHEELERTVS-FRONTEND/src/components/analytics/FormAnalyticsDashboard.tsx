@@ -90,6 +90,7 @@ import TableColumnFilter from "./TableColumnFilter";
 import ShareAnalyticsModal from "./ShareAnalyticsModal";
 import AutoSendModal from "../forms/AutoSendModal";
 import { BiwReviewExcelModal } from "./BiwReviewExcelModal";
+import PerformanceGuideModal from "./PerformanceGuideModal";
 import { downloadBiwReviewTemplate } from "../../utils/biwReviewExcelUtils";
 
 import { useTheme } from "../../context/ThemeContext";
@@ -3788,12 +3789,15 @@ export default function FormAnalyticsDashboard({
     childForms?: any[];
     parentAnswers?: Record<string, any>;
     childAnswers?: Record<string, any>;
+    parentResponse?: any;
+    childResponses?: Record<string, any>;
   }>({});
   const [selectedInspectorForTrend, setSelectedInspectorForTrend] =
     useState<string>("Overall");
   const [localFilterName, setLocalFilterName] = useState<string>("All");
   const [biwFilterStartDate, setBiwFilterStartDate] = useState<string>("");
   const [biwFilterEndDate, setBiwFilterEndDate] = useState<string>("");
+  const [showPerformanceGuide, setShowPerformanceGuide] = useState(false);
 
   const [dateFilter, setDateFilter] = useState<{
     type: "all" | "single" | "range";
@@ -4267,10 +4271,171 @@ export default function FormAnalyticsDashboard({
 
   // Dispatch bulk-select is allowed strictly for superadmins and form creator tenant admins.
   const canBulkDispatchResponses = canBulkSelectResponses && isOwnTenantForm;
+
+  // Questionnaire tabs for Connected Forms review modal (Main Form vs Child Form)
+  const reviewFormTabs = useMemo(() => {
+    if (!chatResponse) return [];
+
+    const parentFormObj = form?.parentForm?.sections?.length ? form.parentForm : relatedFormData.parentForm;
+    const childDocs = (form?.childForms || []).map((cf: any) => {
+      const found = (relatedFormData.childForms || []).find(
+        (rf: any) => rf.id === (cf.formId || cf.id) || rf._id === (cf.formId || cf.id)
+      );
+      return found || cf;
+    });
+
+    const tabs: Array<{
+      id: string;
+      title: string;
+      badge: string;
+      questions: any[];
+      answers: Record<string, any>;
+      responseId?: string;
+      submittedBy?: string;
+      formId?: string;
+    }> = [];
+
+    const hasParent = Boolean(
+      form?.parentFormId ||
+      form?.parentForm ||
+      parentFormObj ||
+      (chatResponse as any)?.parentFormId ||
+      (chatResponse as any)?.parentFormTitle ||
+      (chatResponse as any)?.parentAnswers ||
+      (chatResponse as any)?.followUpStatus?.parentAnswers ||
+      (chatResponse as any)?.followUpStatus?.matchType === "parent"
+    );
+    const hasChildren = childDocs.length > 0;
+
+    const targetParentResponseId =
+      (chatResponse as any)?.parentResponseId ||
+      (chatResponse as any)?.followUpStatus?.parentResponseId ||
+      relatedFormData.parentResponse?.id ||
+      relatedFormData.parentResponse?._id;
+
+    const targetParentSubmitter =
+      (chatResponse as any)?.parentSubmittedBy ||
+      (chatResponse as any)?.followUpStatus?.parentSubmittedBy ||
+      relatedFormData.parentResponse?.submittedBy ||
+      relatedFormData.parentResponse?.createdBy;
+
+    const targetParentFormId =
+      form?.parentFormId ||
+      form?.parentForm?.id ||
+      form?.parentForm?._id ||
+      (chatResponse as any)?.parentFormId ||
+      (chatResponse as any)?.followUpStatus?.parentFormId;
+
+    const currentResponseId = chatResponse?.id || (chatResponse as any)?._id;
+    const currentSubmitter = (chatResponse as any)?.submittedBy || (chatResponse as any)?.createdBy;
+    const currentFormId = chatResponse?.questionId || id || form?.id || (form as any)?._id;
+
+    if (hasParent) {
+      // 1. Main Form Tab
+      tabs.push({
+        id: "main",
+        title: parentFormObj?.title || (chatResponse as any)?.parentFormTitle || (form as any)?.parentFormTitle || "Main Form",
+        badge: "Main Form",
+        questions: (parentFormObj?.sections || []).flatMap((s: any) =>
+          (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+        ),
+        answers:
+          (chatResponse as any)?.parentAnswers ||
+          (chatResponse as any)?.followUpStatus?.parentAnswers ||
+          relatedFormData.parentAnswers ||
+          {},
+        responseId: targetParentResponseId ? String(targetParentResponseId) : currentResponseId,
+        submittedBy: targetParentSubmitter || "Parent Inspector",
+        formId: targetParentFormId ? String(targetParentFormId) : undefined,
+      });
+
+      // 2. Child Form Tab
+      tabs.push({
+        id: "child",
+        title: form?.title || "Child Form",
+        badge: "Child Form",
+        questions: (form?.sections || []).flatMap((s: any) =>
+          (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+        ),
+        answers: (
+          responses.find((r) => r.id === chatResponse?.id) ||
+          tableResponses.find((r) => r.id === chatResponse?.id) ||
+          chatResponse
+        )?.answers || {},
+        responseId: currentResponseId,
+        submittedBy: currentSubmitter || "Child Inspector",
+        formId: currentFormId ? String(currentFormId) : undefined,
+      });
+    } else if (hasChildren) {
+      // 1. Main Form Tab
+      tabs.push({
+        id: "main",
+        title: form?.title || "Main Form",
+        badge: "Main Form",
+        questions: (form?.sections || []).flatMap((s: any) =>
+          (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+        ),
+        answers: (
+          responses.find((r) => r.id === chatResponse?.id) ||
+          tableResponses.find((r) => r.id === chatResponse?.id) ||
+          chatResponse
+        )?.answers || {},
+        responseId: currentResponseId,
+        submittedBy: currentSubmitter || "Main Inspector",
+        formId: currentFormId ? String(currentFormId) : undefined,
+      });
+
+      // 2+. Child Form Tabs
+      childDocs.forEach((cf: any, idx: number) => {
+        const cId = cf.formId || cf.id || cf._id;
+        const matchedChildResp = relatedFormData.childResponses?.[cId];
+        tabs.push({
+          id: `child-${cId || idx}`,
+          title: cf.formTitle || cf.title || `Child Form ${idx + 1}`,
+          badge: "Child Form",
+          questions: (cf.sections || []).flatMap((s: any) =>
+            (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+          ),
+          answers:
+            matchedChildResp?.answers ||
+            (chatResponse as any)?.childAnswers ||
+            (chatResponse as any)?.followUpStatus?.childAnswers ||
+            relatedFormData.childAnswers ||
+            {},
+          responseId: matchedChildResp?.id || matchedChildResp?._id || (chatResponse as any)?.childResponseId,
+          submittedBy: matchedChildResp?.submittedBy || (chatResponse as any)?.childSubmittedBy || "Child Inspector",
+          formId: cId ? String(cId) : undefined,
+        });
+      });
+    } else {
+      // Standalone form
+      tabs.push({
+        id: "current",
+        title: form?.title || "Form",
+        badge: "Form",
+        questions: (form?.sections || []).flatMap((s: any) =>
+          (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
+        ),
+        answers: (
+          responses.find((r) => r.id === chatResponse?.id) ||
+          tableResponses.find((r) => r.id === chatResponse?.id) ||
+          chatResponse
+        )?.answers || {},
+        responseId: currentResponseId,
+        submittedBy: currentSubmitter || "Inspector",
+        formId: currentFormId ? String(currentFormId) : undefined,
+      });
+    }
+
+    return tabs;
+  }, [form, relatedFormData, chatResponse, responses, tableResponses, id]);
+
   const handleReviewSubmit = async (
     responseId: string,
     reviewOption: string,
     reviewRemark?: string,
+    overrideSubmitterId?: string,
+    overrideFormId?: string,
   ) => {
     console.log("=== HANDLE REVIEW SUBMIT START ===");
     console.log("responseId:", responseId);
@@ -4297,7 +4462,7 @@ export default function FormAnalyticsDashboard({
 
     if (!chatResponse) return;
 
-    let submitterId = (chatResponse as any).submittedBy;
+    let submitterId = overrideSubmitterId || (chatResponse as any).submittedBy;
 
     if (!submitterId && chatResponse.createdBy) {
       if (typeof chatResponse.createdBy === "object") {
@@ -4377,6 +4542,7 @@ export default function FormAnalyticsDashboard({
         remark: reviewRemark?.trim() || "",
         reason: reviewRemark?.trim() || "",
         flaggedQuestions,
+        formId: overrideFormId || (chatResponse as any)?.questionId || id,
       };
 
       console.log("📤 Submitting review with data:", reviewData);
@@ -4390,11 +4556,18 @@ export default function FormAnalyticsDashboard({
         console.log("✅ Review submitted successfully!");
 
         const reviewerDisplayName = user?.name || user?.username || user?.email || "Reviewer";
+        const newStatus = reviewOption === "Rejected"
+          ? "Rejected"
+          : (reviewOption === "Rework" || reviewOption === "Reworked")
+            ? "Rework 1"
+            : "Accepted";
+
         const updateReviewFn = (r: any) => {
           if (r.id === responseId || (r as any)._id === responseId) {
             const curRev = r.review || {};
             return {
               ...r,
+              status: newStatus,
               review: {
                 ...curRev,
                 status: reviewOption,
@@ -4413,7 +4586,21 @@ export default function FormAnalyticsDashboard({
         };
         setTableResponses((prev) => prev.map(updateReviewFn));
         setResponses((prev) => prev.map(updateReviewFn));
+        setResponseStatuses((prev) => ({ ...prev, [responseId]: newStatus }));
         setChatFilters((prev) => ({ ...prev, questions: [] }));
+
+        // Invalidate browser-level cached summary items
+        try {
+          for (let i = sessionStorage.length - 1; i >= 0; i--) {
+            const k = sessionStorage.key(i);
+            if (k && k.includes('quality_summary')) sessionStorage.removeItem(k);
+          }
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const k = localStorage.key(i);
+            if (k && k.includes('quality_summary')) localStorage.removeItem(k);
+          }
+        } catch (_) {}
+
         fetchSummary();
         fetchPerformanceTable();
         setTvsReviews((prev) => {
@@ -6309,8 +6496,12 @@ export default function FormAnalyticsDashboard({
           .getFormResponses(parentId, { units: chassisVal, limit: 1, forceNetwork: true })
           .then((res: any) => {
             const pResp = (res?.responses || [])[0];
-            if (pResp?.answers) {
-              setRelatedFormData((prev) => ({ ...prev, parentAnswers: pResp.answers }));
+            if (pResp) {
+              setRelatedFormData((prev) => ({
+                ...prev,
+                parentAnswers: pResp.answers || {},
+                parentResponse: pResp
+              }));
             }
           })
           .catch((err) => console.warn("Could not load parent response answers:", err));
@@ -6350,8 +6541,15 @@ export default function FormAnalyticsDashboard({
             .getFormResponses(cId, { units: chassisVal, limit: 1, forceNetwork: true })
             .then((res: any) => {
               const cResp = (res?.responses || [])[0];
-              if (cResp?.answers) {
-                setRelatedFormData((prev) => ({ ...prev, childAnswers: cResp.answers }));
+              if (cResp) {
+                setRelatedFormData((prev) => ({
+                  ...prev,
+                  childAnswers: cResp.answers || {},
+                  childResponses: {
+                    ...(prev.childResponses || {}),
+                    [cId]: cResp
+                  }
+                }));
               }
             })
             .catch((err) => console.warn("Could not load child response answers:", err));
@@ -6710,17 +6908,37 @@ export default function FormAnalyticsDashboard({
         const isParentMatch = fs.matchType === "parent" || isChildForm;
         const realParentStatus = (fs.parentStatus && fs.parentStatus !== "pending") ? fs.parentStatus : "Direct Ok";
         const realFollowUpStatus = (fs.followUpStatus && fs.followUpStatus !== "pending") ? fs.followUpStatus : "Direct Ok";
+        const targetParentResponseId =
+          fs.parentResponseId ||
+          response?.parentResponseId ||
+          matchedFromTable?.parentResponseId ||
+          (matchedFromTable as any)?.followUpStatus?.parentResponseId;
+        const targetParentFormId =
+          fs.parentFormId ||
+          response?.parentFormId ||
+          form?.parentFormId ||
+          form?.parentForm;
+        const targetParentFormTitle =
+          fs.parentFormTitle ||
+          response?.parentFormTitle ||
+          form?.parentFormTitle;
+        const matchedChassis = fs.matchedChassis || chassisVal || unitId;
+
         return {
           status: "matched",
           badgeText: isParentMatch ? "✓ Parent Matched" : "✓ Follow-up Done",
           badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
-          icon: CheckCircle2,
+          icon: isParentMatch ? Eye : CheckCircle2,
           subText: isParentMatch
             ? `Status: ${realParentStatus}`
             : (fs.followUpStatus ? `Status: ${realFollowUpStatus}` : "Follow-up Complete"),
           tooltip: fs.details || (isParentMatch
-            ? `Matched parent chassis "${fs.matchedChassis || ""}" (Status: ${realParentStatus}) by ${fs.parentSubmittedBy || "Inspector"}`
-            : `Follow-up completed for chassis "${fs.matchedChassis || ""}" by ${fs.followUpSubmittedBy || "Inspector"}`)
+            ? `Matched parent chassis "${matchedChassis || ""}" (Status: ${realParentStatus}) by ${fs.parentSubmittedBy || "Inspector"}`
+            : `Follow-up completed for chassis "${matchedChassis || ""}" by ${fs.followUpSubmittedBy || "Inspector"}`),
+          parentResponseId: targetParentResponseId ? String(targetParentResponseId) : undefined,
+          parentFormId: targetParentFormId ? String(targetParentFormId) : undefined,
+          parentFormTitle: targetParentFormTitle,
+          matchedChassis: matchedChassis,
         };
       }
 
@@ -6772,18 +6990,24 @@ export default function FormAnalyticsDashboard({
           status: "matched",
           badgeText: "✓ Parent Matched",
           badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
-          icon: CheckCircle2,
+          icon: Eye,
           subText: `Status: ${parentStatus}`,
-          tooltip: `Linked to parent response by ${parentSubmitter} (Status: ${parentStatus})`
+          tooltip: `Linked to parent response by ${parentSubmitter} (Status: ${parentStatus})`,
+          parentResponseId: String(response.parentResponseId),
+          parentFormId: form?.parentFormId || form?.parentForm || response?.parentFormId,
+          matchedChassis: chassisVal || unitId,
         };
       }
       return {
         status: "matched",
         badgeText: "✓ Parent Matched",
         badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
-        icon: CheckCircle2,
+        icon: Eye,
         subText: "Linked to Parent",
-        tooltip: `Linked to parent response (${response.parentResponseId.slice(0, 10)}...)`
+        tooltip: `Linked to parent response (${response.parentResponseId.slice(0, 10)}...)`,
+        parentResponseId: String(response.parentResponseId),
+        parentFormId: form?.parentFormId || form?.parentForm || response?.parentFormId,
+        matchedChassis: chassisVal || unitId,
       };
     }
 
@@ -6817,13 +7041,17 @@ export default function FormAnalyticsDashboard({
       if (parentInList) {
         let parentStatus = tableDisplayStatuses[parentInList.id || parentInList._id] || parentInList.status || "Accepted";
         if (parentStatus === "pending") parentStatus = "Direct Ok";
+        const pId = parentInList.id || parentInList._id;
         return {
           status: "matched",
           badgeText: "✓ Parent Matched",
           badgeClasses: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100",
-          icon: CheckCircle2,
+          icon: Eye,
           subText: `Status: ${parentStatus}`,
-          tooltip: `Matched parent response by chassis/unit "${unitId}" (Status: ${parentStatus})`
+          tooltip: `Matched parent response by chassis/unit "${unitId}" (Status: ${parentStatus})`,
+          parentResponseId: pId ? String(pId) : undefined,
+          parentFormId: form?.parentFormId || form?.parentForm || parentInList.questionId || parentInList.formId,
+          matchedChassis: unitId,
         };
       }
     }
@@ -7430,6 +7658,105 @@ export default function FormAnalyticsDashboard({
 
     fetchTableReviews();
   }, [displayedTableResponses]);
+
+  // Dispatchable responses logic for bulk dispatch checkbox in table header
+  const dispatchableResponses = useMemo(() => {
+    return (displayedTableResponses || []).filter((response) => {
+      if (!isOwnTenantResponse(response)) return false; // exclude cross-tenant
+
+      const status =
+        tableDisplayStatuses[response.id] ||
+        responseStatuses[response.id] ||
+        response.status ||
+        "";
+      const isReworkOrRejected =
+        status === "Rejected" ||
+        status === "Rework 1" ||
+        status === "Rework 2" ||
+        status === "Rework" ||
+        status === "Reworked";
+
+      const canShowDispatch =
+        !isReworkOrRejected &&
+        (status === "Direct Ok" ||
+          status === "Rework Accepted" ||
+          status === "Rework Completed" ||
+          status === "Accepted");
+
+      return canShowDispatch;
+    });
+  }, [displayedTableResponses, isOwnTenantResponse, tableDisplayStatuses, responseStatuses]);
+
+  const pendingDispatchResponses = useMemo(() => {
+    return dispatchableResponses.filter((response) => !response.isDispatched);
+  }, [dispatchableResponses]);
+
+  const isAllDispatchableSelected =
+    pendingDispatchResponses.length > 0 &&
+    pendingDispatchResponses.every((r) => selectedDispatchIds.includes(r.id));
+
+  const handleHeaderDispatchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      const selectableIds = pendingDispatchResponses
+        .filter((r) => isOwnTenantResponse(r))
+        .map((r) => r.id);
+      setSelectedDispatchIds((prev) => Array.from(new Set([...prev, ...selectableIds])));
+    } else {
+      const pageIds = new Set(pendingDispatchResponses.map((r) => r.id));
+      setSelectedDispatchIds((prev) => prev.filter((id) => !pageIds.has(id)));
+    }
+  };
+
+  const handleExecuteBulkDispatch = async () => {
+    if (selectedDispatchIds.length === 0) return;
+    setIsBulkDispatching(true);
+    try {
+      const dispatchedAt = new Date().toISOString();
+      const dispatchUpdatePayload = {
+        isDispatched: true,
+        dispatchedAt,
+        dispatchedBy: user?._id || user?.id,
+        dispatchedByName: user?.name || (user as any)?.username || "Admin",
+      };
+
+      await Promise.all(
+        selectedDispatchIds.map((id) =>
+          apiClient.updateResponse(id, dispatchUpdatePayload)
+        )
+      );
+
+      // Update in-memory responses and tableResponses
+      setResponses((currentResponses) =>
+        currentResponses.map((r) =>
+          selectedDispatchIds.includes(r.id)
+            ? { ...r, ...dispatchUpdatePayload }
+            : r
+        )
+      );
+
+      setTableResponses((current) =>
+        current.map((r) =>
+          selectedDispatchIds.includes(r.id)
+            ? { ...r, ...dispatchUpdatePayload }
+            : r
+        )
+      );
+
+      setSelectedDispatchIds([]);
+      setShowBulkDispatchConfirm(false);
+      showToast(
+        `Dispatch enabled for ${selectedDispatchIds.length} response${
+          selectedDispatchIds.length === 1 ? "" : "s"
+        }.`,
+        "success"
+      );
+    } catch (error) {
+      console.error("Failed to batch enable dispatch:", error);
+      showToast("Failed to enable dispatch for selected responses.", "error");
+    } finally {
+      setIsBulkDispatching(false);
+    }
+  };
 
   const pageSizesList = useMemo(() => {
     const base = [20, 50, 100];
@@ -11630,6 +11957,72 @@ export default function FormAnalyticsDashboard({
     navigate(`/responses/${responseId}`);
   };
 
+  const [loadingParentRedirectId, setLoadingParentRedirectId] = useState<string | null>(null);
+
+  const handleViewParentResponse = async (response: any, pm?: any) => {
+    const rowId = response?._id || response?.id;
+    const targetParentResponseId =
+      pm?.parentResponseId ||
+      response?.parentResponseId ||
+      response?.parentMatch?.parentResponseId ||
+      response?.followUpStatus?.parentResponseId ||
+      (response?.followUpStatus as any)?.parentResponseId;
+
+    if (targetParentResponseId) {
+      console.log("Navigating directly to parent response:", targetParentResponseId);
+      navigate(`/responses/${targetParentResponseId}`);
+      return;
+    }
+
+    // Check if matched in current loaded responses dataset
+    const chassisVal = getResponseChassisValue(response) || pm?.matchedChassis;
+    if (chassisVal && Array.isArray(responses)) {
+      const norm = chassisVal.toLowerCase().trim();
+      const parentInDataset = responses.find((r: any) => {
+        const rId = r.id || r._id;
+        if (rId === rowId) return false;
+        const cv = getResponseChassisValue(r);
+        return cv && cv.toLowerCase().trim() === norm;
+      });
+      const pId = parentInDataset?.id || parentInDataset?._id;
+      if (pId) {
+        navigate(`/responses/${pId}`);
+        return;
+      }
+    }
+
+    // Fallback: Query the parent form by chassis number
+    const parentFId = form?.parentFormId || form?.parentForm || response?.parentFormId || pm?.parentFormId;
+    if (parentFId && chassisVal) {
+      try {
+        setLoadingParentRedirectId(rowId);
+        const searchRes: any = await apiClient.getResponsesByForm(parentFId, { search: chassisVal, limit: 10 });
+        const list = searchRes?.responses || searchRes?.data || [];
+        const norm = chassisVal.toLowerCase().trim();
+        const matched = list.find((r: any) => {
+          const cv = getResponseChassisValue(r);
+          return cv && cv.toLowerCase().trim() === norm;
+        }) || list[0];
+        const foundId = matched?.id || matched?._id;
+        if (foundId) {
+          navigate(`/responses/${foundId}`);
+          return;
+        }
+      } catch (err) {
+        console.warn("Could not resolve parent response by chassis:", err);
+      } finally {
+        setLoadingParentRedirectId(null);
+      }
+    }
+
+    // If parentFormId is known, redirect to parent form analytics responses tab filtered by chassis
+    if (parentFId) {
+      navigate(`/forms/${parentFId}/analytics?tab=responses&search=${encodeURIComponent(chassisVal || '')}`);
+    } else {
+      showToast("Parent response details could not be found for this chassis", "error");
+    }
+  };
+
 
 
   const handleEditResponse = (response: Response) => {
@@ -12635,9 +13028,20 @@ export default function FormAnalyticsDashboard({
         <div className="flex items-center gap-4 mb-6">
           <div className="w-2 h-8 bg-purple-600 rounded-full shadow-sm shadow-purple-500/20"></div>
           <div>
-            <h3 className="text-xl font-black text-gray-900 dark:text-white leading-none mb-1">
-              Performance Table
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-xl font-black text-gray-900 dark:text-white leading-none mb-1">
+                Performance Table
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowPerformanceGuide(true)}
+                className="inline-flex items-center justify-center p-1 rounded-full text-purple-600 hover:text-purple-700 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:text-purple-300 dark:hover:bg-purple-900/60 transition-colors shadow-2xs cursor-pointer"
+                title="How does the Performance Table work?"
+                aria-label="How does the Performance Table work?"
+              >
+                <Info className="w-4 h-4" />
+              </button>
+            </div>
             <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
               Form-specific inspector performance
             </p>
@@ -12689,7 +13093,18 @@ export default function FormAnalyticsDashboard({
                     Reworked
                   </th>
                   <th className="px-4 sm:px-6 py-5 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap text-center">
-                    Performance Score
+                    <div className="inline-flex items-center gap-1.5 justify-center">
+                      <span>Performance Score</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowPerformanceGuide(true)}
+                        className="p-1 rounded-full text-purple-600 hover:text-purple-700 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors cursor-pointer"
+                        title="View Performance Score Formula & Calculation Guide"
+                        aria-label="View Performance Score Formula & Calculation Guide"
+                      >
+                        <Info className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </th>
                 </tr>
               </thead>
@@ -13174,7 +13589,7 @@ export default function FormAnalyticsDashboard({
             )}
           </div>
 
-          {retryCount > 2 && !isAuthError && (
+          {retryCount > 2 && (
             <p className="text-xs text-gray-400 mt-4">
               Multiple retry attempts failed. Please refresh the page or contact support.
             </p>
@@ -13183,109 +13598,6 @@ export default function FormAnalyticsDashboard({
       </div>
     );
   }
-
-  const dispatchableResponses = isOwnTenantForm
-    ? filteredResponses.filter(response => {
-      if (!isOwnTenantResponse(response)) return false; // exclude cross-tenant
-
-      const biwStatus = String(response.biwReview?.status || "").toLowerCase();
-      const tvsStatus = String(response.review?.reviewOption || response.review?.status || "").toLowerCase();
-      const isReworkOrRejected =
-        biwStatus === "rework" ||
-        biwStatus === "reworked" ||
-        biwStatus === "rejected" ||
-        tvsStatus === "rework" ||
-        tvsStatus === "rejected";
-
-      if (isReworkOrRejected) return false;
-
-      const respId = response.id || (response as any)._id;
-      const status =
-        tableDisplayStatuses[response.id] ||
-        tableDisplayStatuses[(response as any)._id] ||
-        (respId ? tableDisplayStatuses[respId] : null) ||
-        responseStatuses[response.id] ||
-        "";
-
-      return status === "Direct Ok" ||
-        status === "Rework Accepted" ||
-        status === "Rework Completed" ||
-        status === "Accepted";
-    })
-    : [];
-  const pendingDispatchResponses = dispatchableResponses.filter(response => !response.isDispatched);
-
-  const isAllDispatchableSelected = dispatchableResponses.length > 0 && selectedDispatchIds.length === pendingDispatchResponses.length && pendingDispatchResponses.length > 0;
-
-  const handleHeaderDispatchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.checked) {
-      const selectableIds = pendingDispatchResponses
-        .filter(r => isOwnTenantResponse(r))
-        .map(r => r.id);
-      setSelectedDispatchIds(selectableIds);
-    } else {
-      setSelectedDispatchIds([]);
-    }
-  };
-
-  const handleExecuteBulkDispatch = async () => {
-    if (!isOwnTenantForm) {
-      showToast("Only the creator tenant of this form can dispatch", "error");
-      return;
-    }
-    setIsBulkDispatching(true);
-
-    const dispatchedAt = new Date().toISOString();
-    const dispatchUpdatePayload = {
-      isDispatched: true,
-      dispatchedAt,
-      dispatchedBy: user?._id || user?.id,
-      dispatchedByName: user?.name || user?.username,
-    };
-
-    // ── Optimistic update ──────────────────────────────────────────────────────
-    // Immediately reflect the dispatched state in the UI before the network
-    // round-trip completes. This removes ALL perceived lag from the operation.
-    const idsToDispatch = [...selectedDispatchIds];
-    const previousResponses = [...(responses as any[])]; // snapshot for rollback
-
-    setResponses((currentResponses: any[]) =>
-      currentResponses.map((r: any) =>
-        idsToDispatch.includes(r.id) ? { ...r, ...dispatchUpdatePayload } : r
-      )
-    );
-    setTableResponses((currentResponses: any[]) =>
-      currentResponses.map((r: any) =>
-        idsToDispatch.includes(r.id) ? { ...r, ...dispatchUpdatePayload } : r
-      )
-    );
-    setSelectedDispatchIds([]);
-    setShowBulkDispatchConfirm(false);
-
-    try {
-      await Promise.all(
-        idsToDispatch.map((id) =>
-          apiClient.updateResponse(id, dispatchUpdatePayload)
-        )
-      );
-
-      fetchSummary();
-      fetchPerformanceTable();
-
-      showToast(
-        `Dispatch enabled for ${idsToDispatch.length} response${idsToDispatch.length === 1 ? "" : "s"}.`,
-        "success",
-      );
-    } catch (error) {
-      console.error("Failed to batch enable dispatch:", error);
-      // Roll back the optimistic update on failure
-      setResponses(previousResponses as any);
-      setSelectedDispatchIds(idsToDispatch);
-      showToast("Failed to batch enable dispatch. Some responses may not have been updated.", "error");
-    } finally {
-      setIsBulkDispatching(false);
-    }
-  };
 
   return (
     <div
@@ -15723,16 +16035,42 @@ export default function FormAnalyticsDashboard({
                                     <td className="px-4 py-3 text-xs border border-gray-200 dark:border-gray-700 min-w-44 whitespace-nowrap bg-indigo-50/20 dark:bg-indigo-950/10">
                                       {(() => {
                                         const pm = computeParentMatch(response);
-                                        const Icon = pm.icon || CheckCircle2;
+                                        const isMatched = pm.status === "matched" && (pm.badgeText.includes("Parent Matched") || isChildFollowUpForm);
+                                        const rowId = response?._id || response?.id;
+                                        const isLoadingThis = loadingParentRedirectId === rowId;
+                                        const matchedChassis = pm.matchedChassis || getResponseChassisValue(response);
+
                                         return (
                                           <div className="flex flex-col gap-0.5" title={pm.tooltip}>
                                             <div className="flex items-center gap-1.5">
-                                              <span
-                                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border transition-colors shadow-2xs ${pm.badgeClasses}`}
-                                              >
-                                                <Icon className="w-3 h-3 shrink-0" />
-                                                <span>{pm.badgeText}</span>
-                                              </span>
+                                              {isMatched ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleViewParentResponse(response, pm);
+                                                  }}
+                                                  className={`group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold border transition-all shadow-2xs hover:shadow-sm hover:scale-[1.02] cursor-pointer ${pm.badgeClasses} hover:ring-2 hover:ring-emerald-400/50`}
+                                                  title={`Click to view parent response details for chassis "${matchedChassis || ''}" (${pm.tooltip})`}
+                                                >
+                                                  {isLoadingThis ? (
+                                                    <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-emerald-600 dark:text-emerald-400" />
+                                                  ) : (
+                                                    <Eye className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400 group-hover:text-emerald-800 dark:group-hover:text-emerald-200 transition-colors" />
+                                                  )}
+                                                  <span>{pm.badgeText}</span>
+                                                </button>
+                                              ) : (
+                                                <span
+                                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border transition-colors shadow-2xs ${pm.badgeClasses}`}
+                                                >
+                                                  {(() => {
+                                                    const Icon = pm.icon || AlertTriangle;
+                                                    return <Icon className="w-3 h-3 shrink-0" />;
+                                                  })()}
+                                                  <span>{pm.badgeText}</span>
+                                                </span>
+                                              )}
                                             </div>
                                             {pm.subText && (
                                               <span className="text-xs text-gray-600 dark:text-gray-300 pl-0.5 font-medium truncate max-w-[170px]">
@@ -16432,13 +16770,27 @@ export default function FormAnalyticsDashboard({
                   </p>
                   {(() => {
                     const pm = computeParentMatch(selectedResponse);
-                    const Icon = pm.icon || CheckCircle2;
+                    const isMatched = pm.status === "matched" && (pm.badgeText.includes("Parent Matched") || isChildFollowUpForm);
+                    const Icon = pm.icon || (isMatched ? Eye : CheckCircle2);
                     return (
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold border shadow-xs ${pm.badgeClasses}`} title={pm.tooltip}>
-                        <Icon className="w-3.5 h-3.5 shrink-0" />
-                        <span>{pm.badgeText}</span>
-                        {pm.subText && <span className="opacity-75 font-normal ml-1">({pm.subText})</span>}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold border shadow-xs ${pm.badgeClasses}`} title={pm.tooltip}>
+                          <Icon className="w-3.5 h-3.5 shrink-0" />
+                          <span>{pm.badgeText}</span>
+                          {pm.subText && <span className="opacity-75 font-normal ml-1">({pm.subText})</span>}
+                        </span>
+                        {isMatched && (
+                          <button
+                            type="button"
+                            onClick={() => handleViewParentResponse(selectedResponse, pm)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors"
+                            title="Open parent response details page"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>View Parent Response</span>
+                          </button>
+                        )}
+                      </div>
                     );
                   })()}
                 </div>
@@ -18141,114 +18493,6 @@ export default function FormAnalyticsDashboard({
 
                         {/* Tabbed Question Selection Panel for Connected Forms */}
                         {(() => {
-                          const parentFormObj = form?.parentForm?.sections?.length ? form.parentForm : relatedFormData.parentForm;
-                          const childDocs = (form?.childForms || []).map((cf: any) => {
-                            const found = (relatedFormData.childForms || []).find(
-                              (rf: any) => rf.id === (cf.formId || cf.id) || rf._id === (cf.formId || cf.id)
-                            );
-                            return found || cf;
-                          });
-
-                          interface ReviewFormTab {
-                            id: string;
-                            title: string;
-                            badge: string;
-                            questions: any[];
-                            answers: Record<string, any>;
-                          }
-
-                          const reviewFormTabs: ReviewFormTab[] = [];
-                          const hasParent = Boolean(
-                            form?.parentFormId ||
-                            form?.parentForm ||
-                            parentFormObj ||
-                            (chatResponse as any)?.parentFormId ||
-                            (chatResponse as any)?.parentFormTitle ||
-                            (chatResponse as any)?.parentAnswers ||
-                            (chatResponse as any)?.followUpStatus?.parentAnswers ||
-                            (chatResponse as any)?.followUpStatus?.matchType === "parent"
-                          );
-                          const hasChildren = childDocs.length > 0;
-
-                          if (hasParent) {
-                            // 1. Main Form Tab
-                            reviewFormTabs.push({
-                              id: "main",
-                              title: parentFormObj?.title || (chatResponse as any)?.parentFormTitle || (form as any)?.parentFormTitle || "Main Form",
-                              badge: "Main Form",
-                              questions: (parentFormObj?.sections || []).flatMap((s: any) =>
-                                (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
-                              ),
-                              answers:
-                                (chatResponse as any)?.parentAnswers ||
-                                (chatResponse as any)?.followUpStatus?.parentAnswers ||
-                                relatedFormData.parentAnswers ||
-                                {},
-                            });
-
-                            // 2. Child Form Tab
-                            reviewFormTabs.push({
-                              id: "child",
-                              title: form?.title || "Child Form",
-                              badge: "Child Form",
-                              questions: (form?.sections || []).flatMap((s: any) =>
-                                (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
-                              ),
-                              answers: (
-                                responses.find((r) => r.id === chatResponse?.id) ||
-                                tableResponses.find((r) => r.id === chatResponse?.id) ||
-                                chatResponse
-                              )?.answers || {},
-                            });
-                          } else if (hasChildren) {
-                            // 1. Main Form Tab
-                            reviewFormTabs.push({
-                              id: "main",
-                              title: form?.title || "Main Form",
-                              badge: "Main Form",
-                              questions: (form?.sections || []).flatMap((s: any) =>
-                                (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
-                              ),
-                              answers: (
-                                responses.find((r) => r.id === chatResponse?.id) ||
-                                tableResponses.find((r) => r.id === chatResponse?.id) ||
-                                chatResponse
-                              )?.answers || {},
-                            });
-
-                            // 2+. Child Form Tabs
-                            childDocs.forEach((cf: any, idx: number) => {
-                              reviewFormTabs.push({
-                                id: `child-${cf.formId || cf.id || idx}`,
-                                title: cf.formTitle || cf.title || `Child Form ${idx + 1}`,
-                                badge: "Child Form",
-                                questions: (cf.sections || []).flatMap((s: any) =>
-                                  (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
-                                ),
-                                answers:
-                                  (chatResponse as any)?.childAnswers ||
-                                  (chatResponse as any)?.followUpStatus?.childAnswers ||
-                                  relatedFormData.childAnswers ||
-                                  {},
-                              });
-                            });
-                          } else {
-                            // Standalone form
-                            reviewFormTabs.push({
-                              id: "current",
-                              title: form?.title || "Form",
-                              badge: "Form",
-                              questions: (form?.sections || []).flatMap((s: any) =>
-                                (s.questions || []).filter((q: any) => !q.parentId && !q.showWhen?.questionId)
-                              ),
-                              answers: (
-                                responses.find((r) => r.id === chatResponse?.id) ||
-                                tableResponses.find((r) => r.id === chatResponse?.id) ||
-                                chatResponse
-                              )?.answers || {},
-                            });
-                          }
-
                           const activeTab = reviewFormTabs.find((t) => t.id === activeReviewQuestionTab) || reviewFormTabs[0];
 
                           return (
@@ -18321,7 +18565,7 @@ export default function FormAnalyticsDashboard({
                                                 {tab.title}
                                               </span>
                                               <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-                                                {tab.questions.length} questions
+                                                {tab.questions.length} questions {tab.submittedBy ? `• ${tab.submittedBy}` : ""}
                                               </span>
                                             </div>
                                           </div>
@@ -18963,12 +19207,19 @@ export default function FormAnalyticsDashboard({
                               showToast("Rejection reason is mandatory.", "error");
                               return;
                             }
+                            const activeTab = reviewFormTabs.find((t) => t.id === activeReviewQuestionTab) || reviewFormTabs[0];
+                            const targetResponseId = activeTab?.responseId || chatResponse!.id;
+                            const targetSubmitterId = activeTab?.submittedBy || (chatResponse as any)?.submittedBy;
+                            const targetFormId = activeTab?.formId;
+
                             setPendingReviewOption(null); // Clear pending state immediately
                             await handleSendMessage(reviewNote);
                             await handleReviewSubmit(
-                              chatResponse!.id,
+                              targetResponseId,
                               option,
                               reviewNote,
+                              targetSubmitterId,
+                              targetFormId,
                             );
                           } else {
                             await handleSendMessage();
@@ -19056,6 +19307,12 @@ export default function FormAnalyticsDashboard({
           fetchResponsesPage(responsesPage || 1);
           refreshDashboardData();
         }}
+      />
+
+      {/* Performance Table Explanation Guide Modal */}
+      <PerformanceGuideModal
+        isOpen={showPerformanceGuide}
+        onClose={() => setShowPerformanceGuide(false)}
       />
     </div>
   );

@@ -776,6 +776,15 @@ export const createResponse = async (req, res) => {
       });
     }
 
+    if (req.user && ['inspector', 'subadmin'].includes(req.user.role)) {
+      if (form.isHidden === true || form.isVisible === false) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. This form is currently hidden by administration.'
+        });
+      }
+    }
+
     // ========== INVITE HANDLING (Keep your existing code) ==========
     let inviteStatus = null;
     let inviteObj = null;
@@ -5902,7 +5911,7 @@ export const getResponsesByForm = async (req, res) => {
               parentStatus: finalParentStatus,
               parentSubmittedBy: pMatch.submittedBy || 'Inspector',
               parentCreatedAt: pMatch.createdAt || pMatch.latestCreatedAt,
-              parentResponseId: pMatch.responseId || pMatch.id || response.parentResponseId,
+              parentResponseId: pMatch.responseId ? String(pMatch.responseId) : (pMatch.id ? String(pMatch.id) : (pMatch._id ? String(pMatch._id) : (response.parentResponseId ? String(response.parentResponseId) : null))),
               parentAnswers: parentAnswers,
               parentFormTitle: parentFormDoc?.title || form.parentFormTitle,
               parentFormId: parentFormDoc?.id || parentFormDoc?._id?.toString() || parentFormIdStr,

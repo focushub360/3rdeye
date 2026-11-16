@@ -1086,10 +1086,19 @@ class ApiClient {
     return res;
   }
 
-  async updateFormVisibility(id: string, isVisible: boolean) {
+  async updateFormVisibility(id: string, isVisible: boolean, isHidden?: boolean) {
     const res = await this.request(`/forms/${id}/visibility`, {
       method: "PATCH",
-      body: JSON.stringify({ isVisible }),
+      body: JSON.stringify({ isVisible, isHidden }),
+    });
+    this.invalidateFormsCache();
+    return res;
+  }
+
+  async updateFormHide(id: string, isHidden: boolean) {
+    const res = await this.request(`/forms/${id}/hide`, {
+      method: "PATCH",
+      body: JSON.stringify({ isHidden, isVisible: !isHidden }),
     });
     this.invalidateFormsCache();
     return res;

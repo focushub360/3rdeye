@@ -7,7 +7,8 @@ import React, {
 } from "react";
 import { useAuth } from "../context/AuthContext";
 import { apiClient } from "../api/client";
-import { Users, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Loader2 } from "lucide-react";
+import { Users, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Loader2, Info } from "lucide-react";
+import PerformanceGuideModal from "./analytics/PerformanceGuideModal";
 
 const PerformanceTable = ({
   useInternalTrackingEndpoint = false,
@@ -27,6 +28,7 @@ const PerformanceTable = ({
   const { user } = useAuth();
   const [performanceTableData, setPerformanceTableData] = useState<any[]>([]);
   const [performanceTableLoading, setPerformanceTableLoading] = useState(false);
+  const [showPerformanceGuide, setShowPerformanceGuide] = useState(false);
 
   // ✅ Default to last 30 days
   const [perfStartDate, setPerfStartDate] = useState(() => {
@@ -496,9 +498,20 @@ const PerformanceTable = ({
         <div className="flex items-center gap-3 mb-6">
           <div className="w-1.5 h-6 bg-purple-600 rounded-full"></div>
           <div>
-            <h3 className="text-lg font-bold text-gray-800 dark:text-white leading-none mb-1">
-              {title || "Performance Table"}
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-bold text-gray-800 dark:text-white leading-none mb-1">
+                {title || "Performance Table"}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowPerformanceGuide(true)}
+                className="inline-flex items-center justify-center p-1 rounded-full text-purple-600 hover:text-purple-700 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:text-purple-300 dark:hover:bg-purple-900/60 transition-colors shadow-2xs cursor-pointer"
+                title="How does the Performance Table work?"
+                aria-label="How does the Performance Table work?"
+              >
+                <Info className="w-4 h-4" />
+              </button>
+            </div>
             <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
               Per-user performance data
             </p>
@@ -544,9 +557,20 @@ const PerformanceTable = ({
         <div className="flex items-center gap-3">
           <div className="w-1.5 h-6 bg-purple-600 rounded-full"></div>
           <div>
-            <h3 className="text-lg font-bold text-gray-800 dark:text-white leading-none mb-1">
-              {title || "Performance Table"}
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-bold text-gray-800 dark:text-white leading-none mb-1">
+                {title || "Performance Table"}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowPerformanceGuide(true)}
+                className="inline-flex items-center justify-center p-1 rounded-full text-purple-600 hover:text-purple-700 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:text-purple-300 dark:hover:bg-purple-900/60 transition-colors shadow-2xs cursor-pointer"
+                title="How does the Performance Table work?"
+                aria-label="How does the Performance Table work?"
+              >
+                <Info className="w-4 h-4" />
+              </button>
+            </div>
             <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
               Per-user performance data
             </p>
@@ -721,7 +745,18 @@ const PerformanceTable = ({
                   TVS Rework
                 </th>
                 <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center">
-                  Performance Score
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>Performance Score</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowPerformanceGuide(true)}
+                      className="p-1 rounded-full text-purple-600 hover:text-purple-700 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors cursor-pointer"
+                      title="View Performance Score Formula & Calculation Guide"
+                      aria-label="View Performance Score Formula & Calculation Guide"
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </th>
                 <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center">
                   Performance Category
@@ -1223,6 +1258,12 @@ const PerformanceTable = ({
           </div>
         )}
       </div>
+
+      {/* Performance Table Explanation Guide Modal */}
+      <PerformanceGuideModal
+        isOpen={showPerformanceGuide}
+        onClose={() => setShowPerformanceGuide(false)}
+      />
     </div>
   );
 };

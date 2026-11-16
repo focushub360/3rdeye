@@ -4,6 +4,7 @@ import LoginLog from '../models/LoginLog.js';
 import Form from '../models/Form.js';
 import Response from '../models/Response.js';
 import { emitResponseUpdated } from '../socket/socketHandler.js';
+import { appCache, clearFormCache } from '../utils/cache.js';
 
 // ─── Date Parser Helper ──────────────────────────────────────────────────────
 const parseDateUTC = (dateStr) => {
@@ -1004,19 +1005,61 @@ export const submitReview = async (req, res) => {
     if (!reviewerName && reviewer.email) reviewerName = reviewer.email;
     if (!reviewerName) reviewerName = 'Unknown Reviewer';
 
-    // Resolve submitter ID - try to find user by email/username if it's not an ObjectId
-    let resolvedSubmitterId = submitterId;
-    if (!mongoose.Types.ObjectId.isValid(submitterId)) {
-      const user = await User.findOne({
+    // Helper to find a user by name, email, or username
+    const findUserBySubmitterName = async (nameStr) => {
+      if (!nameStr || typeof nameStr !== 'string') return null;
+      const clean = nameStr.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!clean || clean.toLowerCase() === 'excel import' || clean.toLowerCase() === 'anonymous') return null;
+      
+      const cleanLower = clean.toLowerCase();
+      let u = await User.findOne({
         $or: [
-          { email: submitterId.toLowerCase() },
-          { username: submitterId },
-          { firstName: submitterId.split(' ')[0] }
+          { email: cleanLower },
+          { username: { $regex: new RegExp(`^${clean}$`, 'i') } },
+          { $expr: { $eq: [{ $toLower: { $concat: ['$firstName', ' ', '$lastName'] } }, cleanLower] } },
+          { $expr: { $eq: [{ $toLower: { $concat: ['$firstName', '$lastName'] } }, cleanLower.replace(/\s+/g, '')] } }
         ]
       });
-      if (user) {
-        resolvedSubmitterId = user._id.toString();
-        console.log('[submitReview] Resolved submitter ID:', resolvedSubmitterId);
+      if (u) return u;
+
+      const parts = clean.split(' ').filter(Boolean);
+      if (parts.length >= 2) {
+        const first = parts.slice(0, -1).join(' ');
+        const last = parts[parts.length - 1];
+        u = await User.findOne({
+          firstName: { $regex: new RegExp(`^${first}`, 'i') },
+          lastName: { $regex: new RegExp(`^${last}`, 'i') }
+        });
+        if (u) return u;
+
+        u = await User.findOne({
+          firstName: { $regex: new RegExp(`^${parts[0]}`, 'i') },
+          lastName: { $regex: new RegExp(`^${last}`, 'i') }
+        });
+        if (u) return u;
+      }
+
+      return await User.findOne({
+        firstName: { $regex: new RegExp(`^${clean}$`, 'i') }
+      });
+    };
+
+    // Resolve submitter ID - first try to find by submittedBy name from submitterId or response
+    let resolvedSubmitterId = submitterId;
+    let resolvedTargetUser = null;
+
+    if (mongoose.Types.ObjectId.isValid(submitterId)) {
+      resolvedTargetUser = await User.findById(submitterId);
+      if (resolvedTargetUser) {
+        resolvedSubmitterId = resolvedTargetUser._id.toString();
+      }
+    }
+
+    if (!resolvedTargetUser && submitterId && typeof submitterId === 'string') {
+      resolvedTargetUser = await findUserBySubmitterName(submitterId);
+      if (resolvedTargetUser) {
+        resolvedSubmitterId = resolvedTargetUser._id.toString();
+        console.log('[submitReview] Resolved submitter ID to User _id:', resolvedSubmitterId, 'for name:', submitterId);
       } else {
         console.log('[submitReview] Could not resolve submitter ID, keeping as:', submitterId);
       }
@@ -1058,12 +1101,19 @@ export const submitReview = async (req, res) => {
     }
     console.log('[submitReview] Review saved successfully:', savedReview._id);
 
-    // Sync review status to Response document
+    // Sync review status and response defect status to Response document
+    let updatedRespDoc = null;
     try {
       const Response = mongoose.models.Response || mongoose.model('Response');
       const respQuery = mongoose.Types.ObjectId.isValid(responseId)
         ? { $or: [{ _id: responseId }, { id: responseId }] }
         : { id: responseId };
+
+      const newRespStatus = reviewOption === 'Rejected'
+        ? 'Rejected'
+        : (reviewOption === 'Rework' || reviewOption === 'Reworked')
+          ? 'Rework 1'
+          : 'Accepted';
 
       const reviewFieldsToSet = {
         'review.status': reviewOption,
@@ -1073,15 +1123,16 @@ export const submitReview = async (req, res) => {
         'review.reviewedAt': new Date(),
         'review.remark': finalReason || '',
         'review.reason': finalReason || '',
+        status: newRespStatus,
         ...(Array.isArray(req.body.flaggedQuestions) ? {
           'review.flaggedQuestions': req.body.flaggedQuestions
         } : {})
       };
 
-      const updatedRespDoc = await Response.findOneAndUpdate(respQuery, {
+      updatedRespDoc = await Response.findOneAndUpdate(respQuery, {
         $set: reviewFieldsToSet
       }, { new: true });
-      console.log('[submitReview] Synced review state to Response document for responseId:', responseId);
+      console.log('[submitReview] Synced review state to Response document for responseId:', responseId, 'status:', newRespStatus);
       if (updatedRespDoc) {
         const formTargetId = String(updatedRespDoc.formId || updatedRespDoc.questionId || '');
         if (formTargetId) {
@@ -1096,42 +1147,80 @@ export const submitReview = async (req, res) => {
       console.warn('[submitReview] Could not sync review to Response document:', respErr.message);
     }
 
-    // Only update performance score if submitterId is a valid ObjectId
-    if (mongoose.Types.ObjectId.isValid(resolvedSubmitterId)) {
-      const user = await User.findById(resolvedSubmitterId);
-      if (user) {
+    // Invalidate cached analytics & quality summaries
+    clearFormCache();
+    try {
+      const cacheKeys = appCache.keys();
+      cacheKeys.forEach(k => {
+        if (k.startsWith('quality_summary') || k.startsWith('performance_table') || k.includes('analytics')) {
+          appCache.del(k);
+        }
+      });
+    } catch (cErr) {
+      console.warn('[submitReview] Cache clearing error:', cErr.message);
+    }
+
+    // Resolve target inspector user to update performance score and review counts
+    try {
+      let targetUser = resolvedTargetUser;
+      if (!targetUser && mongoose.Types.ObjectId.isValid(resolvedSubmitterId)) {
+        targetUser = await User.findById(resolvedSubmitterId);
+      }
+
+      // If still not found, search by submittedBy from response document
+      if (!targetUser && updatedRespDoc?.submittedBy) {
+        targetUser = await findUserBySubmitterName(updatedRespDoc.submittedBy);
+      }
+
+      // If still not found, search by submitterId string
+      if (!targetUser && submitterId && typeof submitterId === 'string') {
+        targetUser = await findUserBySubmitterName(submitterId);
+      }
+
+      // ONLY if submittedBy did not match any user, AND createdBy is NOT the reviewing user, use createdBy
+      const reviewerIdStr = (reviewer._id || reviewer.id || '').toString();
+      if (!targetUser && updatedRespDoc?.createdBy && mongoose.Types.ObjectId.isValid(updatedRespDoc.createdBy)) {
+        const creatorIdStr = updatedRespDoc.createdBy.toString();
+        if (creatorIdStr !== reviewerIdStr) {
+          targetUser = await User.findById(updatedRespDoc.createdBy);
+        } else {
+          console.log('[submitReview] Skipping createdBy because it matches the reviewer (account:', reviewerName, ')');
+        }
+      }
+
+      if (targetUser) {
         // Increment total reviews
-        const totalReviews = (user.totalReviews || 0) + 1;
+        const totalReviews = (targetUser.totalReviews || 0) + 1;
 
         // Update specific counters
-        let acceptedCount = user.acceptedCount || 0;
-        let rejectedCount = user.rejectedCount || 0;
-        let reworkCount = user.reworkCount || 0;
+        let acceptedCount = targetUser.acceptedCount || 0;
+        let rejectedCount = targetUser.rejectedCount || 0;
+        let reworkCount = targetUser.reworkCount || 0;
 
         if (reviewOption === 'Accepted') {
           acceptedCount += 1;
         } else if (reviewOption === 'Rejected') {
           rejectedCount += 1;
-        } else if (reviewOption === 'Rework') {
+        } else if (reviewOption === 'Rework' || reviewOption === 'Reworked') {
           reworkCount += 1;
         }
 
         // Calculate performance score: (Accepted / Total) * 100
         const performanceScore = Math.round((acceptedCount / totalReviews) * 100);
 
-        await User.findByIdAndUpdate(resolvedSubmitterId, {
+        await User.findByIdAndUpdate(targetUser._id, {
           totalReviews,
           acceptedCount,
           rejectedCount,
           reworkCount,
           performanceScore
         });
-        console.log('[submitReview] Updated user stats - Score:', performanceScore, 'Accepted:', acceptedCount, 'Total:', totalReviews);
+        console.log('[submitReview] Updated inspector user stats for', targetUser.username || targetUser.firstName, '- Score:', performanceScore, 'Accepted:', acceptedCount, 'Rejected:', rejectedCount, 'Rework:', reworkCount, 'Total:', totalReviews);
       } else {
-        console.log('[submitReview] User not found for ID:', resolvedSubmitterId);
+        console.log('[submitReview] Could not resolve user record for submitter:', resolvedSubmitterId);
       }
-    } else {
-      console.log('[submitReview] Skipping score update - submitterId is not a valid ObjectId:', resolvedSubmitterId);
+    } catch (uErr) {
+      console.warn('[submitReview] Failed to update user performance stats:', uErr.message);
     }
 
     res.json({

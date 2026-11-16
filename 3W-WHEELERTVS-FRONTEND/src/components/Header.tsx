@@ -370,8 +370,15 @@ export default function Header() {
       // Special handling for analytics permissions: the tree only ever
       // grants "analytics:form:<id>:<tab>" leaves, never "analytics:view".
       if (item.permission === "analytics:view") {
-        return Array.from(permissionSet).some(permission =>
-          permission.startsWith("analytics:form:")
+        if (user.role === "inspector") {
+          return true;
+        }
+        return (
+          permissionSet.has("analytics:view") ||
+          permissionSet.has("analytics:*") ||
+          Array.from(permissionSet).some(permission =>
+            permission.startsWith("analytics:form:")
+          )
         );
       }
 

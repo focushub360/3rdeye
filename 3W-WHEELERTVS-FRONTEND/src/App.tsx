@@ -248,8 +248,12 @@ function AccessControl({
     // Special handling for analytics permissions: the tree only ever grants
     // "analytics:form:<id>:<tab>" leaves, never the parent "analytics:view".
     if (requiredPermission === ROUTE_PERMISSIONS.ANALYTICS) {
+      if (user.role === "inspector") {
+        return children;
+      }
       const hasAnalyticsPermission =
         permissionSet.has("analytics:view") ||
+        permissionSet.has("analytics:*") ||
         Array.from(permissionSet).some((permission) =>
           permission.startsWith("analytics:form:"),
         );

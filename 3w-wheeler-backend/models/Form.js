@@ -192,6 +192,10 @@ const FormSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  isHidden: {
+    type: Boolean,
+    default: false
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -477,6 +481,7 @@ FormSchema.pre('save', function(next) {
 FormSchema.index({ id: 1 });
 FormSchema.index({ createdBy: 1 });
 FormSchema.index({ isVisible: 1 });
+FormSchema.index({ isHidden: 1 });
 FormSchema.index({ isActive: 1 });
 FormSchema.index({ tenantId: 1 });
 FormSchema.index({ sharedWithTenants: 1 });

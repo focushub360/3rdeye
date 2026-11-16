@@ -10,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import {
   FileText,
   Eye,
+  EyeOff,
   Users,
   Calendar,
   Layers,
@@ -82,12 +83,16 @@ interface FormItem {
   chassisTenantAssignments?: any[];
   description?: string;
   isVisible?: boolean;
+  isHidden?: boolean;
   locationEnabled?: boolean;
   isActive?: boolean;
   viewType?: "section-wise" | "question-wise";
   sections?: any[];
   questions?: any[];
   createdAt?: string;
+  updatedAt?: string;
+  latestResponseAt?: string;
+  lastActivityAt?: string;
   createdBy?: any;
   responseCount?: number;
   parentFormId?: string | null;
@@ -315,6 +320,7 @@ export default function FormsAnalytics() {
   const canEdit = user?.role === "admin" || user?.role === "superadmin" || canGlobalEditForms;
   const canDelete = user?.role === "admin" || user?.role === "superadmin" || canGlobalDeleteForms;
   const canDuplicate = canEdit || canGlobalDuplicateForms;
+  const canHide = user?.role === "admin" || user?.role === "superadmin";
 
   const { showSuccess, showError, showConfirm } = useNotification();
   const [searchTerm, setSearchTerm] = useState("");
@@ -670,10 +676,10 @@ export default function FormsAnalytics() {
 
   const visibilityMutation = useMutation(
     ({ id, isVisible }: { id: string; isVisible: boolean }) =>
-      apiClient.updateFormVisibility(id, isVisible),
+      apiClient.updateFormVisibility(id, isVisible, !isVisible),
     {
       onSuccess: () => {
-        refetchForms();
+        refetchForms({ forceNetwork: true });
       },
     },
   );
@@ -938,7 +944,14 @@ export default function FormsAnalytics() {
         return false;
       }
 
-      // Admins and superadmins see all forms
+      // For inspector and subadmin: Hidden forms must NEVER be visible
+      if (userRole === 'inspector' || userRole === 'subadmin') {
+        if (form.isHidden === true || form.isVisible === false) {
+          return false;
+        }
+      }
+
+      // Admins and superadmins see all forms (including hidden ones)
       if (userRole === 'admin' || userRole === 'superadmin') {
         console.log(`Admin/Superadmin - showing form: ${formId}`);
         return true;
@@ -1255,32 +1268,34 @@ export default function FormsAnalytics() {
       const aPinned = pinnedFormIds.includes(aId);
       const bPinned = pinnedFormIds.includes(bId);
 
-      // 1. Pinned forms always at the very top
+      // 1. Pinned forms always at the very top (in user-pinned order)
       if (aPinned && !bPinned) return -1;
       if (!aPinned && bPinned) return 1;
       if (aPinned && bPinned) {
         return pinnedFormIds.indexOf(aId) - pinnedFormIds.indexOf(bId);
       }
 
-      // 2. Assigned forms come right after pinned forms!
-      const aAssigned = isFormGroupAssigned(a);
-      const bAssigned = isFormGroupAssigned(b);
+      // 2. After pinned forms: Order by latest worked or entered form (like WhatsApp chat - recent chat in first!)
+      const getFormActivityTime = (group: { parent: FormItem | null; children: FormItem[] }) => {
+        if (!group?.parent) return 0;
+        const allInGroup = [group.parent, ...(group.children || [])];
+        let maxTime = 0;
+        for (const f of allInGroup) {
+          const tResp = (f as any).latestResponseAt ? new Date((f as any).latestResponseAt).getTime() : 0;
+          const tAct = (f as any).lastActivityAt ? new Date((f as any).lastActivityAt).getTime() : 0;
+          const tUpd = f.updatedAt ? new Date(f.updatedAt).getTime() : 0;
+          const tCre = f.createdAt ? new Date(f.createdAt).getTime() : 0;
+          maxTime = Math.max(maxTime, tResp, tAct, tUpd, tCre);
+        }
+        return maxTime;
+      };
 
-      if (aAssigned && !bAssigned) return -1;
-      if (!aAssigned && bAssigned) return 1;
+      const aTime = getFormActivityTime(a);
+      const bTime = getFormActivityTime(b);
 
-      // 3. Within same priority, sort by most recent activity (updatedAt or createdAt descending)
-      const aTime = Math.max(
-        a.parent.updatedAt ? new Date(a.parent.updatedAt).getTime() : 0,
-        a.parent.createdAt ? new Date(a.parent.createdAt).getTime() : 0
-      );
-      const bTime = Math.max(
-        b.parent.updatedAt ? new Date(b.parent.updatedAt).getTime() : 0,
-        b.parent.createdAt ? new Date(b.parent.createdAt).getTime() : 0
-      );
       return bTime - aTime;
     });
-  }, [groupedForms, pinnedFormIds, isFormGroupAssigned]);
+  }, [groupedForms, pinnedFormIds]);
 
   const allForms = filteredForms.length;
   const totalResponses = filteredForms.reduce((sum, form) => {
@@ -1358,10 +1373,30 @@ export default function FormsAnalytics() {
     id: string,
     currentVisibility: boolean | undefined,
   ) => {
+    const nextVisibility = !currentVisibility;
     await visibilityMutation.mutate({
       id,
-      isVisible: !currentVisibility,
+      isVisible: nextVisibility,
     });
+  };
+
+  const handleToggleHide = async (
+    id: string,
+    currentlyHidden: boolean,
+  ) => {
+    try {
+      const nextHidden = !currentlyHidden;
+      await apiClient.updateFormHide(id, nextHidden);
+      showSuccess(
+        nextHidden
+          ? "Form hidden. No inspectors or subadmins can view or access this form."
+          : "Form unhidden. Inspectors and subadmins can now view and access this form.",
+        nextHidden ? "Form Hidden" : "Form Unhidden"
+      );
+      refetchForms({ forceNetwork: true });
+    } catch (err: any) {
+      showError(err.message || "Failed to update form visibility", "Error");
+    }
   };
 
   const handleToggleLocation = async (
@@ -1788,12 +1823,15 @@ export default function FormsAnalytics() {
     return (
       <div
         key={formId}
-        className={`card p-6 transition-all duration-200 ${isChild
-          ? "border-l-4 border-l-purple-500 bg-gradient-to-r from-purple-50/15 via-white to-transparent dark:from-purple-950/10 dark:via-gray-900 shadow-xs hover:border-primary-300"
-          : isPinned
-            ? "border-amber-300 ring-1 ring-amber-200/60 dark:border-amber-600/50 bg-gradient-to-r from-amber-50/15 via-white to-transparent dark:from-amber-950/10 dark:via-gray-900 shadow-sm"
-            : "hover:border-primary-300"
-          }`}
+        className={`card p-6 transition-all duration-200 ${
+          isChild
+            ? "border-l-4 border-l-purple-500 bg-gradient-to-r from-purple-50/25 via-white to-transparent dark:from-purple-950/15 dark:via-gray-900 shadow-xs hover:border-purple-400"
+            : isOwner
+              ? "border-l-4 border-l-emerald-500 bg-gradient-to-r from-emerald-50/20 via-white to-transparent dark:from-emerald-950/15 dark:via-gray-900 shadow-2xs hover:border-emerald-400"
+              : isPinned
+                ? "border-amber-300 ring-1 ring-amber-200/60 dark:border-amber-600/50 bg-gradient-to-r from-amber-50/15 via-white to-transparent dark:from-amber-950/10 dark:via-gray-900 shadow-sm"
+                : "border-l-4 border-l-indigo-400 bg-gradient-to-r from-indigo-50/10 via-white to-transparent dark:from-indigo-950/10 dark:via-gray-900 hover:border-indigo-400"
+        }`}
       >
         <div className="flex items-start justify-between mb-4 gap-3">
           <div className="flex-1 min-w-0">
@@ -1802,11 +1840,18 @@ export default function FormsAnalytics() {
                 {form.title}
               </h3>
 
-              {isChild && (
+              {isChild ? (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-900 border border-purple-300 dark:bg-purple-950/70 dark:text-purple-200 dark:border-purple-700 shadow-xs">
                   <GitBranch className="w-3.5 h-3.5 text-purple-700 dark:text-purple-300" />
-                  <span>Child Form</span>
+                  <span>Triggered Form</span>
                 </span>
+              ) : (
+                isOwner && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-900 border border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-200 dark:border-emerald-700 shadow-2xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Own Form</span>
+                  </span>
+                )
               )}
 
               {isChild && parentTitle && (
@@ -2072,6 +2117,34 @@ export default function FormsAnalytics() {
                       </button>
                     )}
 
+                    {canHide && (
+                      <button
+                        onClick={() => {
+                          setOpenMenuId(null);
+                          handleToggleHide(formId, form.isHidden ?? (form.isVisible === false));
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-primary-700 hover:bg-primary-50 transition-colors"
+                      >
+                        <div className={`p-1.5 rounded-lg ${(form.isHidden || form.isVisible === false) ? "bg-amber-100" : "bg-slate-100"}`}>
+                          {(form.isHidden || form.isVisible === false) ? (
+                            <Eye className="w-4 h-4 text-amber-600" />
+                          ) : (
+                            <EyeOff className="w-4 h-4 text-slate-600" />
+                          )}
+                        </div>
+                        <div className="text-left">
+                          <div className="font-medium">
+                            {(form.isHidden || form.isVisible === false) ? "Unhide Form" : "Hide Form"}
+                          </div>
+                          <div className="text-[10px] text-primary-500">
+                            {(form.isHidden || form.isVisible === false)
+                              ? "Make visible to inspectors & subadmins"
+                              : "Hide from inspectors & subadmins"}
+                          </div>
+                        </div>
+                      </button>
+                    )}
+
                     <div className="border-t border-primary-50 my-1"></div>
                     <div className="px-4 py-2">
                       <span className="text-[10px] font-bold text-primary-400 uppercase tracking-wider">
@@ -2117,23 +2190,38 @@ export default function FormsAnalytics() {
               )}
             </div>
 
-            <div className="flex items-center text-primary-400 font-medium">
-              <Calendar className="w-3.5 h-3.5 mr-1.5" />
-              {form.createdAt ? new Date(form.createdAt).toLocaleDateString() : "Unknown"}
+            <div className="flex items-center text-primary-500 font-medium text-xs">
+              <Calendar className="w-3.5 h-3.5 mr-1.5 text-primary-400" />
+              {form.latestResponseAt ? (
+                <span title={`Latest entry: ${new Date(form.latestResponseAt).toLocaleString()}`} className="font-semibold text-primary-600 dark:text-primary-300">
+                  Active {new Date(form.latestResponseAt).toLocaleDateString()}
+                </span>
+              ) : form.createdAt ? (
+                new Date(form.createdAt).toLocaleDateString()
+              ) : (
+                "Unknown"
+              )}
             </div>
           </div>
         </div>
 
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            <span
-              className={`inline-flex items-center px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${form.isVisible
-                ? "bg-green-100 text-green-800"
-                : "bg-yellow-100 text-yellow-800"
-                }`}
-            >
-              {form.isVisible ? "Public" : "Private"}
-            </span>
+            {form.isHidden || form.isVisible === false ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950/70 dark:text-amber-200 dark:border-amber-700 shadow-2xs">
+                <EyeOff className="w-3 h-3 text-amber-700 dark:text-amber-300" />
+                <span>Hidden from Inspectors & Subadmins</span>
+              </span>
+            ) : (
+              <span
+                className={`inline-flex items-center px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${form.isVisible
+                  ? "bg-green-100 text-green-800"
+                  : "bg-yellow-100 text-yellow-800"
+                  }`}
+              >
+                {form.isVisible ? "Public" : "Private"}
+              </span>
+            )}
 
             {/* Informational follow-up badge on parent card */}
             {!isChild && children.length > 0 && (
@@ -2185,7 +2273,7 @@ export default function FormsAnalytics() {
                   ? "bg-green-500 focus:ring-green-500"
                   : "bg-red-500 focus:ring-red-500"
                   } ${visibilityMutation.loading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                title={form.isVisible ? "Active - Click to deactivate" : "Inactive - Click to activate"}
+                title={form.isVisible ? "Visible to all - Click to hide from inspectors & subadmins" : "Hidden - Click to unhide"}
               >
                 <span
                   className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${form.isVisible ? "translate-x-5 sm:translate-x-6" : "translate-x-1"
@@ -2231,10 +2319,15 @@ export default function FormsAnalytics() {
                 {hasPreviewPermission && (
                   <button
                     onClick={() => navigate(`/forms/${formId}/preview`)}
-                    className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-primary-600 rounded-lg transition-colors hover:bg-primary-700 flex items-center justify-center gap-1.5"
+                    className={`flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs ${
+                      isChild
+                        ? "bg-purple-600 hover:bg-purple-700"
+                        : "bg-emerald-600 hover:bg-emerald-700"
+                    }`}
+                    title={isChild ? "Review Triggered Form" : "View Own Form"}
                   >
                     <Eye className="w-3.5 h-3.5" />
-                    <span>View</span>
+                    <span>{isChild ? "Review" : "View"}</span>
                   </button>
                 )}
                 {(canEdit || hasEditPermission) && (
@@ -2275,11 +2368,15 @@ export default function FormsAnalytics() {
                 {hasPreviewPermission && (
                   <button
                     onClick={() => navigate(`/forms/${formId}/preview`)}
-                    className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white bg-indigo-600 rounded-lg transition-colors hover:bg-indigo-700 flex items-center justify-center gap-1.5"
-                    title="View Shared Form"
+                    className={`flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs ${
+                      isChild
+                        ? "bg-purple-600 hover:bg-purple-700"
+                        : "bg-indigo-600 hover:bg-indigo-700"
+                    }`}
+                    title={isChild ? "Review Triggered Form" : "Review Shared Form"}
                   >
                     <Eye className="w-3.5 h-3.5" />
-                    <span>View</span>
+                    <span>Review</span>
                   </button>
                 )}
                 {(canEdit || hasEditPermission) && (
@@ -2350,6 +2447,32 @@ export default function FormsAnalytics() {
                   </button>
                 )}
               </div>
+            )}
+
+            {/* Hide / Unhide Action Button */}
+            {canHide && (
+              <button
+                onClick={() => handleToggleHide(formId, form.isHidden ?? (form.isVisible === false))}
+                disabled={visibilityMutation.loading}
+                className={`flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm font-medium text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+                  (form.isHidden || form.isVisible === false)
+                    ? "bg-amber-600 hover:bg-amber-700 shadow-xs"
+                    : "bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500"
+                } ${visibilityMutation.loading ? "opacity-50 cursor-not-allowed" : ""}`}
+                title={(form.isHidden || form.isVisible === false) ? "Hidden from inspectors & subadmins - Click to Unhide" : "Hide form - prevents inspectors & subadmins from seeing or accessing it"}
+              >
+                {(form.isHidden || form.isVisible === false) ? (
+                  <>
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Unhide</span>
+                  </>
+                ) : (
+                  <>
+                    <EyeOff className="w-3.5 h-3.5" />
+                    <span>Hide</span>
+                  </>
+                )}
+              </button>
             )}
           </div>
         </div>
