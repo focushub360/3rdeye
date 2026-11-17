@@ -17,13 +17,15 @@ import {
   FileSpreadsheet,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Clock
 } from 'lucide-react';
 
 interface OverallResponsesTableProps {
   rawResponses?: any[];
   formOptions?: Array<{ id: string; _id?: string; title: string; totalChecked?: number }>;
   initialFormFilter?: string;
+  initialDispatchFilter?: string;
   selectedFormIds?: string[];
 }
 
@@ -31,6 +33,7 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
   rawResponses = [], 
   formOptions = [],
   initialFormFilter = 'all',
+  initialDispatchFilter = 'all',
   selectedFormIds = []
 }) => {
   const navigate = useNavigate();
@@ -40,7 +43,7 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
   const [formFilter, setFormFilter] = useState(initialFormFilter);
   const [statusFilter, setStatusFilter] = useState('all');
   const [biwFilter, setBiwFilter] = useState('all');
-  const [dispatchFilter, setDispatchFilter] = useState('all');
+  const [dispatchFilter, setDispatchFilter] = useState(initialDispatchFilter || 'all');
   const [datePreset, setDatePreset] = useState('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -65,6 +68,13 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
   useEffect(() => {
     setFormFilter(initialFormFilter || 'all');
   }, [initialFormFilter]);
+
+  // Keep in sync if initialDispatchFilter prop changes
+  useEffect(() => {
+    if (initialDispatchFilter) {
+      setDispatchFilter(initialDispatchFilter);
+    }
+  }, [initialDispatchFilter]);
 
   const formsMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -255,7 +265,14 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
       // 4. Dispatch Filter
       if (dispatchFilter !== 'all') {
         if (dispatchFilter === 'dispatched' && !r.isDispatched) return false;
-        if (dispatchFilter === 'pending' && r.isDispatched) return false;
+        if (dispatchFilter === 'pending') {
+          if (r.isDispatched) return false;
+          // In manufacturing inspection, only approved units are eligible for pending dispatch (defects go to rework/rejected)
+          const s = String(r.status || '').toLowerCase().trim();
+          const isDefect = s.includes('reject') || (s.includes('rework') && !s.includes('rework accepted') && !s.includes('rework completed'));
+          const isBiwDefect = r.biwReview?.status === 'Rejected' || r.biwReview?.status === 'Reworked';
+          if (isDefect || isBiwDefect) return false;
+        }
       }
 
       // 5. Calendar / Date Range Filter (Robust timezone handling)
@@ -460,7 +477,7 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
             >
               <option value="all">All Dispatch</option>
               <option value="dispatched">Dispatched</option>
-              <option value="pending">Not Dispatched</option>
+              <option value="pending">Pending Dispatch</option>
             </select>
           </div>
 
@@ -515,6 +532,22 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Pending Dispatch Active Filter Banner */}
+      {dispatchFilter === 'pending' && (
+        <div className="bg-amber-50 border-l-4 border-amber-500 p-2.5 px-4 mx-4 mt-3 rounded-r-lg flex items-center justify-between text-xs text-amber-900 shadow-2xs">
+          <span className="font-semibold flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-600" />
+            Filtered to <b>{filteredResponses.length.toLocaleString()}</b> Pending Dispatch responses (approved inspection units awaiting dispatch)
+          </span>
+          <button
+            onClick={() => setDispatchFilter('all')}
+            className="text-amber-800 hover:text-amber-950 font-bold underline cursor-pointer ml-3 text-xs"
+          >
+            Show All Responses
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="flex-1 overflow-auto bg-white">

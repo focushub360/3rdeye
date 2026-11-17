@@ -3800,6 +3800,30 @@ export default function FormAnalyticsDashboard({
     }
   }, [location.search, form, analyticsView]);
 
+  // Sync dispatch filter with URL parameter
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const dispatchParam = searchParams.get("dispatch") || searchParams.get("dispatchStatus");
+    if (dispatchParam) {
+      const l = dispatchParam.toLowerCase().trim();
+      if (l === "pending" || l === "pending dispatch") {
+        startFilterTransition(() => {
+          setColumnFilters((prev) => ({
+            ...prev,
+            __dispatch: ["Pending Dispatch"],
+          }));
+        });
+      } else if (l === "dispatched") {
+        startFilterTransition(() => {
+          setColumnFilters((prev) => ({
+            ...prev,
+            __dispatch: ["Dispatched / Enabled"],
+          }));
+        });
+      }
+    }
+  }, [location.search]);
+
   // Set initial tab based on permissions after form loads
   useEffect(() => {
     if (!form) return;
@@ -4023,7 +4047,21 @@ export default function FormAnalyticsDashboard({
   const [locationFilter, setLocationFilter] = useState<string[]>([]);
   const [columnFilters, setColumnFilters] = useState<
     Record<string, string[] | null>
-  >({});
+  >(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const dp = sp.get("dispatch") || sp.get("dispatchStatus");
+      if (dp) {
+        const l = dp.toLowerCase().trim();
+        if (l === "pending" || l === "pending dispatch") {
+          return { __dispatch: ["Pending Dispatch"] };
+        } else if (l === "dispatched") {
+          return { __dispatch: ["Dispatched / Enabled"] };
+        }
+      }
+    } catch (_) { }
+    return {};
+  });
 
   // ── Performance: keep filter/sort updates non-blocking ──────────────────────
   // startFilterTransition wraps setColumnFilters / setTableSort calls so React
@@ -7404,7 +7442,15 @@ export default function FormAnalyticsDashboard({
           return isDispatched;
         }
         if (avLower.includes("pending") || avLower.includes("not")) {
-          return !isDispatched;
+          const s = String(
+            tableDisplayStatuses[response.id] ||
+            responseStatuses[response.id] ||
+            response.status ||
+            ""
+          ).toLowerCase().trim();
+          const isDefect = s.includes("reject") || (s.includes("rework") && !s.includes("rework accepted") && !s.includes("rework completed"));
+          const isBiwDefect = response.biwReview?.status === "Rejected" || response.biwReview?.status === "Reworked";
+          return !isDispatched && !isDefect && !isBiwDefect;
         }
         return true;
       });
@@ -9068,6 +9114,8 @@ export default function FormAnalyticsDashboard({
       ? biwReviewedChassis.size + nonChassisBiwReviewed
       : rawBiwReviewed;
 
+    const pendingDispatch = Math.max(0, (accepted + reworkCompleted) - dispatched);
+
     return {
       accepted,
       rejected,
@@ -9075,6 +9123,7 @@ export default function FormAnalyticsDashboard({
       rawReworked,
       reworkCompleted,
       dispatched,
+      pendingDispatch,
       pending,
       biwReviewed,
       rawBiwReviewed,
@@ -9468,7 +9517,20 @@ export default function FormAnalyticsDashboard({
                       {/* Right: Pipeline / Dispatch Cards placed Top-to-Bottom - Same rectangle box size */}
                       <div className="flex flex-col gap-2 justify-center items-center flex-shrink-0">
                         {/* Dispatched */}
-                        <div className="text-center p-2.5 bg-indigo-50/60 dark:bg-indigo-950/20 rounded-xl border border-indigo-100/70 dark:border-indigo-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                        <div
+                          onClick={() => {
+                            setAnalyticsView("responses");
+                            setActiveTab("responses");
+                            startFilterTransition(() => {
+                              setColumnFilters((prev) => ({
+                                ...prev,
+                                __dispatch: ["Dispatched / Enabled"],
+                              }));
+                            });
+                          }}
+                          className="text-center p-2.5 bg-indigo-50/60 dark:bg-indigo-950/20 rounded-xl border border-indigo-100/70 dark:border-indigo-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm cursor-pointer hover:border-indigo-400 hover:scale-[1.02] active:scale-95"
+                          title="Click to view Dispatched responses in table"
+                        >
                           <div className="text-xs sm:text-sm font-bold text-indigo-600 dark:text-indigo-400">
                             {totalPieChartData.dispatched}%
                           </div>
@@ -9481,7 +9543,20 @@ export default function FormAnalyticsDashboard({
                         </div>
 
                         {/* Pending Dispatch */}
-                        <div className="text-center p-2.5 bg-amber-50/60 dark:bg-amber-950/20 rounded-xl border border-amber-100/70 dark:border-amber-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                        <div
+                          onClick={() => {
+                            setAnalyticsView("responses");
+                            setActiveTab("responses");
+                            startFilterTransition(() => {
+                              setColumnFilters((prev) => ({
+                                ...prev,
+                                __dispatch: ["Pending Dispatch"],
+                              }));
+                            });
+                          }}
+                          className="text-center p-2.5 bg-amber-50/60 dark:bg-amber-950/20 rounded-xl border border-amber-100/70 dark:border-amber-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm cursor-pointer hover:border-amber-400 hover:scale-[1.02] active:scale-95"
+                          title="Click to view Pending Dispatch responses in table"
+                        >
                           <div className="text-xs sm:text-sm font-bold text-amber-600 dark:text-amber-400">
                             {totalPieChartData.pendingDispatch}%
                           </div>
@@ -14881,7 +14956,7 @@ export default function FormAnalyticsDashboard({
 
                     {/* Overall Inspection Statistics Summary Bar (Clickable Quick-Filters) */}
                     <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 p-3 sm:p-4 mb-4">
-                      <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 items-center">
+                      <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2 sm:gap-3 items-center">
                         {/* Total Submissions */}
                         <div
                           onClick={() => {
@@ -15078,6 +15153,40 @@ export default function FormAnalyticsDashboard({
                               {inspectionStats.dispatched}
                             </span>
                             <Send className="w-4 h-4 text-indigo-500" />
+                          </div>
+                        </div>
+
+                        {/* Pending Dispatch */}
+                        <div
+                          onClick={() => {
+                            startFilterTransition(() => {
+                              setColumnFilters((prev) => {
+                                const curr = prev["__dispatch"] || [];
+                                const isPending = curr.includes("Pending Dispatch");
+                                const next = { ...prev };
+                                if (isPending) {
+                                  delete next["__dispatch"];
+                                } else {
+                                  next["__dispatch"] = ["Pending Dispatch"];
+                                }
+                                return next;
+                              });
+                            });
+                          }}
+                          className={`flex flex-col p-2.5 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-100 dark:border-amber-900/20 cursor-pointer select-none transition-all hover:scale-[1.02] hover:shadow-md active:scale-95 ${columnFilters["__dispatch"]?.includes("Pending Dispatch")
+                            ? "ring-2 ring-amber-500 shadow-sm"
+                            : "opacity-80 hover:opacity-100"
+                            }`}
+                          title="Click to filter by Pending Dispatch"
+                        >
+                          <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase truncate" title="Pending Dispatch">
+                            Pending Dispatch
+                          </span>
+                          <div className="flex items-baseline justify-between mt-0.5">
+                            <span className="text-lg font-black text-amber-600 dark:text-amber-400">
+                              {inspectionStats.pendingDispatch ?? Math.max(0, (inspectionStats.accepted + inspectionStats.reworkCompleted) - inspectionStats.dispatched)}
+                            </span>
+                            <Clock className="w-4 h-4 text-amber-500" />
                           </div>
                         </div>
                       </div>

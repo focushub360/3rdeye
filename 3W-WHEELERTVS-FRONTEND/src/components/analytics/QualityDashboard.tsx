@@ -242,6 +242,7 @@ export const QualityDashboard: React.FC = () => {
   const dataItemsPerPage = 100;
   const [dataViewMode, setDataViewMode] = useState<'cards' | 'table' | 'raw'>('cards');
   const [searchForm, setSearchForm] = useState<string>('');
+  const [overallDispatchFilter, setOverallDispatchFilter] = useState<'all' | 'dispatched' | 'pending'>('all');
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<SummaryData | null>(() => {
@@ -2108,8 +2109,17 @@ export const QualityDashboard: React.FC = () => {
                   >
                     <Doughnut data={pieChartData} options={pieChartOptions} />
                     <div
-                      className="absolute pointer-events-none flex flex-col items-center justify-center select-none"
+                      onClick={() => {
+                        if (hoveredSlice === 'pendingDispatch' || (!hoveredSlice || hoveredSlice === 'all')) {
+                          setOverallDispatchFilter('pending');
+                          setActiveTab('overall');
+                          const el = document.getElementById('analytics-tabs-section');
+                          if (el) el.scrollIntoView({ behavior: 'smooth' });
+                        }
+                      }}
+                      className="absolute flex flex-col items-center justify-center select-none cursor-pointer hover:scale-105 transition-transform"
                       style={{ top: "calc(50% - 10px)", left: "50%", transform: "translate(-50%, -50%)" }}
+                      title="Click to view responses in table"
                     >
                       <span className="text-2xl sm:text-3xl font-black text-gray-900 leading-none tracking-tight">
                         {hoveredSlice === 'directOk'
@@ -2234,16 +2244,27 @@ export const QualityDashboard: React.FC = () => {
 
                   {/* Pending Dispatch */}
                   <div
-                    onClick={() => setHoveredSlice(hoveredSlice === 'pendingDispatch' ? 'all' : 'pendingDispatch')}
+                    onClick={() => {
+                      if (hoveredSlice === 'pendingDispatch') {
+                        setOverallDispatchFilter('pending');
+                        setActiveTab('overall');
+                        const el = document.getElementById('analytics-tabs-section');
+                        if (el) el.scrollIntoView({ behavior: 'smooth' });
+                      } else {
+                        setHoveredSlice('pendingDispatch');
+                      }
+                    }}
                     onMouseEnter={() => setHoveredSlice('pendingDispatch')}
+                    title={hoveredSlice === 'pendingDispatch' ? "Click again to view all Pending Dispatch responses in table" : "Click to view Pending Dispatch forms"}
                     className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
                       hoveredSlice === 'pendingDispatch'
-                        ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300'
+                        ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300 hover:bg-amber-200/80 shadow-xs'
                         : 'bg-amber-50/70 border-amber-100 hover:bg-amber-100/60 hover:shadow-xs'
                     }`}
                   >
-                    <div className="text-xs sm:text-sm font-bold text-amber-600">
-                      {summaryPieDetails.pendingDispatch}%
+                    <div className="text-xs sm:text-sm font-bold text-amber-600 flex items-center justify-center gap-1">
+                      <span>{summaryPieDetails.pendingDispatch}%</span>
+                      {hoveredSlice === 'pendingDispatch' && <ArrowUpRight className="w-3.5 h-3.5 text-amber-700" />}
                     </div>
                     <div className="text-[10px] sm:text-[11px] font-semibold text-amber-700 whitespace-nowrap">
                       Pending Dispatch
@@ -2442,7 +2463,25 @@ export const QualityDashboard: React.FC = () => {
                       {hoveredSlice === 'accepted' && 'Form-Wise Accepted Contributions'}
                       {hoveredSlice === 'rework' && 'Form-Wise Ongoing Rework Contribution'}
                       {hoveredSlice === 'rejected' && 'Form-Wise Rejected Contribution'}
-                      {hoveredSlice === 'pendingDispatch' && 'Form-Wise Pending Dispatch Contribution (Last 30 Days)'}
+                      {hoveredSlice === 'pendingDispatch' && (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>Form-Wise Pending Dispatch Contribution (Last 30 Days)</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOverallDispatchFilter('pending');
+                              setActiveTab('overall');
+                              const el = document.getElementById('analytics-tabs-section');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="ml-2 text-[11px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="View all Pending Dispatch responses in Overall Responses table"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-amber-700" />
+                            <span>View All ({summaryPieDetails.counts.pendingDispatch.toLocaleString()}) in Table ↗</span>
+                          </button>
+                        </span>
+                      )}
                       {hoveredSlice === 'pendingData' && 'Form-Wise Pending Data (BIW Review) Contribution'}
                       {hoveredSlice === 'pendingTvs' && 'Form-Wise Pending TVS Review Contribution'}
                       {hoveredSlice === 'dispatched' && 'Form-Wise Dispatched Contribution'}
@@ -2632,19 +2671,39 @@ export const QualityDashboard: React.FC = () => {
                     return (
                       <div
                         key={form.id || form._id}
-                        className={`p-2.5 rounded-lg border transition-all text-xs flex flex-col gap-1.5 ${hoveredSlice !== 'all'
-                          ? 'bg-white shadow-xs border-blue-300 ring-1 ring-blue-100'
-                          : 'bg-gray-50/80 hover:bg-blue-50/50 border-gray-200/80'
+                        onClick={() => {
+                          if (hoveredSlice === 'pendingDispatch') {
+                            navigate(`/forms/${form.id || form._id}/analytics?tab=responses&dispatch=pending`);
+                          } else if (hoveredSlice === 'dispatched') {
+                            navigate(`/forms/${form.id || form._id}/analytics?tab=responses&dispatch=dispatched`);
+                          }
+                        }}
+                        className={`p-2.5 rounded-lg border transition-all text-xs flex flex-col gap-1.5 ${hoveredSlice === 'pendingDispatch'
+                          ? 'bg-white shadow-xs border-amber-300 ring-1 ring-amber-100 cursor-pointer hover:border-amber-400 hover:shadow-md hover:bg-amber-50/20'
+                          : hoveredSlice !== 'all'
+                            ? 'bg-white shadow-xs border-blue-300 ring-1 ring-blue-100'
+                            : 'bg-gray-50/80 hover:bg-blue-50/50 border-gray-200/80'
                           }`}
+                        title={hoveredSlice === 'pendingDispatch' ? `Click to view ${formPendingDispatch.toLocaleString()} Pending Dispatch responses for ${form.title}` : undefined}
                       >
                         <div className="flex items-center justify-between font-semibold text-gray-800">
                           <span className="truncate pr-2 font-medium">{form.title}</span>
                           <span
-                            title={hoveredSlice === 'pendingDispatch' && summaryPieDetails.counts.pendingDispatch > 0 ? `${displayCount.toLocaleString()} units (${((formPendingDispatch / summaryPieDetails.counts.pendingDispatch) * 100).toFixed(1)}% of all forms pending dispatch)` : undefined}
-                            className={`px-2 py-0.5 rounded text-[11px] font-black border ${tagColor}`}
+                            onClick={(e) => {
+                              if (hoveredSlice === 'pendingDispatch') {
+                                e.stopPropagation();
+                                navigate(`/forms/${form.id || form._id}/analytics?tab=responses&dispatch=pending`);
+                              } else if (hoveredSlice === 'dispatched') {
+                                e.stopPropagation();
+                                navigate(`/forms/${form.id || form._id}/analytics?tab=responses&dispatch=dispatched`);
+                              }
+                            }}
+                            title={hoveredSlice === 'pendingDispatch' ? `Click to view ${formPendingDispatch.toLocaleString()} Pending Dispatch responses for ${form.title}` : undefined}
+                            className={`px-2 py-0.5 rounded text-[11px] font-black border ${tagColor} ${hoveredSlice === 'pendingDispatch' ? 'cursor-pointer hover:bg-amber-100 hover:border-amber-400 hover:scale-105 transition-transform flex items-center gap-1' : ''}`}
                           >
                             {hoveredSlice !== 'all' ? `${activeLabel}: ` : ''}
                             {displayCount.toLocaleString()} {hoveredSlice !== 'all' ? `(${displayPct}%)` : 'units'}
+                            {hoveredSlice === 'pendingDispatch' && <ArrowUpRight className="w-3 h-3 text-amber-700 inline" />}
                           </span>
                         </div>
 
@@ -2679,11 +2738,28 @@ export const QualityDashboard: React.FC = () => {
                             <span className="text-gray-700 font-medium">
                               {(directOk + reworkAccepted).toLocaleString()} Approved
                             </span>
-                            <span className={`${hoveredSlice === 'dispatched' ? 'text-indigo-700 font-extrabold underline' : 'text-indigo-700 font-medium'}`}>
+                            <span className={`${hoveredSlice === 'dispatched' ? 'text-indigo-700 font-extrabold underline cursor-pointer hover:text-indigo-900' : 'text-indigo-700 font-medium'}`}
+                              onClick={(e) => {
+                                if (hoveredSlice === 'dispatched') {
+                                  e.stopPropagation();
+                                  navigate(`/forms/${form.id || form._id}/analytics?tab=responses&dispatch=dispatched`);
+                                }
+                              }}
+                            >
                               {formDispatched.toLocaleString()} Dispatched ({directOk + reworkAccepted > 0 ? ((formDispatched / (directOk + reworkAccepted)) * 100).toFixed(1) : 0}%)
                             </span>
-                            <span className={`${hoveredSlice === 'pendingDispatch' ? 'text-amber-700 font-extrabold underline' : 'text-amber-700 font-medium'}`}>
-                              {formPendingDispatch.toLocaleString()} Pending ({directOk + reworkAccepted > 0 ? ((formPendingDispatch / (directOk + reworkAccepted)) * 100).toFixed(1) : 0}%)
+                            <span
+                              onClick={(e) => {
+                                if (hoveredSlice === 'pendingDispatch') {
+                                  e.stopPropagation();
+                                  navigate(`/forms/${form.id || form._id}/analytics?tab=responses&dispatch=pending`);
+                                }
+                              }}
+                              title={hoveredSlice === 'pendingDispatch' ? `Click to view ${formPendingDispatch.toLocaleString()} Pending Dispatch responses for ${form.title}` : undefined}
+                              className={`${hoveredSlice === 'pendingDispatch' ? 'text-amber-800 font-extrabold underline cursor-pointer hover:text-amber-950 bg-amber-100/70 px-1.5 py-0.5 rounded flex items-center gap-0.5' : 'text-amber-700 font-medium'}`}
+                            >
+                              <span>{formPendingDispatch.toLocaleString()} Pending ({directOk + reworkAccepted > 0 ? ((formPendingDispatch / (directOk + reworkAccepted)) * 100).toFixed(1) : 0}%)</span>
+                              {hoveredSlice === 'pendingDispatch' && <ArrowUpRight className="w-3 h-3 inline" />}
                             </span>
                           </div>
                         ) : hoveredSlice === 'pendingData' || hoveredSlice === 'biwReviewed' ? (
@@ -2740,7 +2816,7 @@ export const QualityDashboard: React.FC = () => {
 
         {/* Tab Navigation */}
         {data && (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[550px]">
+          <div id="analytics-tabs-section" className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[550px]">
             <div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto">
               {selectedSingleFormId && (
                 <>
@@ -3804,6 +3880,7 @@ export const QualityDashboard: React.FC = () => {
                     rawResponses={data.rawResponses}
                     formOptions={allAvailableForms}
                     initialFormFilter={selectedFormIds.length === 1 ? selectedFormIds[0] : 'all'}
+                    initialDispatchFilter={overallDispatchFilter}
                     selectedFormIds={selectedFormIds}
                   />
                 </div>
