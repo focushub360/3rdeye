@@ -152,7 +152,7 @@ export const login = async (req, res) => {
       ? Form.find({
           tenantId: user.tenantId,
           isGlobal: false,
-          ...(['inspector', 'subadmin'].includes(user.role) ? { isHidden: { $ne: true }, isVisible: { $ne: false } } : {})
+          ...(['inspector', 'subadmin', 'user'].includes(user.role) ? { isHidden: { $ne: true }, isVisible: { $ne: false } } : {})
         })
           .select('id _id title category isGlobal parentFormId childForms tenantId status isActive isHidden isVisible createdAt')
           .sort({ createdAt: -1 })

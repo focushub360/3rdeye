@@ -320,7 +320,6 @@ export default function FormsAnalytics() {
   const canEdit = user?.role === "admin" || user?.role === "superadmin" || canGlobalEditForms;
   const canDelete = user?.role === "admin" || user?.role === "superadmin" || canGlobalDeleteForms;
   const canDuplicate = canEdit || canGlobalDuplicateForms;
-  const canHide = user?.role === "admin" || user?.role === "superadmin";
 
   const { showSuccess, showError, showConfirm } = useNotification();
   const [searchTerm, setSearchTerm] = useState("");
@@ -1802,6 +1801,10 @@ export default function FormsAnalytics() {
       !form.tenantId ||
       (ownerTenantIdStr && userTenantIdStr && ownerTenantIdStr === userTenantIdStr);
 
+    const canHideThisForm =
+      userRole === "superadmin" ||
+      (userRole === "admin" && isOwner);
+
     const tenantName =
       (typeof form.tenantId === "object"
         ? form.tenantId?.companyName || form.tenantId?.name || form.tenantId?.slug
@@ -2117,7 +2120,7 @@ export default function FormsAnalytics() {
                       </button>
                     )}
 
-                    {canHide && (
+                    {canHideThisForm && (
                       <button
                         onClick={() => {
                           setOpenMenuId(null);
@@ -2207,19 +2210,20 @@ export default function FormsAnalytics() {
 
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            {form.isHidden || form.isVisible === false ? (
+            {(isOwner && (form.isHidden || form.isVisible === false)) ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950/70 dark:text-amber-200 dark:border-amber-700 shadow-2xs">
                 <EyeOff className="w-3 h-3 text-amber-700 dark:text-amber-300" />
-                <span>Hidden from Inspectors & Subadmins</span>
+                <span>Hidden from Own Staff</span>
               </span>
             ) : (
               <span
-                className={`inline-flex items-center px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${form.isVisible
-                  ? "bg-green-100 text-green-800"
-                  : "bg-yellow-100 text-yellow-800"
+                className={`inline-flex items-center px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${
+                  (isOwner ? form.isVisible : true)
+                    ? "bg-green-100 text-green-800"
+                    : "bg-yellow-100 text-yellow-800"
                   }`}
               >
-                {form.isVisible ? "Public" : "Private"}
+                {(isOwner ? form.isVisible : true) ? "Public" : "Private"}
               </span>
             )}
 
@@ -2266,20 +2270,22 @@ export default function FormsAnalytics() {
 
           {isOwner && (
             <div className="flex items-center gap-2 sm:gap-3">
-              <button
-                onClick={() => handleToggleVisibility(formId, form.isVisible)}
-                disabled={visibilityMutation.loading}
-                className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${form.isVisible
-                  ? "bg-green-500 focus:ring-green-500"
-                  : "bg-red-500 focus:ring-red-500"
-                  } ${visibilityMutation.loading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                title={form.isVisible ? "Visible to all - Click to hide from inspectors & subadmins" : "Hidden - Click to unhide"}
-              >
-                <span
-                  className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${form.isVisible ? "translate-x-5 sm:translate-x-6" : "translate-x-1"
-                    }`}
-                />
-              </button>
+              {canHideThisForm && (
+                <button
+                  onClick={() => handleToggleVisibility(formId, form.isVisible)}
+                  disabled={visibilityMutation.loading}
+                  className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${form.isVisible
+                    ? "bg-green-500 focus:ring-green-500"
+                    : "bg-red-500 focus:ring-red-500"
+                    } ${visibilityMutation.loading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                  title={form.isVisible ? "Visible to all - Click to hide from inspectors & subadmins" : "Hidden - Click to unhide"}
+                >
+                  <span
+                    className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform ${form.isVisible ? "translate-x-5 sm:translate-x-6" : "translate-x-1"
+                      }`}
+                  />
+                </button>
+              )}
               <button
                 onClick={() => handleToggleLocation(formId, form.locationEnabled)}
                 disabled={locationMutation.loading}
@@ -2450,7 +2456,7 @@ export default function FormsAnalytics() {
             )}
 
             {/* Hide / Unhide Action Button */}
-            {canHide && (
+            {canHideThisForm && (
               <button
                 onClick={() => handleToggleHide(formId, form.isHidden ?? (form.isVisible === false))}
                 disabled={visibilityMutation.loading}

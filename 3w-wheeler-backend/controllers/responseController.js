@@ -776,11 +776,15 @@ export const createResponse = async (req, res) => {
       });
     }
 
-    if (req.user && ['inspector', 'subadmin'].includes(req.user.role)) {
-      if (form.isHidden === true || form.isVisible === false) {
+    if (req.user && ['inspector', 'subadmin', 'user'].includes(req.user.role)) {
+      const userTenantIdStr = (req.user.tenantId?._id || req.user.tenantId)?.toString() || '';
+      const formTenantIdStr = (form.tenantId?._id || form.tenantId)?.toString() || '';
+      const isOwnTenantForm = Boolean(formTenantIdStr && userTenantIdStr && formTenantIdStr === userTenantIdStr);
+
+      if (isOwnTenantForm && (form.isHidden === true || form.isVisible === false)) {
         return res.status(403).json({
           success: false,
-          message: 'Access denied. This form is currently hidden by administration.'
+          message: 'Access denied. This form is currently hidden by your organization administration.'
         });
       }
     }

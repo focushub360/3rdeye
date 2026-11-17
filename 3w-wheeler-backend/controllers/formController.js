@@ -421,9 +421,18 @@ export const getAllForms = async (req, res) => {
         .filter(id => mongoose.Types.ObjectId.isValid(id))
         .map(id => new mongoose.Types.ObjectId(id));
 
+      const isStaffUser = ['inspector', 'subadmin', 'user'].includes(req.user.role);
+      const ownTenantClause = isStaffUser
+        ? {
+            tenantId: { $in: tenantValues },
+            isHidden: { $ne: true },
+            isVisible: { $ne: false }
+          }
+        : { tenantId: { $in: tenantValues } };
+
       query = {
         $or: [
-          { tenantId: { $in: tenantValues } },
+          ownTenantClause,
           { sharedWithTenants: { $in: tenantValues } },
           { "chassisTenantAssignments.assignedTenants": tenantIdStr },
           { _id: { $in: additionalObjectIds } },
@@ -442,6 +451,20 @@ export const getAllForms = async (req, res) => {
         $or: [
           { tenantId: { $in: tenantValues } },
           { sharedWithTenants: { $in: tenantValues } }
+        ]
+      };
+    } else if (allowCrossTenantDiscovery && req.user.role === 'subadmin' && req.user.tenantId) {
+      // Subadmin doing cross-tenant discovery should not see hidden forms from their OWN tenant
+      const tenantIdStr = req.user.tenantId.toString();
+      const tenantIdObj = mongoose.Types.ObjectId.isValid(tenantIdStr)
+        ? new mongoose.Types.ObjectId(tenantIdStr)
+        : null;
+      const tenantValues = [tenantIdStr, tenantIdObj].filter(Boolean);
+
+      query = {
+        $or: [
+          { tenantId: { $nin: tenantValues } },
+          { tenantId: { $in: tenantValues }, isHidden: { $ne: true }, isVisible: { $ne: false } }
         ]
       };
     }
@@ -482,19 +505,19 @@ export const getAllForms = async (req, res) => {
     }
 
     // Filter by visibility / hide
-    if (['inspector', 'subadmin'].includes(req.user.role)) {
-      // Subadmins and inspectors NEVER see hidden forms
-      const hideCondition = [
+    // For unauthenticated or guest requests, hide non-visible/hidden forms
+    if (!req.user || req.user.isGuest) {
+      const publicCondition = [
         { isHidden: { $ne: true } },
         { isVisible: { $ne: false } }
       ];
       if (query.$and) {
-        query.$and.push(...hideCondition);
+        query.$and.push(...publicCondition);
       } else if (query.$or) {
         query = {
           $and: [
             { $or: query.$or },
-            ...hideCondition
+            ...publicCondition
           ]
         };
       } else {
@@ -502,11 +525,36 @@ export const getAllForms = async (req, res) => {
         query.isVisible = { $ne: false };
       }
     } else {
+      // Explicit query parameters (e.g. from Admin filters)
       if (isVisible !== undefined) {
-        query.isVisible = isVisible === 'true';
+        const isVisibleVal = isVisible === 'true';
+        if (query.$and) {
+          query.$and.push({ isVisible: isVisibleVal });
+        } else if (query.$or) {
+          query = {
+            $and: [
+              { $or: query.$or },
+              { isVisible: isVisibleVal }
+            ]
+          };
+        } else {
+          query.isVisible = isVisibleVal;
+        }
       }
       if (req.query.isHidden !== undefined) {
-        query.isHidden = req.query.isHidden === 'true';
+        const isHiddenVal = req.query.isHidden === 'true';
+        if (query.$and) {
+          query.$and.push({ isHidden: isHiddenVal });
+        } else if (query.$or) {
+          query = {
+            $and: [
+              { $or: query.$or },
+              { isHidden: isHiddenVal }
+            ]
+          };
+        } else {
+          query.isHidden = isHiddenVal;
+        }
       }
     }
 
@@ -861,12 +909,16 @@ export const getFormById = async (req, res) => {
       }
     }
 
-    // Check if form is hidden for inspectors and subadmins
-    if (req.user && ['inspector', 'subadmin'].includes(req.user.role)) {
-      if (form.isHidden === true || form.isVisible === false) {
+    // Check if form is hidden for inspectors and subadmins of the OWNING tenant
+    if (req.user && ['inspector', 'subadmin', 'user'].includes(req.user.role)) {
+      const userTenantIdStr = (req.user.tenantId?._id || req.user.tenantId)?.toString() || '';
+      const formTenantIdStr = (form.tenantId?._id || form.tenantId)?.toString() || '';
+      const isOwnTenantForm = Boolean(formTenantIdStr && userTenantIdStr && formTenantIdStr === userTenantIdStr);
+
+      if (isOwnTenantForm && (form.isHidden === true || form.isVisible === false)) {
         return res.status(403).json({
           success: false,
-          message: 'Access denied. This form is currently hidden by administration.'
+          message: 'Access denied. This form is currently hidden by your organization administration.'
         });
       }
     }
@@ -1378,31 +1430,16 @@ export const updateFormVisibility = async (req, res) => {
       });
     }
 
-    // Check permissions
-    if (form.createdBy && req.user._id && form.createdBy.toString() !== req.user._id.toString() &&
-      !['admin', 'superadmin', 'subadmin'].includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. You can only modify your own forms.'
-      });
-    }
-
-    // For admin/subadmin, ensure they can only modify forms in their tenant or shared with their tenant
+    // Permission check: Only Superadmin or the Admin of the OWNING tenant can hide/unhide this form
     const formTenantIdStr = (form.tenantId?._id || form.tenantId)?.toString() || '';
     const userTenantIdStr = (req.user.tenantId?._id || req.user.tenantId)?.toString() || '';
-    const isSharedWithThisTenant = Array.isArray(form.sharedWithTenants) && form.sharedWithTenants.some(t => {
-      const tId = (t?._id || t)?.toString();
-      return tId && tId === userTenantIdStr;
-    });
+    const isSuperAdmin = req.user.role === 'superadmin';
+    const isOwningAdmin = req.user.role === 'admin' && (!formTenantIdStr || (userTenantIdStr && formTenantIdStr === userTenantIdStr));
 
-    if (['admin', 'subadmin'].includes(req.user.role) &&
-      formTenantIdStr &&
-      userTenantIdStr &&
-      formTenantIdStr !== userTenantIdStr &&
-      !isSharedWithThisTenant) {
+    if (!isSuperAdmin && !isOwningAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'Access denied. You can only modify forms in your organization or shared with your organization.'
+        message: 'Access denied. Only the Admin of the owning organization can hide or unhide this form.'
       });
     }
 
