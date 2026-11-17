@@ -5456,10 +5456,10 @@ export default function FormAnalyticsDashboard({
     const socketUrl = getSocketUrl();
     const socket = io(socketUrl, {
       reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      transports: ["polling", "websocket"],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 10000,
+      transports: ["websocket", "polling"],
       withCredentials: true,
     });
 

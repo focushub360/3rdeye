@@ -135,7 +135,10 @@ export default function AnswerTemplateImport({
     const socketUrl = getSocketUrl();
     const socket = io(socketUrl, {
       reconnection: true,
-      transports: ["polling", "websocket"],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 10000,
+      transports: ["websocket", "polling"],
       withCredentials: true,
     });
     socketRef.current = socket;

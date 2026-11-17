@@ -450,7 +450,8 @@ export const getAllForms = async (req, res) => {
       query = {
         $or: [
           { tenantId: { $in: tenantValues } },
-          { sharedWithTenants: { $in: tenantValues } }
+          { sharedWithTenants: { $in: tenantValues } },
+          { "chassisTenantAssignments.assignedTenants": tenantIdStr }
         ]
       };
     } else if (allowCrossTenantDiscovery && req.user.role === 'subadmin' && req.user.tenantId) {

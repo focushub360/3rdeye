@@ -3903,8 +3903,14 @@ export const getBiwSummary = async (req, res) => {
       const isValid = mongoose.Types.ObjectId.isValid(effectiveTenantId);
       const oid = isValid ? new mongoose.Types.ObjectId(String(effectiveTenantId)) : null;
       const tenantCondition = oid ? { $in: [effectiveTenantId, String(effectiveTenantId), oid] } : effectiveTenantId;
+      const tenantIdStr = String(effectiveTenantId);
       formQuery = {
-        $or: [{ tenantId: tenantCondition }, { isGlobal: true }, { sharedWithTenants: tenantCondition }]
+        $or: [
+          { tenantId: tenantCondition },
+          { isGlobal: true },
+          { sharedWithTenants: tenantCondition },
+          { "chassisTenantAssignments.assignedTenants": tenantIdStr }
+        ]
       };
     }
 

@@ -585,6 +585,54 @@ const MyReviewBreakdownChart = ({ myReviewStats }: { myReviewStats: any }) => {
   );
 };
 
+const isFormForTenant = (
+  form: any,
+  targetTenantId?: string,
+  targetSlug?: string,
+  isNonSuperadmin?: boolean
+): boolean => {
+  if (!form) return false;
+  if (form.isActive === false || form.isDeleted || form.deleted) return false;
+  if (isNonSuperadmin) return true;
+  if (form.isGlobal) return true;
+  if (!form.tenantId && (!form.sharedWithTenants || form.sharedWithTenants.length === 0)) return true;
+
+  const formTenantId = typeof form.tenantId === "object" ? (form.tenantId?._id || form.tenantId?.id) : form.tenantId;
+  const formTenantIdStr = formTenantId?.toString?.();
+  if (formTenantIdStr && (formTenantIdStr === targetTenantId || (targetSlug && formTenantIdStr === targetSlug))) {
+    return true;
+  }
+
+  const sharedWithTenants = Array.isArray(form.sharedWithTenants) ? form.sharedWithTenants : [];
+  if (
+    sharedWithTenants.some((t: any) => {
+      const tId = typeof t === "object" ? (t._id || t.id) : t;
+      const tStr = tId?.toString?.();
+      return Boolean(tStr && (tStr === targetTenantId || (targetSlug && tStr === targetSlug)));
+    })
+  ) {
+    return true;
+  }
+
+  const chassisTenantAssignments = Array.isArray(form.chassisTenantAssignments)
+    ? form.chassisTenantAssignments
+    : [];
+  if (
+    chassisTenantAssignments.some((cta: any) => {
+      const assigned = Array.isArray(cta?.assignedTenants) ? cta.assignedTenants : [];
+      return assigned.some((t: any) => {
+        const tId = typeof t === "object" ? (t._id || t.id) : t;
+        const tStr = tId?.toString?.();
+        return Boolean(tStr && (tStr === targetTenantId || (targetSlug && tStr === targetSlug)));
+      });
+    })
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
 export default function DashboardNew() {
   const navigate = useNavigate();
   const { user, tenant: currentTenant } = useAuth();
@@ -1661,18 +1709,7 @@ export default function DashboardNew() {
       const currentTenantIdStr = selectedTenant._id?.toString?.() || selectedTenant.id?.toString?.() || selectedTenant.slug;
 
       const tenantForms = formsData.forms.filter((form: any) => {
-        if (form.isActive === false || form.isDeleted || form.deleted) return false;
-        if (!form.tenantId && (!form.sharedWithTenants || form.sharedWithTenants.length === 0)) return true;
-        const formTenantId = typeof form.tenantId === "object" ? (form.tenantId?._id || form.tenantId?.id) : form.tenantId;
-        const formTenantIdStr = formTenantId?.toString?.();
-        const sharedWithTenants = Array.isArray(form.sharedWithTenants) ? form.sharedWithTenants : [];
-        const isDirect = Boolean(formTenantIdStr && (formTenantIdStr === currentTenantIdStr || formTenantIdStr === selectedTenant.slug));
-        const isShared = sharedWithTenants.some((t: any) => {
-          const tId = typeof t === "object" ? (t._id || t.id) : t;
-          const tStr = tId?.toString?.();
-          return Boolean(tStr && (tStr === currentTenantIdStr || tStr === selectedTenant.slug));
-        });
-        return isDirect || isShared;
+        return isFormForTenant(form, currentTenantIdStr, selectedTenant.slug, user?.role !== "superadmin");
       });
 
       const activeTenantForms = tenantForms.length > 0 ? tenantForms : formsData.forms;
@@ -1695,17 +1732,7 @@ export default function DashboardNew() {
       tenants.forEach((tenant) => {
         const tenantIdStr = tenant._id?.toString?.() || tenant.id?.toString?.() || tenant.slug;
         const tForms = formsData.forms.filter((form: any) => {
-          if (form.isActive === false || form.isDeleted || form.deleted) return false;
-          const formTenantId = typeof form.tenantId === "object" ? (form.tenantId?._id || form.tenantId?.id) : form.tenantId;
-          const formTenantIdStr = formTenantId?.toString?.();
-          const sharedWithTenants = Array.isArray(form.sharedWithTenants) ? form.sharedWithTenants : [];
-          const isDirect = Boolean(formTenantIdStr && (formTenantIdStr === tenantIdStr || formTenantIdStr === tenant.slug));
-          const isShared = sharedWithTenants.some((t: any) => {
-            const tId = typeof t === "object" ? (t._id || t.id) : t;
-            const tStr = tId?.toString?.();
-            return Boolean(tStr && (tStr === tenantIdStr || tStr === tenant.slug));
-          });
-          return isDirect || isShared;
+          return isFormForTenant(form, tenantIdStr, tenant.slug, false);
         });
 
         const tResponses = tForms.reduce((sum: number, form: any) => sum + (form.responseCount || 0), 0);
@@ -1780,31 +1807,7 @@ export default function DashboardNew() {
       const targetSlug = selectedTenant.slug;
 
       const tenantForms = formsData.forms.filter((form: any) => {
-        if (form.isActive === false || form.isDeleted || form.deleted) return false;
-        const formTenantId =
-          typeof form.tenantId === "object"
-            ? (form.tenantId?._id || form.tenantId?.id)
-            : form.tenantId;
-        const formTenantIdStr = formTenantId?.toString?.();
-        const sharedWithTenants = Array.isArray(form.sharedWithTenants)
-          ? form.sharedWithTenants
-          : [];
-
-        const isDirectMatch = Boolean(
-          formTenantIdStr &&
-          (formTenantIdStr === targetTenantId || formTenantIdStr === targetSlug)
-        );
-        const isSharedMatch = sharedWithTenants.some((t: any) => {
-          const tId = typeof t === "object" ? (t._id || t.id) : t;
-          const tStr = tId?.toString?.();
-          return Boolean(tStr && (tStr === targetTenantId || tStr === targetSlug));
-        });
-
-        const matches = isDirectMatch || isSharedMatch;
-        console.log(
-          `  Matches: ${matches} (Direct: ${isDirectMatch}, Shared: ${isSharedMatch})`,
-        );
-        return matches;
+        return isFormForTenant(form, targetTenantId, targetSlug, user?.role !== "superadmin");
       });
 
       console.log(
@@ -2087,19 +2090,9 @@ export default function DashboardNew() {
     const targetTenantId = selectedTenant._id?.toString?.() || selectedTenant.id?.toString?.();
     const targetSlug = selectedTenant.slug;
     return formsData.forms.filter((form: any) => {
-      if (!form.tenantId && (!form.sharedWithTenants || form.sharedWithTenants.length === 0)) return true;
-      const formTenantId = typeof form.tenantId === "object" ? (form.tenantId?._id || form.tenantId?.id) : form.tenantId;
-      const formTenantIdStr = formTenantId?.toString?.();
-      const sharedWithTenants = Array.isArray(form.sharedWithTenants) ? form.sharedWithTenants : [];
-      const isDirectMatch = Boolean(formTenantIdStr && (formTenantIdStr === targetTenantId || formTenantIdStr === targetSlug));
-      const isSharedMatch = sharedWithTenants.some((t: any) => {
-        const tId = typeof t === "object" ? (t._id || t.id) : t;
-        const tStr = tId?.toString?.();
-        return Boolean(tStr && (tStr === targetTenantId || tStr === targetSlug));
-      });
-      return isDirectMatch || isSharedMatch;
+      return isFormForTenant(form, targetTenantId, targetSlug, user?.role !== "superadmin");
     });
-  }, [formsData?.forms, selectedTenant]);
+  }, [formsData?.forms, selectedTenant, user?.role]);
 
   const overallBiwTotals = useMemo(() => {
     if (!biwReviewTableData || biwReviewTableData.length === 0) {
