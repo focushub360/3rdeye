@@ -427,7 +427,26 @@ export const QualityDashboard: React.FC = () => {
 
   // Overall Quality Pie Chart State & Real Data Sync
   type HoveredSliceType = 'all' | 'directOk' | 'reworkCompleted' | 'accepted' | 'rework' | 'rejected' | 'pendingDispatch' | 'pendingData' | 'pendingTvs' | 'dispatched' | 'biwReviewed' | 'tvsReviewed' | 'tvsAccepted' | 'tvsDefects';
-  const [hoveredSlice, setHoveredSlice] = useState<HoveredSliceType>('all');
+  const [selectedSlice, setSelectedSlice] = useState<HoveredSliceType>('all');
+  const [hoverPreview, setHoverPreview] = useState<HoveredSliceType | null>(null);
+  const hoveredSlice: HoveredSliceType = hoverPreview ?? selectedSlice;
+
+  const handleSelectSlice = (slice: HoveredSliceType) => {
+    setSelectedSlice(prev => prev === slice ? 'all' : slice);
+    setHoverPreview(null);
+  };
+
+  const handleHoverSlice = (slice: HoveredSliceType) => {
+    // Only preview hover if no slice is locked, or if hovering over a specific slice while nothing is selected
+    if (selectedSlice === 'all') {
+      setHoverPreview(slice);
+    }
+  };
+
+  const handleHoverLeave = () => {
+    setHoverPreview(null);
+  };
+
   const [pieSearchQuery, setPieSearchQuery] = useState<string>('');
 
   // Forms strictly scoped to active selection (or all if nothing selected)
@@ -796,19 +815,29 @@ export const QualityDashboard: React.FC = () => {
           }
         }
       },
-      onHover: (_event: any, elements: any[]) => {
+      onClick: (_event: any, elements: any[]) => {
         if (elements && elements.length > 0) {
           const idx = elements[0].index;
-          if (idx === 0) setHoveredSlice('directOk');
-          else if (idx === 1) setHoveredSlice('reworkCompleted');
-          else if (idx === 2) setHoveredSlice('rejected');
-          else if (idx === 3) setHoveredSlice('rework');
+          if (idx === 0) handleSelectSlice('directOk');
+          else if (idx === 1) handleSelectSlice('reworkCompleted');
+          else if (idx === 2) handleSelectSlice('rejected');
+          else if (idx === 3) handleSelectSlice('rework');
+        }
+      },
+      onHover: (_event: any, elements: any[]) => {
+        if (selectedSlice !== 'all') return;
+        if (elements && elements.length > 0) {
+          const idx = elements[0].index;
+          if (idx === 0) setHoverPreview('directOk');
+          else if (idx === 1) setHoverPreview('reworkCompleted');
+          else if (idx === 2) setHoverPreview('rejected');
+          else if (idx === 3) setHoverPreview('rework');
         } else {
-          setHoveredSlice('all');
+          setHoverPreview(null);
         }
       }
     };
-  }, [summaryPieDetails, activeSelectedForms, selectedFormIds]);
+  }, [summaryPieDetails, activeSelectedForms, selectedFormIds, selectedSlice]);
 
   const selectedFormTitles = useMemo(() => {
     return availableFormOptions
@@ -1967,7 +1996,7 @@ export const QualityDashboard: React.FC = () => {
               <div className="flex flex-wrap items-center gap-1.5 bg-gray-50 p-1 rounded-lg border border-gray-200">
                 <button
                   type="button"
-                  onClick={() => setHoveredSlice('all')}
+                  onClick={() => { setSelectedSlice('all'); setHoverPreview(null); }}
                   className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${hoveredSlice === 'all'
                     ? 'bg-white text-gray-900 shadow-xs border border-gray-200'
                     : 'text-gray-600 hover:text-gray-900'
@@ -1977,7 +2006,7 @@ export const QualityDashboard: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setHoveredSlice('accepted')}
+                  onClick={() => handleSelectSlice('accepted')}
                   className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all ${hoveredSlice === 'accepted'
                     ? 'bg-green-600 text-white shadow-xs'
                     : 'text-green-700 hover:bg-green-50'
@@ -1988,7 +2017,7 @@ export const QualityDashboard: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setHoveredSlice('rework')}
+                  onClick={() => handleSelectSlice('rework')}
                   className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all ${hoveredSlice === 'rework'
                     ? 'bg-amber-500 text-white shadow-xs'
                     : 'text-amber-700 hover:bg-amber-50'
@@ -1999,7 +2028,7 @@ export const QualityDashboard: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setHoveredSlice('rejected')}
+                  onClick={() => handleSelectSlice('rejected')}
                   className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all ${hoveredSlice === 'rejected'
                     ? 'bg-red-600 text-white shadow-xs'
                     : 'text-red-700 hover:bg-red-50'
@@ -2018,8 +2047,9 @@ export const QualityDashboard: React.FC = () => {
                 <div className="flex flex-col gap-2.5 justify-center items-center flex-shrink-0">
                   {/* Total TVS Review */}
                   <div
-                    onClick={() => setHoveredSlice(hoveredSlice === 'tvsReviewed' ? 'all' : 'tvsReviewed')}
-                    onMouseEnter={() => setHoveredSlice('tvsReviewed')}
+                    onClick={() => handleSelectSlice('tvsReviewed')}
+                    onMouseEnter={() => handleHoverSlice('tvsReviewed')}
+                    onMouseLeave={handleHoverLeave}
                     className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
                       hoveredSlice === 'tvsReviewed'
                         ? 'bg-purple-100/90 border-purple-400 ring-2 ring-purple-300'
@@ -2039,8 +2069,9 @@ export const QualityDashboard: React.FC = () => {
 
                   {/* Pending TVS Review */}
                   <div
-                    onClick={() => setHoveredSlice(hoveredSlice === 'pendingTvs' ? 'all' : 'pendingTvs')}
-                    onMouseEnter={() => setHoveredSlice('pendingTvs')}
+                    onClick={() => handleSelectSlice('pendingTvs')}
+                    onMouseEnter={() => handleHoverSlice('pendingTvs')}
+                    onMouseLeave={handleHoverLeave}
                     className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
                       hoveredSlice === 'pendingTvs'
                         ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300'
@@ -2060,8 +2091,9 @@ export const QualityDashboard: React.FC = () => {
 
                   {/* TVS Accepted */}
                   <div
-                    onClick={() => setHoveredSlice(hoveredSlice === 'tvsAccepted' ? 'all' : 'tvsAccepted')}
-                    onMouseEnter={() => setHoveredSlice('tvsAccepted')}
+                    onClick={() => handleSelectSlice('tvsAccepted')}
+                    onMouseEnter={() => handleHoverSlice('tvsAccepted')}
+                    onMouseLeave={handleHoverLeave}
                     className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
                       hoveredSlice === 'tvsAccepted'
                         ? 'bg-emerald-100/90 border-emerald-400 ring-2 ring-emerald-300'
@@ -2081,8 +2113,9 @@ export const QualityDashboard: React.FC = () => {
 
                   {/* TVS Defects / Rework */}
                   <div
-                    onClick={() => setHoveredSlice(hoveredSlice === 'tvsDefects' ? 'all' : 'tvsDefects')}
-                    onMouseEnter={() => setHoveredSlice('tvsDefects')}
+                    onClick={() => handleSelectSlice('tvsDefects')}
+                    onMouseEnter={() => handleHoverSlice('tvsDefects')}
+                    onMouseLeave={handleHoverLeave}
                     className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
                       hoveredSlice === 'tvsDefects'
                         ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-300'
@@ -2105,7 +2138,7 @@ export const QualityDashboard: React.FC = () => {
                 <div className="flex-1 w-full min-w-0 flex flex-col items-center justify-center">
                   <div
                     className="relative w-full max-w-[320px] h-[240px] sm:h-[260px] flex items-center justify-center"
-                    onMouseLeave={() => setHoveredSlice('all')}
+                    onMouseLeave={handleHoverLeave}
                   >
                     <Doughnut data={pieChartData} options={pieChartOptions} />
                     <div
@@ -2181,8 +2214,9 @@ export const QualityDashboard: React.FC = () => {
                   {/* 4 Legend Badges Underneath Chart with exact color dots */}
                   <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 mt-3">
                     <div
-                      onClick={() => setHoveredSlice(hoveredSlice === 'directOk' ? 'all' : 'directOk')}
-                      onMouseEnter={() => setHoveredSlice('directOk')}
+                      onClick={() => handleSelectSlice('directOk')}
+                      onMouseEnter={() => handleHoverSlice('directOk')}
+                      onMouseLeave={handleHoverLeave}
                       className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${hoveredSlice === 'directOk' ? 'bg-green-100 text-green-800 ring-1 ring-green-400' : 'text-gray-700 hover:text-green-700 hover:bg-green-50'
                         }`}
                     >
@@ -2190,8 +2224,9 @@ export const QualityDashboard: React.FC = () => {
                       <span>Direct Ok</span>
                     </div>
                     <div
-                      onClick={() => setHoveredSlice(hoveredSlice === 'reworkCompleted' ? 'all' : 'reworkCompleted')}
-                      onMouseEnter={() => setHoveredSlice('reworkCompleted')}
+                      onClick={() => handleSelectSlice('reworkCompleted')}
+                      onMouseEnter={() => handleHoverSlice('reworkCompleted')}
+                      onMouseLeave={handleHoverLeave}
                       className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${hoveredSlice === 'reworkCompleted' ? 'bg-blue-100 text-blue-800 ring-1 ring-blue-400' : 'text-gray-700 hover:text-blue-700 hover:bg-blue-50'
                         }`}
                     >
@@ -2199,8 +2234,9 @@ export const QualityDashboard: React.FC = () => {
                       <span>Rework Accepted</span>
                     </div>
                     <div
-                      onClick={() => setHoveredSlice(hoveredSlice === 'rejected' ? 'all' : 'rejected')}
-                      onMouseEnter={() => setHoveredSlice('rejected')}
+                      onClick={() => handleSelectSlice('rejected')}
+                      onMouseEnter={() => handleHoverSlice('rejected')}
+                      onMouseLeave={handleHoverLeave}
                       className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${hoveredSlice === 'rejected' ? 'bg-red-100 text-red-800 ring-1 ring-red-400' : 'text-gray-700 hover:text-red-700 hover:bg-red-50'
                         }`}
                     >
@@ -2208,8 +2244,9 @@ export const QualityDashboard: React.FC = () => {
                       <span>Rejected</span>
                     </div>
                     <div
-                      onClick={() => setHoveredSlice(hoveredSlice === 'rework' ? 'all' : 'rework')}
-                      onMouseEnter={() => setHoveredSlice('rework')}
+                      onClick={() => handleSelectSlice('rework')}
+                      onMouseEnter={() => handleHoverSlice('rework')}
+                      onMouseLeave={handleHoverLeave}
                       className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2 py-0.5 rounded-md transition-all ${hoveredSlice === 'rework' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-400' : 'text-gray-700 hover:text-amber-700 hover:bg-amber-50'
                         }`}
                     >
@@ -2223,8 +2260,9 @@ export const QualityDashboard: React.FC = () => {
                 <div className="flex flex-row sm:flex-col gap-2.5 flex-wrap sm:flex-nowrap justify-center items-center flex-shrink-0">
                   {/* Dispatched */}
                   <div
-                    onClick={() => setHoveredSlice(hoveredSlice === 'dispatched' ? 'all' : 'dispatched')}
-                    onMouseEnter={() => setHoveredSlice('dispatched')}
+                    onClick={() => handleSelectSlice('dispatched')}
+                    onMouseEnter={() => handleHoverSlice('dispatched')}
+                    onMouseLeave={handleHoverLeave}
                     className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
                       hoveredSlice === 'dispatched'
                         ? 'bg-indigo-100/90 border-indigo-400 ring-2 ring-indigo-300'
@@ -2244,18 +2282,10 @@ export const QualityDashboard: React.FC = () => {
 
                   {/* Pending Dispatch */}
                   <div
-                    onClick={() => {
-                      if (hoveredSlice === 'pendingDispatch') {
-                        setOverallDispatchFilter('pending');
-                        setActiveTab('overall');
-                        const el = document.getElementById('analytics-tabs-section');
-                        if (el) el.scrollIntoView({ behavior: 'smooth' });
-                      } else {
-                        setHoveredSlice('pendingDispatch');
-                      }
-                    }}
-                    onMouseEnter={() => setHoveredSlice('pendingDispatch')}
-                    title={hoveredSlice === 'pendingDispatch' ? "Click again to view all Pending Dispatch responses in table" : "Click to view Pending Dispatch forms"}
+                    onClick={() => handleSelectSlice('pendingDispatch')}
+                    onMouseEnter={() => handleHoverSlice('pendingDispatch')}
+                    onMouseLeave={handleHoverLeave}
+                    title="Click to view and lock Pending Dispatch forms"
                     className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
                       hoveredSlice === 'pendingDispatch'
                         ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300 hover:bg-amber-200/80 shadow-xs'
@@ -2276,8 +2306,9 @@ export const QualityDashboard: React.FC = () => {
 
                   {/* Total BIW Review */}
                   <div
-                    onClick={() => setHoveredSlice(hoveredSlice === 'biwReviewed' ? 'all' : 'biwReviewed')}
-                    onMouseEnter={() => setHoveredSlice('biwReviewed')}
+                    onClick={() => handleSelectSlice('biwReviewed')}
+                    onMouseEnter={() => handleHoverSlice('biwReviewed')}
+                    onMouseLeave={handleHoverLeave}
                     className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
                       hoveredSlice === 'biwReviewed'
                         ? 'bg-teal-100/90 border-teal-400 ring-2 ring-teal-300'
@@ -2297,8 +2328,9 @@ export const QualityDashboard: React.FC = () => {
 
                   {/* Pending Data */}
                   <div
-                    onClick={() => setHoveredSlice(hoveredSlice === 'pendingData' ? 'all' : 'pendingData')}
-                    onMouseEnter={() => setHoveredSlice('pendingData')}
+                    onClick={() => handleSelectSlice('pendingData')}
+                    onMouseEnter={() => handleHoverSlice('pendingData')}
+                    onMouseLeave={handleHoverLeave}
                     className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
                       hoveredSlice === 'pendingData'
                         ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-300'
@@ -2323,8 +2355,9 @@ export const QualityDashboard: React.FC = () => {
             <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-6 gap-2 pt-3 border-t border-gray-100">
               {/* Total Submissions */}
               <div
-                onClick={() => setHoveredSlice('all')}
-                onMouseEnter={() => setHoveredSlice('all')}
+                onClick={() => { setSelectedSlice('all'); setHoverPreview(null); }}
+                onMouseEnter={() => handleHoverSlice('all')}
+                onMouseLeave={handleHoverLeave}
                 className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${hoveredSlice === 'all'
                   ? 'bg-purple-100/90 border-purple-400 ring-2 ring-purple-300'
                   : 'bg-purple-50/70 border-purple-100 hover:bg-purple-100/60'
@@ -2343,8 +2376,9 @@ export const QualityDashboard: React.FC = () => {
 
               {/* Direct Ok */}
               <div
-                onClick={() => setHoveredSlice('directOk')}
-                onMouseEnter={() => setHoveredSlice('directOk')}
+                onClick={() => handleSelectSlice('directOk')}
+                onMouseEnter={() => handleHoverSlice('directOk')}
+                onMouseLeave={handleHoverLeave}
                 className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${hoveredSlice === 'directOk'
                   ? 'bg-green-100/90 border-green-400 ring-2 ring-green-300'
                   : 'bg-green-50/70 border-green-100 hover:bg-green-100/60'
@@ -2363,8 +2397,9 @@ export const QualityDashboard: React.FC = () => {
 
               {/* Rework Accepted */}
               <div
-                onClick={() => setHoveredSlice('reworkCompleted')}
-                onMouseEnter={() => setHoveredSlice('reworkCompleted')}
+                onClick={() => handleSelectSlice('reworkCompleted')}
+                onMouseEnter={() => handleHoverSlice('reworkCompleted')}
+                onMouseLeave={handleHoverLeave}
                 className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${hoveredSlice === 'reworkCompleted'
                   ? 'bg-blue-100/90 border-blue-400 ring-2 ring-blue-300'
                   : 'bg-blue-50/70 border-blue-100 hover:bg-blue-100/60'
@@ -2383,8 +2418,9 @@ export const QualityDashboard: React.FC = () => {
 
               {/* Rework */}
               <div
-                onClick={() => setHoveredSlice('rework')}
-                onMouseEnter={() => setHoveredSlice('rework')}
+                onClick={() => handleSelectSlice('rework')}
+                onMouseEnter={() => handleHoverSlice('rework')}
+                onMouseLeave={handleHoverLeave}
                 className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${hoveredSlice === 'rework'
                   ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300'
                   : 'bg-amber-50/70 border-amber-100 hover:bg-amber-100/60'
@@ -2403,8 +2439,9 @@ export const QualityDashboard: React.FC = () => {
 
               {/* Rejected */}
               <div
-                onClick={() => setHoveredSlice('rejected')}
-                onMouseEnter={() => setHoveredSlice('rejected')}
+                onClick={() => handleSelectSlice('rejected')}
+                onMouseEnter={() => handleHoverSlice('rejected')}
+                onMouseLeave={handleHoverLeave}
                 className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${hoveredSlice === 'rejected'
                   ? 'bg-red-100/90 border-red-400 ring-2 ring-red-300'
                   : 'bg-red-50/70 border-red-100 hover:bg-red-100/60'
@@ -2423,8 +2460,9 @@ export const QualityDashboard: React.FC = () => {
 
               {/* Total Defects */}
               <div
-                onClick={() => setHoveredSlice('rejected')}
-                onMouseEnter={() => setHoveredSlice('rejected')}
+                onClick={() => handleSelectSlice('rejected')}
+                onMouseEnter={() => handleHoverSlice('rejected')}
+                onMouseLeave={handleHoverLeave}
                 className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] cursor-pointer transition-all ${hoveredSlice === 'rejected'
                   ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-300'
                   : 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/60'
@@ -2496,7 +2534,7 @@ export const QualityDashboard: React.FC = () => {
                     {hoveredSlice !== 'all' && (
                       <button
                         type="button"
-                        onClick={() => setHoveredSlice('all')}
+                        onClick={() => { setSelectedSlice('all'); setHoverPreview(null); }}
                         className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-md transition-colors cursor-pointer"
                       >
                         Reset Filter
