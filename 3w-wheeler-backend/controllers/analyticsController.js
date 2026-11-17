@@ -3819,6 +3819,9 @@ export const getQualitySummary = async (req, res) => {
               $group: {
                 _id: null,
                 totalChecked: { $sum: 1 },
+                total30Count: {
+                  $sum: { $cond: [{ $gte: ['$createdAt', thirtyDaysAgo] }, 1, 0] }
+                },
                 dispatched30Count: {
                   $sum: {
                     $cond: [
@@ -3838,21 +3841,17 @@ export const getQualitySummary = async (req, res) => {
                     ]
                   }
                 },
-                approved30Count: {
+                defect30Count: {
                   $sum: {
                     $cond: [
                       {
                         $and: [
                           { $gte: ['$createdAt', thirtyDaysAgo] },
                           {
-                            $not: {
-                              $or: [
-                                { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
-                                { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
-                                { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
-                                { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
-                              ]
-                            }
+                            $or: [
+                              { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                              { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] }
+                            ]
                           }
                         ]
                       },
@@ -3988,6 +3987,9 @@ export const getQualitySummary = async (req, res) => {
               $group: {
                 _id: '$questionId',
                 totalChecked: { $sum: 1 },
+                total30Count: {
+                  $sum: { $cond: [{ $gte: ['$createdAt', thirtyDaysAgo] }, 1, 0] }
+                },
                 dispatched30Count: {
                   $sum: {
                     $cond: [
@@ -4007,21 +4009,17 @@ export const getQualitySummary = async (req, res) => {
                     ]
                   }
                 },
-                approved30Count: {
+                defect30Count: {
                   $sum: {
                     $cond: [
                       {
                         $and: [
                           { $gte: ['$createdAt', thirtyDaysAgo] },
                           {
-                            $not: {
-                              $or: [
-                                { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
-                                { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
-                                { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
-                                { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
-                              ]
-                            }
+                            $or: [
+                              { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                              { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] }
+                            ]
                           }
                         ]
                       },
@@ -4387,8 +4385,9 @@ export const getQualitySummary = async (req, res) => {
     const totalDispatched = summary.dispatchedCount || 0;
     // Pending Dispatch: strictly for the last 30 days alone
     const isWiderThan30Days = !startDate || (startObj && startObj < thirtyDaysAgo);
-    const pendingDispatch = isWiderThan30Days && summary.approved30Count !== undefined
-      ? Math.max(0, (summary.approved30Count || 0) - (summary.dispatched30Count || 0))
+    const approved30 = Math.max(0, (summary.total30Count || 0) - (summary.defect30Count || 0));
+    const pendingDispatch = isWiderThan30Days && summary.total30Count !== undefined
+      ? Math.max(0, approved30 - (summary.dispatched30Count || 0))
       : Math.max(0, (directOkCount + reworkAcceptedCount) - totalDispatched);
     const totalBiwReviewed = summary.biwReviewedCount || 0;
     const pendingBiw = Math.max(0, totalDispatched - totalBiwReviewed);
@@ -4612,6 +4611,9 @@ export const getQualitySummary = async (req, res) => {
       let bDefect = 0;
       let bReviewed = 0;
       let dDispatched = 0;
+      let t30 = 0;
+      let disp30 = 0;
+      let def30 = 0;
       let tvsAccept = 0;
       let tvsReject = 0;
       let tvsRework = 0;
@@ -4632,6 +4634,9 @@ export const getQualitySummary = async (req, res) => {
           bDefect += m.biwDefectCount || 0;
           bReviewed += m.biwReviewedCount || 0;
           dDispatched += m.dispatchedCount || 0;
+          t30 += m.total30Count || 0;
+          disp30 += m.dispatched30Count || 0;
+          def30 += m.defect30Count || 0;
           tvsAccept += m.tvsAcceptCount || 0;
           tvsReject += m.tvsRejectCount || 0;
           tvsRework += m.tvsReworkCount || 0;
@@ -4694,8 +4699,8 @@ export const getQualitySummary = async (req, res) => {
         rejectedCount: finalRej,
         directOkCount: directOk,
         dispatchedCount: dDispatched,
-        pendingDispatchCount: isWiderThan30Days && m.approved30Count !== undefined
-          ? Math.max(0, (m.approved30Count || 0) - (m.dispatched30Count || 0))
+        pendingDispatchCount: isWiderThan30Days && t30 > 0
+          ? Math.max(0, (t30 - def30) - disp30)
           : Math.max(0, (directOk + rwAccepted) - dDispatched),
         biwAcceptCount: bAccept,
         biwRejectCount: bReject,
