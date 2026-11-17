@@ -5086,6 +5086,17 @@ export const getResponsesByForm = async (req, res) => {
       ];
     }
 
+    // Add dispatch filter if provided (e.g. dispatch=pending or dispatch=dispatched)
+    const dispatchParam = req.query.dispatch || req.query.dispatchStatus;
+    if (dispatchParam) {
+      const dLower = String(dispatchParam).toLowerCase().trim();
+      if (dLower === 'pending' || dLower === 'pending dispatch' || dLower === 'not_dispatched') {
+        query.isDispatched = { $ne: true };
+      } else if (dLower === 'dispatched' || dLower === 'true') {
+        query.isDispatched = true;
+      }
+    }
+
     // Add partial submission filter
     if (includePartial !== 'true') {
       query.isSectionSubmit = { $ne: true };

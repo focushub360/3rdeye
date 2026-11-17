@@ -5311,11 +5311,13 @@ export default function FormAnalyticsDashboard({
       const currentBatchId = searchParams.get("batchId");
       const isUploadOnly = searchParams.get("uploadOnly") === "true";
       const currentUnits = searchParams.get("units") || searchParams.get("identificationNumber") || searchParams.get("chassisNumber");
+      const currentDispatch = searchParams.get("dispatch") || searchParams.get("dispatchStatus");
       const responsesData = await apiClient.getAllFormResponses(id, {
         analytics: true,
         forceNetwork: true,
         ...(currentBatchId ? { batchId: currentBatchId } : {}),
         ...(isUploadOnly ? { uploadOnly: true } : {}),
+        ...(currentDispatch ? { dispatch: currentDispatch } : {}),
         onPage: ({ responses: pageResponses, pageNumber, totalPages, totalResponses, isLast }: {
           responses: any[];
           pageNumber: number;
@@ -5358,6 +5360,7 @@ export default function FormAnalyticsDashboard({
       const currentBatchId = searchParams.get("batchId");
       const isUploadOnly = searchParams.get("uploadOnly") === "true";
       const currentUnits = searchParams.get("units") || searchParams.get("identificationNumber") || searchParams.get("chassisNumber");
+      const currentDispatch = searchParams.get("dispatch") || searchParams.get("dispatchStatus");
       const data = await apiClient.getFormResponses(id, {
         page: page,
         limit: responsesPageSize,
@@ -5365,6 +5368,7 @@ export default function FormAnalyticsDashboard({
         forceNetwork: true,
         ...(currentBatchId ? { batchId: currentBatchId } : {}),
         ...(isUploadOnly ? { uploadOnly: true } : {}),
+        ...(currentDispatch ? { dispatch: currentDispatch } : {}),
       });
       setTableResponses(data.responses || []);
       setTotalResponsesCount(data.pagination?.totalResponses || 0);
@@ -5582,6 +5586,7 @@ export default function FormAnalyticsDashboard({
   const urlRangeEnd = searchParams.get("rangeEnd");
   const urlIdentification = searchParams.get("identification") || searchParams.get("identificationNumber");
   const urlChassis = searchParams.get("chassis") || searchParams.get("chassisNumber");
+  const urlDispatch = searchParams.get("dispatch") || searchParams.get("dispatchStatus");
 
   const targetUnitsSet = useMemo(() => {
     const set = new Set<string>();
@@ -5606,7 +5611,7 @@ export default function FormAnalyticsDashboard({
 
   useEffect(() => {
     const unitsKey = `${urlUnitsParam || ""}_${urlRangeStart || ""}_${urlRangeEnd || ""}_${urlIdentification || ""}_${urlChassis || ""}`;
-    const batchKey = `${urlBatchId || ""}_${urlUploadOnly || ""}_${unitsKey}`;
+    const batchKey = `${urlBatchId || ""}_${urlUploadOnly || ""}_${urlDispatch || ""}_${unitsKey}`;
     if (activeTab === "responses" && id) {
       if (!loadedTabs.has("responses") || lastBatchParamRef.current !== batchKey) {
         lastBatchParamRef.current = batchKey;
@@ -5617,7 +5622,7 @@ export default function FormAnalyticsDashboard({
         setLoadedTabs((prev) => new Set(prev).add("responses"));
       }
     }
-  }, [activeTab, id, loadedTabs, urlBatchId, urlUploadOnly, urlUnitsParam, urlRangeStart, urlRangeEnd, urlIdentification, urlChassis]);
+  }, [activeTab, id, loadedTabs, urlBatchId, urlUploadOnly, urlDispatch, urlUnitsParam, urlRangeStart, urlRangeEnd, urlIdentification, urlChassis]);
 
   // Page / page-size changes on an already-loaded Responses tab re-fetch
   // from the server instead of re-slicing an in-memory array.
@@ -7442,13 +7447,18 @@ export default function FormAnalyticsDashboard({
           return isDispatched;
         }
         if (avLower.includes("pending") || avLower.includes("not")) {
+          const respId = response.id || (response as any)._id;
           const s = String(
+            (respId ? tableDisplayStatuses[respId] || responseStatuses[respId] : null) ||
             tableDisplayStatuses[response.id] ||
+            tableDisplayStatuses[(response as any)._id] ||
             responseStatuses[response.id] ||
+            responseStatuses[(response as any)._id] ||
+            computeFastRowStatus(response, chassisQuestionId) ||
             response.status ||
             ""
           ).toLowerCase().trim();
-          const isDefect = s.includes("reject") || (s.includes("rework") && !s.includes("rework accepted") && !s.includes("rework completed"));
+          const isDefect = s.includes("reject") || (s.includes("rework") && !s.includes("rework accepted") && !s.includes("rework completed") && !s.includes("rework ok"));
           const isBiwDefect = response.biwReview?.status === "Rejected" || response.biwReview?.status === "Reworked";
           return !isDispatched && !isDefect && !isBiwDefect;
         }
@@ -8999,7 +9009,10 @@ export default function FormAnalyticsDashboard({
     const allUnitChassis = new Set<string>();
     let nonChassisBiwReviewed = 0;
 
-    filteredResponses.forEach((response) => {
+    // If full responses dataset is still streaming, compute stats from available table responses
+    const statsSource = (filteredResponses.length > 0 || responses.length > 0) ? filteredResponses : tableResponses;
+
+    statsSource.forEach((response) => {
       const respId = response.id || (response as any)._id;
       const statusVal =
         tableDisplayStatuses[response.id] ||
@@ -14922,6 +14935,12 @@ export default function FormAnalyticsDashboard({
                                 <span className="font-bold">{colLabel}:</span> {vals.slice(0, 2).join(", ")}{vals.length > 2 ? ` +${vals.length - 2}` : ""}
                                 <button
                                   onClick={() => {
+                                    if (colId === "__dispatch") {
+                                      const nextParams = new URLSearchParams(searchParams);
+                                      nextParams.delete("dispatch");
+                                      nextParams.delete("dispatchStatus");
+                                      navigate(`/forms/${id}/analytics?${nextParams.toString()}`, { replace: true });
+                                    }
                                     startFilterTransition(() => {
                                       setColumnFilters((prev) => {
                                         const next = { ...prev };
@@ -14941,6 +14960,10 @@ export default function FormAnalyticsDashboard({
                         </div>
                         <button
                           onClick={() => {
+                            const nextParams = new URLSearchParams(searchParams);
+                            nextParams.delete("dispatch");
+                            nextParams.delete("dispatchStatus");
+                            navigate(`/forms/${id}/analytics?${nextParams.toString()}`, { replace: true });
                             startFilterTransition(() => {
                               setColumnFilters({});
                               setAppliedFilters([]);
@@ -14960,6 +14983,10 @@ export default function FormAnalyticsDashboard({
                         {/* Total Submissions */}
                         <div
                           onClick={() => {
+                            const nextParams = new URLSearchParams(searchParams);
+                            nextParams.delete("dispatch");
+                            nextParams.delete("dispatchStatus");
+                            navigate(`/forms/${id}/analytics?${nextParams.toString()}`, { replace: true });
                             startFilterTransition(() => {
                               setColumnFilters((prev) => {
                                 const next = { ...prev };
@@ -15125,10 +15152,17 @@ export default function FormAnalyticsDashboard({
                         {/* Dispatched */}
                         <div
                           onClick={() => {
+                            const nextParams = new URLSearchParams(searchParams);
+                            const isDispatched = columnFilters["__dispatch"]?.includes("Dispatched / Enabled");
+                            if (isDispatched) {
+                              nextParams.delete("dispatch");
+                              nextParams.delete("dispatchStatus");
+                            } else {
+                              nextParams.set("dispatch", "dispatched");
+                            }
+                            navigate(`/forms/${id}/analytics?${nextParams.toString()}`, { replace: true });
                             startFilterTransition(() => {
                               setColumnFilters((prev) => {
-                                const curr = prev["__dispatch"] || [];
-                                const isDispatched = curr.includes("Dispatched / Enabled");
                                 const next = { ...prev };
                                 if (isDispatched) {
                                   delete next["__dispatch"];
@@ -15159,10 +15193,17 @@ export default function FormAnalyticsDashboard({
                         {/* Pending Dispatch */}
                         <div
                           onClick={() => {
+                            const nextParams = new URLSearchParams(searchParams);
+                            const isPending = columnFilters["__dispatch"]?.includes("Pending Dispatch");
+                            if (isPending) {
+                              nextParams.delete("dispatch");
+                              nextParams.delete("dispatchStatus");
+                            } else {
+                              nextParams.set("dispatch", "pending");
+                            }
+                            navigate(`/forms/${id}/analytics?${nextParams.toString()}`, { replace: true });
                             startFilterTransition(() => {
                               setColumnFilters((prev) => {
-                                const curr = prev["__dispatch"] || [];
-                                const isPending = curr.includes("Pending Dispatch");
                                 const next = { ...prev };
                                 if (isPending) {
                                   delete next["__dispatch"];

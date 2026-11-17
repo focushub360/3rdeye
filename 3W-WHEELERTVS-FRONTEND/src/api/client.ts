@@ -1226,6 +1226,7 @@ class ApiClient {
       rangeEnd?: string;
       startDate?: string;
       endDate?: string;
+      dispatch?: string;
       units?: string;
       identificationNumber?: string;
       chassisNumber?: string;
@@ -1241,6 +1242,7 @@ class ApiClient {
     if (options?.includePartial) query.set("includePartial", "true");
     if (options?.batchId) query.set("batchId", options.batchId);
     if (options?.uploadOnly) query.set("uploadOnly", "true");
+    if (options?.dispatch) query.set("dispatch", options.dispatch);
     if (options?.startDate) query.set("startDate", options.startDate);
     if (options?.endDate) query.set("endDate", options.endDate);
     if (options?.units) query.set("units", options.units);
@@ -3701,6 +3703,7 @@ class ApiClient {
       endDate?: string;
       batchId?: string;
       uploadOnly?: boolean;
+      dispatch?: string;
       units?: string;
       identificationNumber?: string;
       chassisNumber?: string;
@@ -3738,6 +3741,7 @@ class ApiClient {
       endDate: options?.endDate,
       batchId: options?.batchId,
       uploadOnly: options?.uploadOnly,
+      dispatch: options?.dispatch,
       units: options?.units,
       identificationNumber: options?.identificationNumber,
       chassisNumber: options?.chassisNumber,
@@ -3779,6 +3783,7 @@ class ApiClient {
               endDate: options?.endDate,
               batchId: options?.batchId,
               uploadOnly: options?.uploadOnly,
+              dispatch: options?.dispatch,
             }).then((res) => ({ pageNumber: p, responses: res.responses || [] }))
           )
         );
@@ -3810,6 +3815,7 @@ class ApiClient {
                 endDate: options?.endDate,
                 batchId: options?.batchId,
                 uploadOnly: options?.uploadOnly,
+                dispatch: options?.dispatch,
               });
               const retryResponses = retryRes.responses || [];
               allResponses = allResponses.concat(retryResponses);
