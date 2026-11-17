@@ -474,7 +474,7 @@ export const QualityDashboard: React.FC = () => {
     const directOkCount = matchedForms.reduce((sum: number, f: any) => sum + (f.directOkCount !== undefined ? f.directOkCount : Math.max(0, (f.acceptCount || 0) - (f.reworkAcceptedCount || 0))), 0);
 
     const totalDispatched = matchedForms.reduce((sum: number, f: any) => sum + (f.dispatchedCount || 0), 0);
-    const pendingDispatch = Math.max(0, (directOkCount + reworkAcceptedCount) - totalDispatched);
+    const pendingDispatch = matchedForms.reduce((sum: number, f: any) => sum + (f.pendingDispatchCount !== undefined ? f.pendingDispatchCount : Math.max(0, ((f.directOkCount || 0) + (f.reworkAcceptedCount || 0)) - (f.dispatchedCount || 0))), 0);
     const totalBiwReviewed = matchedForms.reduce((sum: number, f: any) => sum + (f.biwReviewedCount !== undefined ? f.biwReviewedCount : ((f.biwAcceptCount || 0) + (f.biwDefectCount || 0))), 0);
     const pendingBiw = Math.max(0, totalDispatched - totalBiwReviewed);
     const tvsReviewedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsReviewedCount || 0), 0);
@@ -628,8 +628,10 @@ export const QualityDashboard: React.FC = () => {
     const defectsPercent = (totalDefects / total) * 100;
 
     const dispatchedPercent = (totalDispatched / total) * 100;
-    // Pending dispatch BIW = Direct Ok + Rework Accepted - Dispatched
-    const pendingDispatchCount = Math.max(0, (directOk + reworkCompleted) - totalDispatched);
+    // Pending dispatch BIW: strictly for the last 30 days alone
+    const pendingDispatchCount = activeSummary?.pendingDispatch !== undefined
+      ? activeSummary.pendingDispatch
+      : Math.max(0, (directOk + reworkCompleted) - totalDispatched);
     const pendingDispatchPercent = total > 0 ? (pendingDispatchCount / total) * 100 : 0;
 
     const biwReviewedCount = Math.min(total, totalBiwReviewed);
@@ -2440,7 +2442,7 @@ export const QualityDashboard: React.FC = () => {
                       {hoveredSlice === 'accepted' && 'Form-Wise Accepted Contributions'}
                       {hoveredSlice === 'rework' && 'Form-Wise Ongoing Rework Contribution'}
                       {hoveredSlice === 'rejected' && 'Form-Wise Rejected Contribution'}
-                      {hoveredSlice === 'pendingDispatch' && 'Form-Wise Pending Dispatch Contribution'}
+                      {hoveredSlice === 'pendingDispatch' && 'Form-Wise Pending Dispatch Contribution (Last 30 Days)'}
                       {hoveredSlice === 'pendingData' && 'Form-Wise Pending Data (BIW Review) Contribution'}
                       {hoveredSlice === 'pendingTvs' && 'Form-Wise Pending TVS Review Contribution'}
                       {hoveredSlice === 'dispatched' && 'Form-Wise Dispatched Contribution'}
@@ -2491,7 +2493,7 @@ export const QualityDashboard: React.FC = () => {
                       if (hoveredSlice === 'accepted') return acc;
                       if (hoveredSlice === 'rework') return rwk;
                       if (hoveredSlice === 'rejected') return rej;
-                      if (hoveredSlice === 'pendingDispatch') return Math.max(0, (dirOk + rwkAcc) - disp);
+                      if (hoveredSlice === 'pendingDispatch') return f.pendingDispatchCount !== undefined ? f.pendingDispatchCount : Math.max(0, (dirOk + rwkAcc) - disp);
                       if (hoveredSlice === 'pendingData') return Math.max(0, disp - biw);
                       if (hoveredSlice === 'pendingTvs') return Math.max(0, disp - tvs);
                       if (hoveredSlice === 'dispatched') return disp;
@@ -2522,7 +2524,9 @@ export const QualityDashboard: React.FC = () => {
                     const formTvsRework = form.tvsReworkCount || 0;
                     const formTvsDefects = formTvsReject + formTvsRework;
 
-                    const formPendingDispatch = Math.max(0, (directOk + reworkAccepted) - formDispatched);
+                    const formPendingDispatch = form.pendingDispatchCount !== undefined
+                      ? form.pendingDispatchCount
+                      : Math.max(0, (directOk + reworkAccepted) - formDispatched);
                     const formPendingData = Math.max(0, formDispatched - formBiwReviewed);
                     const formPendingTvs = Math.max(0, formDispatched - formTvsReviewed);
 
