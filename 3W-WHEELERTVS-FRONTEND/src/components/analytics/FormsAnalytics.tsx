@@ -2235,37 +2235,33 @@ export default function FormsAnalytics() {
               </span>
             )}
 
-            {isOwner && (
-              <>
-                <span
-                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${isLocationEnabled
-                    ? "bg-blue-100 text-blue-800"
-                    : "bg-neutral-200 text-neutral-700"
-                    }`}
-                >
-                  <MapPin className="w-3 h-3" />
-                  {isLocationEnabled ? "Location Enabled" : "Location Disabled"}
-                </span>
-                <span
-                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2.5 sm:py-0.5 rounded-full text-[9px] sm:text-[10px] font-medium border ${form.viewType === "question-wise"
-                    ? "bg-orange-100 text-orange-800 border-orange-200"
-                    : "bg-blue-100 text-blue-800 border-blue-200"
-                    }`}
-                >
-                  {form.viewType === "question-wise" ? (
-                    <>
-                      <Split className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                      Question-wise
-                    </>
-                  ) : (
-                    <>
-                      <Layout className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                      Section-wise
-                    </>
-                  )}
-                </span>
-              </>
-            )}
+            <span
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${isLocationEnabled
+                ? "bg-blue-100 text-blue-800"
+                : "bg-neutral-200 text-neutral-700"
+                }`}
+            >
+              <MapPin className="w-3 h-3" />
+              {isLocationEnabled ? "Location Enabled" : "Location Disabled"}
+            </span>
+            <span
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2.5 sm:py-0.5 rounded-full text-[9px] sm:text-[10px] font-medium border ${form.viewType === "question-wise"
+                ? "bg-orange-100 text-orange-800 border-orange-200"
+                : "bg-blue-100 text-blue-800 border-blue-200"
+                }`}
+            >
+              {form.viewType === "question-wise" ? (
+                <>
+                  <Split className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                  Question-wise
+                </>
+              ) : (
+                <>
+                  <Layout className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                  Section-wise
+                </>
+              )}
+            </span>
           </div>
 
           {isOwner && (
@@ -2330,10 +2326,10 @@ export default function FormsAnalytics() {
                         ? "bg-purple-600 hover:bg-purple-700"
                         : "bg-emerald-600 hover:bg-emerald-700"
                     }`}
-                    title={isChild ? "Review Triggered Form" : "View Own Form"}
+                    title={isChild ? "View Triggered Form" : "View Own Form"}
                   >
                     <Eye className="w-3.5 h-3.5" />
-                    <span>{isChild ? "Review" : "View"}</span>
+                    <span>View</span>
                   </button>
                 )}
                 {(canEdit || hasEditPermission) && (
@@ -2379,10 +2375,10 @@ export default function FormsAnalytics() {
                         ? "bg-purple-600 hover:bg-purple-700"
                         : "bg-indigo-600 hover:bg-indigo-700"
                     }`}
-                    title={isChild ? "Review Triggered Form" : "Review Shared Form"}
+                    title={isChild ? "View Triggered Form" : "View Shared Form"}
                   >
                     <Eye className="w-3.5 h-3.5" />
-                    <span>Review</span>
+                    <span>View</span>
                   </button>
                 )}
                 {(canEdit || hasEditPermission) && (
