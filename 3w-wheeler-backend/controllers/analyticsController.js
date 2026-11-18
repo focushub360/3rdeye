@@ -3797,6 +3797,23 @@ export const getQualitySummary = async (req, res) => {
       isSectionSubmit: { $ne: true }
     };
 
+    // Guard: if no accessible forms found, return empty summary immediately
+    if (formKeys.length === 0) {
+      console.log(`[Quality Summary] No accessible forms found for tenant ${targetTenantId} - returning empty summary`);
+      const emptyPayload = {
+        success: true,
+        data: {
+          totalChecked: 0, totalAccepted: 0, totalDefects: 0, overallAcceptRate: 0, overallDefectRate: 0,
+          totalRework1: 0, reworkAcceptedCount: 0, rejectedCount: 0, directOkCount: 0,
+          totalDispatched: 0, pendingDispatch: 0, totalBiwReviewed: 0, biwAcceptCount: 0, biwRejectCount: 0,
+          tvsReviewedCount: 0, tvsAcceptCount: 0, tvsRejectCount: 0, tvsReworkCount: 0, pendingTvsReview: 0,
+          totalForms: 0, formBreakdown: [], inspectors: [], defectBreakdown: [], dailyTrends: [], rawResponses: []
+        }
+      };
+      appCache.set(cacheKey, emptyPayload, 60);
+      return res.json(emptyPayload);
+    }
+
     if (startDate || endDate) {
       responseFilter.createdAt = {};
       if (startDate) responseFilter.createdAt.$gte = new Date(startDate);
@@ -4367,7 +4384,7 @@ export const getQualitySummary = async (req, res) => {
       }
     ];
 
-    const aggResult = await Response.aggregate(pipeline).option({ maxTimeMS: 60000 });
+    const aggResult = await Response.aggregate(pipeline).option({ maxTimeMS: 90000, allowDiskUse: true });
     const agg = aggResult[0] || {};
 
     const summary = agg.summary?.[0] || { totalChecked: 0, defectCount: 0, rework1Count: 0 };

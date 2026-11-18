@@ -885,8 +885,9 @@ export const getFormById = async (req, res) => {
     }
 
     // Permission check for authenticated users (not public slug access)
-    // Superadmins and Admins can view forms across tenants (mutation routes still strictly restrict editing to owning tenant)
-    if (!tenantSlug && req.user && req.user.role !== 'superadmin' && req.user.role !== 'admin' && !req.user.isGuest) {
+    // Superadmins, Admins, and Subadmins can view forms across tenants (mutation routes still strictly restrict editing to owning tenant)
+    const isAdminOrSuper = ['superadmin', 'admin', 'subadmin'].includes(req.user?.role);
+    if (!tenantSlug && req.user && !isAdminOrSuper && !req.user.isGuest) {
       if (!req.user.tenantId) {
         return res.status(403).json({
           success: false,
@@ -910,8 +911,8 @@ export const getFormById = async (req, res) => {
       }
     }
 
-    // Check if form is hidden for inspectors and subadmins of the OWNING tenant
-    if (req.user && ['inspector', 'subadmin', 'user'].includes(req.user.role)) {
+    // Check if form is hidden for inspectors and users of the OWNING tenant
+    if (req.user && ['inspector', 'user'].includes(req.user.role)) {
       const userTenantIdStr = (req.user.tenantId?._id || req.user.tenantId)?.toString() || '';
       const formTenantIdStr = (form.tenantId?._id || form.tenantId)?.toString() || '';
       const isOwnTenantForm = Boolean(formTenantIdStr && userTenantIdStr && formTenantIdStr === userTenantIdStr);

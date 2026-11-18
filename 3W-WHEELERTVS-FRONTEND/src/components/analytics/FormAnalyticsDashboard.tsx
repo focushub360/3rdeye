@@ -7460,28 +7460,8 @@ export default function FormAnalyticsDashboard({
           return isDispatched;
         }
         if (avLower.includes("pending") || avLower.includes("not")) {
-          if (isDispatched) return false; // already dispatched — not pending
-          const isBiwDefect = response.biwReview?.status === "Rejected" || response.biwReview?.status === "Reworked";
-          if (isBiwDefect) return false; // BIW-rejected/reworked — not pending dispatch
-          // If the server already pre-filtered with dispatch=pending, every row in tableResponses
-          // is a valid pending-dispatch row — skip the expensive/stale tableDisplayStatuses check.
-          if (urlDispatch?.toLowerCase().includes("pending") && responses.length === 0) {
-            return true;
-          }
-          // Full dataset loaded or no server pre-filter: check status to exclude active-defect rows
-          const respId = response.id || (response as any)._id;
-          const s = String(
-            (respId ? tableDisplayStatuses[respId] || responseStatuses[respId] : null) ||
-            tableDisplayStatuses[response.id] ||
-            tableDisplayStatuses[(response as any)._id] ||
-            responseStatuses[response.id] ||
-            responseStatuses[(response as any)._id] ||
-            computeFastRowStatus(response, chassisQuestionId) ||
-            response.status ||
-            ""
-          ).toLowerCase().trim();
-          const isDefect = s.includes("reject") || (s.includes("rework") && !s.includes("rework accepted") && !s.includes("rework completed") && !s.includes("rework ok"));
-          return !isDefect;
+          // A response is Pending Dispatch if it has not yet been marked dispatched and is not rejected by BIW
+          return !isDispatched && response.biwReview?.status !== "Rejected";
         }
         return true;
       });
@@ -9054,6 +9034,7 @@ export default function FormAnalyticsDashboard({
     let dispatched = 0;
     let pending = 0;
     let rawBiwReviewed = 0;
+    let nonDispatched = 0;
 
     // Track active rework per chassis so no pending rework unit is missed
     const activeReworkChassis = new Set<string>();
@@ -9163,6 +9144,8 @@ export default function FormAnalyticsDashboard({
       // Dispatch is tracked independently of status - once marked dispatched, it remains counted as dispatched.
       if (response.isDispatched) {
         dispatched++;
+      } else if (!isRejected && response.biwReview?.status !== "Rejected") {
+        nonDispatched++;
       }
     });
 
@@ -9181,7 +9164,10 @@ export default function FormAnalyticsDashboard({
       ? biwReviewedChassis.size + nonChassisBiwReviewed
       : rawBiwReviewed;
 
-    const pendingDispatch = Math.max(0, (accepted + reworkCompleted) - dispatched);
+    // When filtered by pending dispatch, pendingDispatch is the exact non-dispatched count
+    const pendingDispatch = columnFilters["__dispatch"]?.includes("Pending Dispatch") || urlDispatch?.toLowerCase().includes("pending")
+      ? nonDispatched
+      : Math.max(0, nonDispatched > 0 ? nonDispatched : ((accepted + reworkCompleted) - dispatched));
 
     return {
       accepted,
@@ -9241,8 +9227,8 @@ export default function FormAnalyticsDashboard({
     const defectsPercent = (totalDefectsCount / total) * 100;
 
     const dispatchedPercent = (totalDispatched / total) * 100;
-    // Pending dispatch BIW = Direct Ok + Rework Accepted - Dispatched
-    const pendingDispatchCount = Math.max(0, (directOk + reworkCompleted) - totalDispatched);
+    // Pending dispatch BIW count from inspectionStats
+    const pendingDispatchCount = inspectionStats.pendingDispatch ?? Math.max(0, (directOk + reworkCompleted) - totalDispatched);
     const pendingDispatchPercent = total > 0 ? (pendingDispatchCount / total) * 100 : 0;
 
     const biwReviewedCount = Math.min(total, totalBiwReviewed);

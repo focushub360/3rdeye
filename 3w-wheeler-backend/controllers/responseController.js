@@ -4998,8 +4998,9 @@ export const getResponsesByForm = async (req, res) => {
       ? { $or: [{ id: formId }, { _id: new mongoose.Types.ObjectId(formId) }] }
       : { id: formId };
 
-    // If not superadmin and not admin and not guest, check if form belongs to or is shared with this tenant
-    if (req.user.role !== 'superadmin' && req.user.role !== 'admin' && !req.user.isGuest && req.user.tenantId) {
+    // If not superadmin/admin/subadmin and not guest, check if form belongs to or is shared with this tenant
+    const isAdminOrSuper = ['superadmin', 'admin', 'subadmin'].includes(req.user.role);
+    if (!isAdminOrSuper && !req.user.isGuest && req.user.tenantId) {
       const tenantIdStr = req.user.tenantId.toString();
       const tenantIdObj = mongoose.Types.ObjectId.isValid(tenantIdStr)
         ? new mongoose.Types.ObjectId(tenantIdStr)
@@ -5183,8 +5184,8 @@ export const getResponsesByForm = async (req, res) => {
       console.log('[INSPECTOR] Query $or:', JSON.stringify(query.$or));
     } else if (isOwner || isSuperAdmin) {
       Object.assign(query, req.tenantFilter);
-    } else if (req.user.role === 'admin') {
-      // Admins viewing a form can view the form's responses
+    } else if (req.user.role === 'admin' || req.user.role === 'subadmin') {
+      // Admins and subadmins viewing an authorized form can view all of the form's responses without tenant isolation restricting to their own org
     } else if (!isShared && !hasChassisShare) {
       Object.assign(query, req.tenantFilter);
     }
