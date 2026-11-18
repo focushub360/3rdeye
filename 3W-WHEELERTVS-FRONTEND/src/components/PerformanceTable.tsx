@@ -43,17 +43,14 @@ const PerformanceTable = ({
   });
 
   useEffect(() => {
-    if (startDate) {
-      setPerfStartDate(startDate.includes("T") ? startDate.split("T")[0] : startDate);
-    } else {
-      const d = new Date();
-      d.setDate(d.getDate() - 30);
-      setPerfStartDate(d.toISOString().split("T")[0]);
+    const newStart = startDate ? (startDate.includes("T") ? startDate.split("T")[0] : startDate) : "";
+    const newEnd = endDate ? (endDate.includes("T") ? endDate.split("T")[0] : endDate) : "";
+
+    if (newStart) {
+      setPerfStartDate((prev) => (prev !== newStart ? newStart : prev));
     }
-    if (endDate) {
-      setPerfEndDate(endDate.includes("T") ? endDate.split("T")[0] : endDate);
-    } else {
-      setPerfEndDate(new Date().toISOString().split("T")[0]);
+    if (newEnd) {
+      setPerfEndDate((prev) => (prev !== newEnd ? newEnd : prev));
     }
     setPerformancePage(1);
   }, [startDate, endDate]);
@@ -64,6 +61,34 @@ const PerformanceTable = ({
 
   const [showPerformanceTable, setShowPerformanceTable] = useState(true);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  // Group by Plant / Tenant states (Excel Pivot style)
+  const [viewMode, setViewMode] = useState<"grouped" | "flat">("grouped");
+  const [collapsedTenants, setCollapsedTenants] = useState<Set<string>>(new Set());
+
+  const toggleTenantCollapse = useCallback((tName: string) => {
+    setCollapsedTenants((prev) => {
+      const next = new Set(prev);
+      if (next.has(tName)) {
+        next.delete(tName);
+      } else {
+        next.add(tName);
+      }
+      return next;
+    });
+  }, []);
+
+  const collapseAllTenants = useCallback((groups: any[]) => {
+    const all = new Set<string>();
+    groups.forEach((g) => {
+      if (g.tenantName) all.add(g.tenantName);
+    });
+    setCollapsedTenants(all);
+  }, []);
+
+  const expandAllTenants = useCallback(() => {
+    setCollapsedTenants(new Set());
+  }, []);
 
   // Pagination states
   const [performancePage, setPerformancePage] = useState(1);
@@ -94,7 +119,7 @@ const PerformanceTable = ({
       try {
         const parsed = JSON.parse(cachedData);
         const cacheAge = Date.now() - (parsed.timestamp || 0);
-        if (cacheAge < 60000) {
+        if (cacheAge < 120000) {
           let cachedList = parsed.data || [];
           if (cachedList && !Array.isArray(cachedList) && Array.isArray((cachedList as any).data)) {
             cachedList = (cachedList as any).data;
@@ -104,6 +129,7 @@ const PerformanceTable = ({
             setPerformanceTableData(cachedList);
             setPerfInspectorSummary(parsed.inspectorSummary || []);
             setActiveUserNames(new Set(parsed.activeUserNames || []));
+            setPerformanceTableLoading(false);
             return;
           }
         }
@@ -124,7 +150,7 @@ const PerformanceTable = ({
           `/internal-tracking/performance?startDate=${perfStartDate}&endDate=${perfEndDate}&page=${performancePage}&limit=${performancePageSize}`
         );
       } else {
-        // ✅ FIX: Call getPerformanceTable with date parameters across the full range
+        // ✅ Call getPerformanceTable with date parameters across the full range
         tableResponse = await apiClient.getPerformanceTable({
           startDate: perfStartDate,
           endDate: perfEndDate,
@@ -148,33 +174,41 @@ const PerformanceTable = ({
         tableData = (tableResponse as any).data;
       }
 
-      console.log('[PerformanceTable] Table data:', tableData.length);
+      console.log('[PerformanceTable] Table data loaded:', tableData.length);
 
-      // Set the table data
+      // Set the table data and unblock loading IMMEDIATELY!
       setPerformanceTableData(tableData);
+      setPerformanceTableLoading(false);
 
-      // Also fetch inspector summary and users in parallel
+      // Cache the immediate result so switches are instant
+      sessionStorage.setItem(cacheKey, JSON.stringify({
+        data: tableData,
+        inspectorSummary: [],
+        activeUserNames: [],
+        timestamp: Date.now()
+      }));
+
+      // Fetch inspector summary in background without blocking the UI
       const inspQuery = formIds
         ? `&formIds=${Array.isArray(formIds) ? formIds.join(',') : formIds}`
         : (formId ? `&formId=${formId}` : '');
 
-      const [summaryResponse] = await Promise.all([
-        user.role === "admin" || user.role === "superadmin"
-          ? apiClient.get(`/analytics/inspector-summary?startDate=${perfStartDate}&endDate=${perfEndDate}${inspQuery}`)
-            .catch(() => ({ data: { summary: [] } }))
-          : Promise.resolve({ data: { summary: [] } }),
-      ]);
-
-      const summaryData = summaryResponse?.data?.summary || [];
-      setPerfInspectorSummary(summaryData);
-
-      // Cache the result
-      sessionStorage.setItem(cacheKey, JSON.stringify({
-        data: tableData,
-        inspectorSummary: summaryData,
-        activeUserNames: [],
-        timestamp: Date.now()
-      }));
+      if (user.role === "admin" || user.role === "superadmin") {
+        apiClient.get(`/analytics/inspector-summary?startDate=${perfStartDate}&endDate=${perfEndDate}${inspQuery}`)
+          .then((summaryResponse: any) => {
+            const summaryData = summaryResponse?.data?.summary || [];
+            setPerfInspectorSummary(summaryData);
+            sessionStorage.setItem(cacheKey, JSON.stringify({
+              data: tableData,
+              inspectorSummary: summaryData,
+              activeUserNames: [],
+              timestamp: Date.now()
+            }));
+          })
+          .catch((err) => {
+            console.warn('[PerformanceTable] Non-critical inspector summary error:', err);
+          });
+      }
 
     } catch (error: any) {
       console.error('[PerformanceTable] Error loading data:', error);
@@ -319,6 +353,7 @@ const PerformanceTable = ({
     startIndex,
     endIndex,
     paginatedPerformance,
+    tenantGroups,
     totalDispatched,
     getUserTotalSubmitted,
     totalTotalSubmitted,
@@ -461,6 +496,110 @@ const PerformanceTable = ({
       0,
     );
 
+    // Build tenant groups for Excel Pivot style hierarchy
+    const tenantGroupsMap = new Map<string, {
+      tenantName: string;
+      tenantId?: string;
+      rows: any[];
+      totals: {
+        directOk: number;
+        reworkQcCompleted: number;
+        reworkQcPending: number;
+        rejected: number;
+        dispatchPending: number;
+        dispatched: number;
+        totalSubmitted: number;
+        totalReviewed: number;
+        reviewPending: number;
+        biwAccepted: number;
+        biwRejected: number;
+        biwReworked: number;
+        tvsReviewed: number;
+        tvsPending: number;
+        tvsAccepted: number;
+        tvsRejected: number;
+        tvsRework: number;
+        performanceScore: number;
+      };
+    }>();
+
+    performanceTableData.forEach((row) => {
+      const tName = row.tenantName || "Unknown Plant";
+      if (!tenantGroupsMap.has(tName)) {
+        tenantGroupsMap.set(tName, {
+          tenantName: tName,
+          tenantId: row.tenantId,
+          rows: [],
+          totals: {
+            directOk: 0,
+            reworkQcCompleted: 0,
+            reworkQcPending: 0,
+            rejected: 0,
+            dispatchPending: 0,
+            dispatched: 0,
+            totalSubmitted: 0,
+            totalReviewed: 0,
+            reviewPending: 0,
+            biwAccepted: 0,
+            biwRejected: 0,
+            biwReworked: 0,
+            tvsReviewed: 0,
+            tvsPending: 0,
+            tvsAccepted: 0,
+            tvsRejected: 0,
+            tvsRework: 0,
+            performanceScore: 0,
+          }
+        });
+      }
+
+      const g = tenantGroupsMap.get(tName)!;
+      g.rows.push(row);
+
+      const dOk = row.directOk ?? 0;
+      const rComp = row.reworkQcCompleted ?? 0;
+      const rPend = row.reworkQcPending ?? 0;
+      const rej = row.rejected ?? 0;
+      const disp = row.dispatched ?? 0;
+      const dPending = Math.max(0, dOk + rComp - disp);
+      const sub = getUserTotalSubmitted(row.name, row.totalSubmitted || 0);
+
+      g.totals.directOk += dOk;
+      g.totals.reworkQcCompleted += rComp;
+      g.totals.reworkQcPending += rPend;
+      g.totals.rejected += rej;
+      g.totals.dispatchPending += dPending;
+      g.totals.dispatched += disp;
+      g.totals.totalSubmitted += sub;
+
+      g.totals.totalReviewed += (row.totalReviewed ?? row.biwTotalReviewed ?? 0);
+      g.totals.reviewPending += (row.reviewPending ?? row.biwReviewPending ?? 0);
+      g.totals.biwAccepted += (row.biwAccepted ?? row.accepted ?? 0);
+      g.totals.biwRejected += (row.biwRejected ?? row.rejectedReview ?? 0);
+      g.totals.biwReworked += (row.biwReworked ?? row.reworked ?? 0);
+
+      g.totals.tvsReviewed += (row.tvsTotalReviewed ?? 0);
+      g.totals.tvsPending += (row.tvsReviewPending ?? Math.max(0, sub - (row.tvsTotalReviewed ?? 0)));
+      g.totals.tvsAccepted += (row.tvsAccepted ?? 0);
+      g.totals.tvsRejected += (row.tvsRejected ?? 0);
+      g.totals.tvsRework += (row.tvsReworked ?? 0);
+    });
+
+    tenantGroupsMap.forEach((g) => {
+      const reviewed = g.rows.filter(r => (r.totalReviewed || r.biwTotalReviewed || 0) > 0);
+      if (reviewed.length > 0) {
+        g.totals.performanceScore = Math.round(
+          reviewed.reduce((sum, r) => sum + (r.performanceScore || 0), 0) / reviewed.length
+        );
+      } else {
+        g.totals.performanceScore = g.totals.totalSubmitted > 0
+          ? Math.round((g.totals.directOk / g.totals.totalSubmitted) * 100)
+          : 0;
+      }
+    });
+
+    const tenantGroups = Array.from(tenantGroupsMap.values()).sort((a, b) => a.tenantName.localeCompare(b.tenantName));
+
     return {
       inspectorStatusMap,
       totalPerformanceItems,
@@ -468,6 +607,7 @@ const PerformanceTable = ({
       startIndex,
       endIndex,
       paginatedPerformance,
+      tenantGroups,
       totalDispatched,
       getUserTotalSubmitted,
       totalTotalSubmitted,
@@ -578,6 +718,50 @@ const PerformanceTable = ({
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          {/* View Mode Toggle (Excel Pivot Hierarchy vs Flat) */}
+          <div className="flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setViewMode("grouped")}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                viewMode === "grouped"
+                  ? "bg-white dark:bg-gray-700 text-purple-700 dark:text-purple-300 shadow-sm"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+              }`}
+              title="Group by Plant / Tenant (Excel Pivot Style)"
+            >
+              <span>📊 Group by Plant</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("flat")}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                viewMode === "flat"
+                  ? "bg-white dark:bg-gray-700 text-purple-700 dark:text-purple-300 shadow-sm"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+              }`}
+              title="Flat Inspector List"
+            >
+              <span>📋 Flat List</span>
+            </button>
+          </div>
+
+          {viewMode === "grouped" && (
+            <button
+              type="button"
+              onClick={() => {
+                if (collapsedTenants.size === 0) {
+                  collapseAllTenants(tenantGroups);
+                } else {
+                  expandAllTenants();
+                }
+              }}
+              className="px-3 py-2 text-xs font-bold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-2xl border border-gray-200 dark:border-gray-700 transition-colors shadow-sm cursor-pointer whitespace-nowrap"
+            >
+              {collapsedTenants.size === 0 ? "[-] Collapse All" : "[+] Expand All"}
+            </button>
+          )}
+
           <div className="flex items-center bg-white dark:bg-gray-800 rounded-2xl px-4 py-2 border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-4 focus-within:ring-purple-500/10 transition-all">
             <span className="text-[10px] font-black text-gray-400 mr-3 uppercase tracking-wider">
               From
@@ -767,292 +951,658 @@ const PerformanceTable = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {paginatedPerformance.map((row, idx) => (
-                <React.Fragment key={row.name || idx}>
-                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer" onClick={() => toggleRowExpansion(row.name)}>
-                    {isSuperAdmin && (
-                      <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                        {row.tenantName}
-                      </td>
-                    )}
-                    <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                      {row.name}
-                      {!isSuperAdmin && row.tenantName && row.tenantName !== "Unknown Tenant" && (
-                        <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
-                          ({row.tenantName})
-                        </span>
-                      )}
-                    </td>
-                    {performanceStatuses
-                      .filter((status) => status !== "Dispatched")
-                      .map((status) => {
-                        const statusKeyMap: Record<string, string> = {
-                          "Direct Ok": "directOk",
-                          "Rework QC Completed": "reworkQcCompleted",
-                          "Rework QC Pending": "reworkQcPending",
-                          "Rejected": "rejected",
-                        };
-                        const key = statusKeyMap[status];
-                        const count =
-                          (inspectorStatusMap[row.name]?.[status] !== undefined
-                            ? inspectorStatusMap[row.name][status]
-                            : undefined) ??
-                          (key && row[key] !== undefined ? row[key] : 0);
-                        const isZero = count === 0;
-                        const colorClass =
-                          status === "Direct Ok" || status === "Rework Accepted"
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : status.startsWith("Rework")
-                              ? "text-amber-600 dark:text-amber-400"
-                              : status === "Rejected"
-                                ? "text-rose-600 dark:text-rose-400"
-                                : "text-blue-600 dark:text-blue-400";
-                        return (
-                          <td
-                            key={status}
-                            className={`px-2 py-1.5 font-bold text-center tabular-nums transition-opacity ${isZero ? "opacity-20 text-gray-400" : colorClass}`}
-                          >
-                            {count}
+              {viewMode === "grouped" ? (
+                tenantGroups.map((group) => {
+                  const isCollapsed = collapsedTenants.has(group.tenantName);
+                  return (
+                    <React.Fragment key={`group-wrapper-${group.tenantName}`}>
+                      <tr
+                        key={`tenant-header-${group.tenantName}`}
+                        onClick={() => toggleTenantCollapse(group.tenantName)}
+                        className="bg-emerald-50/90 dark:bg-emerald-950/40 border-y-2 border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100/90 dark:hover:bg-emerald-900/50 transition-colors cursor-pointer font-black text-emerald-950 dark:text-emerald-100 select-none shadow-2xs"
+                      >
+                        {isSuperAdmin && (
+                          <td className="px-2 py-2 whitespace-nowrap text-xs font-black text-emerald-800 dark:text-emerald-200">
+                            {group.tenantName}
                           </td>
-                        );
-                      })}
-                    {(() => {
-                      const directOk =
-                        inspectorStatusMap[row.name]?.["Direct Ok"] ?? row.directOk ?? 0;
-                      const reworkQCCompleted =
-                        inspectorStatusMap[row.name]?.["Rework QC Completed"] ??
-                        row.reworkQcCompleted ??
-                        0;
-                      const dispatched =
-                        inspectorStatusMap[row.name]?.["Dispatched"] ?? row.dispatched ?? 0;
-                      const dispatchPending = Math.max(
-                        0,
-                        directOk + reworkQCCompleted - dispatched,
-                      );
-                      const isZero = dispatchPending === 0;
-                      return (
-                        <td
-                          className={`px-2 py-1.5 font-bold text-center tabular-nums transition-opacity ${isZero ? "opacity-20 text-gray-400" : "text-violet-600 dark:text-violet-400"}`}
-                        >
-                          {dispatchPending}
+                        )}
+                        <td className="px-2 py-2 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <span className="p-0.5 rounded bg-emerald-200/80 dark:bg-emerald-800/80 text-emerald-900 dark:text-emerald-100">
+                              {isCollapsed ? (
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              )}
+                            </span>
+                            <span className="text-xs font-extrabold uppercase tracking-wider">{group.tenantName}</span>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-200/60 dark:bg-emerald-800/60 text-emerald-800 dark:text-emerald-200">
+                              {group.rows.length} inspector{group.rows.length !== 1 ? 's' : ''}
+                            </span>
+                          </div>
                         </td>
-                      );
-                    })()}
-                    {performanceStatuses.includes("Dispatched") &&
-                      (() => {
-                        const count =
+                        <td className="px-2 py-2 font-black text-center tabular-nums text-emerald-700 dark:text-emerald-300">
+                          {group.totals.directOk}
+                        </td>
+                        <td className="px-2 py-2 font-black text-center tabular-nums text-amber-700 dark:text-amber-300">
+                          {group.totals.reworkQcCompleted}
+                        </td>
+                        <td className="px-2 py-2 font-black text-center tabular-nums text-amber-700 dark:text-amber-300">
+                          {group.totals.reworkQcPending}
+                        </td>
+                        <td className="px-2 py-2 font-black text-center tabular-nums text-rose-700 dark:text-rose-300">
+                          {group.totals.rejected}
+                        </td>
+                        <td className="px-2 py-2 font-black text-center tabular-nums text-violet-700 dark:text-violet-300">
+                          {group.totals.dispatchPending}
+                        </td>
+                        {performanceStatuses.includes("Dispatched") && (
+                          <td className="px-2 py-2 font-black text-center tabular-nums text-blue-700 dark:text-blue-300">
+                            {group.totals.dispatched}
+                          </td>
+                        )}
+                        <td className="px-2 py-2 font-black text-center tabular-nums border-r border-emerald-300 dark:border-emerald-700 text-gray-900 dark:text-white">
+                          {group.totals.totalSubmitted}
+                        </td>
+                        {/* BIW Review Subtotals */}
+                        <td className="px-2 py-2 font-black text-center tabular-nums border-l border-purple-200 bg-purple-50/50 dark:bg-purple-950/20 text-purple-900 dark:text-purple-200">
+                          {group.totals.totalReviewed}
+                        </td>
+                        <td className="px-2 py-2 font-black text-center tabular-nums bg-purple-50/50 dark:bg-purple-950/20 text-amber-700 dark:text-amber-300">
+                          {group.totals.reviewPending}
+                        </td>
+                        <td className="px-2 py-2 font-black text-center tabular-nums bg-purple-50/50 dark:bg-purple-950/20 text-green-700 dark:text-green-300">
+                          {group.totals.biwAccepted}
+                        </td>
+                        <td className="px-2 py-2 font-black text-center tabular-nums bg-purple-50/50 dark:bg-purple-950/20 text-red-700 dark:text-red-300">
+                          {group.totals.biwRejected}
+                        </td>
+                        <td className="px-2 py-2 font-black text-center tabular-nums border-r border-purple-200 bg-purple-50/50 dark:bg-purple-950/20 text-orange-700 dark:text-orange-300">
+                          {group.totals.biwReworked}
+                        </td>
+                        {/* TVS Review Subtotals */}
+                        <td className="px-2 py-2 font-black text-center tabular-nums border-l border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 text-blue-900 dark:text-blue-200">
+                          {group.totals.tvsReviewed}
+                        </td>
+                        <td className="px-2 py-2 font-black text-center tabular-nums bg-blue-50/50 dark:bg-blue-950/20 text-amber-700 dark:text-amber-300">
+                          {group.totals.tvsPending}
+                        </td>
+                        <td className="px-2 py-2 font-black text-center tabular-nums bg-blue-50/50 dark:bg-blue-950/20 text-emerald-700 dark:text-emerald-300">
+                          {group.totals.tvsAccepted}
+                        </td>
+                        <td className="px-2 py-2 font-black text-center tabular-nums bg-blue-50/50 dark:bg-blue-950/20 text-rose-700 dark:text-rose-300">
+                          {group.totals.tvsRejected}
+                        </td>
+                        <td className="px-2 py-2 font-black text-center tabular-nums border-r border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 text-amber-700 dark:text-amber-300">
+                          {group.totals.tvsRework}
+                        </td>
+                        {/* Performance Score */}
+                        <td className="px-2 py-2 text-center">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200 tabular-nums">
+                            {group.totals.performanceScore}%
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">
+                            Plant Summary
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-center text-xs text-emerald-700 dark:text-emerald-300 font-bold">
+                          {isCollapsed ? "Show Rows" : "Hide Rows"}
+                        </td>
+                      </tr>
+
+                      {!isCollapsed && group.rows.map((row: any, idx: number) => (
+                        <React.Fragment key={`${group.tenantName}-${row.name || idx}`}>
+                          <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer" onClick={() => toggleRowExpansion(`${group.tenantName}-${row.name}`)}>
+                            {isSuperAdmin && (
+                              <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                                {row.tenantName}
+                              </td>
+                            )}
+                            <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap pl-6">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-gray-400 dark:text-gray-500 font-mono text-xs select-none">└─</span>
+                                <span className="font-semibold text-gray-800 dark:text-gray-200">{row.name}</span>
+                              </div>
+                            </td>
+                            {performanceStatuses
+                              .filter((status) => status !== "Dispatched")
+                              .map((status) => {
+                                const statusKeyMap: Record<string, string> = {
+                                  "Direct Ok": "directOk",
+                                  "Rework QC Completed": "reworkQcCompleted",
+                                  "Rework QC Pending": "reworkQcPending",
+                                  "Rejected": "rejected",
+                                };
+                                const key = statusKeyMap[status];
+                                const count =
+                                  (row[key] !== undefined ? row[key] : undefined) ??
+                                  (inspectorStatusMap[row.name]?.[status] !== undefined
+                                    ? inspectorStatusMap[row.name][status]
+                                    : 0);
+                                const isZero = count === 0;
+                                const colorClass =
+                                  status === "Direct Ok" || status === "Rework Accepted"
+                                    ? "text-emerald-600 dark:text-emerald-400"
+                                    : status.startsWith("Rework")
+                                      ? "text-amber-600 dark:text-amber-400"
+                                      : status === "Rejected"
+                                        ? "text-rose-600 dark:text-rose-400"
+                                        : "text-blue-600 dark:text-blue-400";
+                                return (
+                                  <td
+                                    key={status}
+                                    className={`px-2 py-1.5 font-bold text-center tabular-nums transition-opacity ${isZero ? "opacity-20 text-gray-400" : colorClass}`}
+                                  >
+                                    {count}
+                                  </td>
+                                );
+                              })}
+                            {(() => {
+                              const directOk = row.directOk ?? inspectorStatusMap[row.name]?.["Direct Ok"] ?? 0;
+                              const reworkQCCompleted = row.reworkQcCompleted ?? inspectorStatusMap[row.name]?.["Rework QC Completed"] ?? 0;
+                              const dispatched = row.dispatched ?? inspectorStatusMap[row.name]?.["Dispatched"] ?? 0;
+                              const dispatchPending = Math.max(0, directOk + reworkQCCompleted - dispatched);
+                              const isZero = dispatchPending === 0;
+                              return (
+                                <td
+                                  className={`px-2 py-1.5 font-bold text-center tabular-nums transition-opacity ${isZero ? "opacity-20 text-gray-400" : "text-violet-600 dark:text-violet-400"}`}
+                                >
+                                  {dispatchPending}
+                                </td>
+                              );
+                            })()}
+                            {performanceStatuses.includes("Dispatched") &&
+                              (() => {
+                                const count = row.dispatched ?? inspectorStatusMap[row.name]?.["Dispatched"] ?? 0;
+                                const isZero = count === 0;
+                                return (
+                                  <td
+                                    className={`px-2 py-1.5 font-bold text-center tabular-nums transition-opacity ${isZero ? "opacity-20 text-gray-400" : "text-blue-600 dark:text-blue-400"}`}
+                                  >
+                                    {count}
+                                  </td>
+                                );
+                              })()}
+                            <td className="px-2 py-1.5 font-bold text-center tabular-nums border-r border-gray-100 dark:border-gray-700">
+                              {getUserTotalSubmitted(row.name, row.totalSubmitted)}
+                            </td>
+                            {/* BIW Review Data Cells with distinct shading */}
+                            <td className="px-2 py-1.5 font-bold text-center tabular-nums border-l border-purple-100 dark:border-purple-900/30 bg-purple-50/25 dark:bg-purple-950/10 text-purple-900 dark:text-purple-200">
+                              {row.totalReviewed ?? row.biwTotalReviewed ?? 0}
+                            </td>
+                            <td
+                              className={`px-2 py-1.5 font-bold text-center tabular-nums bg-purple-50/25 dark:bg-purple-950/10 ${(() => {
+                                const dispatched = row.dispatched ?? inspectorStatusMap[row.name]?.["Dispatched"] ?? 0;
+                                const pending = Math.max(0, dispatched - (row.totalReviewed || row.biwTotalReviewed || 0));
+                                return pending === 0 ? "opacity-20 text-gray-400" : "text-amber-600 dark:text-amber-400";
+                              })()}`}
+                            >
+                              {Math.max(
+                                0,
+                                (row.dispatched ?? inspectorStatusMap[row.name]?.["Dispatched"] ?? 0) -
+                                (row.totalReviewed || row.biwTotalReviewed || 0),
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 font-extrabold text-center text-green-600 dark:text-green-400 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">
+                              {row.biwAccepted ?? row.accepted ?? 0}
+                            </td>
+                            <td className="px-2 py-1.5 font-extrabold text-center text-red-600 dark:text-red-400 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">
+                              {row.biwRejected ?? row.rejectedReview ?? row.rejected ?? 0}
+                            </td>
+                            <td className="px-2 py-1.5 font-extrabold text-center text-orange-600 dark:text-orange-400 tabular-nums border-r border-purple-100 dark:border-purple-900/30 bg-purple-50/25 dark:bg-purple-950/10">
+                              {row.biwReworked ?? row.reworked ?? row.rework ?? 0}
+                            </td>
+                            {/* TVS Review Data Cells with distinct shading */}
+                            <td className="px-2 py-1.5 font-bold text-center tabular-nums border-l border-blue-100 dark:border-blue-900/30 bg-blue-50/25 dark:bg-blue-950/10 text-blue-900 dark:text-blue-200">
+                              {row.tvsTotalReviewed ?? 0}
+                            </td>
+                            <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-blue-50/25 dark:bg-blue-950/10 text-amber-600 dark:text-amber-400">
+                              {row.tvsReviewPending ?? Math.max(0, (row.totalSubmitted || 0) - (row.tvsTotalReviewed || 0))}
+                            </td>
+                            <td className="px-2 py-1.5 font-extrabold text-center text-emerald-600 dark:text-emerald-400 tabular-nums bg-blue-50/25 dark:bg-blue-950/10">
+                              {row.tvsAccepted ?? 0}
+                            </td>
+                            <td className="px-2 py-1.5 font-extrabold text-center text-rose-600 dark:text-rose-400 tabular-nums bg-blue-50/25 dark:bg-blue-950/10">
+                              {row.tvsRejected ?? 0}
+                            </td>
+                            <td className="px-2 py-1.5 font-extrabold text-center text-amber-600 dark:text-amber-400 tabular-nums border-r border-blue-100 dark:border-blue-900/30 bg-blue-50/25 dark:bg-blue-950/10">
+                              {row.tvsReworked ?? 0}
+                            </td>
+                            <td className="px-2 py-1.5 text-center">
+                              {(row.totalReviewed || row.biwTotalReviewed || 0) === 0 ? (
+                                <span className="px-2 py-1 rounded-full text-[10px] font-bold text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 tabular-nums">
+                                  N/A
+                                </span>
+                              ) : (
+                                <span
+                                  className={`px-2 py-1 rounded-full text-[10px] font-black tabular-nums ${row.performanceScore >= 80
+                                    ? "bg-green-100 text-green-700"
+                                    : row.performanceScore >= 50
+                                      ? "bg-orange-100 text-orange-700"
+                                      : "bg-red-100 text-red-700"
+                                    }`}
+                                >
+                                  {row.performanceScore}%
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 text-center">
+                              {(row.totalReviewed || row.biwTotalReviewed || 0) === 0 ? (
+                                <span className="px-2 py-1 rounded-full text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30">
+                                  Pending Review
+                                </span>
+                              ) : (
+                                <span
+                                  className={`px-2 py-1 rounded-full text-[10px] font-black ${(() => {
+                                    const score = row.performanceScore || 0;
+                                    if (score < 60) return "bg-red-100 text-red-700";
+                                    if (score < 70) return "bg-orange-100 text-orange-700";
+                                    if (score < 80) return "bg-yellow-100 text-yellow-700";
+                                    if (score < 90) return "bg-green-100 text-green-700";
+                                    return "bg-emerald-100 text-emerald-700";
+                                  })()}`}
+                                >
+                                  {(() => {
+                                    const score = row.performanceScore || 0;
+                                    if (score < 60) return "Not met performer";
+                                    if (score < 70) return "partially met performer";
+                                    if (score < 80) return "Met expectation";
+                                    if (score < 90) return "exceeded Performance";
+                                    return "Exemplary performer";
+                                  })()}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 text-center">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); toggleRowExpansion(`${group.tenantName}-${row.name}`); }}
+                                className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all cursor-pointer"
+                                title={expandedRows.has(`${group.tenantName}-${row.name}`) ? "Collapse" : "Expand"}
+                              >
+                                {expandedRows.has(`${group.tenantName}-${row.name}`) ? (
+                                  <ChevronUp className="w-4 h-4" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4" />
+                                )}
+                              </button>
+                            </td>
+                          </tr>
+
+                          {expandedRows.has(`${group.tenantName}-${row.name}`) &&
+                            (() => {
+                              const forms = new Map<string, any[]>();
+                              perfInspectorSummary
+                                .filter((item: any) => item.qcInspector === row.name)
+                                .forEach((item: any) => {
+                                  const formName = item.formTitle || "Unknown Form";
+                                  if (!forms.has(formName)) forms.set(formName, []);
+                                  forms.get(formName)!.push(item);
+                                });
+
+                              if (forms.size === 0) return null;
+
+                              return Array.from(forms.entries()).map(([formName, items], formIdx) => {
+                                const formSummary = (items as any[]).reduce((acc, it) => {
+                                  const sc = it.statusCounts || {};
+                                  for (const status in sc) {
+                                    acc.statuses[status] = (acc.statuses[status] || 0) + sc[status];
+                                  }
+                                  acc.totalReviewed += it.totalReviewed || 0;
+                                  acc.accepted += it.accepted || 0;
+                                  acc.rework += it.reworked ?? it.rework ?? 0;
+                                  acc.rejected_outcome += it.rejectedReview ?? it.rejected ?? 0;
+                                  return acc;
+                                }, {
+                                  statuses: {} as Record<string, number>,
+                                  totalReviewed: 0,
+                                  accepted: 0,
+                                  rework: 0,
+                                  rejected_outcome: 0,
+                                });
+
+                                const v = formSummary.statuses;
+                                const directOk = v["Direct Ok"] || 0;
+                                const reworkQCCompleted = v["Rework QC Completed"] || 0;
+                                const dispatched = v["Dispatched"] || 0;
+                                const totalSubmitted = performanceStatuses
+                                  .filter(s => s !== 'Dispatched')
+                                  .reduce((sum, status) => sum + (v[status] || 0), 0);
+
+                                const { totalReviewed, accepted, rework, rejected_outcome } = formSummary;
+                                const dispatchPending = Math.max(0, directOk + reworkQCCompleted - dispatched);
+                                const reviewPending = Math.max(0, dispatched - totalReviewed);
+                                const rowBg = formIdx % 2 === 0 ? "bg-purple-50/20 dark:bg-purple-900/10" : "bg-purple-50/40 dark:bg-purple-900/20";
+
+                                return (
+                                  <tr key={`${row.name}-${formName}-${formIdx}`} className={rowBg}>
+                                    {isSuperAdmin && <td className="px-2 py-1.5"></td>}
+                                    <td className="px-2 py-1.5 font-medium text-purple-800 dark:text-purple-200 whitespace-nowrap pl-8 truncate">
+                                      {formName}
+                                    </td>
+                                    {performanceStatuses.filter(s => s !== 'Dispatched').map(status => (
+                                      <td key={status} className="px-2 py-1.5 font-bold text-center tabular-nums">
+                                        {v[status] || 0}
+                                      </td>
+                                    ))}
+                                    <td className="px-2 py-1.5 font-bold text-center tabular-nums">{dispatchPending}</td>
+                                    {performanceStatuses.includes("Dispatched") && (
+                                      <td className="px-2 py-1.5 font-bold text-center tabular-nums">
+                                        {dispatched}
+                                      </td>
+                                    )}
+                                    <td className="px-2 py-1.5 font-bold text-center tabular-nums border-r border-purple-100 dark:border-purple-900/30">{totalSubmitted}</td>
+                                    <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-purple-100/40 dark:bg-purple-900/20 border-l border-purple-200 dark:border-purple-800 text-purple-900 dark:text-purple-200">{totalReviewed}</td>
+                                    <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-purple-100/40 dark:bg-purple-900/20 text-amber-600 dark:text-amber-400">{reviewPending}</td>
+                                    <td className="px-2 py-1.5 font-extrabold text-center text-green-600 dark:text-green-400 tabular-nums bg-purple-100/40 dark:bg-purple-900/20">{accepted}</td>
+                                    <td className="px-2 py-1.5 font-extrabold text-center text-red-600 dark:text-red-400 tabular-nums bg-purple-100/40 dark:bg-purple-900/20">{rejected_outcome}</td>
+                                    <td className="px-2 py-1.5 font-extrabold text-center text-orange-600 dark:text-orange-400 tabular-nums border-r border-purple-200 dark:border-purple-800 bg-purple-100/40 dark:bg-purple-900/20">{rework}</td>
+                                    <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-blue-100/40 dark:bg-blue-900/20 border-l border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200">—</td>
+                                    <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-blue-100/40 dark:bg-blue-900/20 text-amber-600 dark:text-amber-400">—</td>
+                                    <td className="px-2 py-1.5 font-extrabold text-center text-emerald-600 dark:text-emerald-400 tabular-nums bg-blue-100/40 dark:bg-blue-900/20">—</td>
+                                    <td className="px-2 py-1.5 font-extrabold text-center text-rose-600 dark:text-rose-400 tabular-nums bg-blue-100/40 dark:bg-blue-900/20">—</td>
+                                    <td className="px-2 py-1.5 font-extrabold text-center text-amber-600 dark:text-amber-400 tabular-nums border-r border-blue-200 dark:border-blue-800 bg-blue-100/40 dark:bg-blue-900/20">—</td>
+                                    <td className="px-2 py-1.5"></td>
+                                    <td className="px-2 py-1.5"></td>
+                                    <td className="px-2 py-1.5"></td>
+                                  </tr>
+                                );
+                              });
+                            })()}
+                        </React.Fragment>
+                      ))}
+                    </React.Fragment>
+                  );
+                })
+              ) : (
+                paginatedPerformance.map((row, idx) => (
+                  <React.Fragment key={row.name || idx}>
+                    <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer" onClick={() => toggleRowExpansion(row.name)}>
+                      {isSuperAdmin && (
+                        <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                          {row.tenantName}
+                        </td>
+                      )}
+                      <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                        {row.name}
+                        {!isSuperAdmin && row.tenantName && row.tenantName !== "Unknown Tenant" && (
+                          <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
+                            ({row.tenantName})
+                          </span>
+                        )}
+                      </td>
+                      {performanceStatuses
+                        .filter((status) => status !== "Dispatched")
+                        .map((status) => {
+                          const statusKeyMap: Record<string, string> = {
+                            "Direct Ok": "directOk",
+                            "Rework QC Completed": "reworkQcCompleted",
+                            "Rework QC Pending": "reworkQcPending",
+                            "Rejected": "rejected",
+                          };
+                          const key = statusKeyMap[status];
+                          const count =
+                            (inspectorStatusMap[row.name]?.[status] !== undefined
+                              ? inspectorStatusMap[row.name][status]
+                              : undefined) ??
+                            (key && row[key] !== undefined ? row[key] : 0);
+                          const isZero = count === 0;
+                          const colorClass =
+                            status === "Direct Ok" || status === "Rework Accepted"
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : status.startsWith("Rework")
+                                ? "text-amber-600 dark:text-amber-400"
+                                : status === "Rejected"
+                                  ? "text-rose-600 dark:text-rose-400"
+                                  : "text-blue-600 dark:text-blue-400";
+                          return (
+                            <td
+                              key={status}
+                              className={`px-2 py-1.5 font-bold text-center tabular-nums transition-opacity ${isZero ? "opacity-20 text-gray-400" : colorClass}`}
+                            >
+                              {count}
+                            </td>
+                          );
+                        })}
+                      {(() => {
+                        const directOk =
+                          inspectorStatusMap[row.name]?.["Direct Ok"] ?? row.directOk ?? 0;
+                        const reworkQCCompleted =
+                          inspectorStatusMap[row.name]?.["Rework QC Completed"] ??
+                          row.reworkQcCompleted ??
+                          0;
+                        const dispatched =
                           inspectorStatusMap[row.name]?.["Dispatched"] ?? row.dispatched ?? 0;
-                        const isZero = count === 0;
+                        const dispatchPending = Math.max(
+                          0,
+                          directOk + reworkQCCompleted - dispatched,
+                        );
+                        const isZero = dispatchPending === 0;
                         return (
                           <td
-                            className={`px-2 py-1.5 font-bold text-center tabular-nums transition-opacity ${isZero ? "opacity-20 text-gray-400" : "text-blue-600 dark:text-blue-400"}`}
+                            className={`px-2 py-1.5 font-bold text-center tabular-nums transition-opacity ${isZero ? "opacity-20 text-gray-400" : "text-violet-600 dark:text-violet-400"}`}
                           >
-                            {count}
+                            {dispatchPending}
                           </td>
                         );
                       })()}
-                    <td className="px-2 py-1.5 font-bold text-center tabular-nums border-r border-gray-100 dark:border-gray-700">
-                      {getUserTotalSubmitted(row.name, row.totalSubmitted)}
-                    </td>
-                    {/* BIW Review Data Cells with distinct shading */}
-                    <td className="px-2 py-1.5 font-bold text-center tabular-nums border-l border-purple-100 dark:border-purple-900/30 bg-purple-50/25 dark:bg-purple-950/10 text-purple-900 dark:text-purple-200">
-                      {row.totalReviewed}
-                    </td>
-                    <td
-                      className={`px-2 py-1.5 font-bold text-center tabular-nums bg-purple-50/25 dark:bg-purple-950/10 ${(() => {
-                        const dispatched =
-                          inspectorStatusMap[row.name]?.["Dispatched"] || 0;
-                        const pending = Math.max(
-                          0,
-                          dispatched - (row.totalReviewed || 0),
-                        );
-                        return pending === 0
-                          ? "opacity-20 text-gray-400"
-                          : "text-amber-600 dark:text-amber-400";
-                      })()}`}
-                    >
-                      {Math.max(
-                        0,
-                        (inspectorStatusMap[row.name]?.["Dispatched"] || 0) -
-                        (row.totalReviewed || 0),
-                      )}
-                    </td>
-                    <td className="px-2 py-1.5 font-extrabold text-center text-green-600 dark:text-green-400 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">
-                      {row.accepted || 0}
-                    </td>
-                    <td className="px-2 py-1.5 font-extrabold text-center text-red-600 dark:text-red-400 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">
-                      {row.rejectedReview ?? row.rejected ?? 0}
-                    </td>
-                    <td className="px-2 py-1.5 font-extrabold text-center text-orange-600 dark:text-orange-400 tabular-nums border-r border-purple-100 dark:border-purple-900/30 bg-purple-50/25 dark:bg-purple-950/10">
-                      {row.reworked ?? row.rework ?? 0}
-                    </td>
-                    {/* TVS Review Data Cells with distinct shading */}
-                    <td className="px-2 py-1.5 font-bold text-center tabular-nums border-l border-blue-100 dark:border-blue-900/30 bg-blue-50/25 dark:bg-blue-950/10 text-blue-900 dark:text-blue-200">
-                      {row.tvsTotalReviewed ?? 0}
-                    </td>
-                    <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-blue-50/25 dark:bg-blue-950/10 text-amber-600 dark:text-amber-400">
-                      {row.tvsReviewPending ?? Math.max(0, (row.totalSubmitted || 0) - (row.tvsTotalReviewed || 0))}
-                    </td>
-                    <td className="px-2 py-1.5 font-extrabold text-center text-emerald-600 dark:text-emerald-400 tabular-nums bg-blue-50/25 dark:bg-blue-950/10">
-                      {row.tvsAccepted ?? 0}
-                    </td>
-                    <td className="px-2 py-1.5 font-extrabold text-center text-rose-600 dark:text-rose-400 tabular-nums bg-blue-50/25 dark:bg-blue-950/10">
-                      {row.tvsRejected ?? 0}
-                    </td>
-                    <td className="px-2 py-1.5 font-extrabold text-center text-amber-600 dark:text-amber-400 tabular-nums border-r border-blue-100 dark:border-blue-900/30 bg-blue-50/25 dark:bg-blue-950/10">
-                      {row.tvsReworked ?? 0}
-                    </td>
-                    <td className="px-2 py-1.5 text-center">
-                      {(row.totalReviewed || 0) === 0 ? (
-                        <span className="px-2 py-1 rounded-full text-[10px] font-bold text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 tabular-nums">
-                          N/A
-                        </span>
-                      ) : (
-                        <span
-                          className={`px-2 py-1 rounded-full text-[10px] font-black tabular-nums ${row.performanceScore >= 80
-                            ? "bg-green-100 text-green-700"
-                            : row.performanceScore >= 50
-                              ? "bg-orange-100 text-orange-700"
-                              : "bg-red-100 text-red-700"
-                            }`}
-                        >
-                          {row.performanceScore}%
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-2 py-1.5 text-center">
-                      {(row.totalReviewed || 0) === 0 ? (
-                        <span className="px-2 py-1 rounded-full text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30">
-                          Pending Review
-                        </span>
-                      ) : (
-                        <span
-                          className={`px-2 py-1 rounded-full text-[10px] font-black ${(() => {
-                            const score = row.performanceScore || 0;
-                            if (score < 60) return "bg-red-100 text-red-700";
-                            if (score < 70) return "bg-orange-100 text-orange-700";
-                            if (score < 80) return "bg-yellow-100 text-yellow-700";
-                            if (score < 90) return "bg-green-100 text-green-700";
-                            return "bg-emerald-100 text-emerald-700";
-                          })()}`}
-                        >
-                          {(() => {
-                            const score = row.performanceScore || 0;
-                            if (score < 60) return "Not met performer";
-                            if (score < 70) return "partially met performer";
-                            if (score < 80) return "Met expectation";
-                            if (score < 90) return "exceeded Performance";
-                            return "Exemplary performer";
-                          })()}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-2 py-1.5 text-center">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleRowExpansion(row.name); }}
-                        className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
-                        title={expandedRows.has(row.name) ? "Collapse" : "Expand"}
-                      >
-                        {expandedRows.has(row.name) ? (
-                          <ChevronUp className="w-4 h-4" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4" />
-                        )}
-                      </button>
-                    </td>
-                  </tr>
-
-                  {expandedRows.has(row.name) &&
-                    (() => {
-                      // 1. Group summary items by form
-                      const forms = new Map<string, any[]>();
-                      perfInspectorSummary
-                        .filter((item: any) => item.qcInspector === row.name)
-                        .forEach((item: any) => {
-                          const formName = item.formTitle || "Unknown Form";
-                          if (!forms.has(formName)) forms.set(formName, []);
-                          forms.get(formName)!.push(item);
-                        });
-
-                      if (forms.size === 0) return null;
-
-                      // 2. Map over forms to create a <React.Fragment> of <tr> elements
-                      return Array.from(forms.entries()).map(([formName, items], formIdx) => {
-                        // 3. For each form, calculate the summary stats, including review outcomes
-                        const formSummary = (items as any[]).reduce((acc, it) => {
-                          const sc = it.statusCounts || {};
-                          for (const status in sc) {
-                            acc.statuses[status] = (acc.statuses[status] || 0) + sc[status];
-                          }
-                          acc.totalReviewed += it.totalReviewed || 0;
-                          acc.accepted += it.accepted || 0;
-                          acc.rework += it.reworked ?? it.rework ?? 0;
-                          acc.rejected_outcome += it.rejectedReview ?? it.rejected ?? 0;
-                          return acc;
-                        }, {
-                          statuses: {} as Record<string, number>,
-                          totalReviewed: 0,
-                          accepted: 0,
-                          rework: 0,
-                          rejected_outcome: 0,
-                        });
-
-                        const v = formSummary.statuses;
-                        const directOk = v["Direct Ok"] || 0;
-                        const reworkQCCompleted = v["Rework QC Completed"] || 0;
-                        const dispatched = v["Dispatched"] || 0;
-
-                        const totalSubmitted = performanceStatuses
-                          .filter(s => s !== 'Dispatched')
-                          .reduce((sum, status) => sum + (v[status] || 0), 0);
-
-                        const { totalReviewed, accepted, rework, rejected_outcome } = formSummary;
-
-                        const dispatchPending = Math.max(0, directOk + reworkQCCompleted - dispatched);
-                        const reviewPending = Math.max(0, dispatched - totalReviewed);
-
-                        const rowBg = formIdx % 2 === 0 ? "bg-purple-50/20 dark:bg-purple-900/10" : "bg-purple-50/40 dark:bg-purple-900/20";
-
-                        return (
-                          <tr key={`${row.name}-${formName}-${formIdx}`} className={rowBg}>
-                            {isSuperAdmin && <td className="px-2 py-1.5"></td>}
-                            <td className="px-2 py-1.5 font-medium text-purple-800 dark:text-purple-200 whitespace-nowrap pl-6 truncate">
-                              {formName}
+                      {performanceStatuses.includes("Dispatched") &&
+                        (() => {
+                          const count =
+                            inspectorStatusMap[row.name]?.["Dispatched"] ?? row.dispatched ?? 0;
+                          const isZero = count === 0;
+                          return (
+                            <td
+                              className={`px-2 py-1.5 font-bold text-center tabular-nums transition-opacity ${isZero ? "opacity-20 text-gray-400" : "text-blue-600 dark:text-blue-400"}`}
+                            >
+                              {count}
                             </td>
-                            {performanceStatuses.filter(s => s !== 'Dispatched').map(status => (
-                              <td key={status} className="px-2 py-1.5 font-bold text-center tabular-nums">
-                                {v[status] || 0}
+                          );
+                        })()}
+                      <td className="px-2 py-1.5 font-bold text-center tabular-nums border-r border-gray-100 dark:border-gray-700">
+                        {getUserTotalSubmitted(row.name, row.totalSubmitted)}
+                      </td>
+                      {/* BIW Review Data Cells with distinct shading */}
+                      <td className="px-2 py-1.5 font-bold text-center tabular-nums border-l border-purple-100 dark:border-purple-900/30 bg-purple-50/25 dark:bg-purple-950/10 text-purple-900 dark:text-purple-200">
+                        {row.totalReviewed}
+                      </td>
+                      <td
+                        className={`px-2 py-1.5 font-bold text-center tabular-nums bg-purple-50/25 dark:bg-purple-950/10 ${(() => {
+                          const dispatched =
+                            inspectorStatusMap[row.name]?.["Dispatched"] || 0;
+                          const pending = Math.max(
+                            0,
+                            dispatched - (row.totalReviewed || 0),
+                          );
+                          return pending === 0
+                            ? "opacity-20 text-gray-400"
+                            : "text-amber-600 dark:text-amber-400";
+                        })()}`}
+                      >
+                        {Math.max(
+                          0,
+                          (inspectorStatusMap[row.name]?.["Dispatched"] || 0) -
+                          (row.totalReviewed || 0),
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 font-extrabold text-center text-green-600 dark:text-green-400 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">
+                        {row.accepted || 0}
+                      </td>
+                      <td className="px-2 py-1.5 font-extrabold text-center text-red-600 dark:text-red-400 tabular-nums bg-purple-50/25 dark:bg-purple-950/10">
+                        {row.rejectedReview ?? row.rejected ?? 0}
+                      </td>
+                      <td className="px-2 py-1.5 font-extrabold text-center text-orange-600 dark:text-orange-400 tabular-nums border-r border-purple-100 dark:border-purple-900/30 bg-purple-50/25 dark:bg-purple-950/10">
+                        {row.reworked ?? row.rework ?? 0}
+                      </td>
+                      {/* TVS Review Data Cells with distinct shading */}
+                      <td className="px-2 py-1.5 font-bold text-center tabular-nums border-l border-blue-100 dark:border-blue-900/30 bg-blue-50/25 dark:bg-blue-950/10 text-blue-900 dark:text-blue-200">
+                        {row.tvsTotalReviewed ?? 0}
+                      </td>
+                      <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-blue-50/25 dark:bg-blue-950/10 text-amber-600 dark:text-amber-400">
+                        {row.tvsReviewPending ?? Math.max(0, (row.totalSubmitted || 0) - (row.tvsTotalReviewed || 0))}
+                      </td>
+                      <td className="px-2 py-1.5 font-extrabold text-center text-emerald-600 dark:text-emerald-400 tabular-nums bg-blue-50/25 dark:bg-blue-950/10">
+                        {row.tvsAccepted ?? 0}
+                      </td>
+                      <td className="px-2 py-1.5 font-extrabold text-center text-rose-600 dark:text-rose-400 tabular-nums bg-blue-50/25 dark:bg-blue-950/10">
+                        {row.tvsRejected ?? 0}
+                      </td>
+                      <td className="px-2 py-1.5 font-extrabold text-center text-amber-600 dark:text-amber-400 tabular-nums border-r border-blue-100 dark:border-blue-900/30 bg-blue-50/25 dark:bg-blue-950/10">
+                        {row.tvsReworked ?? 0}
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        {(row.totalReviewed || 0) === 0 ? (
+                          <span className="px-2 py-1 rounded-full text-[10px] font-bold text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 tabular-nums">
+                            N/A
+                          </span>
+                        ) : (
+                          <span
+                            className={`px-2 py-1 rounded-full text-[10px] font-black tabular-nums ${row.performanceScore >= 80
+                              ? "bg-green-100 text-green-700"
+                              : row.performanceScore >= 50
+                                ? "bg-orange-100 text-orange-700"
+                                : "bg-red-100 text-red-700"
+                              }`}
+                          >
+                            {row.performanceScore}%
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        {(row.totalReviewed || 0) === 0 ? (
+                          <span className="px-2 py-1 rounded-full text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30">
+                            Pending Review
+                          </span>
+                        ) : (
+                          <span
+                            className={`px-2 py-1 rounded-full text-[10px] font-black ${(() => {
+                              const score = row.performanceScore || 0;
+                              if (score < 60) return "bg-red-100 text-red-700";
+                              if (score < 70) return "bg-orange-100 text-orange-700";
+                              if (score < 80) return "bg-yellow-100 text-yellow-700";
+                              if (score < 90) return "bg-green-100 text-green-700";
+                              return "bg-emerald-100 text-emerald-700";
+                            })()}`}
+                          >
+                            {(() => {
+                              const score = row.performanceScore || 0;
+                              if (score < 60) return "Not met performer";
+                              if (score < 70) return "partially met performer";
+                              if (score < 80) return "Met expectation";
+                              if (score < 90) return "exceeded Performance";
+                              return "Exemplary performer";
+                            })()}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleRowExpansion(row.name); }}
+                          className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
+                          title={expandedRows.has(row.name) ? "Collapse" : "Expand"}
+                        >
+                          {expandedRows.has(row.name) ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+
+                    {expandedRows.has(row.name) &&
+                      (() => {
+                        // 1. Group summary items by form
+                        const forms = new Map<string, any[]>();
+                        perfInspectorSummary
+                          .filter((item: any) => item.qcInspector === row.name)
+                          .forEach((item: any) => {
+                            const formName = item.formTitle || "Unknown Form";
+                            if (!forms.has(formName)) forms.set(formName, []);
+                            forms.get(formName)!.push(item);
+                          });
+
+                        if (forms.size === 0) return null;
+
+                        // 2. Map over forms to create a <React.Fragment> of <tr> elements
+                        return Array.from(forms.entries()).map(([formName, items], formIdx) => {
+                          // 3. For each form, calculate the summary stats, including review outcomes
+                          const formSummary = (items as any[]).reduce((acc, it) => {
+                            const sc = it.statusCounts || {};
+                            for (const status in sc) {
+                              acc.statuses[status] = (acc.statuses[status] || 0) + sc[status];
+                            }
+                            acc.totalReviewed += it.totalReviewed || 0;
+                            acc.accepted += it.accepted || 0;
+                            acc.rework += it.reworked ?? it.rework ?? 0;
+                            acc.rejected_outcome += it.rejectedReview ?? it.rejected ?? 0;
+                            return acc;
+                          }, {
+                            statuses: {} as Record<string, number>,
+                            totalReviewed: 0,
+                            accepted: 0,
+                            rework: 0,
+                            rejected_outcome: 0,
+                          });
+
+                          const v = formSummary.statuses;
+                          const directOk = v["Direct Ok"] || 0;
+                          const reworkQCCompleted = v["Rework QC Completed"] || 0;
+                          const dispatched = v["Dispatched"] || 0;
+
+                          const totalSubmitted = performanceStatuses
+                            .filter(s => s !== 'Dispatched')
+                            .reduce((sum, status) => sum + (v[status] || 0), 0);
+
+                          const { totalReviewed, accepted, rework, rejected_outcome } = formSummary;
+
+                          const dispatchPending = Math.max(0, directOk + reworkQCCompleted - dispatched);
+                          const reviewPending = Math.max(0, dispatched - totalReviewed);
+
+                          const rowBg = formIdx % 2 === 0 ? "bg-purple-50/20 dark:bg-purple-900/10" : "bg-purple-50/40 dark:bg-purple-900/20";
+
+                          return (
+                            <tr key={`${row.name}-${formName}-${formIdx}`} className={rowBg}>
+                              {isSuperAdmin && <td className="px-2 py-1.5"></td>}
+                              <td className="px-2 py-1.5 font-medium text-purple-800 dark:text-purple-200 whitespace-nowrap pl-6 truncate">
+                                {formName}
                               </td>
-                            ))}
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums">{dispatchPending}</td>
-                            {performanceStatuses.includes("Dispatched") && (
-                              <td className="px-2 py-1.5 font-bold text-center tabular-nums">
-                                {dispatched}
-                              </td>
-                            )}
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums border-r border-purple-100 dark:border-purple-900/30">{totalSubmitted}</td>
-                            {/* BIW Review cells for expanded row */}
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-purple-100/40 dark:bg-purple-900/20 border-l border-purple-200 dark:border-purple-800 text-purple-900 dark:text-purple-200">{totalReviewed}</td>
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-purple-100/40 dark:bg-purple-900/20 text-amber-600 dark:text-amber-400">{reviewPending}</td>
-                            <td className="px-2 py-1.5 font-extrabold text-center text-green-600 dark:text-green-400 tabular-nums bg-purple-100/40 dark:bg-purple-900/20">{accepted}</td>
-                            <td className="px-2 py-1.5 font-extrabold text-center text-red-600 dark:text-red-400 tabular-nums bg-purple-100/40 dark:bg-purple-900/20">{rejected_outcome}</td>
-                            <td className="px-2 py-1.5 font-extrabold text-center text-orange-600 dark:text-orange-400 tabular-nums border-r border-purple-200 dark:border-purple-800 bg-purple-100/40 dark:bg-purple-900/20">{rework}</td>
-                            {/* TVS Review cells for expanded row */}
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-blue-100/40 dark:bg-blue-900/20 border-l border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200">—</td>
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-blue-100/40 dark:bg-blue-900/20 text-amber-600 dark:text-amber-400">—</td>
-                            <td className="px-2 py-1.5 font-extrabold text-center text-emerald-600 dark:text-emerald-400 tabular-nums bg-blue-100/40 dark:bg-blue-900/20">—</td>
-                            <td className="px-2 py-1.5 font-extrabold text-center text-rose-600 dark:text-rose-400 tabular-nums bg-blue-100/40 dark:bg-blue-900/20">—</td>
-                            <td className="px-2 py-1.5 font-extrabold text-center text-amber-600 dark:text-amber-400 tabular-nums border-r border-blue-200 dark:border-blue-800 bg-blue-100/40 dark:bg-blue-900/20">—</td>
-                            {/* Empty cells for alignment */}
-                            <td className="px-2 py-1.5"></td>
-                            <td className="px-2 py-1.5"></td>
-                            <td className="px-2 py-1.5"></td>
-                          </tr>
-                        );
-                      });
-                    })()}
-                </React.Fragment>
-              ))}
+                              {performanceStatuses.filter(s => s !== 'Dispatched').map(status => (
+                                <td key={status} className="px-2 py-1.5 font-bold text-center tabular-nums">
+                                  {v[status] || 0}
+                                </td>
+                              ))}
+                              <td className="px-2 py-1.5 font-bold text-center tabular-nums">{dispatchPending}</td>
+                              {performanceStatuses.includes("Dispatched") && (
+                                <td className="px-2 py-1.5 font-bold text-center tabular-nums">
+                                  {dispatched}
+                                </td>
+                              )}
+                              <td className="px-2 py-1.5 font-bold text-center tabular-nums border-r border-purple-100 dark:border-purple-900/30">{totalSubmitted}</td>
+                              {/* BIW Review cells for expanded row */}
+                              <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-purple-100/40 dark:bg-purple-900/20 border-l border-purple-200 dark:border-purple-800 text-purple-900 dark:text-purple-200">{totalReviewed}</td>
+                              <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-purple-100/40 dark:bg-purple-900/20 text-amber-600 dark:text-amber-400">{reviewPending}</td>
+                              <td className="px-2 py-1.5 font-extrabold text-center text-green-600 dark:text-green-400 tabular-nums bg-purple-100/40 dark:bg-purple-900/20">{accepted}</td>
+                              <td className="px-2 py-1.5 font-extrabold text-center text-red-600 dark:text-red-400 tabular-nums bg-purple-100/40 dark:bg-purple-900/20">{rejected_outcome}</td>
+                              <td className="px-2 py-1.5 font-extrabold text-center text-orange-600 dark:text-orange-400 tabular-nums border-r border-purple-200 dark:border-purple-800 bg-purple-100/40 dark:bg-purple-900/20">{rework}</td>
+                              {/* TVS Review cells for expanded row */}
+                              <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-blue-100/40 dark:bg-blue-900/20 border-l border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200">—</td>
+                              <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-blue-100/40 dark:bg-blue-900/20 text-amber-600 dark:text-amber-400">—</td>
+                              <td className="px-2 py-1.5 font-extrabold text-center text-emerald-600 dark:text-emerald-400 tabular-nums bg-blue-100/40 dark:bg-blue-900/20">—</td>
+                              <td className="px-2 py-1.5 font-extrabold text-center text-rose-600 dark:text-rose-400 tabular-nums bg-blue-100/40 dark:bg-blue-900/20">—</td>
+                              <td className="px-2 py-1.5 font-extrabold text-center text-amber-600 dark:text-amber-400 tabular-nums border-r border-blue-200 dark:border-blue-800 bg-blue-100/40 dark:bg-blue-900/20">—</td>
+                              {/* Empty cells for alignment */}
+                              <td className="px-2 py-1.5"></td>
+                              <td className="px-2 py-1.5"></td>
+                              <td className="px-2 py-1.5"></td>
+                            </tr>
+                          );
+                        });
+                      })()}
+                  </React.Fragment>
+                ))
+              )}
               <tr className="bg-gray-100 dark:bg-gray-700 border-t-2 border-gray-300 dark:border-gray-500 font-black text-gray-900 dark:text-white">
                 {isSuperAdmin && (
                   <td className="px-2 py-1.5 whitespace-nowrap text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400">

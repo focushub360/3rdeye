@@ -23,7 +23,8 @@ import {
   X,
   Filter,
   Users,
-  PieChart as PieChartIcon
+  PieChart as PieChartIcon,
+  Wrench
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -243,7 +244,11 @@ export const QualityDashboard: React.FC = () => {
   const [dataViewMode, setDataViewMode] = useState<'cards' | 'table' | 'raw'>('cards');
   const [searchForm, setSearchForm] = useState<string>('');
   const [overallDispatchFilter, setOverallDispatchFilter] = useState<'all' | 'dispatched' | 'pending'>('all');
+  const [overallStatusFilter, setOverallStatusFilter] = useState<string>('all');
+  const [overallBiwFilter, setOverallBiwFilter] = useState<string>('all');
   const [loading, setLoading] = useState<boolean>(false);
+  const [loadingProgress, setLoadingProgress] = useState<number>(0);
+  const progressIntervalRef = useRef<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<SummaryData | null>(() => {
     try {
@@ -1096,6 +1101,16 @@ export const QualityDashboard: React.FC = () => {
     return data?.defectBreakdown || [];
   }, [data?.rawResponses, data?.defectBreakdown, selectedFormIds]);
 
+  const totalTvsReworkCount = useMemo(() => {
+    const listSum = tvsDefectBreakdown.reduce((sum: number, d: any) => sum + (Number(d.count) || 0), 0);
+    return listSum > 0 ? listSum : (tvsOverallSummary.totalRework || tvsOverallSummary.totalDefect || 0);
+  }, [tvsDefectBreakdown, tvsOverallSummary]);
+
+  const totalBiwReworkCount = useMemo(() => {
+    const listSum = (data?.defectBreakdown || []).reduce((sum: number, d: any) => sum + (Number(d.count) || 0), 0);
+    return listSum > 0 ? listSum : (data?.summary?.rework1Count || data?.summary?.totalDefects || 0);
+  }, [data?.defectBreakdown, data?.summary]);
+
   const centerTextPlugin = useMemo(
     () => ({
       id: 'qualityDonutCenterText',
@@ -1177,7 +1192,7 @@ export const QualityDashboard: React.FC = () => {
     [data, hoveredSlice, summaryPieDetails],
   );
 
-  // Compute start/end dates
+  // Compute start/end dates with normalized day boundaries for 0ms SWR cache hits
   const { startDate, endDate } = useMemo(() => {
     if (dateRange === 'all') return { startDate: undefined, endDate: undefined };
     if (dateRange === 'custom') {
@@ -1186,20 +1201,20 @@ export const QualityDashboard: React.FC = () => {
         endDate: customEndDate ? new Date(customEndDate + 'T23:59:59.999Z').toISOString() : undefined
       };
     }
-    const now = new Date();
-    let start: Date;
+    const today = new Date();
+    const end = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+
     if (dateRange === 'today') {
-      start = new Date();
-      start.setHours(0, 0, 0, 0);
-      return { startDate: start.toISOString(), endDate: new Date().toISOString() };
+      // today start of day
     } else if (dateRange === '7d') {
-      start = new Date(now.setDate(now.getDate() - 7));
+      start.setDate(start.getDate() - 7);
     } else if (dateRange === '30d') {
-      start = new Date(now.setDate(now.getDate() - 30));
+      start.setDate(start.getDate() - 30);
     } else {
-      start = new Date(now.setDate(now.getDate() - 90));
+      start.setDate(start.getDate() - 90);
     }
-    return { startDate: start.toISOString(), endDate: new Date().toISOString() };
+    return { startDate: start.toISOString(), endDate: end.toISOString() };
   }, [dateRange, customStartDate, customEndDate]);
 
   const fetchSummary = async (forceNetwork = false) => {
@@ -1246,10 +1261,27 @@ export const QualityDashboard: React.FC = () => {
     }
 
     try {
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
       setLoading(true);
+      setLoadingProgress(8);
       setError(null);
       setElapsedMs(0);
       setLoadTimeMs(null);
+
+      progressIntervalRef.current = setInterval(() => {
+        setLoadingProgress((prev) => {
+          if (prev >= 92) {
+            return Math.min(96, prev + 1);
+          }
+          if (prev < 30) {
+            return prev + Math.floor(Math.random() * 8) + 6;
+          }
+          if (prev < 65) {
+            return prev + Math.floor(Math.random() * 6) + 4;
+          }
+          return prev + Math.floor(Math.random() * 4) + 1;
+        });
+      }, 160);
 
       const timerInterval = setInterval(() => {
         setElapsedMs(prev => prev + 100);
@@ -1265,6 +1297,8 @@ export const QualityDashboard: React.FC = () => {
       });
 
       clearInterval(timerInterval);
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      setLoadingProgress(100);
       const endTime = performance.now();
       setLoadTimeMs(Math.round(endTime - startTime));
 
@@ -1328,15 +1362,18 @@ export const QualityDashboard: React.FC = () => {
         throw new Error('Invalid response structure');
       }
     } catch (err: any) {
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
       if (requestId === currentRequestIdRef.current) {
         console.error('Error fetching quality summary:', err);
         setError(err.message || 'Failed to load summary data');
         setLoadTimeMs(null);
       }
     } finally {
-      if (requestId === currentRequestIdRef.current) {
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      setLoadingProgress(100);
+      setTimeout(() => {
         setLoading(false);
-      }
+      }, 150);
     }
   };
 
@@ -1835,7 +1872,7 @@ export const QualityDashboard: React.FC = () => {
           {loading && (
             <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50/90 text-blue-700 border border-blue-200/70 rounded-lg text-xs font-semibold animate-pulse shadow-2xs">
               <RefreshCw className="w-3 h-3 animate-spin text-blue-600" />
-              <span>Filtering...</span>
+              <span>Filtering ({loadingProgress}%)...</span>
             </span>
           )}
 
@@ -1851,9 +1888,12 @@ export const QualityDashboard: React.FC = () => {
 
       <div className="flex-1 p-4 md:p-6 w-full space-y-6 pb-16">
 
-        {/* Sleek Minimal Loading Line (Zero layout shift, buttery smooth) */}
-        <div className={`h-1 w-full -mt-2 -mb-2 rounded-full overflow-hidden transition-opacity duration-300 ${loading ? 'opacity-100' : 'opacity-0'}`}>
-          <div className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 animate-pulse w-full"></div>
+        {/* Sleek Minimal Loading Line with Dynamic Percentage Width */}
+        <div className={`h-1.5 w-full -mt-2 -mb-2 rounded-full overflow-hidden bg-gray-100/70 transition-opacity duration-300 ${loading ? 'opacity-100' : 'opacity-0'}`}>
+          <div
+            className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 transition-all duration-300 ease-out"
+            style={{ width: `${Math.max(5, loadingProgress)}%` }}
+          ></div>
         </div>
 
         {/* Error State */}
@@ -1864,11 +1904,69 @@ export const QualityDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* Loading Skeleton State (only on initial load when 0 cache exists) */}
+        {/* Loading State with Percentage Progress */}
         {loading && !data && (
-          <div className="flex flex-col items-center justify-center py-16 bg-white rounded-xl border border-gray-200 shadow-2xs animate-pulse">
-            <RefreshCw className="w-7 h-7 text-blue-500 animate-spin mb-3" />
-            <p className="text-gray-700 font-semibold text-sm">Filtering summary metrics...</p>
+          <div className="flex flex-col items-center justify-center py-20 px-6 bg-white rounded-2xl border border-gray-200 shadow-xs">
+            {/* Circular Progress with Percentage */}
+            <div className="relative w-24 h-24 mb-5">
+              <svg className="w-24 h-24 transform -rotate-90">
+                <circle
+                  cx="48"
+                  cy="48"
+                  r="40"
+                  stroke="currentColor"
+                  strokeWidth="7"
+                  fill="transparent"
+                  className="text-gray-100 dark:text-gray-700"
+                />
+                <circle
+                  cx="48"
+                  cy="48"
+                  r="40"
+                  stroke="url(#qualityLoadingGradient)"
+                  strokeWidth="7"
+                  fill="transparent"
+                  strokeDasharray={`${2 * Math.PI * 40}`}
+                  strokeDashoffset={`${2 * Math.PI * 40 * (1 - loadingProgress / 100)}`}
+                  strokeLinecap="round"
+                  className="transition-all duration-300 ease-out"
+                />
+                <defs>
+                  <linearGradient id="qualityLoadingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#3B82F6" />
+                    <stop offset="50%" stopColor="#6366F1" />
+                    <stop offset="100%" stopColor="#10B981" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-xl font-black text-gray-900 tracking-tight">
+                  {loadingProgress}%
+                </span>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="w-72 max-w-full h-2.5 bg-gray-100 rounded-full overflow-hidden mb-4 shadow-inner">
+              <div
+                className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${Math.max(5, loadingProgress)}%` }}
+              ></div>
+            </div>
+
+            {/* Dynamic Step Text */}
+            <p className="text-base font-bold text-gray-800 text-center">
+              {loadingProgress < 30
+                ? "Initializing inspection data..."
+                : loadingProgress < 65
+                  ? "Aggregating form responses & quality metrics..."
+                  : loadingProgress < 90
+                    ? "Calculating BIW & TVS defect distributions..."
+                    : "Finalizing summary metrics..."}
+            </p>
+            <p className="text-xs text-gray-400 mt-1.5 text-center font-medium">
+              Please wait while quality analytics are prepared ({loadingProgress}% completed)
+            </p>
           </div>
         )}
 
@@ -2050,11 +2148,10 @@ export const QualityDashboard: React.FC = () => {
                     onClick={() => handleSelectSlice('tvsReviewed')}
                     onMouseEnter={() => handleHoverSlice('tvsReviewed')}
                     onMouseLeave={handleHoverLeave}
-                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
-                      hoveredSlice === 'tvsReviewed'
-                        ? 'bg-purple-100/90 border-purple-400 ring-2 ring-purple-300'
-                        : 'bg-purple-50/70 border-purple-100 hover:bg-purple-100/60 hover:shadow-xs'
-                    }`}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${hoveredSlice === 'tvsReviewed'
+                      ? 'bg-purple-100/90 border-purple-400 ring-2 ring-purple-300'
+                      : 'bg-purple-50/70 border-purple-100 hover:bg-purple-100/60 hover:shadow-xs'
+                      }`}
                   >
                     <div className="text-xs sm:text-sm font-bold text-purple-600">
                       {summaryPieDetails.tvsReviewed}%
@@ -2072,11 +2169,10 @@ export const QualityDashboard: React.FC = () => {
                     onClick={() => handleSelectSlice('pendingTvs')}
                     onMouseEnter={() => handleHoverSlice('pendingTvs')}
                     onMouseLeave={handleHoverLeave}
-                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
-                      hoveredSlice === 'pendingTvs'
-                        ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300'
-                        : 'bg-amber-50/70 border-amber-100 hover:bg-amber-100/60 hover:shadow-xs'
-                    }`}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${hoveredSlice === 'pendingTvs'
+                      ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300'
+                      : 'bg-amber-50/70 border-amber-100 hover:bg-amber-100/60 hover:shadow-xs'
+                      }`}
                   >
                     <div className="text-xs sm:text-sm font-bold text-amber-600">
                       {summaryPieDetails.pendingTvs}%
@@ -2094,11 +2190,10 @@ export const QualityDashboard: React.FC = () => {
                     onClick={() => handleSelectSlice('tvsAccepted')}
                     onMouseEnter={() => handleHoverSlice('tvsAccepted')}
                     onMouseLeave={handleHoverLeave}
-                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
-                      hoveredSlice === 'tvsAccepted'
-                        ? 'bg-emerald-100/90 border-emerald-400 ring-2 ring-emerald-300'
-                        : 'bg-emerald-50/70 border-emerald-100 hover:bg-emerald-100/60 hover:shadow-xs'
-                    }`}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${hoveredSlice === 'tvsAccepted'
+                      ? 'bg-emerald-100/90 border-emerald-400 ring-2 ring-emerald-300'
+                      : 'bg-emerald-50/70 border-emerald-100 hover:bg-emerald-100/60 hover:shadow-xs'
+                      }`}
                   >
                     <div className="text-xs sm:text-sm font-bold text-emerald-600">
                       {summaryPieDetails.tvsAccepted}%
@@ -2116,11 +2211,10 @@ export const QualityDashboard: React.FC = () => {
                     onClick={() => handleSelectSlice('tvsDefects')}
                     onMouseEnter={() => handleHoverSlice('tvsDefects')}
                     onMouseLeave={handleHoverLeave}
-                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
-                      hoveredSlice === 'tvsDefects'
-                        ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-300'
-                        : 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/60 hover:shadow-xs'
-                    }`}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${hoveredSlice === 'tvsDefects'
+                      ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-300'
+                      : 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/60 hover:shadow-xs'
+                      }`}
                   >
                     <div className="text-xs sm:text-sm font-bold text-rose-600">
                       {summaryPieDetails.tvsDefects}%
@@ -2181,32 +2275,31 @@ export const QualityDashboard: React.FC = () => {
                                                 ? summaryPieDetails.counts.tvsDefects.toLocaleString()
                                                 : ((summaryPieDetails.counts.directOk || 0) + (summaryPieDetails.counts.reworkCompleted || 0)).toLocaleString()}
                       </span>
-                      <span className={`text-[10px] font-bold tracking-wider mt-1 uppercase ${
-                        hoveredSlice === 'directOk' ? 'text-green-600' :
+                      <span className={`text-[10px] font-bold tracking-wider mt-1 uppercase ${hoveredSlice === 'directOk' ? 'text-green-600' :
                         hoveredSlice === 'reworkCompleted' ? 'text-blue-600' :
-                        hoveredSlice === 'rejected' ? 'text-red-600' :
-                        hoveredSlice === 'rework' ? 'text-amber-600' :
-                        hoveredSlice === 'pendingDispatch' ? 'text-amber-600' :
-                        hoveredSlice === 'pendingData' ? 'text-rose-600' :
-                        hoveredSlice === 'pendingTvs' ? 'text-amber-600' :
-                        hoveredSlice === 'dispatched' ? 'text-indigo-600' :
-                        hoveredSlice === 'biwReviewed' ? 'text-teal-600' :
-                        hoveredSlice === 'tvsReviewed' ? 'text-purple-600' :
-                        hoveredSlice === 'tvsAccepted' ? 'text-emerald-600' :
-                        hoveredSlice === 'tvsDefects' ? 'text-rose-600' : 'text-gray-500'
-                      }`}>
+                          hoveredSlice === 'rejected' ? 'text-red-600' :
+                            hoveredSlice === 'rework' ? 'text-amber-600' :
+                              hoveredSlice === 'pendingDispatch' ? 'text-amber-600' :
+                                hoveredSlice === 'pendingData' ? 'text-rose-600' :
+                                  hoveredSlice === 'pendingTvs' ? 'text-amber-600' :
+                                    hoveredSlice === 'dispatched' ? 'text-indigo-600' :
+                                      hoveredSlice === 'biwReviewed' ? 'text-teal-600' :
+                                        hoveredSlice === 'tvsReviewed' ? 'text-purple-600' :
+                                          hoveredSlice === 'tvsAccepted' ? 'text-emerald-600' :
+                                            hoveredSlice === 'tvsDefects' ? 'text-rose-600' : 'text-gray-500'
+                        }`}>
                         {hoveredSlice === 'directOk' ? 'DIRECT OK' :
                           hoveredSlice === 'reworkCompleted' ? 'REWORK ACC' :
-                          hoveredSlice === 'rejected' ? 'REJECTED' :
-                          hoveredSlice === 'rework' ? 'REWORK' :
-                          hoveredSlice === 'pendingDispatch' ? 'PENDING DISPATCH' :
-                          hoveredSlice === 'pendingData' ? 'PENDING BIW DATA' :
-                          hoveredSlice === 'pendingTvs' ? 'PENDING TVS' :
-                          hoveredSlice === 'dispatched' ? 'DISPATCHED' :
-                          hoveredSlice === 'biwReviewed' ? 'BIW REVIEWED' :
-                          hoveredSlice === 'tvsReviewed' ? 'TVS REVIEWED' :
-                          hoveredSlice === 'tvsAccepted' ? 'TVS ACCEPTED' :
-                          hoveredSlice === 'tvsDefects' ? 'TVS DEFECTS' : 'ACCEPTED'}
+                            hoveredSlice === 'rejected' ? 'REJECTED' :
+                              hoveredSlice === 'rework' ? 'REWORK' :
+                                hoveredSlice === 'pendingDispatch' ? 'PENDING DISPATCH' :
+                                  hoveredSlice === 'pendingData' ? 'PENDING BIW DATA' :
+                                    hoveredSlice === 'pendingTvs' ? 'PENDING TVS' :
+                                      hoveredSlice === 'dispatched' ? 'DISPATCHED' :
+                                        hoveredSlice === 'biwReviewed' ? 'BIW REVIEWED' :
+                                          hoveredSlice === 'tvsReviewed' ? 'TVS REVIEWED' :
+                                            hoveredSlice === 'tvsAccepted' ? 'TVS ACCEPTED' :
+                                              hoveredSlice === 'tvsDefects' ? 'TVS DEFECTS' : 'ACCEPTED'}
                       </span>
                     </div>
                   </div>
@@ -2263,11 +2356,10 @@ export const QualityDashboard: React.FC = () => {
                     onClick={() => handleSelectSlice('dispatched')}
                     onMouseEnter={() => handleHoverSlice('dispatched')}
                     onMouseLeave={handleHoverLeave}
-                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
-                      hoveredSlice === 'dispatched'
-                        ? 'bg-indigo-100/90 border-indigo-400 ring-2 ring-indigo-300'
-                        : 'bg-indigo-50/70 border-indigo-100 hover:bg-indigo-100/60 hover:shadow-xs'
-                    }`}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${hoveredSlice === 'dispatched'
+                      ? 'bg-indigo-100/90 border-indigo-400 ring-2 ring-indigo-300'
+                      : 'bg-indigo-50/70 border-indigo-100 hover:bg-indigo-100/60 hover:shadow-xs'
+                      }`}
                   >
                     <div className="text-xs sm:text-sm font-bold text-indigo-600">
                       {summaryPieDetails.dispatched}%
@@ -2286,11 +2378,10 @@ export const QualityDashboard: React.FC = () => {
                     onMouseEnter={() => handleHoverSlice('pendingDispatch')}
                     onMouseLeave={handleHoverLeave}
                     title="Click to view and lock Pending Dispatch forms"
-                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
-                      hoveredSlice === 'pendingDispatch'
-                        ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300 hover:bg-amber-200/80 shadow-xs'
-                        : 'bg-amber-50/70 border-amber-100 hover:bg-amber-100/60 hover:shadow-xs'
-                    }`}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${hoveredSlice === 'pendingDispatch'
+                      ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300 hover:bg-amber-200/80 shadow-xs'
+                      : 'bg-amber-50/70 border-amber-100 hover:bg-amber-100/60 hover:shadow-xs'
+                      }`}
                   >
                     <div className="text-xs sm:text-sm font-bold text-amber-600 flex items-center justify-center gap-1">
                       <span>{summaryPieDetails.pendingDispatch}%</span>
@@ -2309,11 +2400,10 @@ export const QualityDashboard: React.FC = () => {
                     onClick={() => handleSelectSlice('biwReviewed')}
                     onMouseEnter={() => handleHoverSlice('biwReviewed')}
                     onMouseLeave={handleHoverLeave}
-                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
-                      hoveredSlice === 'biwReviewed'
-                        ? 'bg-teal-100/90 border-teal-400 ring-2 ring-teal-300'
-                        : 'bg-teal-50/70 border-teal-100 hover:bg-teal-100/60 hover:shadow-xs'
-                    }`}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${hoveredSlice === 'biwReviewed'
+                      ? 'bg-teal-100/90 border-teal-400 ring-2 ring-teal-300'
+                      : 'bg-teal-50/70 border-teal-100 hover:bg-teal-100/60 hover:shadow-xs'
+                      }`}
                   >
                     <div className="text-xs sm:text-sm font-bold text-teal-600">
                       {summaryPieDetails.biwReviewed}%
@@ -2331,11 +2421,10 @@ export const QualityDashboard: React.FC = () => {
                     onClick={() => handleSelectSlice('pendingData')}
                     onMouseEnter={() => handleHoverSlice('pendingData')}
                     onMouseLeave={handleHoverLeave}
-                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${
-                      hoveredSlice === 'pendingData'
-                        ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-300'
-                        : 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/60 hover:shadow-xs'
-                    }`}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${hoveredSlice === 'pendingData'
+                      ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-300'
+                      : 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/60 hover:shadow-xs'
+                      }`}
                   >
                     <div className="text-xs sm:text-sm font-bold text-rose-600">
                       {summaryPieDetails.pendingData}%
@@ -2485,22 +2574,121 @@ export const QualityDashboard: React.FC = () => {
               <div className="pt-4 border-t border-gray-100">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${
-                      hoveredSlice === 'directOk' || hoveredSlice === 'accepted' ? 'bg-green-500 animate-pulse' :
+                    <span className={`w-2.5 h-2.5 rounded-full ${hoveredSlice === 'directOk' || hoveredSlice === 'accepted' ? 'bg-green-500 animate-pulse' :
                       hoveredSlice === 'reworkCompleted' ? 'bg-blue-500 animate-pulse' :
-                      hoveredSlice === 'rework' || hoveredSlice === 'pendingDispatch' || hoveredSlice === 'pendingTvs' ? 'bg-amber-500 animate-pulse' :
-                      hoveredSlice === 'rejected' || hoveredSlice === 'pendingData' || hoveredSlice === 'tvsDefects' ? 'bg-red-500 animate-pulse' :
-                      hoveredSlice === 'dispatched' ? 'bg-indigo-500 animate-pulse' :
-                      hoveredSlice === 'biwReviewed' ? 'bg-teal-500 animate-pulse' :
-                      hoveredSlice === 'tvsReviewed' ? 'bg-purple-500 animate-pulse' :
-                      hoveredSlice === 'tvsAccepted' ? 'bg-emerald-500 animate-pulse' : 'bg-blue-600'
-                    }`}></span>
+                        hoveredSlice === 'rework' || hoveredSlice === 'pendingDispatch' || hoveredSlice === 'pendingTvs' ? 'bg-amber-500 animate-pulse' :
+                          hoveredSlice === 'rejected' || hoveredSlice === 'pendingData' || hoveredSlice === 'tvsDefects' ? 'bg-red-500 animate-pulse' :
+                            hoveredSlice === 'dispatched' ? 'bg-indigo-500 animate-pulse' :
+                              hoveredSlice === 'biwReviewed' ? 'bg-teal-500 animate-pulse' :
+                                hoveredSlice === 'tvsReviewed' ? 'bg-purple-500 animate-pulse' :
+                                  hoveredSlice === 'tvsAccepted' ? 'bg-emerald-500 animate-pulse' : 'bg-blue-600'
+                      }`}></span>
                     <h4 className="text-xs sm:text-sm font-bold text-gray-800">
-                      {hoveredSlice === 'directOk' && 'Form-Wise Direct Ok Contribution'}
-                      {hoveredSlice === 'reworkCompleted' && 'Form-Wise Rework Accepted Contribution'}
-                      {hoveredSlice === 'accepted' && 'Form-Wise Accepted Contributions'}
-                      {hoveredSlice === 'rework' && 'Form-Wise Ongoing Rework Contribution'}
-                      {hoveredSlice === 'rejected' && 'Form-Wise Rejected Contribution'}
+                      {hoveredSlice === 'directOk' && (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>Form-Wise Direct Ok Contribution</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOverallStatusFilter('Direct Ok');
+                              setOverallDispatchFilter('all');
+                              setOverallBiwFilter('all');
+                              setActiveTab('overall');
+                              const el = document.getElementById('analytics-tabs-section');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="ml-2 text-[11px] font-bold text-green-900 bg-green-100 hover:bg-green-200 border border-green-300 px-2.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="View all Direct Ok responses in Overall Responses table"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-green-700" />
+                            <span>View All ({(summaryPieDetails.counts.directOk || 0).toLocaleString()}) in Table ↗</span>
+                          </button>
+                        </span>
+                      )}
+                      {hoveredSlice === 'reworkCompleted' && (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>Form-Wise Rework Accepted Contribution</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOverallStatusFilter('Rework Accepted');
+                              setOverallDispatchFilter('all');
+                              setOverallBiwFilter('all');
+                              setActiveTab('overall');
+                              const el = document.getElementById('analytics-tabs-section');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="ml-2 text-[11px] font-bold text-blue-900 bg-blue-100 hover:bg-blue-200 border border-blue-300 px-2.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="View all Rework Accepted responses in Overall Responses table"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-blue-700" />
+                            <span>View All ({(summaryPieDetails.counts.reworkCompleted || 0).toLocaleString()}) in Table ↗</span>
+                          </button>
+                        </span>
+                      )}
+                      {hoveredSlice === 'accepted' && (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>Form-Wise Accepted Contributions</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOverallStatusFilter('all');
+                              setOverallDispatchFilter('all');
+                              setOverallBiwFilter('all');
+                              setActiveTab('overall');
+                              const el = document.getElementById('analytics-tabs-section');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="ml-2 text-[11px] font-bold text-green-900 bg-green-100 hover:bg-green-200 border border-green-300 px-2.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="View all Accepted responses in Overall Responses table"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-green-700" />
+                            <span>View All ({((summaryPieDetails.counts.directOk || 0) + (summaryPieDetails.counts.reworkCompleted || 0)).toLocaleString()}) in Table ↗</span>
+                          </button>
+                        </span>
+                      )}
+                      {hoveredSlice === 'rework' && (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>Form-Wise Ongoing Rework Contribution</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOverallStatusFilter('Rework 1');
+                              setOverallDispatchFilter('all');
+                              setOverallBiwFilter('all');
+                              setActiveTab('overall');
+                              const el = document.getElementById('analytics-tabs-section');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="ml-2 text-[11px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="View all Ongoing Rework responses in Overall Responses table"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-amber-700" />
+                            <span>View All ({(summaryPieDetails.counts.na || 0).toLocaleString()}) in Table ↗</span>
+                          </button>
+                        </span>
+                      )}
+                      {hoveredSlice === 'rejected' && (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>Form-Wise Rejected Contribution</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOverallStatusFilter('Rejected');
+                              setOverallDispatchFilter('all');
+                              setOverallBiwFilter('all');
+                              setActiveTab('overall');
+                              const el = document.getElementById('analytics-tabs-section');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="ml-2 text-[11px] font-bold text-red-900 bg-red-100 hover:bg-red-200 border border-red-300 px-2.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="View all Rejected responses in Overall Responses table"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-red-700" />
+                            <span>View All ({(summaryPieDetails.counts.no || 0).toLocaleString()}) in Table ↗</span>
+                          </button>
+                        </span>
+                      )}
                       {hoveredSlice === 'pendingDispatch' && (
                         <span className="flex items-center gap-1.5 flex-wrap">
                           <span>Form-Wise Pending Dispatch Contribution (Last 30 Days)</span>
@@ -2508,6 +2696,8 @@ export const QualityDashboard: React.FC = () => {
                             type="button"
                             onClick={() => {
                               setOverallDispatchFilter('pending');
+                              setOverallBiwFilter('all');
+                              setOverallStatusFilter('all');
                               setActiveTab('overall');
                               const el = document.getElementById('analytics-tabs-section');
                               if (el) el.scrollIntoView({ behavior: 'smooth' });
@@ -2520,13 +2710,141 @@ export const QualityDashboard: React.FC = () => {
                           </button>
                         </span>
                       )}
-                      {hoveredSlice === 'pendingData' && 'Form-Wise Pending Data (BIW Review) Contribution'}
-                      {hoveredSlice === 'pendingTvs' && 'Form-Wise Pending TVS Review Contribution'}
-                      {hoveredSlice === 'dispatched' && 'Form-Wise Dispatched Contribution'}
-                      {hoveredSlice === 'biwReviewed' && 'Form-Wise BIW Review Contribution'}
-                      {hoveredSlice === 'tvsReviewed' && 'Form-Wise TVS Review Contribution'}
-                      {hoveredSlice === 'tvsAccepted' && 'Form-Wise TVS Accepted Contribution'}
-                      {hoveredSlice === 'tvsDefects' && 'Form-Wise TVS Defects Contribution'}
+                      {hoveredSlice === 'pendingData' && (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>Form-Wise Pending Data (BIW Review) Contribution</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOverallBiwFilter('Pending');
+                              setOverallDispatchFilter('dispatched');
+                              setOverallStatusFilter('all');
+                              setActiveTab('overall');
+                              const el = document.getElementById('analytics-tabs-section');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="ml-2 text-[11px] font-bold text-rose-900 bg-rose-100 hover:bg-rose-200 border border-rose-300 px-2.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="View all Pending BIW Data responses in Overall Responses table"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-rose-700" />
+                            <span>View All ({(summaryPieDetails.counts.pendingData || 0).toLocaleString()}) in Table ↗</span>
+                          </button>
+                        </span>
+                      )}
+                      {hoveredSlice === 'pendingTvs' && (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>Form-Wise Pending TVS Review Contribution</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('tvs');
+                              const el = document.getElementById('analytics-tabs-section');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="ml-2 text-[11px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="View Pending TVS Review breakdown in TVS Tab"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-amber-700" />
+                            <span>View All ({(summaryPieDetails.counts.pendingTvs || 0).toLocaleString()}) in TVS Tab ↗</span>
+                          </button>
+                        </span>
+                      )}
+                      {hoveredSlice === 'dispatched' && (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>Form-Wise Dispatched Contribution</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOverallDispatchFilter('dispatched');
+                              setOverallBiwFilter('all');
+                              setOverallStatusFilter('all');
+                              setActiveTab('overall');
+                              const el = document.getElementById('analytics-tabs-section');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="ml-2 text-[11px] font-bold text-indigo-900 bg-indigo-100 hover:bg-indigo-200 border border-indigo-300 px-2.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="View all Dispatched responses in Overall Responses table"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-700" />
+                            <span>View All ({(summaryPieDetails.counts.dispatched || 0).toLocaleString()}) in Table ↗</span>
+                          </button>
+                        </span>
+                      )}
+                      {hoveredSlice === 'biwReviewed' && (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>Form-Wise BIW Review Contribution</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOverallBiwFilter('reviewed');
+                              setOverallDispatchFilter('all');
+                              setOverallStatusFilter('all');
+                              setActiveTab('overall');
+                              const el = document.getElementById('analytics-tabs-section');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="ml-2 text-[11px] font-bold text-teal-900 bg-teal-100 hover:bg-teal-200 border border-teal-300 px-2.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="View all BIW Reviewed responses in Overall Responses table"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-teal-700" />
+                            <span>View All ({(summaryPieDetails.counts.biwReviewed || 0).toLocaleString()}) in Table ↗</span>
+                          </button>
+                        </span>
+                      )}
+                      {hoveredSlice === 'tvsReviewed' && (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>Form-Wise TVS Review Contribution</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('tvs');
+                              const el = document.getElementById('analytics-tabs-section');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="ml-2 text-[11px] font-bold text-purple-900 bg-purple-100 hover:bg-purple-200 border border-purple-300 px-2.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="View all TVS Reviewed responses in TVS Tab"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-purple-700" />
+                            <span>View All ({(summaryPieDetails.counts.tvsReviewed || 0).toLocaleString()}) in TVS Tab ↗</span>
+                          </button>
+                        </span>
+                      )}
+                      {hoveredSlice === 'tvsAccepted' && (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>Form-Wise TVS Accepted Contribution</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('tvs');
+                              const el = document.getElementById('analytics-tabs-section');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="ml-2 text-[11px] font-bold text-emerald-900 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 px-2.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="View TVS Accepted responses in TVS Tab"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>View All ({(summaryPieDetails.counts.tvsAccepted || 0).toLocaleString()}) in TVS Tab ↗</span>
+                          </button>
+                        </span>
+                      )}
+                      {hoveredSlice === 'tvsDefects' && (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>Form-Wise TVS Defects Contribution</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('tvs');
+                              const el = document.getElementById('analytics-tabs-section');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="ml-2 text-[11px] font-bold text-rose-900 bg-rose-100 hover:bg-rose-200 border border-rose-300 px-2.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="View TVS Defects responses in TVS Tab"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-rose-700" />
+                            <span>View All ({(summaryPieDetails.counts.tvsDefects || 0).toLocaleString()}) in TVS Tab ↗</span>
+                          </button>
+                        </span>
+                      )}
                       {hoveredSlice === 'all' && `Form-Wise Quality & Volume Contribution (${filteredFormSummaryList.length} ${selectedFormIds.length > 0 ? 'selected ' : ''}forms)`}
                     </h4>
                   </div>
@@ -2706,42 +3024,62 @@ export const QualityDashboard: React.FC = () => {
                       activeLabel = 'TVS Defects';
                     }
 
+                    const formIdStr = form.id || form._id;
+                    const getFormMetricUrl = (slice: string) => {
+                      if (slice === 'pendingDispatch') return `/forms/${formIdStr}/analytics?tab=responses&dispatch=pending`;
+                      if (slice === 'dispatched') return `/forms/${formIdStr}/analytics?tab=responses&dispatch=dispatched`;
+                      if (slice === 'biwReviewed') return `/forms/${formIdStr}/analytics?tab=responses&biwStatus=accepted`;
+                      if (slice === 'pendingData') return `/forms/${formIdStr}/analytics?tab=responses&dispatch=dispatched&biwStatus=pending`;
+                      if (slice === 'tvsReviewed') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=reviewed`;
+                      if (slice === 'tvsAccepted') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=accepted`;
+                      if (slice === 'tvsDefects') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=rework`;
+                      if (slice === 'pendingTvs') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=pending`;
+                      if (slice === 'directOk') return `/forms/${formIdStr}/analytics?tab=responses&status=Direct Ok`;
+                      if (slice === 'reworkCompleted') return `/forms/${formIdStr}/analytics?tab=responses&status=Rework Accepted`;
+                      if (slice === 'rework') return `/forms/${formIdStr}/analytics?tab=responses&status=Rework 1`;
+                      if (slice === 'rejected') return `/forms/${formIdStr}/analytics?tab=responses&status=Rejected`;
+                      return `/forms/${formIdStr}/analytics?tab=responses`;
+                    };
+
                     return (
                       <div
-                        key={form.id || form._id}
+                        key={formIdStr}
                         onClick={() => {
-                          if (hoveredSlice === 'pendingDispatch') {
-                            navigate(`/forms/${form.id || form._id}/analytics?tab=responses&dispatch=pending`);
-                          } else if (hoveredSlice === 'dispatched') {
-                            navigate(`/forms/${form.id || form._id}/analytics?tab=responses&dispatch=dispatched`);
-                          }
+                          navigate(getFormMetricUrl(hoveredSlice));
                         }}
-                        className={`p-2.5 rounded-lg border transition-all text-xs flex flex-col gap-1.5 ${hoveredSlice === 'pendingDispatch'
-                          ? 'bg-white shadow-xs border-amber-300 ring-1 ring-amber-100 cursor-pointer hover:border-amber-400 hover:shadow-md hover:bg-amber-50/20'
-                          : hoveredSlice !== 'all'
-                            ? 'bg-white shadow-xs border-blue-300 ring-1 ring-blue-100'
-                            : 'bg-gray-50/80 hover:bg-blue-50/50 border-gray-200/80'
+                        className={`p-2.5 rounded-lg border transition-all text-xs flex flex-col gap-1.5 cursor-pointer hover:shadow-md hover:scale-[1.008] ${hoveredSlice === 'pendingDispatch'
+                          ? 'bg-white shadow-xs border-amber-300 ring-1 ring-amber-100 hover:border-amber-400 hover:bg-amber-50/20'
+                          : hoveredSlice === 'biwReviewed'
+                            ? 'bg-white shadow-xs border-teal-300 ring-1 ring-teal-100 hover:border-teal-400 hover:bg-teal-50/20'
+                            : hoveredSlice === 'pendingData'
+                              ? 'bg-white shadow-xs border-rose-300 ring-1 ring-rose-100 hover:border-rose-400 hover:bg-rose-50/20'
+                              : hoveredSlice === 'dispatched'
+                                ? 'bg-white shadow-xs border-indigo-300 ring-1 ring-indigo-100 hover:border-indigo-400 hover:bg-indigo-50/20'
+                                : hoveredSlice === 'tvsAccepted'
+                                  ? 'bg-white shadow-xs border-emerald-300 ring-1 ring-emerald-100 hover:border-emerald-400 hover:bg-emerald-50/20'
+                                  : hoveredSlice === 'tvsDefects'
+                                    ? 'bg-white shadow-xs border-rose-300 ring-1 ring-rose-100 hover:border-rose-400 hover:bg-rose-50/20'
+                                    : hoveredSlice === 'pendingTvs' || hoveredSlice === 'tvsReviewed'
+                                      ? 'bg-white shadow-xs border-purple-300 ring-1 ring-purple-100 hover:border-purple-400 hover:bg-purple-50/20'
+                                      : hoveredSlice !== 'all'
+                                        ? 'bg-white shadow-xs border-blue-300 ring-1 ring-blue-100 hover:border-blue-400'
+                                        : 'bg-gray-50/80 hover:bg-blue-50/50 border-gray-200/80'
                           }`}
-                        title={hoveredSlice === 'pendingDispatch' ? `Click to view ${formPendingDispatch.toLocaleString()} Pending Dispatch responses for ${form.title}` : undefined}
+                        title={`Click to view ${hoveredSlice !== 'all' ? `${displayCount.toLocaleString()} ${activeLabel}` : form.title} responses`}
                       >
                         <div className="flex items-center justify-between font-semibold text-gray-800">
                           <span className="truncate pr-2 font-medium">{form.title}</span>
                           <span
                             onClick={(e) => {
-                              if (hoveredSlice === 'pendingDispatch') {
-                                e.stopPropagation();
-                                navigate(`/forms/${form.id || form._id}/analytics?tab=responses&dispatch=pending`);
-                              } else if (hoveredSlice === 'dispatched') {
-                                e.stopPropagation();
-                                navigate(`/forms/${form.id || form._id}/analytics?tab=responses&dispatch=dispatched`);
-                              }
+                              e.stopPropagation();
+                              navigate(getFormMetricUrl(hoveredSlice));
                             }}
-                            title={hoveredSlice === 'pendingDispatch' ? `Click to view ${formPendingDispatch.toLocaleString()} Pending Dispatch responses for ${form.title}` : undefined}
-                            className={`px-2 py-0.5 rounded text-[11px] font-black border ${tagColor} ${hoveredSlice === 'pendingDispatch' ? 'cursor-pointer hover:bg-amber-100 hover:border-amber-400 hover:scale-105 transition-transform flex items-center gap-1' : ''}`}
+                            title={`Click to filter ${displayCount.toLocaleString()} ${activeLabel} responses`}
+                            className={`px-2 py-0.5 rounded text-[11px] font-black border ${tagColor} cursor-pointer hover:scale-105 transition-transform flex items-center gap-1 shadow-2xs`}
                           >
                             {hoveredSlice !== 'all' ? `${activeLabel}: ` : ''}
                             {displayCount.toLocaleString()} {hoveredSlice !== 'all' ? `(${displayPct}%)` : 'units'}
-                            {hoveredSlice === 'pendingDispatch' && <ArrowUpRight className="w-3 h-3 text-amber-700 inline" />}
+                            <ArrowUpRight className="w-3 h-3 inline text-current" />
                           </span>
                         </div>
 
@@ -2776,28 +3114,33 @@ export const QualityDashboard: React.FC = () => {
                             <span className="text-gray-700 font-medium">
                               {(directOk + reworkAccepted).toLocaleString()} Approved
                             </span>
-                            <span className={`${hoveredSlice === 'dispatched' ? 'text-indigo-700 font-extrabold underline cursor-pointer hover:text-indigo-900' : 'text-indigo-700 font-medium'}`}
+                            <span
+                              className={`font-extrabold underline cursor-pointer px-1.5 py-0.5 rounded flex items-center gap-0.5 transition-all ${hoveredSlice === 'dispatched'
+                                ? 'text-indigo-900 bg-indigo-100 hover:bg-indigo-200'
+                                : 'text-indigo-700 hover:text-indigo-900'
+                                }`}
                               onClick={(e) => {
-                                if (hoveredSlice === 'dispatched') {
-                                  e.stopPropagation();
-                                  navigate(`/forms/${form.id || form._id}/analytics?tab=responses&dispatch=dispatched`);
-                                }
+                                e.stopPropagation();
+                                navigate(getFormMetricUrl('dispatched'));
                               }}
+                              title="Click to view Dispatched responses"
                             >
-                              {formDispatched.toLocaleString()} Dispatched ({directOk + reworkAccepted > 0 ? ((formDispatched / (directOk + reworkAccepted)) * 100).toFixed(1) : 0}%)
+                              <span>{formDispatched.toLocaleString()} Dispatched ({directOk + reworkAccepted > 0 ? ((formDispatched / (directOk + reworkAccepted)) * 100).toFixed(1) : 0}%)</span>
+                              <ArrowUpRight className="w-3 h-3 inline" />
                             </span>
                             <span
                               onClick={(e) => {
-                                if (hoveredSlice === 'pendingDispatch') {
-                                  e.stopPropagation();
-                                  navigate(`/forms/${form.id || form._id}/analytics?tab=responses&dispatch=pending`);
-                                }
+                                e.stopPropagation();
+                                navigate(getFormMetricUrl('pendingDispatch'));
                               }}
-                              title={hoveredSlice === 'pendingDispatch' ? `Click to view ${formPendingDispatch.toLocaleString()} Pending Dispatch responses for ${form.title}` : undefined}
-                              className={`${hoveredSlice === 'pendingDispatch' ? 'text-amber-800 font-extrabold underline cursor-pointer hover:text-amber-950 bg-amber-100/70 px-1.5 py-0.5 rounded flex items-center gap-0.5' : 'text-amber-700 font-medium'}`}
+                              title={`Click to view ${formPendingDispatch.toLocaleString()} Pending Dispatch responses`}
+                              className={`font-extrabold underline cursor-pointer px-1.5 py-0.5 rounded flex items-center gap-0.5 transition-all ${hoveredSlice === 'pendingDispatch'
+                                ? 'text-amber-900 bg-amber-100 hover:bg-amber-200'
+                                : 'text-amber-700 hover:text-amber-900'
+                                }`}
                             >
                               <span>{formPendingDispatch.toLocaleString()} Pending ({directOk + reworkAccepted > 0 ? ((formPendingDispatch / (directOk + reworkAccepted)) * 100).toFixed(1) : 0}%)</span>
-                              {hoveredSlice === 'pendingDispatch' && <ArrowUpRight className="w-3 h-3 inline" />}
+                              <ArrowUpRight className="w-3 h-3 inline" />
                             </span>
                           </div>
                         ) : hoveredSlice === 'pendingData' || hoveredSlice === 'biwReviewed' ? (
@@ -2805,41 +3148,151 @@ export const QualityDashboard: React.FC = () => {
                             <span className="text-gray-700 font-medium">
                               {formDispatched.toLocaleString()} Dispatched
                             </span>
-                            <span className={`${hoveredSlice === 'biwReviewed' ? 'text-teal-700 font-extrabold underline' : 'text-teal-700 font-medium'}`}>
-                              {formBiwReviewed.toLocaleString()} BIW ({formDispatched > 0 ? ((formBiwReviewed / formDispatched) * 100).toFixed(1) : 0}%)
+                            <span
+                              className={`font-extrabold underline cursor-pointer px-1.5 py-0.5 rounded flex items-center gap-0.5 transition-all ${hoveredSlice === 'biwReviewed'
+                                ? 'text-teal-900 bg-teal-100 hover:bg-teal-200'
+                                : 'text-teal-700 hover:text-teal-900'
+                                }`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(getFormMetricUrl('biwReviewed'));
+                              }}
+                              title="Click to view BIW Reviewed responses"
+                            >
+                              <span>{formBiwReviewed.toLocaleString()} BIW ({formDispatched > 0 ? ((formBiwReviewed / formDispatched) * 100).toFixed(1) : 0}%)</span>
+                              <ArrowUpRight className="w-3 h-3 inline" />
                             </span>
-                            <span className={`${hoveredSlice === 'pendingData' ? 'text-rose-700 font-extrabold underline' : 'text-rose-700 font-medium'}`}>
-                              {formPendingData.toLocaleString()} Pending Data ({formDispatched > 0 ? ((formPendingData / formDispatched) * 100).toFixed(1) : 0}%)
+                            <span
+                              className={`font-extrabold underline cursor-pointer px-1.5 py-0.5 rounded flex items-center gap-0.5 transition-all ${hoveredSlice === 'pendingData'
+                                ? 'text-rose-900 bg-rose-100 hover:bg-rose-200'
+                                : 'text-rose-700 hover:text-rose-900'
+                                }`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(getFormMetricUrl('pendingData'));
+                              }}
+                              title="Click to view Pending BIW Data responses"
+                            >
+                              <span>{formPendingData.toLocaleString()} Pending Data ({formDispatched > 0 ? ((formPendingData / formDispatched) * 100).toFixed(1) : 0}%)</span>
+                              <ArrowUpRight className="w-3 h-3 inline" />
                             </span>
                           </div>
                         ) : hoveredSlice === 'pendingTvs' || hoveredSlice === 'tvsReviewed' || hoveredSlice === 'tvsAccepted' || hoveredSlice === 'tvsDefects' ? (
                           <div className="flex justify-between items-center text-[10px] text-gray-500">
-                            <span className={`${hoveredSlice === 'tvsAccepted' ? 'text-emerald-700 font-extrabold underline' : 'text-emerald-700 font-medium'}`}>
-                              {formTvsAccepted.toLocaleString()} Acc
+                            <span
+                              className={`font-extrabold underline cursor-pointer px-1 py-0.5 rounded flex items-center gap-0.5 transition-all ${hoveredSlice === 'tvsAccepted'
+                                ? 'text-emerald-900 bg-emerald-100 hover:bg-emerald-200'
+                                : 'text-emerald-700 hover:text-emerald-900'
+                                }`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(getFormMetricUrl('tvsAccepted'));
+                              }}
+                              title="Click to view TVS Accepted responses"
+                            >
+                              <span>{formTvsAccepted.toLocaleString()} Acc</span>
+                              <ArrowUpRight className="w-2.5 h-2.5 inline" />
                             </span>
-                            <span className={`${hoveredSlice === 'tvsDefects' ? 'text-rose-700 font-extrabold underline' : 'text-rose-700 font-medium'}`}>
-                              {formTvsDefects.toLocaleString()} Def/Rew
+                            <span
+                              className={`font-extrabold underline cursor-pointer px-1 py-0.5 rounded flex items-center gap-0.5 transition-all ${hoveredSlice === 'tvsDefects'
+                                ? 'text-rose-900 bg-rose-100 hover:bg-rose-200'
+                                : 'text-rose-700 hover:text-rose-900'
+                                }`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(getFormMetricUrl('tvsDefects'));
+                              }}
+                              title="Click to view TVS Defects responses"
+                            >
+                              <span>{formTvsDefects.toLocaleString()} Def/Rew</span>
+                              <ArrowUpRight className="w-2.5 h-2.5 inline" />
                             </span>
-                            <span className={`${hoveredSlice === 'tvsReviewed' ? 'text-purple-700 font-extrabold underline' : 'text-purple-700 font-medium'}`}>
-                              {formTvsReviewed.toLocaleString()} Reviewed
+                            <span
+                              className={`font-extrabold underline cursor-pointer px-1 py-0.5 rounded flex items-center gap-0.5 transition-all ${hoveredSlice === 'tvsReviewed'
+                                ? 'text-purple-900 bg-purple-100 hover:bg-purple-200'
+                                : 'text-purple-700 hover:text-purple-900'
+                                }`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(getFormMetricUrl('tvsReviewed'));
+                              }}
+                              title="Click to view TVS Reviewed responses"
+                            >
+                              <span>{formTvsReviewed.toLocaleString()} Rev</span>
+                              <ArrowUpRight className="w-2.5 h-2.5 inline" />
                             </span>
-                            <span className={`${hoveredSlice === 'pendingTvs' ? 'text-amber-700 font-extrabold underline' : 'text-amber-700 font-medium'}`}>
-                              {formPendingTvs.toLocaleString()} Pending TVS ({formDispatched > 0 ? ((formPendingTvs / formDispatched) * 100).toFixed(1) : 0}%)
+                            <span
+                              className={`font-extrabold underline cursor-pointer px-1 py-0.5 rounded flex items-center gap-0.5 transition-all ${hoveredSlice === 'pendingTvs'
+                                ? 'text-amber-900 bg-amber-100 hover:bg-amber-200'
+                                : 'text-amber-700 hover:text-amber-900'
+                                }`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(getFormMetricUrl('pendingTvs'));
+                              }}
+                              title="Click to view Pending TVS responses"
+                            >
+                              <span>{formPendingTvs.toLocaleString()} Pending</span>
+                              <ArrowUpRight className="w-2.5 h-2.5 inline" />
                             </span>
                           </div>
                         ) : (
                           <div className="flex justify-between items-center text-[10px] text-gray-500">
-                            <span className={`${hoveredSlice === 'directOk' ? 'text-green-700 font-extrabold underline' : 'text-green-700 font-bold'}`}>
-                              {directOk.toLocaleString()} Direct Ok
+                            <span
+                              className={`font-extrabold underline cursor-pointer px-1.5 py-0.5 rounded flex items-center gap-0.5 transition-all ${hoveredSlice === 'directOk'
+                                ? 'text-green-900 bg-green-100 hover:bg-green-200'
+                                : 'text-green-700 hover:text-green-900'
+                                }`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(getFormMetricUrl('directOk'));
+                              }}
+                              title="Click to view Direct Ok responses"
+                            >
+                              <span>{directOk.toLocaleString()} Direct Ok</span>
+                              <ArrowUpRight className="w-3 h-3 inline" />
                             </span>
-                            <span className={`${hoveredSlice === 'reworkCompleted' ? 'text-blue-700 font-extrabold underline' : 'text-blue-700 font-medium'}`}>
-                              {reworkAccepted.toLocaleString()} Rework Acc
+                            <span
+                              className={`font-extrabold underline cursor-pointer px-1.5 py-0.5 rounded flex items-center gap-0.5 transition-all ${hoveredSlice === 'reworkCompleted'
+                                ? 'text-blue-900 bg-blue-100 hover:bg-blue-200'
+                                : 'text-blue-700 hover:text-blue-900'
+                                }`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(getFormMetricUrl('reworkCompleted'));
+                              }}
+                              title="Click to view Rework Accepted responses"
+                            >
+                              <span>{reworkAccepted.toLocaleString()} Rework Acc</span>
+                              <ArrowUpRight className="w-3 h-3 inline" />
                             </span>
-                            <span className={`${hoveredSlice === 'rework' ? 'text-amber-700 font-extrabold underline' : 'text-amber-700 font-medium'}`}>
-                              {rework.toLocaleString()} Rew
+                            <span
+                              className={`font-extrabold underline cursor-pointer px-1.5 py-0.5 rounded flex items-center gap-0.5 transition-all ${hoveredSlice === 'rework'
+                                ? 'text-amber-900 bg-amber-100 hover:bg-amber-200'
+                                : 'text-amber-700 hover:text-amber-900'
+                                }`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(getFormMetricUrl('rework'));
+                              }}
+                              title="Click to view Ongoing Rework responses"
+                            >
+                              <span>{rework.toLocaleString()} Rew</span>
+                              <ArrowUpRight className="w-3 h-3 inline" />
                             </span>
-                            <span className={`${hoveredSlice === 'rejected' ? 'text-red-700 font-extrabold underline' : 'text-red-700 font-medium'}`}>
-                              {rejected.toLocaleString()} Rej
+                            <span
+                              className={`font-extrabold underline cursor-pointer px-1.5 py-0.5 rounded flex items-center gap-0.5 transition-all ${hoveredSlice === 'rejected'
+                                ? 'text-red-900 bg-red-100 hover:bg-red-200'
+                                : 'text-red-700 hover:text-red-900'
+                                }`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(getFormMetricUrl('rejected'));
+                              }}
+                              title="Click to view Rejected responses"
+                            >
+                              <span>{rejected.toLocaleString()} Rej</span>
+                              <ArrowUpRight className="w-3 h-3 inline" />
                             </span>
                           </div>
                         )}
@@ -3484,14 +3937,20 @@ export const QualityDashboard: React.FC = () => {
 
                     {/* 3. Top Defect Types & Flagged Defect Breakdown */}
                     <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-xs flex flex-col">
-                      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 flex-wrap gap-2">
                         <h4 className="font-bold text-gray-900 flex items-center gap-2">
                           <AlertTriangle className="w-5 h-5 text-red-500" />
                           <span>Top Defect Types & Flagged Issues</span>
                         </h4>
-                        <span className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">
-                          {tvsDefectBreakdown.length} Categories
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-2xs">
+                            <Wrench className="w-3.5 h-3.5 text-amber-600 inline" />
+                            <span>Total Rework: <strong className="text-amber-950 font-black">{totalTvsReworkCount.toLocaleString()}</strong></span>
+                          </span>
+                          <span className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">
+                            {tvsDefectBreakdown.length} Categories
+                          </span>
+                        </div>
                       </div>
 
                       <div className="max-h-[460px] overflow-y-auto pr-1 space-y-2.5">
@@ -3574,12 +4033,11 @@ export const QualityDashboard: React.FC = () => {
                         {tvsInspectors.map((insp: any, idx: number) => (
                           <div key={idx} className="bg-gray-50/70 p-3 rounded-xl border border-gray-200 flex items-center justify-between hover:bg-white transition-colors shadow-xs">
                             <div className="min-w-0 pr-2 flex items-center gap-2">
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-black flex-shrink-0 ${
-                                idx === 0 ? "bg-amber-100 text-amber-800 border border-amber-300" :
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-black flex-shrink-0 ${idx === 0 ? "bg-amber-100 text-amber-800 border border-amber-300" :
                                 idx === 1 ? "bg-slate-200 text-slate-700 border border-slate-300" :
-                                idx === 2 ? "bg-amber-50 text-amber-700 border border-amber-200" :
-                                "bg-gray-100 text-gray-500"
-                              }`}>
+                                  idx === 2 ? "bg-amber-50 text-amber-700 border border-amber-200" :
+                                    "bg-gray-100 text-gray-500"
+                                }`}>
                                 #{idx + 1}
                               </span>
                               <div className="min-w-0">
@@ -3803,14 +4261,20 @@ export const QualityDashboard: React.FC = () => {
 
                     {/* 2. Top Defect Types & Flagged Defect Breakdown */}
                     <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-xs flex flex-col">
-                      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100 flex-wrap gap-2">
                         <h4 className="font-bold text-gray-900 flex items-center gap-2">
                           <AlertTriangle className="w-5 h-5 text-red-500" />
                           <span>Top Defect Types & Flagged Issues</span>
                         </h4>
-                        <span className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">
-                          {data.defectBreakdown.length} Categories
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-2xs">
+                            <Wrench className="w-3.5 h-3.5 text-amber-600 inline" />
+                            <span>Total Rework: <strong className="text-amber-950 font-black">{totalBiwReworkCount.toLocaleString()}</strong></span>
+                          </span>
+                          <span className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">
+                            {data.defectBreakdown.length} Categories
+                          </span>
+                        </div>
                       </div>
 
                       <div className="max-h-[460px] overflow-y-auto pr-1 space-y-2.5">
@@ -3874,12 +4338,11 @@ export const QualityDashboard: React.FC = () => {
                       {biwInspectors.map((insp, idx) => (
                         <div key={idx} className="bg-gray-50/70 p-3 rounded-xl border border-gray-200 flex items-center justify-between hover:bg-white transition-colors shadow-xs">
                           <div className="min-w-0 pr-2 flex items-center gap-2">
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-black flex-shrink-0 ${
-                              idx === 0 ? "bg-amber-100 text-amber-800 border border-amber-300" :
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-black flex-shrink-0 ${idx === 0 ? "bg-amber-100 text-amber-800 border border-amber-300" :
                               idx === 1 ? "bg-slate-200 text-slate-700 border border-slate-300" :
-                              idx === 2 ? "bg-amber-50 text-amber-700 border border-amber-200" :
-                              "bg-gray-100 text-gray-500"
-                            }`}>
+                                idx === 2 ? "bg-amber-50 text-amber-700 border border-amber-200" :
+                                  "bg-gray-100 text-gray-500"
+                              }`}>
                               #{idx + 1}
                             </span>
                             <span className="font-semibold text-gray-800 truncate text-xs block max-w-[120px] sm:max-w-[140px]">{insp.name}</span>
@@ -3919,6 +4382,8 @@ export const QualityDashboard: React.FC = () => {
                     formOptions={allAvailableForms}
                     initialFormFilter={selectedFormIds.length === 1 ? selectedFormIds[0] : 'all'}
                     initialDispatchFilter={overallDispatchFilter}
+                    initialBiwFilter={overallBiwFilter}
+                    initialStatusFilter={overallStatusFilter}
                     selectedFormIds={selectedFormIds}
                   />
                 </div>

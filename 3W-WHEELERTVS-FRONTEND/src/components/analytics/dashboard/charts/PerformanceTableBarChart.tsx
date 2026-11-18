@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { Bar } from "react-chartjs-2";
 import { BarChart3 } from "lucide-react";
+import { getBiwPerformanceLabel } from "../utils/analyticsCalculations";
 
 export interface PerformanceTableBarChartProps {
   performanceTableData: any[];

@@ -724,10 +724,15 @@ export const QualitySummaryModal: React.FC<QualitySummaryModalProps> = ({
 
                   {/* Right: Specific Defect Breakdown */}
                   <div className="space-y-3">
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-rose-500" />
-                      Top Defect Issues Identified
-                    </h3>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-rose-500" />
+                        Top Defect Issues Identified
+                      </h3>
+                      <span className="text-xs font-bold text-amber-800 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-2.5 py-0.5 rounded-full">
+                        Total Rework: {(data?.summary?.rework1Count || (data?.defectBreakdown || []).reduce((s: number, d: any) => s + (d.count || 0), 0) || 0).toLocaleString()}
+                      </span>
+                    </div>
                     <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead>

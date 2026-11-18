@@ -1,5 +1,5 @@
 import React from "react";
-import { ChevronDown, ChevronRight, Filter, X } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, Calendar, Filter, X } from "lucide-react";
 
 export interface SummaryTableProps {
   summaryLoading: boolean;

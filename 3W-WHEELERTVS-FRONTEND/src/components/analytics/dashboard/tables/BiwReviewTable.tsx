@@ -10,6 +10,7 @@ export interface BiwReviewTableProps {
   setBiwReviewPage: React.Dispatch<React.SetStateAction<number>>;
   biwReviewPageSize: number;
   setBiwReviewPageSize: (size: number) => void;
+  commonDateRangeLabel?: string;
 }
 
 export const BiwReviewTable: React.FC<BiwReviewTableProps> = ({
@@ -20,6 +21,7 @@ export const BiwReviewTable: React.FC<BiwReviewTableProps> = ({
   setBiwReviewPage,
   biwReviewPageSize,
   setBiwReviewPageSize,
+  commonDateRangeLabel,
 }) => {
     if (user?.role !== "admin" && user?.role !== "superadmin") return null;
 
@@ -62,7 +64,7 @@ export const BiwReviewTable: React.FC<BiwReviewTableProps> = ({
               </h3>
               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
                 Performance based on BIW review checkmarks
-                {commonDateRangeLabel !== "All Time" && (
+                {commonDateRangeLabel && commonDateRangeLabel !== "All Time" && (
                   <span className="text-purple-500 ml-1">
                     ({commonDateRangeLabel})
                   </span>

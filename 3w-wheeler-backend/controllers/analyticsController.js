@@ -1954,10 +1954,12 @@ export const getInspectorSummary = async (req, res) => {
       }
     }
 
-    // Fetch all relevant responses
+    // Fetch all relevant responses (capped with maxTimeMS to prevent server blocking)
     console.log('getInspectorSummary - matchFilter:', JSON.stringify(matchFilter, null, 2));
     const responses = await Response.find(matchFilter)
-      .sort({ createdAt: 1 })
+      .sort({ createdAt: -1 })
+      .limit(5000)
+      .maxTimeMS(15000)
       .select('_id questionId formId status answers chassisNumber createdBy submittedBy createdAt biwReview tenantId isDispatched')
       .lean();
     console.log(`getInspectorSummary - found: ${responses?.length || 0} responses`);
@@ -2504,6 +2506,23 @@ export const getPerformanceTable = async (req, res) => {
       });
     }
 
+    // Preload form -> tenantId map for accurate plant-level accountability
+    const formTenantMap = new Map();
+    if (formDocs && formDocs.length > 0) {
+      formDocs.forEach(f => {
+        const tId = f.tenantId ? f.tenantId.toString() : null;
+        if (f.id && tId) formTenantMap.set(f.id, tId);
+        if (f._id && tId) formTenantMap.set(f._id.toString(), tId);
+      });
+    }
+
+    // Preload all tenants for fast plant name resolution
+    const allTenantsList = await Tenant.find({}).select('_id name companyName').lean();
+    const tenantNameMap = new Map();
+    allTenantsList.forEach(t => {
+      tenantNameMap.set(t._id.toString(), t.name || t.companyName || 'Unknown Plant');
+    });
+
     // Build response query
     const responseBaseFilter = {
       createdAt: { $gte: start, $lte: end }
@@ -2519,7 +2538,7 @@ export const getPerformanceTable = async (req, res) => {
     const [totalResponsesInRange, allResponses] = await Promise.all([
       Response.countDocuments(responseBaseFilter).maxTimeMS(30000),
       Response.find(responseBaseFilter)
-        .select('createdBy submittedBy isDispatched biwReview status chassisNumber questionId createdAt id _id answers')
+        .select('createdBy submittedBy isDispatched biwReview status chassisNumber questionId createdAt id _id answers tenantId')
         .sort({ createdAt: -1 })
         .limit(10000)
         .maxTimeMS(30000)
@@ -2711,7 +2730,10 @@ export const getPerformanceTable = async (req, res) => {
       ]
     };
 
-    const reviews = await Review.find(reviewQuery).maxTimeMS(30000).lean();
+    const reviews = await Review.find(reviewQuery)
+      .select('_id responseId response_id submitterId status reviewOption revieweeId createdBy userId submittedBy')
+      .maxTimeMS(15000)
+      .lean();
     console.log(`[Performance Table] Found ${reviews.length} reviews`);
 
     // Get reviewer IDs from reviews
@@ -2976,14 +2998,29 @@ export const getPerformanceTable = async (req, res) => {
         ? `${matchedUser.firstName} ${matchedUser.lastName}`.trim()
         : (rawSubmittedBy || 'Unknown User');
 
-      if (!userStatsMap.has(userId)) {
-        userStatsMap.set(userId, {
+      // Resolve which plant / tenant this response belongs to
+      let respTenantId = response.tenantId ? response.tenantId.toString() : null;
+      if (!respTenantId && response.questionId) {
+        respTenantId = formTenantMap.get(response.questionId.toString()) || null;
+      }
+      if (!respTenantId) {
+        respTenantId = matchedUser?.tenantId ? (matchedUser.tenantId._id?.toString() || matchedUser.tenantId.toString()) : (userTenantId ? userTenantId.toString() : 'unknown');
+      }
+      const respTenantName = (respTenantId && tenantNameMap.get(respTenantId))
+        || (matchedUser?.tenantId?.name || matchedUser?.tenantId?.companyName)
+        || (respTenantId === userTenantId?.toString() ? (req.user?.tenantName || 'Main Plant') : 'Unknown Plant');
+
+      // Key by (tenantId + user) so that submissions under LMPL vs Saify are cleanly segregated per plant
+      const statsKey = `${respTenantId || 'default'}___${userId}`;
+
+      if (!userStatsMap.has(statsKey)) {
+        userStatsMap.set(statsKey, {
           userId,
           userName: userName,
           userEmail: matchedUser?.email || '',
           userRole: matchedUser?.role || 'inspector',
-          tenantId: matchedUser?.tenantId?.toString() || null,
-          tenantName: matchedUser?.tenantId?.name || matchedUser?.tenantId?.companyName || 'Cross-Tenant User',
+          tenantId: respTenantId,
+          tenantName: respTenantName,
           totalSubmitted: 0,
           directOk: 0,
           reworkQcCompleted: 0,
@@ -3011,7 +3048,7 @@ export const getPerformanceTable = async (req, res) => {
         });
       }
 
-      const stats = userStatsMap.get(userId);
+      const stats = userStatsMap.get(statsKey);
       stats.totalSubmitted++;
       stats.responses.push(response);
 
@@ -3148,13 +3185,13 @@ export const getPerformanceTable = async (req, res) => {
         let displayName = stats.userName;
         let displayEmail = stats.userEmail;
         let displayRole = stats.userRole;
-        let tenantName = stats.tenantName || 'Cross-Tenant User';
+        // Keep stats.tenantName as the plant where inspections were performed
+        let tenantName = stats.tenantName || (user ? (user.tenantId?.name || user.tenantId?.companyName) : 'Cross-Tenant User');
 
         if (user) {
           displayName = `${user.firstName} ${user.lastName}`;
           displayEmail = user.email || '';
           displayRole = user.role || 'inspector';
-          tenantName = user.tenantId?.name || user.tenantId?.companyName || 'Cross-Tenant User';
         } else if (/^[0-9a-f]{24}$/i.test(stats.userId)) {
           displayName = `User ${stats.userId.substring(0, 8)}`;
         }

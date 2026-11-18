@@ -41,7 +41,6 @@ const ResponseSchema = new mongoose.Schema({
   verifiedAt: Date,
   status: {
     type: String,
-    enum: ['pending', 'verified', 'rejected'],
     default: 'pending'
   },
   createdBy: {
@@ -202,7 +201,7 @@ const ResponseSchema = new mongoose.Schema({
   biwReview: {
     status: {
       type: String,
-      enum: ['Accepted', 'Rejected', 'Reworked']
+      enum: ['Accepted', 'Rejected', 'Reworked', 'accepted', 'rejected', 'reworked']
     },
     reviewedBy: {
       type: mongoose.Schema.Types.ObjectId,

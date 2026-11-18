@@ -1,16 +1,18 @@
-import React from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import React, { useState } from "react";
+import { ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { getBiwPerformanceLabel } from "../utils/analyticsCalculations";
+import PerformanceGuideModal from "../../PerformanceGuideModal";
 
 export interface PerformanceTableProps {
   user: any;
   performanceTableLoading: boolean;
   performanceTableData: any[];
   localFilterName: string;
-  performanceTotalCount: number;
   performancePage: number;
   setPerformancePage: React.Dispatch<React.SetStateAction<number>>;
   performancePageSize: number;
+  setPerformancePageSize?: (size: number) => void;
+  performanceHasMore?: boolean;
 }
 
 export const PerformanceTable: React.FC<PerformanceTableProps> = ({
@@ -18,11 +20,13 @@ export const PerformanceTable: React.FC<PerformanceTableProps> = ({
   performanceTableLoading,
   performanceTableData,
   localFilterName,
-  performanceTotalCount,
   performancePage,
   setPerformancePage,
   performancePageSize,
+  setPerformancePageSize,
+  performanceHasMore,
 }) => {
+    const [showPerformanceGuide, setShowPerformanceGuide] = useState(false);
     if (user?.role !== "admin" && user?.role !== "superadmin") return null;
 
     if (performanceTableLoading) {
@@ -221,7 +225,7 @@ export const PerformanceTable: React.FC<PerformanceTableProps> = ({
                 <select
                   value={performancePageSize}
                   onChange={(e) => {
-                    setPerformancePageSize(Number(e.target.value));
+                    if (setPerformancePageSize) setPerformancePageSize(Number(e.target.value));
                     setPerformancePage(1);
                   }}
                   className="px-3 py-1.5 text-xs font-bold border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all shadow-sm"
@@ -263,6 +267,13 @@ export const PerformanceTable: React.FC<PerformanceTableProps> = ({
             </div>
           )}
         </div>
+
+        {showPerformanceGuide && (
+          <PerformanceGuideModal
+            isOpen={showPerformanceGuide}
+            onClose={() => setShowPerformanceGuide(false)}
+          />
+        )}
       </div>
     );
   };

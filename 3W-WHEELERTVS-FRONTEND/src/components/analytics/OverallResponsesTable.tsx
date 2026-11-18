@@ -26,6 +26,8 @@ interface OverallResponsesTableProps {
   formOptions?: Array<{ id: string; _id?: string; title: string; totalChecked?: number }>;
   initialFormFilter?: string;
   initialDispatchFilter?: string;
+  initialBiwFilter?: string;
+  initialStatusFilter?: string;
   selectedFormIds?: string[];
 }
 
@@ -34,6 +36,8 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
   formOptions = [],
   initialFormFilter = 'all',
   initialDispatchFilter = 'all',
+  initialBiwFilter = 'all',
+  initialStatusFilter = 'all',
   selectedFormIds = []
 }) => {
   const navigate = useNavigate();
@@ -41,8 +45,8 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
   
   const [search, setSearch] = useState('');
   const [formFilter, setFormFilter] = useState(initialFormFilter);
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [biwFilter, setBiwFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(initialStatusFilter || 'all');
+  const [biwFilter, setBiwFilter] = useState(initialBiwFilter || 'all');
   const [dispatchFilter, setDispatchFilter] = useState(initialDispatchFilter || 'all');
   const [datePreset, setDatePreset] = useState('all');
   const [startDate, setStartDate] = useState('');
@@ -64,10 +68,22 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
     setPage(1);
   };
 
-  // Keep in sync if initialFormFilter prop changes
+  // Keep in sync if initial filter props change
   useEffect(() => {
     setFormFilter(initialFormFilter || 'all');
   }, [initialFormFilter]);
+
+  useEffect(() => {
+    if (initialDispatchFilter !== undefined) setDispatchFilter(initialDispatchFilter);
+  }, [initialDispatchFilter]);
+
+  useEffect(() => {
+    if (initialBiwFilter !== undefined) setBiwFilter(initialBiwFilter);
+  }, [initialBiwFilter]);
+
+  useEffect(() => {
+    if (initialStatusFilter !== undefined) setStatusFilter(initialStatusFilter);
+  }, [initialStatusFilter]);
 
   // Keep in sync if initialDispatchFilter prop changes
   useEffect(() => {
@@ -258,8 +274,14 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
 
       // 3. BIW Review Filter
       if (biwFilter !== 'all') {
-        const b = (r.biwReviewStatus || r.biwReview?.status || 'Pending').toLowerCase();
-        if (b !== biwFilter.toLowerCase()) return false;
+        const b = (r.biwReviewStatus || r.biwReview?.status || 'Pending').toLowerCase().trim();
+        if (biwFilter.toLowerCase() === 'reviewed' || biwFilter.toLowerCase() === 'all_reviewed') {
+          if (!b || b === 'pending' || b === 'no review yet') return false;
+        } else if (biwFilter.toLowerCase() === 'pending') {
+          if (b && b !== 'pending' && b !== 'no review yet') return false;
+        } else if (b !== biwFilter.toLowerCase()) {
+          return false;
+        }
       }
 
       // 4. Dispatch Filter
@@ -460,10 +482,11 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
               className={`px-3 py-1.5 text-xs font-medium border rounded-lg focus:ring-2 focus:ring-blue-500 bg-white transition-all shadow-xs ${biwFilter !== 'all' ? 'border-blue-500 text-blue-700 bg-blue-50/50 font-bold' : 'border-gray-300 text-gray-700'}`}
             >
               <option value="all">All BIW Reviews</option>
+              <option value="reviewed">All Reviewed</option>
               <option value="Accepted">Accepted</option>
               <option value="Rejected">Rejected</option>
               <option value="Reworked">Reworked</option>
-              <option value="Pending">Pending</option>
+              <option value="Pending">Pending Review</option>
             </select>
           </div>
 
