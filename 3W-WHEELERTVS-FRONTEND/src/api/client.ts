@@ -17,13 +17,14 @@ const API_BASE_URL = (() => {
   const getBaseUrl = (): string => {
     const hostname = window.location.hostname;
     
+    // Explicit environment variable override
+    if (import.meta.env.VITE_API_URL) {
+      return import.meta.env.VITE_API_URL;
+    }
+
     // Development/Local
     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith("192.168.") || hostname.startsWith("10.") || hostname.startsWith("172.")) {
       return "http://127.0.0.1:5000/api";
-    }
-
-    if (import.meta.env.VITE_API_URL) {
-      return import.meta.env.VITE_API_URL;
     }
 
     // Focus 3rd Eye domain
@@ -541,8 +542,11 @@ class ApiClient {
           "Request timed out. The server took too long to respond.",
         );
       }
+      const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+      if (isOffline) {
+        throw new ApiError(0, null, "No internet connection. Please connect to the internet.");
+      }
       if (
-        (typeof navigator !== "undefined" && navigator.onLine === false) ||
         (error instanceof TypeError && error.message.toLowerCase().includes("failed to fetch")) ||
         (error instanceof Error && (
           error.message.toLowerCase().includes("networkerror") ||
@@ -550,7 +554,14 @@ class ApiClient {
           error.message.toLowerCase().includes("load failed")
         ))
       ) {
-        throw new ApiError(0, null, "No internet connection. Please connect to the internet.");
+        const isLocalHost = typeof window !== "undefined" && (
+          window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1"
+        );
+        const serverMsg = isLocalHost
+          ? "Unable to connect to local server (http://127.0.0.1:5000). Please make sure the backend server is running."
+          : "Server is unreachable. Please check if the server is available or try again later.";
+        throw new ApiError(0, null, serverMsg);
       }
       throw new ApiError(500, null, "Network error or server unavailable");
     }

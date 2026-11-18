@@ -251,12 +251,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       if (err instanceof ApiError) {
         if (
-          err.status === 0 ||
           err.message?.toLowerCase().includes("internet") ||
           err.message?.toLowerCase().includes("wi-fi") ||
           err.message?.toLowerCase().includes("offline")
         ) {
           setError("No internet connection. Please connect to the internet to sign in.");
+        } else if (err.status === 0) {
+          setError(err.message || "Server is unreachable. Please ensure the backend server is running.");
         } else if (err.status === 400 || err.status === 401) {
           setError("Incorrect email or password.");
         } else if (err.status >= 500) {

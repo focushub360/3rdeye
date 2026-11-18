@@ -32,7 +32,8 @@ const bulkImportHistorySchema = new mongoose.Schema({
       'FORM_UPDATE',
       'BULK_REVIEW_UPDATE',
       'RESPONSE_DISPATCH',
-      'EXCEL_BIW_REVIEW_IMPORT'
+      'EXCEL_BIW_REVIEW_IMPORT',
+      'EXCEL_TVS_REVIEW_IMPORT'
     ],
     default: 'BULK_RESPONSE_IMPORT',
     index: true
