@@ -5824,7 +5824,20 @@ export default function FormAnalyticsDashboard({
 
     // 4. Column Filters (skip __attemptRank here – resolved in filteredResponses to avoid TDZ on chassisAttemptRanks/tableDisplayStatuses/responseStatuses)
     const activeColumnFilters = Object.entries(columnFilters).filter(
-      ([_, values]) => values && values.length > 0,
+      ([colId, values]) => {
+        if (!values || values.length === 0) return false;
+        // When the server already pre-filtered by dispatch=pending (URL param) and the full
+        // dataset hasn't streamed yet, skip the __dispatch client filter — tableDisplayStatuses
+        // is empty so it would incorrectly zero out all rows.
+        if (
+          colId === "__dispatch" &&
+          urlDispatch?.toLowerCase().includes("pending") &&
+          responses.length === 0
+        ) {
+          return false;
+        }
+        return true;
+      },
     );
 
     if (activeColumnFilters.length > 0) {
@@ -7447,6 +7460,15 @@ export default function FormAnalyticsDashboard({
           return isDispatched;
         }
         if (avLower.includes("pending") || avLower.includes("not")) {
+          if (isDispatched) return false; // already dispatched — not pending
+          const isBiwDefect = response.biwReview?.status === "Rejected" || response.biwReview?.status === "Reworked";
+          if (isBiwDefect) return false; // BIW-rejected/reworked — not pending dispatch
+          // If the server already pre-filtered with dispatch=pending, every row in tableResponses
+          // is a valid pending-dispatch row — skip the expensive/stale tableDisplayStatuses check.
+          if (urlDispatch?.toLowerCase().includes("pending") && responses.length === 0) {
+            return true;
+          }
+          // Full dataset loaded or no server pre-filter: check status to exclude active-defect rows
           const respId = response.id || (response as any)._id;
           const s = String(
             (respId ? tableDisplayStatuses[respId] || responseStatuses[respId] : null) ||
@@ -7459,8 +7481,7 @@ export default function FormAnalyticsDashboard({
             ""
           ).toLowerCase().trim();
           const isDefect = s.includes("reject") || (s.includes("rework") && !s.includes("rework accepted") && !s.includes("rework completed") && !s.includes("rework ok"));
-          const isBiwDefect = response.biwReview?.status === "Rejected" || response.biwReview?.status === "Reworked";
-          return !isDispatched && !isDefect && !isBiwDefect;
+          return !isDefect;
         }
         return true;
       });
@@ -7608,7 +7629,20 @@ export default function FormAnalyticsDashboard({
 
     // 4. Column filters (supports __attemptRank, __status, __submittedBy, __chassisNumber, __parentMatch, __biwReview, __dispatch, and questions)
     const activeColumnFilters = Object.entries(columnFilters).filter(
-      ([_, values]) => values && values.length > 0,
+      ([colId, values]) => {
+        if (!values || values.length === 0) return false;
+        // When the server already pre-filtered by dispatch=pending (URL param) and the full
+        // dataset hasn't streamed yet, skip the __dispatch client filter — tableDisplayStatuses
+        // is empty so it would incorrectly zero out all rows.
+        if (
+          colId === "__dispatch" &&
+          urlDispatch?.toLowerCase().includes("pending") &&
+          responses.length === 0
+        ) {
+          return false;
+        }
+        return true;
+      },
     );
     if (activeColumnFilters.length > 0) {
       result = result.filter((response) => {
@@ -7744,9 +7778,16 @@ export default function FormAnalyticsDashboard({
 
   // When filters/sort are active and full dataset `responses` is in memory, total count is `sortedFilteredResponses.length`.
   // Otherwise, fallback to server count `totalResponsesCount`.
-  const activeTotalResponsesCount = (hasActiveFiltersOrSort && responses.length > 0)
-    ? sortedFilteredResponses.length
-    : totalResponsesCount;
+  // Special case: when dispatch=pending is in URL and full dataset hasn't streamed yet, use the
+  // server-provided totalResponsesCount directly (server already filtered by dispatch).
+  const activeTotalResponsesCount = (() => {
+    if (hasActiveFiltersOrSort && responses.length > 0) {
+      // Full dataset loaded — use accurate client-filtered count
+      return sortedFilteredResponses.length;
+    }
+    // Not yet streamed: server count is authoritative
+    return totalResponsesCount;
+  })();
 
   const totalResponsesPages = Math.max(1, Math.ceil(activeTotalResponsesCount / responsesPageSize));
   const currentResponsesPage = Math.min(responsesPage, totalResponsesPages);
@@ -7797,7 +7838,20 @@ export default function FormAnalyticsDashboard({
     }
 
     const activeColumnFilters = Object.entries(columnFilters).filter(
-      ([_, values]) => values && values.length > 0,
+      ([colId, values]) => {
+        if (!values || values.length === 0) return false;
+        // When the server already pre-filtered by dispatch=pending (URL param) and the full
+        // dataset hasn't streamed yet, skip the __dispatch client filter — tableDisplayStatuses
+        // is empty so it would incorrectly zero out all rows.
+        if (
+          colId === "__dispatch" &&
+          urlDispatch?.toLowerCase().includes("pending") &&
+          responses.length === 0
+        ) {
+          return false;
+        }
+        return true;
+      },
     );
 
     if (activeColumnFilters.length > 0) {
@@ -9010,7 +9064,7 @@ export default function FormAnalyticsDashboard({
     let nonChassisBiwReviewed = 0;
 
     // If full responses dataset is still streaming, compute stats from available table responses
-    const statsSource = (filteredResponses.length > 0 || responses.length > 0) ? filteredResponses : tableResponses;
+    const statsSource = responses.length > 0 ? filteredResponses : tableResponses;
 
     statsSource.forEach((response) => {
       const respId = response.id || (response as any)._id;
@@ -15225,7 +15279,11 @@ export default function FormAnalyticsDashboard({
                           </span>
                           <div className="flex items-baseline justify-between mt-0.5">
                             <span className="text-lg font-black text-amber-600 dark:text-amber-400">
-                              {inspectionStats.pendingDispatch ?? Math.max(0, (inspectionStats.accepted + inspectionStats.reworkCompleted) - inspectionStats.dispatched)}
+                              {/* When dispatch=pending is in URL and stats source is tableResponses (pre-streaming),
+                                  use the server-provided totalResponsesCount for the pending dispatch count */}
+                              {(urlDispatch?.toLowerCase().includes("pending") && responses.length === 0 && totalResponsesCount > 0)
+                                ? totalResponsesCount
+                                : (inspectionStats.pendingDispatch ?? Math.max(0, (inspectionStats.accepted + inspectionStats.reworkCompleted) - inspectionStats.dispatched))}
                             </span>
                             <Clock className="w-4 h-4 text-amber-500" />
                           </div>
