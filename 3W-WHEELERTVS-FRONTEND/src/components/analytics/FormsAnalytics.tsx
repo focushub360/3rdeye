@@ -1089,17 +1089,25 @@ export default function FormsAnalytics() {
               a.assignedTenants.some((t: any) => String(t?._id || t?.id || t) === String(userTenantId))
           );
 
-        const parentRespCount =
-          (form.id && actualResponseCounts[form.id]) ||
-          (form._id && actualResponseCounts[form._id]) ||
-          form.responseCount ||
-          0;
+        const hasChildOwnedByUser =
+          Array.isArray(form.childForms) &&
+          form.childForms.some((cf: any) => {
+            const cfId = typeof cf === "string" ? cf : cf.formId || cf.id || cf._id;
+            const childFormObj = formsMap.get(String(cfId));
+            if (!childFormObj) return false;
+            const childOwnerId =
+              typeof childFormObj.tenantId === "object"
+                ? (childFormObj.tenantId?._id || childFormObj.tenantId?.id)
+                : childFormObj.tenantId;
+            return childOwnerId && String(childOwnerId) === String(userTenantId);
+          });
 
         if (
           isForeignTenant &&
           !form.isGlobal &&
           !isSharedWithUser &&
-          (!hasChassisShare || parentRespCount === 0)
+          !hasChassisShare &&
+          !hasChildOwnedByUser
         ) {
           return;
         }

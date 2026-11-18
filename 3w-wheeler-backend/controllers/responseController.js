@@ -6725,17 +6725,34 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
     const reviewerEmail = req.user?.email || '';
     const userIdStr = req.user?._id ? req.user._id.toString() : '';
 
-    // Determine Main Form and Child Form
+    // Determine Main Form and Child Form (supports bi-directional lookup: childForms array or parentFormId)
     let mainForm = null;
     let childForm = null;
     let mainFormId = null;
     let childFormId = null;
 
-    if (form.parentFormId) {
-      // Current form IS a child form!
+    if (form.childForms && form.childForms.length > 0) {
+      // Current form IS the main/parent form with linked child forms
+      mainForm = form;
+      mainFormId = form._id.toString();
+      const firstChildRef = form.childForms[0];
+      const cfId = typeof firstChildRef === 'string'
+        ? firstChildRef
+        : (firstChildRef?.formId || firstChildRef?.id || firstChildRef?._id?.toString());
+      if (cfId) {
+        childFormId = cfId.toString();
+        childForm = await Form.findOne({
+          $or: [
+            { id: childFormId },
+            ...(mongoose.Types.ObjectId.isValid(childFormId) ? [{ _id: childFormId }] : [])
+          ]
+        });
+      }
+    } else if (form.parentFormId) {
+      // Current form IS a child form with parentFormId set
       childForm = form;
       childFormId = form._id.toString();
-      mainFormId = form.parentFormId;
+      mainFormId = form.parentFormId.toString();
       mainForm = await Form.findOne({
         $or: [
           { id: mainFormId },
@@ -6743,18 +6760,41 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
         ]
       });
     } else {
-      // Current form IS a main/parent form!
-      mainForm = form;
-      mainFormId = form._id.toString();
-      const childForms = await Form.find({
+      // Check if this form is listed in ANY other form's childForms array
+      const parentForm = await Form.findOne({
         $or: [
+          { 'childForms.formId': formKey },
+          { 'childForms.formId': form._id.toString() },
+          ...(mongoose.Types.ObjectId.isValid(form._id) ? [{ 'childForms.formId': form._id }] : []),
           { parentFormId: formKey },
           { parentFormId: form._id.toString() }
         ]
-      }).select('_id id title').lean();
-      if (childForms.length > 0) {
-        childForm = childForms[0];
-        childFormId = childForm._id.toString();
+      });
+
+      if (parentForm) {
+        // Current form IS a child form of parentForm!
+        childForm = form;
+        childFormId = form._id.toString();
+        mainForm = parentForm;
+        mainFormId = parentForm._id.toString();
+      } else {
+        // Check if there are any child forms that point to this form via parentFormId
+        const childForms = await Form.find({
+          $or: [
+            { parentFormId: formKey },
+            { parentFormId: form._id.toString() }
+          ]
+        }).select('_id id title').lean();
+        if (childForms.length > 0) {
+          mainForm = form;
+          mainFormId = form._id.toString();
+          childForm = childForms[0];
+          childFormId = childForm._id.toString();
+        } else {
+          // Standalone form
+          mainForm = form;
+          mainFormId = form._id.toString();
+        }
       }
     }
 
@@ -6813,7 +6853,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
         { formId: { $in: mainFormIds } },
         ...(mongoose.Types.ObjectId.isValid(mainFormId) ? [{ formId: new mongoose.Types.ObjectId(mainFormId) }] : [])
       ]
-    }) : [];
+    }).lean() : [];
 
     // Preload candidate responses for Child Form
     const childFormIds = [childFormId, childForm?.id, childForm?._id?.toString()].filter(Boolean);
@@ -6823,7 +6863,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
         { formId: { $in: childFormIds } },
         ...(mongoose.Types.ObjectId.isValid(childFormId) ? [{ formId: new mongoose.Types.ObjectId(childFormId) }] : [])
       ]
-    }) : [];
+    }).lean() : [];
 
     const mainResponsesByChassis = indexResponsesByChassis(mainCandidateResponses);
     const childResponsesByChassis = indexResponsesByChassis(childCandidateResponses);
@@ -6834,289 +6874,325 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
     const errors = [];
 
     for (let i = 0; i < reviews.length; i++) {
-      const row = reviews[i];
-      const rawChassis = String(
-        row.chassisNumber || row.chassisNo || row.che || row.cha || row['Chassis Number'] || row['chasis number'] || row['Che'] || row['cha'] || ''
-      ).trim();
-
-      if (!rawChassis) {
-        skippedCount++;
-        continue;
-      }
-
-      const normalizedChassis = rawChassis.toUpperCase();
-      const matchedMain = mainResponsesByChassis.get(normalizedChassis);
-      const matchedChild = childResponsesByChassis.get(normalizedChassis);
-
-      const mainResp = matchedMain ? matchedMain.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] : null;
-      const childResp = matchedChild ? matchedChild.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] : null;
-
-      if (!mainResp && !childResp) {
-        unmatchedCount++;
-        errors.push({ row: i + 1, chassis: rawChassis, error: 'Chassis number not found in main or child form' });
-        continue;
-      }
-
-      // Link parentResponseId if not already set
-      if (mainResp && childResp && !childResp.parentResponseId) {
-        childResp.parentResponseId = String(mainResp._id || mainResp.id);
-      }
-
-      // Anti-tamper check on target response
-      const activeResp = (form.parentFormId ? childResp : mainResp) || childResp || mainResp;
-      const originalSubmittedBy = activeResp?.submittedBy;
-      const isExcelImport = originalSubmittedBy === 'Excel Import';
-      const isSubmitter =
-        !isAdmin &&
-        !isExcelImport &&
-        (
-          originalSubmittedBy === reviewerEmail ||
-          originalSubmittedBy === reviewerName ||
-          (activeResp?.submitterContact && activeResp.submitterContact.email === reviewerEmail) ||
-          (activeResp?.createdBy && activeResp.createdBy.toString() === userIdStr)
-        );
-
-      if (isSubmitter) {
-        skippedCount++;
-        errors.push({ row: i + 1, chassis: rawChassis, error: 'Cannot review your own submission' });
-        continue;
-      }
-
-      let rowUpdated = false;
-
-      // 1. Process BIW Feedback (Applies to the form being reviewed)
-      const rawBiwFeedback = String(
-        row.biwFeedback || row['BIW Feed back'] || row['BIW Feedback'] || row['BIW Feed back(Accept,Rework,Reject)'] || ''
-      ).trim().toLowerCase();
-
-      let biwStatus = null;
-      if (rawBiwFeedback.includes('accept')) {
-        biwStatus = 'Accepted';
-      } else if (rawBiwFeedback.includes('rework')) {
-        biwStatus = 'Reworked';
-      } else if (rawBiwFeedback.includes('reject')) {
-        biwStatus = 'Rejected';
-      }
-
-      if (biwStatus && activeResp) {
-        const biwReason = String(
-          row.biwReason || row.reworkAndRejectedReason || row['Rework and Rejected Resion (Rust..)'] || row['Rework and Rejected Resion'] || ''
+      try {
+        const row = reviews[i];
+        const rawChassis = String(
+          row.chassisNumber || row.chassisNo || row.che || row.cha || row['Chassis Number'] || row['chasis number'] || row['Che'] || row['cha'] || ''
         ).trim();
-        const biwRemark = String(row.biwRemark || row.remark || row['Remark'] || '').trim();
-        const biwFileUrl = String(row.biwFileUrl || row.fileUpload || row['File Upload'] || '').trim();
 
-        activeResp.biwReview = {
-          status: biwStatus,
-          reviewedBy: req.user._id,
-          reviewedByName: reviewerName,
-          reviewedAt: new Date(),
-          reason: biwReason,
-          remark: biwRemark,
-          evidenceUrl: biwFileUrl,
-          flaggedQuestions: biwReason ? [{ questionId: 'biw-excel', questionText: biwReason }] : []
-        };
-        activeResp.markModified('biwReview');
-        if (biwStatus === 'Rejected') {
-          activeResp.status = 'Rejected';
-        } else if (biwStatus === 'Reworked' && activeResp.status !== 'Rejected') {
-          activeResp.status = 'Rework 1';
+        if (!rawChassis) {
+          skippedCount++;
+          continue;
         }
-        rowUpdated = true;
-      }
 
-      // 2. Process TVS Feedback for 1st Form (Main Form: Cols F-J)
-      const rawTvsFeedback = String(
-        row.tvsFeedback || row['TVS Feed back'] || row['TVS Feedback'] || ''
-      ).trim().toLowerCase();
+        const normalizedChassis = rawChassis.toUpperCase();
+        const matchedMain = mainResponsesByChassis.get(normalizedChassis);
+        const matchedChild = childResponsesByChassis.get(normalizedChassis);
 
-      let tvsStatus = null;
-      if (rawTvsFeedback.includes('accept')) {
-        tvsStatus = 'Accepted';
-      } else if (rawTvsFeedback.includes('rework')) {
-        tvsStatus = 'Rework';
-      } else if (rawTvsFeedback.includes('reject')) {
-        tvsStatus = 'Rejected';
-      }
+        const mainResp = matchedMain ? matchedMain.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] : null;
+        const childResp = matchedChild ? matchedChild.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] : null;
 
-      if (tvsStatus && mainResp) {
-        const tvsReason = String(
-          row.tvsReason || row.tvsReworkReason || row['Rework Resion (Rust..)'] || row['Rework and Rejected Resion (Rust..)'] || row['Rework and Rejected Reason'] || row.defectReason || ''
-        ).trim();
-        const tvsRejectReason = String(
-          row.tvsRejectReason || row['Rework and Rejected Resion (Rust..)_1'] || ''
-        ).trim();
-        const tvsRemark = String(row.tvsRemark || row.remark || row['Remark'] || row['Remark_1'] || row['Remark / Feedback Note'] || '').trim();
-        const tvsFileUrl = String(row.tvsFileUrl || row.fileUrl || row.fileUpload || row['File Upload'] || row['File Upload_1'] || '').trim();
+        if (!mainResp && !childResp) {
+          unmatchedCount++;
+          errors.push({ row: i + 1, chassis: rawChassis, error: 'Chassis number not found in main or child form' });
+          continue;
+        }
 
-        const mainRespIdStr = String(mainResp._id || mainResp.id);
-        await Review.findOneAndUpdate(
-          { responseId: mainRespIdStr, reviewerId: req.user._id },
-          {
-            responseId: mainRespIdStr,
-            reviewerId: req.user._id,
-            reviewerName: reviewerName,
-            reviewerEmail: reviewerEmail,
-            submitterId: mainResp.submittedBy || mainResp.createdBy?.toString() || 'System',
+        // Link parentResponseId if not already set
+        if (mainResp && childResp && !childResp.parentResponseId) {
+          childResp.parentResponseId = String(mainResp._id || mainResp.id);
+        }
+
+        // Anti-tamper check on target response
+        const activeResp = (form.parentFormId ? childResp : mainResp) || childResp || mainResp;
+        const originalSubmittedBy = activeResp?.submittedBy;
+        const isExcelImport = originalSubmittedBy === 'Excel Import';
+        const isSubmitter =
+          !isAdmin &&
+          !isExcelImport &&
+          (
+            originalSubmittedBy === reviewerEmail ||
+            originalSubmittedBy === reviewerName ||
+            (activeResp?.submitterContact && activeResp.submitterContact.email === reviewerEmail) ||
+            (activeResp?.createdBy && activeResp.createdBy.toString() === userIdStr)
+          );
+
+        if (isSubmitter) {
+          skippedCount++;
+          errors.push({ row: i + 1, chassis: rawChassis, error: 'Cannot review your own submission' });
+          continue;
+        }
+
+        let rowUpdated = false;
+
+        // 1. Process BIW Feedback (Applies to the form being reviewed)
+        const rawBiwFeedback = String(
+          row.biwFeedback || row['BIW Feed back'] || row['BIW Feedback'] || row['BIW Feed back(Accept,Rework,Reject)'] || ''
+        ).trim().toLowerCase();
+
+        let biwStatus = null;
+        if (rawBiwFeedback.includes('accept')) {
+          biwStatus = 'Accepted';
+        } else if (rawBiwFeedback.includes('rework')) {
+          biwStatus = 'Reworked';
+        } else if (rawBiwFeedback.includes('reject')) {
+          biwStatus = 'Rejected';
+        }
+
+        if (biwStatus && activeResp) {
+          const biwReason = String(
+            row.biwReason || row.reworkAndRejectedReason || row['Rework and Rejected Resion (Rust..)'] || row['Rework and Rejected Resion'] || ''
+          ).trim();
+          const biwRemark = String(row.biwRemark || row.remark || row['Remark'] || '').trim();
+          const biwFileUrl = String(row.biwFileUrl || row.fileUpload || row['File Upload'] || '').trim();
+
+          activeResp.biwReview = {
+            status: biwStatus,
+            reviewedBy: req.user?._id || new mongoose.Types.ObjectId(),
+            reviewedByName: reviewerName,
+            reviewedAt: new Date(),
+            reason: biwReason,
+            remark: biwRemark,
+            evidenceUrl: biwFileUrl,
+            flaggedQuestions: biwReason ? [{ questionId: 'biw-excel', questionText: biwReason }] : []
+          };
+          if (biwStatus === 'Rejected') {
+            activeResp.status = 'Rejected';
+          } else if (biwStatus === 'Reworked' && activeResp.status !== 'Rejected') {
+            activeResp.status = 'Rework 1';
+          }
+          rowUpdated = true;
+        }
+
+        // 2. Process TVS Feedback for 1st Form (Main Form: Cols F-J)
+        const rawTvsFeedback = String(
+          row.tvsFeedback || row['TVS Feed back'] || row['TVS Feedback'] || ''
+        ).trim().toLowerCase();
+
+        let tvsStatus = null;
+        if (rawTvsFeedback.includes('accept')) {
+          tvsStatus = 'Accepted';
+        } else if (rawTvsFeedback.includes('rework')) {
+          tvsStatus = 'Rework';
+        } else if (rawTvsFeedback.includes('reject')) {
+          tvsStatus = 'Rejected';
+        }
+
+        if (tvsStatus && mainResp) {
+          const tvsReason = String(
+            row.tvsReason || row.tvsReworkReason || row['Rework Resion (Rust..)'] || row['Rework and Rejected Resion (Rust..)'] || row['Rework and Rejected Reason'] || row.defectReason || ''
+          ).trim();
+          const tvsRejectReason = String(
+            row.tvsRejectReason || row['Rework and Rejected Resion (Rust..)_1'] || ''
+          ).trim();
+          const tvsRemark = String(row.tvsRemark || row.remark || row['Remark'] || row['Remark_1'] || row['Remark / Feedback Note'] || '').trim();
+          const tvsFileUrl = String(row.tvsFileUrl || row.fileUrl || row.fileUpload || row['File Upload'] || row['File Upload_1'] || '').trim();
+
+          const mainRespIdStr = String(mainResp._id || mainResp.id);
+          const mainTenantObjId = (mainResp.tenantId && mongoose.Types.ObjectId.isValid(mainResp.tenantId))
+            ? new mongoose.Types.ObjectId(mainResp.tenantId)
+            : (req.user?.tenantId && mongoose.Types.ObjectId.isValid(req.user.tenantId)
+                ? new mongoose.Types.ObjectId(req.user.tenantId)
+                : (mainForm?.tenantId || null));
+
+          try {
+            await Review.findOneAndUpdate(
+              { responseId: mainRespIdStr, reviewerId: req.user?._id || new mongoose.Types.ObjectId() },
+              {
+                responseId: mainRespIdStr,
+                reviewerId: req.user?._id || new mongoose.Types.ObjectId(),
+                reviewerName: reviewerName,
+                reviewerEmail: reviewerEmail,
+                submitterId: mainResp.submittedBy || mainResp.createdBy?.toString() || 'System',
+                reviewOption: tvsStatus,
+                status: tvsStatus,
+                reason: tvsReason || tvsRejectReason,
+                scoreChange: 0,
+                tenantId: mainTenantObjId
+              },
+              { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
+          } catch (revErr) {
+            console.warn('[BIW EXCEL IMPORT] Main review upsert warning:', revErr.message);
+          }
+
+          mainResp.review = {
             reviewOption: tvsStatus,
             status: tvsStatus,
-            reason: tvsReason || tvsRejectReason,
-            scoreChange: 0,
-            tenantId: mainResp.tenantId || req.user.tenantId
-          },
-          { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
-
-        mainResp.review = {
-          reviewOption: tvsStatus,
-          status: tvsStatus,
-          reviewerId: req.user._id,
-          reviewerName: reviewerName,
-          createdAt: new Date(),
-          remark: tvsRemark,
-          reason: tvsReason || tvsRejectReason,
-          evidenceUrl: tvsFileUrl,
-          flaggedQuestions: (tvsReason || tvsRejectReason) ? [{
-            questionId: 'tvs-excel-main',
-            questionText: tvsReason || tvsRejectReason,
-            reason: tvsReason || tvsRejectReason
-          }] : []
-        };
-        mainResp.markModified('review');
-
-        if (tvsStatus === 'Rejected') {
-          mainResp.status = 'Rejected';
-        } else if (tvsStatus === 'Rework' && mainResp.status !== 'Rejected') {
-          mainResp.status = 'Rework 1';
-        }
-
-        // Insert ChatMessage for discussion center
-        try {
-          const toEmail = mainResp.submitterContact?.email || (typeof mainResp.submittedBy === 'string' && mainResp.submittedBy.includes('@') ? mainResp.submittedBy : 'inspector@factory.internal');
-          const chatText = tvsRemark || `TVS Review (1st: ${mainFormTitle}): ${tvsStatus}${tvsReason ? ` - ${tvsReason}` : ''}`;
-          await ChatMessage.create({
-            from: req.user._id,
-            toEmail: toEmail,
-            message: chatText,
-            responseId: mainRespIdStr,
-            formId: String(mainResp.formId || mainResp.questionId || mainFormId),
-            questionTitles: (tvsReason || tvsRejectReason) ? [tvsReason || tvsRejectReason] : [],
-            tenantId: mainResp.tenantId || req.user.tenantId
-          });
-        } catch (msgErr) {
-          console.warn('[BIW EXCEL IMPORT] ChatMessage creation failed for mainResp:', msgErr.message);
-        }
-
-        rowUpdated = true;
-      }
-
-      // 3. Process Target Tenant TVS Feedback (Child Form: Cols K-O)
-      const rawTargetTvsFeedback = String(
-        row.targetTvsFeedback || row['targetTvsFeedback'] || row['Target TVS Feedback'] || ''
-      ).trim().toLowerCase();
-
-      let targetTvsStatus = null;
-      if (rawTargetTvsFeedback.includes('accept')) {
-        targetTvsStatus = 'Accepted';
-      } else if (rawTargetTvsFeedback.includes('rework')) {
-        targetTvsStatus = 'Rework';
-      } else if (rawTargetTvsFeedback.includes('reject')) {
-        targetTvsStatus = 'Rejected';
-      }
-
-      if (targetTvsStatus && childResp) {
-        const targetTvsReason = String(row.targetTvsReason || row.targetTvsReworkReason || '').trim();
-        const targetTvsRejectReason = String(row.targetTvsRejectReason || '').trim();
-        const targetTvsRemark = String(row.targetTvsRemark || '').trim();
-        const targetTvsFileUrl = String(row.targetTvsFileUrl || '').trim();
-
-        const childRespIdStr = String(childResp._id || childResp.id);
-        await Review.findOneAndUpdate(
-          { responseId: childRespIdStr, reviewerId: req.user._id },
-          {
-            responseId: childRespIdStr,
-            reviewerId: req.user._id,
+            reviewerId: req.user?._id || new mongoose.Types.ObjectId(),
             reviewerName: reviewerName,
-            reviewerEmail: reviewerEmail,
-            submitterId: childResp.submittedBy || childResp.createdBy?.toString() || 'System',
+            createdAt: new Date(),
+            remark: tvsRemark,
+            reason: tvsReason || tvsRejectReason,
+            evidenceUrl: tvsFileUrl,
+            flaggedQuestions: (tvsReason || tvsRejectReason) ? [{
+              questionId: 'tvs-excel-main',
+              questionText: tvsReason || tvsRejectReason,
+              reason: tvsReason || tvsRejectReason
+            }] : []
+          };
+
+          if (tvsStatus === 'Rejected') {
+            mainResp.status = 'Rejected';
+          } else if (tvsStatus === 'Rework' && mainResp.status !== 'Rejected') {
+            mainResp.status = 'Rework 1';
+          }
+
+          // Insert ChatMessage for discussion center
+          try {
+            const toEmail = mainResp.submitterContact?.email || (typeof mainResp.submittedBy === 'string' && mainResp.submittedBy.includes('@') ? mainResp.submittedBy : 'inspector@factory.internal');
+            const chatText = tvsRemark || `TVS Review (1st: ${mainFormTitle}): ${tvsStatus}${tvsReason ? ` - ${tvsReason}` : ''}`;
+            await ChatMessage.create({
+              from: req.user?._id || new mongoose.Types.ObjectId(),
+              toEmail: toEmail,
+              message: chatText,
+              responseId: mainRespIdStr,
+              formId: String(mainResp.formId || mainResp.questionId || mainFormId),
+              questionTitles: (tvsReason || tvsRejectReason) ? [tvsReason || tvsRejectReason] : [],
+              tenantId: mainTenantObjId
+            });
+          } catch (msgErr) {
+            console.warn('[BIW EXCEL IMPORT] ChatMessage creation failed for mainResp:', msgErr.message);
+          }
+
+          rowUpdated = true;
+        }
+
+        // 3. Process Target Tenant TVS Feedback (Child Form: Cols K-O)
+        const rawTargetTvsFeedback = String(
+          row.targetTvsFeedback || row['targetTvsFeedback'] || row['Target TVS Feedback'] || ''
+        ).trim().toLowerCase();
+
+        let targetTvsStatus = null;
+        if (rawTargetTvsFeedback.includes('accept')) {
+          targetTvsStatus = 'Accepted';
+        } else if (rawTargetTvsFeedback.includes('rework')) {
+          targetTvsStatus = 'Rework';
+        } else if (rawTargetTvsFeedback.includes('reject')) {
+          targetTvsStatus = 'Rejected';
+        }
+
+        if (targetTvsStatus && childResp) {
+          const targetTvsReason = String(row.targetTvsReason || row.targetTvsReworkReason || '').trim();
+          const targetTvsRejectReason = String(row.targetTvsRejectReason || '').trim();
+          const targetTvsRemark = String(row.targetTvsRemark || '').trim();
+          const targetTvsFileUrl = String(row.targetTvsFileUrl || '').trim();
+
+          const childRespIdStr = String(childResp._id || childResp.id);
+          const childTenantObjId = (childResp.tenantId && mongoose.Types.ObjectId.isValid(childResp.tenantId))
+            ? new mongoose.Types.ObjectId(childResp.tenantId)
+            : (req.user?.tenantId && mongoose.Types.ObjectId.isValid(req.user.tenantId)
+                ? new mongoose.Types.ObjectId(req.user.tenantId)
+                : (childForm?.tenantId || null));
+
+          try {
+            await Review.findOneAndUpdate(
+              { responseId: childRespIdStr, reviewerId: req.user?._id || new mongoose.Types.ObjectId() },
+              {
+                responseId: childRespIdStr,
+                reviewerId: req.user?._id || new mongoose.Types.ObjectId(),
+                reviewerName: reviewerName,
+                reviewerEmail: reviewerEmail,
+                submitterId: childResp.submittedBy || childResp.createdBy?.toString() || 'System',
+                reviewOption: targetTvsStatus,
+                status: targetTvsStatus,
+                reason: targetTvsReason || targetTvsRejectReason,
+                scoreChange: 0,
+                tenantId: childTenantObjId
+              },
+              { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
+          } catch (revErr) {
+            console.warn('[BIW EXCEL IMPORT] Child review upsert warning:', revErr.message);
+          }
+
+          childResp.review = {
             reviewOption: targetTvsStatus,
             status: targetTvsStatus,
+            reviewerId: req.user?._id || new mongoose.Types.ObjectId(),
+            reviewerName: reviewerName,
+            createdAt: new Date(),
+            remark: targetTvsRemark,
             reason: targetTvsReason || targetTvsRejectReason,
-            scoreChange: 0,
-            tenantId: childResp.tenantId || req.user.tenantId
-          },
-          { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
+            evidenceUrl: targetTvsFileUrl,
+            flaggedQuestions: (targetTvsReason || targetTvsRejectReason) ? [{
+              questionId: 'target-tvs-excel',
+              questionText: targetTvsReason || targetTvsRejectReason,
+              reason: targetTvsReason || targetTvsRejectReason
+            }] : []
+          };
 
-        childResp.review = {
-          reviewOption: targetTvsStatus,
-          status: targetTvsStatus,
-          reviewerId: req.user._id,
-          reviewerName: reviewerName,
-          createdAt: new Date(),
-          remark: targetTvsRemark,
-          reason: targetTvsReason || targetTvsRejectReason,
-          evidenceUrl: targetTvsFileUrl,
-          flaggedQuestions: (targetTvsReason || targetTvsRejectReason) ? [{
-            questionId: 'target-tvs-excel',
-            questionText: targetTvsReason || targetTvsRejectReason,
-            reason: targetTvsReason || targetTvsRejectReason
-          }] : []
-        };
-        childResp.markModified('review');
+          if (targetTvsStatus === 'Rejected') {
+            childResp.status = 'Rejected';
+          } else if (targetTvsStatus === 'Rework' && childResp.status !== 'Rejected') {
+            childResp.status = 'Rework 1';
+          }
 
-        if (targetTvsStatus === 'Rejected') {
-          childResp.status = 'Rejected';
-        } else if (targetTvsStatus === 'Rework' && childResp.status !== 'Rejected') {
-          childResp.status = 'Rework 1';
-        }
-
-        // Insert ChatMessage for discussion center
-        try {
-          const toEmail = childResp.submitterContact?.email || (typeof childResp.submittedBy === 'string' && childResp.submittedBy.includes('@') ? childResp.submittedBy : 'inspector@factory.internal');
-          const chatText = targetTvsRemark || `TVS Review (2nd: ${childFormTitle}): ${targetTvsStatus}${targetTvsReason ? ` - ${targetTvsReason}` : ''}`;
-          await ChatMessage.create({
-            from: req.user._id,
-            toEmail: toEmail,
-            message: chatText,
-            responseId: childRespIdStr,
-            formId: String(childResp.formId || childResp.questionId || childFormId),
-            questionTitles: (targetTvsReason || targetTvsRejectReason) ? [targetTvsReason || targetTvsRejectReason] : [],
-            tenantId: childResp.tenantId || req.user.tenantId
-          });
-        } catch (msgErr) {
-          console.warn('[BIW EXCEL IMPORT] ChatMessage creation failed for childResp:', msgErr.message);
-        }
-
-        rowUpdated = true;
-      }
-
-      // Cross-link reviews between mainResp and childResp
-      if (mainResp && childResp) {
-        if (mainResp.review) {
-          childResp.parentReview = mainResp.review;
-          childResp.markModified('parentReview');
-        }
-        if (childResp.review) {
-          mainResp.childReview = childResp.review;
-          mainResp.markModified('childReview');
-        }
-      }
-
-      if (rowUpdated) {
-        if (mainResp && mainResp.isModified()) {
-          await mainResp.save();
+          // Insert ChatMessage for discussion center
           try {
-            emitResponseUpdated(String(mainResp.formId || mainResp.questionId || mainFormId), mainResp);
-          } catch (sockErr) { }
+            const toEmail = childResp.submitterContact?.email || (typeof childResp.submittedBy === 'string' && childResp.submittedBy.includes('@') ? childResp.submittedBy : 'inspector@factory.internal');
+            const chatText = targetTvsRemark || `TVS Review (2nd: ${childFormTitle}): ${targetTvsStatus}${targetTvsReason ? ` - ${targetTvsReason}` : ''}`;
+            await ChatMessage.create({
+              from: req.user?._id || new mongoose.Types.ObjectId(),
+              toEmail: toEmail,
+              message: chatText,
+              responseId: childRespIdStr,
+              formId: String(childResp.formId || childResp.questionId || childFormId),
+              questionTitles: (targetTvsReason || targetTvsRejectReason) ? [targetTvsReason || targetTvsRejectReason] : [],
+              tenantId: childTenantObjId
+            });
+          } catch (msgErr) {
+            console.warn('[BIW EXCEL IMPORT] ChatMessage creation failed for childResp:', msgErr.message);
+          }
+
+          rowUpdated = true;
         }
-        if (childResp && childResp.isModified()) {
-          await childResp.save();
-          try {
-            emitResponseUpdated(String(childResp.formId || childResp.questionId || childFormId), childResp);
-          } catch (sockErr) { }
+
+        // Cross-link reviews between mainResp and childResp
+        if (mainResp && childResp) {
+          if (mainResp.review) {
+            childResp.parentReview = mainResp.review;
+          }
+          if (childResp.review) {
+            mainResp.childReview = childResp.review;
+          }
         }
-        updatedCount++;
-      } else {
+
+        if (rowUpdated) {
+          if (mainResp) {
+            const mainSet = {};
+            if (mainResp.biwReview) mainSet.biwReview = mainResp.biwReview;
+            if (mainResp.review) mainSet.review = mainResp.review;
+            if (mainResp.status) mainSet.status = mainResp.status;
+            if (mainResp.childReview) mainSet.childReview = mainResp.childReview;
+            if (Object.keys(mainSet).length > 0) {
+              await Response.updateOne({ _id: mainResp._id }, { $set: mainSet });
+              try {
+                emitResponseUpdated(String(mainResp.formId || mainResp.questionId || mainFormId), { ...(mainResp.toObject?.() || mainResp), ...mainSet });
+              } catch (sockErr) { }
+            }
+          }
+          if (childResp) {
+            const childSet = {};
+            if (childResp.biwReview) childSet.biwReview = childResp.biwReview;
+            if (childResp.review) childSet.review = childResp.review;
+            if (childResp.status) childSet.status = childResp.status;
+            if (childResp.parentReview) childSet.parentReview = childResp.parentReview;
+            if (childResp.parentResponseId) childSet.parentResponseId = childResp.parentResponseId;
+            if (Object.keys(childSet).length > 0) {
+              await Response.updateOne({ _id: childResp._id }, { $set: childSet });
+              try {
+                emitResponseUpdated(String(childResp.formId || childResp.questionId || childFormId), { ...(childResp.toObject?.() || childResp), ...childSet });
+              } catch (sockErr) { }
+            }
+          }
+          updatedCount++;
+        } else {
+          skippedCount++;
+        }
+      } catch (rowErr) {
+        console.error(`[BIW EXCEL IMPORT] Error processing row ${i + 1}:`, rowErr);
+        errors.push({ row: i + 1, chassis: String(reviews[i]?.chassisNumber || ''), error: rowErr.message });
         skippedCount++;
       }
     }
