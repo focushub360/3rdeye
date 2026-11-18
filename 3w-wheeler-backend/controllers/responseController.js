@@ -6840,6 +6840,14 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
             map.set(norm, []);
           }
           map.get(norm).push(resp);
+
+          const stripped = norm.replace(/\s+/g, '');
+          if (stripped && stripped !== norm) {
+            if (!map.has(stripped)) {
+              map.set(stripped, []);
+            }
+            map.get(stripped).push(resp);
+          }
         }
       }
       return map;
@@ -6886,8 +6894,9 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
         }
 
         const normalizedChassis = rawChassis.toUpperCase();
-        const matchedMain = mainResponsesByChassis.get(normalizedChassis);
-        const matchedChild = childResponsesByChassis.get(normalizedChassis);
+        const strippedChassis = normalizedChassis.replace(/\s+/g, '');
+        const matchedMain = mainResponsesByChassis.get(normalizedChassis) || mainResponsesByChassis.get(strippedChassis);
+        const matchedChild = childResponsesByChassis.get(normalizedChassis) || childResponsesByChassis.get(strippedChassis);
 
         const mainResp = matchedMain ? matchedMain.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] : null;
         const childResp = matchedChild ? matchedChild.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] : null;
@@ -6978,7 +6987,23 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           tvsStatus = 'Rejected';
         }
 
-        if (tvsStatus && mainResp) {
+        // 3. Process Target Tenant TVS Feedback (Child Form: Cols K-O)
+        const rawTargetTvsFeedback = String(
+          row.targetTvsFeedback || row['targetTvsFeedback'] || row['Target TVS Feedback'] || ''
+        ).trim().toLowerCase();
+
+        let targetTvsStatus = null;
+        if (rawTargetTvsFeedback.includes('accept')) {
+          targetTvsStatus = 'Accepted';
+        } else if (rawTargetTvsFeedback.includes('rework')) {
+          targetTvsStatus = 'Rework';
+        } else if (rawTargetTvsFeedback.includes('reject')) {
+          targetTvsStatus = 'Rejected';
+        }
+
+        // Apply TVS Feedback: if only one response exists (main or child), route the review to that response
+        const targetMainResp = mainResp || (!targetTvsStatus ? childResp : null);
+        if (tvsStatus && targetMainResp) {
           const tvsReason = String(
             row.tvsReason || row.tvsReworkReason || row['Rework Resion (Rust..)'] || row['Rework and Rejected Resion (Rust..)'] || row['Rework and Rejected Reason'] || row.defectReason || ''
           ).trim();
@@ -6988,9 +7013,9 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           const tvsRemark = String(row.tvsRemark || row.remark || row['Remark'] || row['Remark_1'] || row['Remark / Feedback Note'] || '').trim();
           const tvsFileUrl = String(row.tvsFileUrl || row.fileUrl || row.fileUpload || row['File Upload'] || row['File Upload_1'] || '').trim();
 
-          const mainRespIdStr = String(mainResp._id || mainResp.id);
-          const mainTenantObjId = (mainResp.tenantId && mongoose.Types.ObjectId.isValid(mainResp.tenantId))
-            ? new mongoose.Types.ObjectId(mainResp.tenantId)
+          const mainRespIdStr = String(targetMainResp._id || targetMainResp.id);
+          const mainTenantObjId = (targetMainResp.tenantId && mongoose.Types.ObjectId.isValid(targetMainResp.tenantId))
+            ? new mongoose.Types.ObjectId(targetMainResp.tenantId)
             : (req.user?.tenantId && mongoose.Types.ObjectId.isValid(req.user.tenantId)
                 ? new mongoose.Types.ObjectId(req.user.tenantId)
                 : (mainForm?.tenantId || null));
@@ -7003,7 +7028,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
                 reviewerId: req.user?._id || new mongoose.Types.ObjectId(),
                 reviewerName: reviewerName,
                 reviewerEmail: reviewerEmail,
-                submitterId: mainResp.submittedBy || mainResp.createdBy?.toString() || 'System',
+                submitterId: targetMainResp.submittedBy || targetMainResp.createdBy?.toString() || 'System',
                 reviewOption: tvsStatus,
                 status: tvsStatus,
                 reason: tvsReason || tvsRejectReason,
@@ -7016,7 +7041,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
             console.warn('[BIW EXCEL IMPORT] Main review upsert warning:', revErr.message);
           }
 
-          mainResp.review = {
+          targetMainResp.review = {
             reviewOption: tvsStatus,
             status: tvsStatus,
             reviewerId: req.user?._id || new mongoose.Types.ObjectId(),
@@ -7033,21 +7058,21 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           };
 
           if (tvsStatus === 'Rejected') {
-            mainResp.status = 'Rejected';
-          } else if (tvsStatus === 'Rework' && mainResp.status !== 'Rejected') {
-            mainResp.status = 'Rework 1';
+            targetMainResp.status = 'Rejected';
+          } else if (tvsStatus === 'Rework' && targetMainResp.status !== 'Rejected') {
+            targetMainResp.status = 'Rework 1';
           }
 
           // Insert ChatMessage for discussion center
           try {
-            const toEmail = mainResp.submitterContact?.email || (typeof mainResp.submittedBy === 'string' && mainResp.submittedBy.includes('@') ? mainResp.submittedBy : 'inspector@factory.internal');
+            const toEmail = targetMainResp.submitterContact?.email || (typeof targetMainResp.submittedBy === 'string' && targetMainResp.submittedBy.includes('@') ? targetMainResp.submittedBy : 'inspector@factory.internal');
             const chatText = tvsRemark || `TVS Review (1st: ${mainFormTitle}): ${tvsStatus}${tvsReason ? ` - ${tvsReason}` : ''}`;
             await ChatMessage.create({
               from: req.user?._id || new mongoose.Types.ObjectId(),
               toEmail: toEmail,
               message: chatText,
               responseId: mainRespIdStr,
-              formId: String(mainResp.formId || mainResp.questionId || mainFormId),
+              formId: String(targetMainResp.formId || targetMainResp.questionId || mainFormId),
               questionTitles: (tvsReason || tvsRejectReason) ? [tvsReason || tvsRejectReason] : [],
               tenantId: mainTenantObjId
             });
@@ -7058,29 +7083,16 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           rowUpdated = true;
         }
 
-        // 3. Process Target Tenant TVS Feedback (Child Form: Cols K-O)
-        const rawTargetTvsFeedback = String(
-          row.targetTvsFeedback || row['targetTvsFeedback'] || row['Target TVS Feedback'] || ''
-        ).trim().toLowerCase();
-
-        let targetTvsStatus = null;
-        if (rawTargetTvsFeedback.includes('accept')) {
-          targetTvsStatus = 'Accepted';
-        } else if (rawTargetTvsFeedback.includes('rework')) {
-          targetTvsStatus = 'Rework';
-        } else if (rawTargetTvsFeedback.includes('reject')) {
-          targetTvsStatus = 'Rejected';
-        }
-
-        if (targetTvsStatus && childResp) {
+        const targetChildResp = childResp || (!tvsStatus ? mainResp : null);
+        if (targetTvsStatus && targetChildResp) {
           const targetTvsReason = String(row.targetTvsReason || row.targetTvsReworkReason || '').trim();
           const targetTvsRejectReason = String(row.targetTvsRejectReason || '').trim();
           const targetTvsRemark = String(row.targetTvsRemark || '').trim();
           const targetTvsFileUrl = String(row.targetTvsFileUrl || '').trim();
 
-          const childRespIdStr = String(childResp._id || childResp.id);
-          const childTenantObjId = (childResp.tenantId && mongoose.Types.ObjectId.isValid(childResp.tenantId))
-            ? new mongoose.Types.ObjectId(childResp.tenantId)
+          const childRespIdStr = String(targetChildResp._id || targetChildResp.id);
+          const childTenantObjId = (targetChildResp.tenantId && mongoose.Types.ObjectId.isValid(targetChildResp.tenantId))
+            ? new mongoose.Types.ObjectId(targetChildResp.tenantId)
             : (req.user?.tenantId && mongoose.Types.ObjectId.isValid(req.user.tenantId)
                 ? new mongoose.Types.ObjectId(req.user.tenantId)
                 : (childForm?.tenantId || null));
@@ -7093,7 +7105,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
                 reviewerId: req.user?._id || new mongoose.Types.ObjectId(),
                 reviewerName: reviewerName,
                 reviewerEmail: reviewerEmail,
-                submitterId: childResp.submittedBy || childResp.createdBy?.toString() || 'System',
+                submitterId: targetChildResp.submittedBy || targetChildResp.createdBy?.toString() || 'System',
                 reviewOption: targetTvsStatus,
                 status: targetTvsStatus,
                 reason: targetTvsReason || targetTvsRejectReason,
@@ -7106,7 +7118,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
             console.warn('[BIW EXCEL IMPORT] Child review upsert warning:', revErr.message);
           }
 
-          childResp.review = {
+          targetChildResp.review = {
             reviewOption: targetTvsStatus,
             status: targetTvsStatus,
             reviewerId: req.user?._id || new mongoose.Types.ObjectId(),
@@ -7123,21 +7135,21 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           };
 
           if (targetTvsStatus === 'Rejected') {
-            childResp.status = 'Rejected';
-          } else if (targetTvsStatus === 'Rework' && childResp.status !== 'Rejected') {
-            childResp.status = 'Rework 1';
+            targetChildResp.status = 'Rejected';
+          } else if (targetTvsStatus === 'Rework' && targetChildResp.status !== 'Rejected') {
+            targetChildResp.status = 'Rework 1';
           }
 
           // Insert ChatMessage for discussion center
           try {
-            const toEmail = childResp.submitterContact?.email || (typeof childResp.submittedBy === 'string' && childResp.submittedBy.includes('@') ? childResp.submittedBy : 'inspector@factory.internal');
+            const toEmail = targetChildResp.submitterContact?.email || (typeof targetChildResp.submittedBy === 'string' && targetChildResp.submittedBy.includes('@') ? targetChildResp.submittedBy : 'inspector@factory.internal');
             const chatText = targetTvsRemark || `TVS Review (2nd: ${childFormTitle}): ${targetTvsStatus}${targetTvsReason ? ` - ${targetTvsReason}` : ''}`;
             await ChatMessage.create({
               from: req.user?._id || new mongoose.Types.ObjectId(),
               toEmail: toEmail,
               message: chatText,
               responseId: childRespIdStr,
-              formId: String(childResp.formId || childResp.questionId || childFormId),
+              formId: String(targetChildResp.formId || targetChildResp.questionId || childFormId),
               questionTitles: (targetTvsReason || targetTvsRejectReason) ? [targetTvsReason || targetTvsRejectReason] : [],
               tenantId: childTenantObjId
             });
