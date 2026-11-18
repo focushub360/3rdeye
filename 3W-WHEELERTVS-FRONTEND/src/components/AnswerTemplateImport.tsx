@@ -91,13 +91,14 @@ export default function AnswerTemplateImport({
   }, [isOpen]);
 
   const forms = formsData?.forms || [];
-  const parentForms = Array.from(
+  const allAvailableForms = Array.from(
     new Map(
-      forms
-        .filter((form) => !form.parentFormId)
-        .map((form) => [form.id || form._id, form])
+      forms.map((form) => [form.id || form._id, form])
     ).values()
   ).sort((a, b) => String(a?.title || "").localeCompare(String(b?.title || "")));
+
+  const primaryForms = allAvailableForms.filter((f) => !f.parentFormId);
+  const followUpForms = allAvailableForms.filter((f) => Boolean(f.parentFormId));
 
   // Derive child/follow-up forms for the selected parent
   const childForms: Question[] = selectedForm
@@ -174,7 +175,7 @@ export default function AnswerTemplateImport({
 
   const handleFormSelect = (formId: string) => {
     setSelectedFormId(formId);
-    const form = parentForms.find((f) => (f.id || f._id) === formId);
+    const form = allAvailableForms.find((f) => (f.id || f._id) === formId);
     setSelectedForm(form || null);
     // Template 2 (Follow-up) always uses the same form as the Main form,
     // so both templates are shown for a single form selection.
@@ -543,7 +544,7 @@ export default function AnswerTemplateImport({
             {/* ── Step 1: Select Form ── */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
-                1. Select Main Form
+                1. Select Form to Import
               </label>
               <select
                 value={selectedFormId}
@@ -551,25 +552,50 @@ export default function AnswerTemplateImport({
                 className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-700 rounded-xl dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">-- Choose a form --</option>
-                {parentForms.map((form) => (
-                  <option key={form.id || form._id} value={form.id || form._id}>
-                    {form.title}
-                  </option>
-                ))}
+                {followUpForms.length > 0 ? (
+                  <>
+                    <optgroup label="Main / Primary Forms">
+                      {primaryForms.map((form) => (
+                        <option key={form.id || form._id} value={form.id || form._id}>
+                          {form.title}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Follow-up / Triggered Forms">
+                      {followUpForms.map((form) => {
+                        const parentForm = forms.find(
+                          (f) => (f.id || f._id) === form.parentFormId
+                        );
+                        const parentLabel = form.parentFormTitle || parentForm?.title;
+                        return (
+                          <option key={form.id || form._id} value={form.id || form._id}>
+                            {form.title} {parentLabel ? `(Parent: ${parentLabel})` : "(Follow-up)"}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  </>
+                ) : (
+                  allAvailableForms.map((form) => (
+                    <option key={form.id || form._id} value={form.id || form._id}>
+                      {form.title}
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 
             {selectedForm && (
               <>
-                {/* ── Step 2: Main Form Template ── */}
+                {/* ── Step 2: Form Template ── */}
                 <div className="rounded-xl border-2 border-blue-100 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/30 p-5 space-y-4">
                       <div className="flex items-center gap-2">
                         <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                         <span className="text-sm font-semibold text-blue-800 dark:text-blue-200">
-                          {selectedForm?.title} — Main Form
+                          {selectedForm?.title} {selectedForm?.parentFormId ? "— Follow-up Form" : "— Main Form"}
                         </span>
                         <span className="ml-auto text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">
-                          Primary
+                          {selectedForm?.parentFormId ? "Follow-up" : "Primary"}
                         </span>
                       </div>
 
