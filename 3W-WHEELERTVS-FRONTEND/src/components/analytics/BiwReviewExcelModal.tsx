@@ -80,6 +80,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
   const [internalResponses, setInternalResponses] = useState<any[]>([]);
 
   useEffect(() => {
+    if (!isOpen) return;
     let isMounted = true;
     const fetchResponses = async () => {
       try {
@@ -108,7 +109,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
 
     fetchResponses();
     return () => { isMounted = false; };
-  }, [formId, form]);
+  }, [formId, form, isOpen]);
 
   const allAvailableResponses = useMemo(() => {
     const map = new Map<string, any>();

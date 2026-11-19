@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import {
   MessageCircle,
   X,
@@ -7,6 +8,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Layers,
+  FileText,
 } from "lucide-react";
 import { QuestionSuggestionRenderer } from "../components/QuestionSuggestionRenderer";
 import { renderMessageWithImages, formatChatAnswerValue } from "../utils/chatHelpers";
@@ -71,6 +73,7 @@ export const ChatDiscussionModal: React.FC<ChatDiscussionModalProps> = ({
   handleReviewSubmit,
   showToast,
 }) => {
+  const navigate = useNavigate();
   if (!isOpen || !chatResponse) return null;
 
   return (
@@ -274,24 +277,26 @@ export const ChatDiscussionModal: React.FC<ChatDiscussionModalProps> = ({
                   })()}
                   <button
                     onClick={() => {
-                      const responseId = searchParams.get("responseId");
+                      const responseId = searchParams?.get("responseId");
                       if (responseId) {
                         navigate("/inspector/chat");
-                      } else {
-                        setShowChatModal(false);
-                        setChatResponse(null);
-                        setPendingReviewOption(null);
+                      }
+                      if (setPendingReviewOption) setPendingReviewOption(null);
+                      if (setSelectedReviewOptions && chatResponse) {
                         setSelectedReviewOptions((prev) => ({
                           ...prev,
-                          [chatResponse?.id || ""]: "",
-                        }));
-                        setReviewedBy((prev) => ({
-                          ...prev,
-                          [chatResponse?.id || ""]: null,
+                          [chatResponse?.id || (chatResponse as any)?._id || ""]: "",
                         }));
                       }
+                      if (setReviewedBy && chatResponse) {
+                        setReviewedBy((prev) => ({
+                          ...prev,
+                          [chatResponse?.id || (chatResponse as any)?._id || ""]: null,
+                        }));
+                      }
+                      onClose();
                     }}
-                    className="p-2 hover:bg-white/10 rounded-full text-white transition-colors"
+                    className="p-2 hover:bg-white/10 rounded-full text-white transition-colors cursor-pointer"
                     title="Close Chat"
                   >
                     <X className="w-6 h-6" />

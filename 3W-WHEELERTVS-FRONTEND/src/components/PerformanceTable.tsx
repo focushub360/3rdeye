@@ -7,7 +7,7 @@ import React, {
 } from "react";
 import { useAuth } from "../context/AuthContext";
 import { apiClient } from "../api/client";
-import { Users, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Loader2, Info } from "lucide-react";
+import { Users, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Loader2, Info, Search, X, ArrowUp, ArrowDown, ArrowUpDown, Calendar } from "lucide-react";
 import PerformanceGuideModal from "./analytics/PerformanceGuideModal";
 
 const PerformanceTable = ({
@@ -30,30 +30,55 @@ const PerformanceTable = ({
   const [performanceTableLoading, setPerformanceTableLoading] = useState(false);
   const [showPerformanceGuide, setShowPerformanceGuide] = useState(false);
 
-  // ✅ Default to last 30 days
-  const [perfStartDate, setPerfStartDate] = useState(() => {
+  // ✅ Bind strictly to Top Date Filter (startDate & endDate props)
+  const effectiveStartDate = useMemo(() => {
     if (startDate) return startDate.includes("T") ? startDate.split("T")[0] : startDate;
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().split("T")[0];
-  });
-  const [perfEndDate, setPerfEndDate] = useState(() => {
+    if (startDate === undefined && endDate === undefined && !formId && !formIds) {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      return d.toISOString().split("T")[0];
+    }
+    return "";
+  }, [startDate, endDate, formId, formIds]);
+
+  const effectiveEndDate = useMemo(() => {
     if (endDate) return endDate.includes("T") ? endDate.split("T")[0] : endDate;
-    return new Date().toISOString().split("T")[0];
-  });
+    if (startDate === undefined && endDate === undefined && !formId && !formIds) {
+      return new Date().toISOString().split("T")[0];
+    }
+    return "";
+  }, [startDate, endDate, formId, formIds]);
+
+  // Name search state
+  const [searchTerm, setSearchTerm] = useState("");
+
+  // Sort state & toggle handler
+  const [sortColumn, setSortColumn] = useState<string>("performanceScore");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(column);
+      setSortOrder(column === "name" ? "asc" : "desc");
+    }
+  };
+
+  const renderSortIcon = (column: string) => {
+    if (sortColumn !== column) {
+      return <ArrowUpDown className="w-3 h-3 text-gray-300 dark:text-gray-600 ml-1 inline shrink-0 opacity-50 group-hover:opacity-100" />;
+    }
+    return sortOrder === "asc" ? (
+      <ArrowUp className="w-3 h-3 text-blue-600 dark:text-blue-400 ml-1 inline shrink-0" />
+    ) : (
+      <ArrowDown className="w-3 h-3 text-blue-600 dark:text-blue-400 ml-1 inline shrink-0" />
+    );
+  };
 
   useEffect(() => {
-    const newStart = startDate ? (startDate.includes("T") ? startDate.split("T")[0] : startDate) : "";
-    const newEnd = endDate ? (endDate.includes("T") ? endDate.split("T")[0] : endDate) : "";
-
-    if (newStart) {
-      setPerfStartDate((prev) => (prev !== newStart ? newStart : prev));
-    }
-    if (newEnd) {
-      setPerfEndDate((prev) => (prev !== newEnd ? newEnd : prev));
-    }
     setPerformancePage(1);
-  }, [startDate, endDate]);
+  }, [effectiveStartDate, effectiveEndDate]);
   const [perfInspectorSummary, setPerfInspectorSummary] = useState<any[]>([]);
   const [activeUserNames, setActiveUserNames] = useState<Set<string>>(
     new Set(),
@@ -99,8 +124,8 @@ const PerformanceTable = ({
   // ✅ Cache key for performance data
   const getCacheKey = useCallback(() => {
     const fKey = formIds ? (Array.isArray(formIds) ? formIds.slice().sort().join('-') : String(formIds)) : (formId || 'all');
-    return `perf_v4_${fKey}_${perfStartDate}_${perfEndDate}_${performancePage}_${performancePageSize}`;
-  }, [formId, formIds, perfStartDate, perfEndDate, performancePage, performancePageSize]);
+    return `perf_v4_${fKey}_${effectiveStartDate}_${effectiveEndDate}_${performancePage}_${performancePageSize}`;
+  }, [formId, formIds, effectiveStartDate, effectiveEndDate, performancePage, performancePageSize]);
 
   // ✅ Load performance data with caching and timeout
   const loadPerformanceData = useCallback(async () => {
@@ -147,13 +172,13 @@ const PerformanceTable = ({
       if (useInternalTrackingEndpoint) {
         // Internal tracking endpoint
         tableResponse = await apiClient.get(
-          `/internal-tracking/performance?startDate=${perfStartDate}&endDate=${perfEndDate}&page=${performancePage}&limit=${performancePageSize}`
+          `/internal-tracking/performance?startDate=${effectiveStartDate}&endDate=${effectiveEndDate}&page=${performancePage}&limit=${performancePageSize}`
         );
       } else {
         // ✅ Call getPerformanceTable with date parameters across the full range
         tableResponse = await apiClient.getPerformanceTable({
-          startDate: perfStartDate,
-          endDate: perfEndDate,
+          startDate: effectiveStartDate,
+          endDate: effectiveEndDate,
           formId,
           formIds,
           page: performancePage,
@@ -194,7 +219,7 @@ const PerformanceTable = ({
         : (formId ? `&formId=${formId}` : '');
 
       if (user.role === "admin" || user.role === "superadmin") {
-        apiClient.get(`/analytics/inspector-summary?startDate=${perfStartDate}&endDate=${perfEndDate}${inspQuery}`)
+        apiClient.get(`/analytics/inspector-summary?startDate=${effectiveStartDate}&endDate=${effectiveEndDate}${inspQuery}`)
           .then((summaryResponse: any) => {
             const summaryData = summaryResponse?.data?.summary || [];
             setPerfInspectorSummary(summaryData);
@@ -238,8 +263,8 @@ const PerformanceTable = ({
     }
   }, [
     user,
-    perfStartDate,
-    perfEndDate,
+    effectiveStartDate,
+    effectiveEndDate,
     showPerformanceTable,
     useInternalTrackingEndpoint,
     performancePage,
@@ -346,6 +371,21 @@ const PerformanceTable = ({
     return statuses.filter(status => !isNumeric(status));
   }, [perfInspectorSummary]);
 
+  // Filter data by inspector / user search term
+  const filteredData = useMemo(() => {
+    let data = [...performanceTableData];
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase().trim();
+      data = data.filter((row) => {
+        const name = String(row.name || row.qcInspector || row.qcInspectorName || row.inspectorName || row.username || "").toLowerCase();
+        const email = String(row.email || "").toLowerCase();
+        const tenant = String(row.tenantName || "").toLowerCase();
+        return name.includes(term) || email.includes(term) || tenant.includes(term);
+      });
+    }
+    return data;
+  }, [performanceTableData, searchTerm]);
+
   const {
     inspectorStatusMap,
     totalPerformanceItems,
@@ -384,22 +424,6 @@ const PerformanceTable = ({
       });
     });
 
-    const totalPerformanceItems = performanceTableData.length;
-    const totalPerformancePages = Math.ceil(
-      totalPerformanceItems / performancePageSize,
-    );
-    const startIndex = (performancePage - 1) * performancePageSize;
-    const endIndex = startIndex + performancePageSize;
-    const paginatedPerformance = performanceTableData.slice(
-      startIndex,
-      endIndex,
-    );
-
-    const totalDispatched = performanceTableData.reduce(
-      (sum, row) =>
-        sum + (inspectorStatusMap[row.name]?.["Dispatched"] || 0),
-      0,
-    );
     const getUserTotalSubmitted = (rowName: string, backendTotal: number) => {
       const directOk = inspectorStatusMap[rowName]?.["Direct Ok"] || 0;
       const reworkCompleted = inspectorStatusMap[rowName]?.["Rework QC Completed"] || 0;
@@ -409,28 +433,173 @@ const PerformanceTable = ({
       return Math.max(backendTotal || 0, statusSum);
     };
 
-    const totalTotalSubmitted = performanceTableData.reduce(
+    const sortRows = (rows: any[]) => {
+      if (!sortColumn) return rows;
+      const sorted = [...rows];
+      sorted.sort((a, b) => {
+        let valA: any = 0;
+        let valB: any = 0;
+
+        switch (sortColumn) {
+          case "name":
+            valA = String(a.name || a.qcInspector || a.qcInspectorName || a.inspectorName || a.username || "").toLowerCase();
+            valB = String(b.name || b.qcInspector || b.qcInspectorName || b.inspectorName || b.username || "").toLowerCase();
+            return sortOrder === "asc" ? valA.localeCompare(valB) : valB.localeCompare(valA);
+
+          case "tenant":
+            valA = String(a.tenantName || "").toLowerCase();
+            valB = String(b.tenantName || "").toLowerCase();
+            return sortOrder === "asc" ? valA.localeCompare(valB) : valB.localeCompare(valA);
+
+          case "Direct Ok":
+            valA = a.directOk ?? inspectorStatusMap[a.name]?.["Direct Ok"] ?? 0;
+            valB = b.directOk ?? inspectorStatusMap[b.name]?.["Direct Ok"] ?? 0;
+            break;
+
+          case "Rework QC Completed":
+            valA = a.reworkQcCompleted ?? inspectorStatusMap[a.name]?.["Rework QC Completed"] ?? 0;
+            valB = b.reworkQcCompleted ?? inspectorStatusMap[b.name]?.["Rework QC Completed"] ?? 0;
+            break;
+
+          case "Rework QC Pending":
+            valA = a.reworkQcPending ?? inspectorStatusMap[a.name]?.["Rework QC Pending"] ?? 0;
+            valB = b.reworkQcPending ?? inspectorStatusMap[b.name]?.["Rework QC Pending"] ?? 0;
+            break;
+
+          case "Rejected":
+            valA = a.rejected ?? inspectorStatusMap[a.name]?.["Rejected"] ?? 0;
+            valB = b.rejected ?? inspectorStatusMap[b.name]?.["Rejected"] ?? 0;
+            break;
+
+          case "dispatchPending": {
+            const dispA = a.dispatched ?? inspectorStatusMap[a.name]?.["Dispatched"] ?? 0;
+            const dispB = b.dispatched ?? inspectorStatusMap[b.name]?.["Dispatched"] ?? 0;
+            valA = Math.max(0, (a.directOk || 0) + (a.reworkQcCompleted || 0) - dispA);
+            valB = Math.max(0, (b.directOk || 0) + (b.reworkQcCompleted || 0) - dispB);
+            break;
+          }
+
+          case "dispatched":
+            valA = a.dispatched ?? inspectorStatusMap[a.name]?.["Dispatched"] ?? 0;
+            valB = b.dispatched ?? inspectorStatusMap[b.name]?.["Dispatched"] ?? 0;
+            break;
+
+          case "totalSubmitted":
+            valA = getUserTotalSubmitted(a.name, a.totalSubmitted || 0);
+            valB = getUserTotalSubmitted(b.name, b.totalSubmitted || 0);
+            break;
+
+          case "totalReviewed":
+            valA = a.totalReviewed ?? a.biwTotalReviewed ?? 0;
+            valB = b.totalReviewed ?? b.biwTotalReviewed ?? 0;
+            break;
+
+          case "reviewPending":
+            valA = a.reviewPending ?? a.biwReviewPending ?? 0;
+            valB = b.reviewPending ?? b.biwReviewPending ?? 0;
+            break;
+
+          case "accepted":
+            valA = a.biwAccepted ?? a.accepted ?? 0;
+            valB = b.biwAccepted ?? b.accepted ?? 0;
+            break;
+
+          case "rejectedReview":
+            valA = a.biwRejected ?? a.rejectedReview ?? a.rejected ?? 0;
+            valB = b.biwRejected ?? b.rejectedReview ?? b.rejected ?? 0;
+            break;
+
+          case "reworked":
+            valA = a.biwReworked ?? a.reworked ?? a.rework ?? 0;
+            valB = b.biwReworked ?? b.reworked ?? b.rework ?? 0;
+            break;
+
+          case "tvsTotalReviewed":
+            valA = a.tvsTotalReviewed ?? 0;
+            valB = b.tvsTotalReviewed ?? 0;
+            break;
+
+          case "tvsReviewPending": {
+            const subA = getUserTotalSubmitted(a.name, a.totalSubmitted || 0);
+            const subB = getUserTotalSubmitted(b.name, b.totalSubmitted || 0);
+            valA = a.tvsReviewPending ?? Math.max(0, subA - (a.tvsTotalReviewed ?? 0));
+            valB = b.tvsReviewPending ?? Math.max(0, subB - (b.tvsTotalReviewed ?? 0));
+            break;
+          }
+
+          case "tvsAccepted":
+            valA = a.tvsAccepted ?? 0;
+            valB = b.tvsAccepted ?? 0;
+            break;
+
+          case "tvsRejected":
+            valA = a.tvsRejected ?? 0;
+            valB = b.tvsRejected ?? 0;
+            break;
+
+          case "tvsReworked":
+            valA = a.tvsReworked ?? 0;
+            valB = b.tvsReworked ?? 0;
+            break;
+
+          case "performanceScore":
+            valA = a.performanceScore ?? 0;
+            valB = b.performanceScore ?? 0;
+            break;
+
+          default:
+            valA = inspectorStatusMap[a.name]?.[sortColumn] ?? a[sortColumn] ?? 0;
+            valB = inspectorStatusMap[b.name]?.[sortColumn] ?? b[sortColumn] ?? 0;
+        }
+
+        if (typeof valA === "number" && typeof valB === "number") {
+          return sortOrder === "asc" ? valA - valB : valB - valA;
+        }
+        return 0;
+      });
+      return sorted;
+    };
+
+    const sortedData = sortRows(filteredData);
+    const totalPerformanceItems = filteredData.length;
+    const totalPerformancePages = Math.ceil(
+      totalPerformanceItems / performancePageSize,
+    );
+    const startIndex = (performancePage - 1) * performancePageSize;
+    const endIndex = startIndex + performancePageSize;
+    const paginatedPerformance = sortedData.slice(
+      startIndex,
+      endIndex,
+    );
+
+    const totalDispatched = filteredData.reduce(
+      (sum, row) =>
+        sum + (inspectorStatusMap[row.name]?.["Dispatched"] || 0),
+      0,
+    );
+
+    const totalTotalSubmitted = filteredData.reduce(
       (sum, row) => sum + getUserTotalSubmitted(row.name, row.totalSubmitted || 0),
       0,
     );
-    const totalTotalReviewed = performanceTableData.reduce(
-      (sum, row) => sum + (row.totalReviewed || 0),
+    const totalTotalReviewed = filteredData.reduce(
+      (sum, row) => sum + (row.totalReviewed || row.biwTotalReviewed || 0),
       0,
     );
-    const totalAccepted = performanceTableData.reduce(
-      (sum, row) => sum + (row.accepted || 0),
+    const totalAccepted = filteredData.reduce(
+      (sum, row) => sum + (row.biwAccepted ?? row.accepted ?? 0),
       0,
     );
-    const totalRejected = performanceTableData.reduce(
-      (sum, row) => sum + (row.rejectedReview ?? row.rejected ?? 0),
+    const totalRejected = filteredData.reduce(
+      (sum, row) => sum + (row.biwRejected ?? row.rejectedReview ?? row.rejected ?? 0),
       0,
     );
-    const totalRework = performanceTableData.reduce(
-      (sum, row) => sum + (row.reworked ?? row.rework ?? 0),
+    const totalRework = filteredData.reduce(
+      (sum, row) => sum + (row.biwReworked ?? row.reworked ?? row.rework ?? 0),
       0,
     );
-    const reviewedRows = performanceTableData.filter(
-      (row) => (row.totalReviewed || 0) > 0,
+    const reviewedRows = filteredData.filter(
+      (row) => (row.totalReviewed || row.biwTotalReviewed || 0) > 0,
     );
     const avgPerformance =
       reviewedRows.length > 0
@@ -446,22 +615,23 @@ const PerformanceTable = ({
     performanceStatuses
       .filter((s) => s !== "Dispatched")
       .forEach((status) => {
-        statusTotals[status] = performanceTableData.reduce(
+        statusTotals[status] = filteredData.reduce(
           (sum, row) =>
             sum + (inspectorStatusMap[row.name]?.[status] || 0),
           0,
         );
       });
 
-    const totalDirectOk = performanceTableData.reduce(
+    const totalDirectOk = filteredData.reduce(
       (sum, row) =>
-        sum + (inspectorStatusMap[row.name]?.["Direct Ok"] || 0),
+        sum + (inspectorStatusMap[row.name]?.["Direct Ok"] || row.directOk || 0),
       0,
     );
-    const totalReworkQCCompleted = performanceTableData.reduce(
+    const totalReworkQCCompleted = filteredData.reduce(
       (sum, row) =>
         sum +
         (inspectorStatusMap[row.name]?.["Rework QC Completed"] ||
+          row.reworkQcCompleted ||
           0),
       0,
     );
@@ -474,25 +644,27 @@ const PerformanceTable = ({
       totalDispatched - totalTotalReviewed,
     );
 
-    // TVS Review totals
-    const totalTvsReviewed = performanceTableData.reduce(
-      (sum, row) => sum + (row.tvsTotalReviewed ?? 0),
+    const totalTvsReviewed = filteredData.reduce(
+      (sum, row) => sum + (row.tvsTotalReviewed || 0),
       0,
     );
-    const totalTvsReviewPending = performanceTableData.reduce(
-      (sum, row) => sum + (row.tvsReviewPending ?? Math.max(0, (row.totalSubmitted || 0) - (row.tvsTotalReviewed || 0))),
+    const totalTvsReviewPending = filteredData.reduce(
+      (sum, row) => {
+        const sub = getUserTotalSubmitted(row.name, row.totalSubmitted || 0);
+        return sum + (row.tvsReviewPending ?? Math.max(0, sub - (row.tvsTotalReviewed || 0)));
+      },
       0,
     );
-    const totalTvsAccepted = performanceTableData.reduce(
-      (sum, row) => sum + (row.tvsAccepted ?? 0),
+    const totalTvsAccepted = filteredData.reduce(
+      (sum, row) => sum + (row.tvsAccepted || 0),
       0,
     );
-    const totalTvsRejected = performanceTableData.reduce(
-      (sum, row) => sum + (row.tvsRejected ?? 0),
+    const totalTvsRejected = filteredData.reduce(
+      (sum, row) => sum + (row.tvsRejected || 0),
       0,
     );
-    const totalTvsRework = performanceTableData.reduce(
-      (sum, row) => sum + (row.tvsReworked ?? 0),
+    const totalTvsRework = filteredData.reduce(
+      (sum, row) => sum + (row.tvsReworked || 0),
       0,
     );
 
@@ -523,7 +695,7 @@ const PerformanceTable = ({
       };
     }>();
 
-    performanceTableData.forEach((row) => {
+    filteredData.forEach((row) => {
       const tName = row.tenantName || "Unknown Plant";
       if (!tenantGroupsMap.has(tName)) {
         tenantGroupsMap.set(tName, {
@@ -598,7 +770,20 @@ const PerformanceTable = ({
       }
     });
 
-    const tenantGroups = Array.from(tenantGroupsMap.values()).sort((a, b) => a.tenantName.localeCompare(b.tenantName));
+    const tenantGroups = Array.from(tenantGroupsMap.values())
+      .map((g) => ({
+        ...g,
+        rows: sortRows(g.rows),
+      }))
+      .filter((g) => g.rows.length > 0)
+      .sort((a, b) => {
+        if (sortColumn === "tenant" || sortColumn === "name") {
+          return sortOrder === "asc"
+            ? a.tenantName.localeCompare(b.tenantName)
+            : b.tenantName.localeCompare(a.tenantName);
+        }
+        return a.tenantName.localeCompare(b.tenantName);
+      });
 
     return {
       inspectorStatusMap,
@@ -627,7 +812,15 @@ const PerformanceTable = ({
       totalDispatchPending,
       totalReviewPending,
     };
-  }, [performanceTableData, perfInspectorSummary, performancePage, performancePageSize, performanceStatuses]);
+  }, [
+    filteredData,
+    sortColumn,
+    sortOrder,
+    perfInspectorSummary,
+    performancePage,
+    performancePageSize,
+    performanceStatuses,
+  ]);
 
   // Render logic
   if (!useInternalTrackingEndpoint && user?.role !== "admin" && user?.role !== "superadmin") return null;
@@ -762,48 +955,43 @@ const PerformanceTable = ({
             </button>
           )}
 
-          <div className="flex items-center bg-white dark:bg-gray-800 rounded-2xl px-4 py-2 border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-4 focus-within:ring-purple-500/10 transition-all">
-            <span className="text-[10px] font-black text-gray-400 mr-3 uppercase tracking-wider">
-              From
-            </span>
+          {/* Inspector / User Search */}
+          <div className="flex items-center bg-white dark:bg-gray-800 rounded-2xl px-3.5 py-1.5 border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-2 focus-within:ring-purple-500/20 transition-all min-w-[200px] sm:min-w-[240px]">
+            <Search className="w-3.5 h-3.5 text-gray-400 mr-2 shrink-0" />
             <input
-              type="date"
-              value={perfStartDate}
+              type="text"
+              placeholder="Search user / inspector..."
+              value={searchTerm}
               onChange={(e) => {
-                setPerfStartDate(e.target.value);
+                setSearchTerm(e.target.value);
                 setPerformancePage(1);
               }}
-              className="bg-transparent text-sm font-bold text-gray-700 dark:text-gray-200 focus:outline-none w-full"
+              className="bg-transparent text-xs font-semibold text-gray-700 dark:text-gray-200 focus:outline-none w-full placeholder:text-gray-400"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm("")}
+                className="text-gray-400 hover:text-red-500 ml-1 p-0.5 rounded cursor-pointer"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
-          <div className="flex items-center bg-white dark:bg-gray-800 rounded-2xl px-4 py-2 border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-4 focus-within:ring-purple-500/10 transition-all">
-            <span className="text-[10px] font-black text-gray-400 mr-3 uppercase tracking-wider">
-              To
-            </span>
-            <input
-              type="date"
-              value={perfEndDate}
-              onChange={(e) => {
-                setPerfEndDate(e.target.value);
-                setPerformancePage(1);
-              }}
-              className="bg-transparent text-sm font-bold text-gray-700 dark:text-gray-200 focus:outline-none w-full"
-            />
-          </div>
-          {(perfStartDate || perfEndDate) && (
-            <button
-              onClick={() => {
-                const today = new Date().toISOString().split("T")[0];
-                const thirtyDaysAgo = new Date();
-                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-                setPerfStartDate(thirtyDaysAgo.toISOString().split("T")[0]);
-                setPerfEndDate(today);
-                setPerformancePage(1);
-              }}
-              className="px-4 py-2 text-xs font-black text-rose-600 hover:text-rose-700 bg-rose-50 dark:bg-rose-900/20 rounded-xl transition-colors uppercase tracking-widest"
-            >
-              Clear
-            </button>
+
+          {/* Active Top Date Filter Badge (Applied from parent/top dashboard filter) */}
+          {(effectiveStartDate || effectiveEndDate) && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50/80 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 rounded-2xl border border-purple-200/60 dark:border-purple-800/40 text-xs font-bold shadow-2xs whitespace-nowrap" title="Applied from top dashboard date filter">
+              <Calendar className="w-3.5 h-3.5 text-purple-500" />
+              <span>
+                {effectiveStartDate && effectiveEndDate
+                  ? `${effectiveStartDate} to ${effectiveEndDate}`
+                  : effectiveStartDate
+                    ? `From ${effectiveStartDate}`
+                    : `To ${effectiveEndDate}`}
+              </span>
+            </div>
           )}
         </div>
       </div>
@@ -813,7 +1001,7 @@ const PerformanceTable = ({
           <div className="text-center py-12 text-gray-500 text-sm bg-gray-50/60 dark:bg-gray-900/20 m-4 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700">
             <Users className="w-8 h-8 text-gray-400 mx-auto mb-2" />
             <p className="font-semibold text-gray-700 dark:text-gray-300">
-              No performance records found for {perfStartDate || "selected range"} to {perfEndDate || "today"}
+              No performance records found for {effectiveStartDate || "selected range"} to {effectiveEndDate || "today"}
             </p>
             <p className="text-xs text-gray-400 mt-1">Adjust the From / To date range above to view historical data</p>
             <button
@@ -868,72 +1056,190 @@ const PerformanceTable = ({
               {/* Column Labels Row */}
               <tr className="text-[9px] font-black">
                 {isSuperAdmin && (
-                  <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap">
-                    Tenant
-                  </th>
+                  <th
+                  onClick={() => handleSort("tenant")}
+                  className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group"
+                  title="Click to sort by Tenant"
+                >
+                  <div className="inline-flex items-center gap-1">
+                    <span>Tenant</span>
+                    {renderSortIcon("tenant")}
+                  </div>
+                </th>
                 )}
-                <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap">
-                  User Name
+                <th
+                  onClick={() => handleSort("name")}
+                  className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group"
+                  title="Click to sort by User Name"
+                >
+                  <div className="inline-flex items-center gap-1">
+                    <span>User Name</span>
+                    {renderSortIcon("name")}
+                  </div>
                 </th>
                 {performanceStatuses
                   .filter((status) => status !== "Dispatched")
                   .map((status) => (
                     <th
                       key={status}
-                      className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-indigo-600"
+                      onClick={() => handleSort(status)}
+                      className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-indigo-600 cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group"
+                      title={`Click to sort by ${status}`}
                     >
-                      {status}
+                      <div className="inline-flex items-center gap-1 justify-center">
+                        <span>{status}</span>
+                        {renderSortIcon(status)}
+                      </div>
                     </th>
                   ))}
-                <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-violet-600">
-                  Dispatch Pending
+                <th
+                  onClick={() => handleSort("dispatchPending")}
+                  className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-violet-600 cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group"
+                  title="Click to sort by Dispatch Pending"
+                >
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>Dispatch Pending</span>
+                    {renderSortIcon("dispatchPending")}
+                  </div>
                 </th>
                 {performanceStatuses.includes("Dispatched") && (
-                  <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-indigo-600">
-                    Dispatched
+                  <th
+                    onClick={() => handleSort("dispatched")}
+                    className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-indigo-600 cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group"
+                    title="Click to sort by Dispatched"
+                  >
+                    <div className="inline-flex items-center gap-1 justify-center">
+                      <span>Dispatched</span>
+                      {renderSortIcon("dispatched")}
+                    </div>
                   </th>
                 )}
-                <th className="px-2 py-2 border-b border-r border-gray-200 dark:border-gray-700 whitespace-nowrap text-center">
-                  Total Submitted
+                <th
+                  onClick={() => handleSort("totalSubmitted")}
+                  className="px-2 py-2 border-b border-r border-gray-200 dark:border-gray-700 whitespace-nowrap text-center cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group"
+                  title="Click to sort by Total Submitted"
+                >
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>Total Submitted</span>
+                    {renderSortIcon("totalSubmitted")}
+                  </div>
                 </th>
                 {/* BIW Review Section Columns */}
-                <th className="px-2 py-2 border-b border-l border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-purple-800 dark:text-purple-200">
-                  Total Reviewed
+                <th
+                  onClick={() => handleSort("totalReviewed")}
+                  className="px-2 py-2 border-b border-l border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-purple-800 dark:text-purple-200 cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group"
+                  title="Click to sort by Total Reviewed"
+                >
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>Total Reviewed</span>
+                    {renderSortIcon("totalReviewed")}
+                  </div>
                 </th>
-                <th className="px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400">
-                  Review Pending
+                <th
+                  onClick={() => handleSort("reviewPending")}
+                  className="px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group"
+                  title="Click to sort by Review Pending"
+                >
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>Review Pending</span>
+                    {renderSortIcon("reviewPending")}
+                  </div>
                 </th>
-                <th className="px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-green-600 dark:text-green-400 font-extrabold">
-                  BIW Accepted
+                <th
+                  onClick={() => handleSort("accepted")}
+                  className="px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-green-600 dark:text-green-400 font-extrabold cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group"
+                  title="Click to sort by BIW Accepted"
+                >
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>BIW Accepted</span>
+                    {renderSortIcon("accepted")}
+                  </div>
                 </th>
-                <th className="px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-red-600 dark:text-red-400 font-extrabold">
-                  BIW Rejected
+                <th
+                  onClick={() => handleSort("rejectedReview")}
+                  className="px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-red-600 dark:text-red-400 font-extrabold cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group"
+                  title="Click to sort by BIW Rejected"
+                >
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>BIW Rejected</span>
+                    {renderSortIcon("rejectedReview")}
+                  </div>
                 </th>
-                <th className="px-2 py-2 border-b border-r border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-orange-600 dark:text-orange-400 font-extrabold">
-                  BIW Reworked
+                <th
+                  onClick={() => handleSort("reworked")}
+                  className="px-2 py-2 border-b border-r border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-orange-600 dark:text-orange-400 font-extrabold cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group"
+                  title="Click to sort by BIW Reworked"
+                >
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>BIW Reworked</span>
+                    {renderSortIcon("reworked")}
+                  </div>
                 </th>
                 {/* TVS Review Section Columns */}
-                <th className="px-2 py-2 border-b border-l border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-blue-800 dark:text-blue-200">
-                  TVS Reviewed
+                <th
+                  onClick={() => handleSort("tvsTotalReviewed")}
+                  className="px-2 py-2 border-b border-l border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-blue-800 dark:text-blue-200 cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group"
+                  title="Click to sort by TVS Reviewed"
+                >
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>TVS Reviewed</span>
+                    {renderSortIcon("tvsTotalReviewed")}
+                  </div>
                 </th>
-                <th className="px-2 py-2 border-b bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400">
-                  TVS Pending
+                <th
+                  onClick={() => handleSort("tvsReviewPending")}
+                  className="px-2 py-2 border-b bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group"
+                  title="Click to sort by TVS Pending"
+                >
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>TVS Pending</span>
+                    {renderSortIcon("tvsReviewPending")}
+                  </div>
                 </th>
-                <th className="px-2 py-2 border-b bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-emerald-600 dark:text-emerald-400 font-extrabold">
-                  TVS Accepted
+                <th
+                  onClick={() => handleSort("tvsAccepted")}
+                  className="px-2 py-2 border-b bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-emerald-600 dark:text-emerald-400 font-extrabold cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group"
+                  title="Click to sort by TVS Accepted"
+                >
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>TVS Accepted</span>
+                    {renderSortIcon("tvsAccepted")}
+                  </div>
                 </th>
-                <th className="px-2 py-2 border-b bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-rose-600 dark:text-rose-400 font-extrabold">
-                  TVS Rejected
+                <th
+                  onClick={() => handleSort("tvsRejected")}
+                  className="px-2 py-2 border-b bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-rose-600 dark:text-rose-400 font-extrabold cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group"
+                  title="Click to sort by TVS Rejected"
+                >
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>TVS Rejected</span>
+                    {renderSortIcon("tvsRejected")}
+                  </div>
                 </th>
-                <th className="px-2 py-2 border-b border-r border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 font-extrabold">
-                  TVS Rework
+                <th
+                  onClick={() => handleSort("tvsReworked")}
+                  className="px-2 py-2 border-b border-r border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 font-extrabold cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group"
+                  title="Click to sort by TVS Rework"
+                >
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>TVS Rework</span>
+                    {renderSortIcon("tvsReworked")}
+                  </div>
                 </th>
-                <th className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center">
+                <th
+                  onClick={() => handleSort("performanceScore")}
+                  className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group"
+                  title="Click to sort by Performance Score"
+                >
                   <div className="inline-flex items-center gap-1 justify-center">
                     <span>Performance Score</span>
+                    {renderSortIcon("performanceScore")}
                     <button
                       type="button"
-                      onClick={() => setShowPerformanceGuide(true)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowPerformanceGuide(true);
+                      }}
                       className="p-1 rounded-full text-purple-600 hover:text-purple-700 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors cursor-pointer"
                       title="View Performance Score Formula & Calculation Guide"
                       aria-label="View Performance Score Formula & Calculation Guide"
@@ -951,6 +1257,29 @@ const PerformanceTable = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              {(viewMode === "grouped" ? tenantGroups.length === 0 : paginatedPerformance.length === 0) && (
+                <tr>
+                  <td
+                    colSpan={25}
+                    className="px-4 py-8 text-center text-sm font-semibold text-gray-500 dark:text-gray-400 bg-gray-50/50 dark:bg-gray-800/50"
+                  >
+                    {searchTerm ? (
+                      <div className="flex flex-col items-center justify-center gap-1">
+                        <span>No inspectors or users matching <strong className="text-purple-600 dark:text-purple-400">"{searchTerm}"</strong></span>
+                        <button
+                          type="button"
+                          onClick={() => setSearchTerm("")}
+                          className="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer mt-1 font-bold"
+                        >
+                          Clear Search Filter
+                        </button>
+                      </div>
+                    ) : (
+                      "No performance data available for the selected period."
+                    )}
+                  </td>
+                </tr>
+              )}
               {viewMode === "grouped" ? (
                 tenantGroups.map((group) => {
                   const isCollapsed = collapsedTenants.has(group.tenantName);

@@ -2492,6 +2492,7 @@ export const getPerformanceTable = async (req, res) => {
       }).select('id _id tenantId sharedWithTenants chassisTenantAssignments sections parentFormId').lean() : [];
 
       const combinedDocs = [...formDocs, ...childDocs];
+      formDocs = combinedDocs;
       formDoc = combinedDocs[0] || null;
       formIdVariants = [];
       combinedDocs.forEach(f => {
@@ -2503,6 +2504,61 @@ export const getPerformanceTable = async (req, res) => {
       // Fallback: if not found in db directly, still use the passed ids
       formIdList.forEach(id => {
         if (!formIdVariants.includes(id)) formIdVariants.push(id);
+      });
+    } else {
+      // When no specific formId is passed, resolve all accessible forms for the user/tenant
+      // (base forms directly accessible to tenant + cross-tenant child forms like Saify paint forms)
+      const formQuery = {};
+      if (role === 'superadmin' && !queryTenantId) {
+        // Superadmin sees all forms
+      } else if (targetTenantId || userTenantId) {
+        const effectiveTId = targetTenantId || userTenantId;
+        const tIdObj = mongoose.Types.ObjectId.isValid(effectiveTId)
+          ? new mongoose.Types.ObjectId(effectiveTId)
+          : effectiveTId;
+
+        formQuery.$or = [
+          { tenantId: tIdObj },
+          { tenantId: effectiveTId.toString() },
+          { isGlobal: true },
+          { sharedWithTenants: effectiveTId.toString() },
+          { sharedWithTenants: tIdObj },
+          { 'chassisTenantAssignments.assignedTenants': effectiveTId.toString() }
+        ];
+      }
+
+      const baseForms = await Form.find(formQuery)
+        .select('id _id tenantId sharedWithTenants chassisTenantAssignments sections parentFormId childForms')
+        .maxTimeMS(30000)
+        .lean();
+
+      const linkedChildIds = [];
+      baseForms.forEach(f => {
+        (f.childForms || []).forEach(cf => {
+          const cfId = typeof cf === 'string' ? cf : (cf.formId || cf.id || cf._id);
+          if (cfId) linkedChildIds.push(cfId.toString());
+        });
+        if (f.parentFormId) {
+          linkedChildIds.push(f.parentFormId.toString());
+        }
+      });
+
+      const childDocs = linkedChildIds.length > 0 ? await Form.find({
+        $or: [
+          { id: { $in: linkedChildIds } },
+          { _id: { $in: linkedChildIds.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id)) } }
+        ]
+      }).select('id _id tenantId sharedWithTenants chassisTenantAssignments sections parentFormId').maxTimeMS(30000).lean() : [];
+
+      const combinedDocs = [...baseForms, ...childDocs];
+      formDocs = combinedDocs;
+      formDoc = combinedDocs[0] || null;
+      formIdVariants = [];
+      combinedDocs.forEach(f => {
+        if (f.id) formIdVariants.push(f.id);
+        if (f._id) formIdVariants.push(f._id.toString());
+        (f.sharedWithTenants || []).forEach(id => sharedWithTenants.push(id.toString()));
+        if (f.chassisTenantAssignments) chassisTenantAssignments.push(...f.chassisTenantAssignments);
       });
     }
 
@@ -3638,7 +3694,7 @@ export const getQualitySummary = async (req, res) => {
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
     const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
-    const cacheKey = `quality_summary_v22_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v25_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers?.['cache-control'] === 'no-cache';
     if (!shouldBypassCache) {
       const cached = appCache.get(cacheKey);
@@ -3904,7 +3960,36 @@ export const getQualitySummary = async (req, res) => {
                           {
                             $or: [
                               { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
-                              { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] }
+                              { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
+                              { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } },
+                              {
+                                $anyElementTrue: {
+                                  $map: {
+                                    input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                                    as: 'ans',
+                                    in: {
+                                      $regexMatch: {
+                                        input: {
+                                          $toLower: {
+                                            $ifNull: [
+                                              '$$ans.v.status',
+                                              {
+                                                $cond: [
+                                                  { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                                  '$$ans.v',
+                                                  ''
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        regex: 'rework|rejected|defect|fail|not ok'
+                                      }
+                                    }
+                                  }
+                                }
+                              }
                             ]
                           }
                         ]
@@ -3922,7 +4007,34 @@ export const getQualitySummary = async (req, res) => {
                           { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
                           { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
                           { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
-                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } },
+                          {
+                            $anyElementTrue: {
+                              $map: {
+                                input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                                as: 'ans',
+                                in: {
+                                  $regexMatch: {
+                                    input: {
+                                      $toLower: {
+                                        $ifNull: [
+                                          '$$ans.v.status',
+                                          {
+                                            $cond: [
+                                              { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                              '$$ans.v',
+                                              ''
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    regex: 'rework|rejected|defect|fail|not ok'
+                                  }
+                                }
+                              }
+                            }
+                          }
                         ]
                       },
                       1,
@@ -4072,7 +4184,36 @@ export const getQualitySummary = async (req, res) => {
                           {
                             $or: [
                               { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
-                              { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] }
+                              { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
+                              { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } },
+                              {
+                                $anyElementTrue: {
+                                  $map: {
+                                    input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                                    as: 'ans',
+                                    in: {
+                                      $regexMatch: {
+                                        input: {
+                                          $toLower: {
+                                            $ifNull: [
+                                              '$$ans.v.status',
+                                              {
+                                                $cond: [
+                                                  { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                                  '$$ans.v',
+                                                  ''
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        regex: 'rework|rejected|defect|fail|not ok'
+                                      }
+                                    }
+                                  }
+                                }
+                              }
                             ]
                           }
                         ]
@@ -4090,7 +4231,34 @@ export const getQualitySummary = async (req, res) => {
                           { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
                           { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
                           { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
-                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } },
+                          {
+                            $anyElementTrue: {
+                              $map: {
+                                input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                                as: 'ans',
+                                in: {
+                                  $regexMatch: {
+                                    input: {
+                                      $toLower: {
+                                        $ifNull: [
+                                          '$$ans.v.status',
+                                          {
+                                            $cond: [
+                                              { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                              '$$ans.v',
+                                              ''
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    regex: 'rework|rejected|defect|fail|not ok'
+                                  }
+                                }
+                              }
+                            }
+                          }
                         ]
                       },
                       1,
@@ -4410,12 +4578,14 @@ export const getQualitySummary = async (req, res) => {
               $match: {
                 $or: [
                   { 'biwReview.status': { $in: ['Rejected', 'Reworked'] } },
+                  { 'review.status': { $in: ['Rejected', 'Rework', 'Reworked'] } },
+                  { 'review.reviewOption': { $in: ['Rejected', 'Rework', 'Reworked'] } },
                   { status: { $regex: 'rework|rejected|defect|fail', $options: 'i' } }
                 ]
               }
             },
             { $limit: 300 },
-            { $project: { _id: 1, submittedBy: 1, questionId: 1, answers: 1, 'biwReview.flaggedQuestions': 1, 'biwReview.reason': 1 } }
+            { $project: { _id: 1, submittedBy: 1, questionId: 1, answers: 1, biwReview: 1, review: 1, status: 1 } }
           ]
         }
       }
@@ -4468,46 +4638,40 @@ export const getQualitySummary = async (req, res) => {
     let tvsRejectCount = summary.tvsRejectCount || 0;
     let tvsReworkCount = summary.tvsReworkCount || 0;
 
-    try {
-      const reviewFilter = {
-        ...(req.user?.tenantId ? {
-          $or: [
-            { tenantId: req.user.tenantId.toString() },
-            { tenantId: new mongoose.Types.ObjectId(req.user.tenantId) }
-          ]
-        } : {}),
-        ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : {})
-      };
-      if (formKeys && formKeys.length > 0) {
-        const validIds = await Response.distinct('_id', {
-          questionId: { $in: formKeys },
+    // Fast-path: Only check separate Review collection if not already captured from responses
+    if (tvsReviewedCount === 0) {
+      try {
+        const reviewFilter = {
+          ...(req.user?.tenantId ? {
+            $or: [
+              { tenantId: req.user.tenantId.toString() },
+              { tenantId: new mongoose.Types.ObjectId(req.user.tenantId) }
+            ]
+          } : {}),
           ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : {})
-        });
-        if (validIds.length > 0 && validIds.length <= 5000) {
-          reviewFilter.responseId = { $in: validIds.map(String) };
+        };
+        const collReviews = await Review.aggregate([
+          { $match: reviewFilter },
+          { $group: { _id: '$reviewOption', count: { $sum: 1 } } }
+        ]).option({ maxTimeMS: 5000 });
+        if (collReviews && collReviews.length > 0) {
+          let collAccept = 0, collReject = 0, collRework = 0;
+          collReviews.forEach(r => {
+            if (r._id === 'Accepted') collAccept += r.count;
+            else if (r._id === 'Rejected') collReject += r.count;
+            else if (r._id === 'Rework' || r._id === 'Reworked') collRework += r.count;
+          });
+          const collTotal = collAccept + collReject + collRework;
+          if (collTotal > tvsReviewedCount) {
+            tvsReviewedCount = collTotal;
+            tvsAcceptCount = collAccept;
+            tvsRejectCount = collReject;
+            tvsReworkCount = collRework;
+          }
         }
+      } catch (e) {
+        console.warn('[Quality Summary] Could not query Review collection:', e.message);
       }
-      const collReviews = await Review.aggregate([
-        { $match: reviewFilter },
-        { $group: { _id: '$reviewOption', count: { $sum: 1 } } }
-      ]);
-      if (collReviews && collReviews.length > 0) {
-        let collAccept = 0, collReject = 0, collRework = 0;
-        collReviews.forEach(r => {
-          if (r._id === 'Accepted') collAccept += r.count;
-          else if (r._id === 'Rejected') collReject += r.count;
-          else if (r._id === 'Rework' || r._id === 'Reworked') collRework += r.count;
-        });
-        const collTotal = collAccept + collReject + collRework;
-        if (collTotal > tvsReviewedCount) {
-          tvsReviewedCount = collTotal;
-          tvsAcceptCount = collAccept;
-          tvsRejectCount = collReject;
-          tvsReworkCount = collRework;
-        }
-      }
-    } catch (e) {
-      console.warn('[Quality Summary] Could not query Review collection:', e.message);
     }
 
     summary.tvsReviewedCount = tvsReviewedCount;
@@ -4516,22 +4680,21 @@ export const getQualitySummary = async (req, res) => {
     summary.tvsReworkCount = tvsReworkCount;
     summary.pendingTvsReview = Math.max(0, totalDispatched - tvsReviewedCount);
 
-    // Defect breakdown extraction from responses (answers and biwReview)
+    // Defect breakdown extraction from responses (direct from aggregation facet)
     const defectTypeMap = {};
+    const biwDefectTypeMap = {};
+    const tvsDefectTypeMap = {};
     const inspectorDefectMap = {};
     const defectFormMap = {};
+    const biwDefectFormMap = {};
+    const tvsDefectFormMap = {};
     const inspectorDefectUnitCount = {};
     let totalDefectUnits = 0;
 
     try {
-      const defectScanResponses = await Response.find({
-        questionId: { $in: formKeys },
-        isSectionSubmit: { $ne: true },
-        ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : {})
-      })
-        .select('answers submittedBy questionId biwReview review status')
-        .limit(1000)
-        .lean();
+      const defectScanResponses = (agg.defectResponses && agg.defectResponses.length > 0)
+        ? agg.defectResponses
+        : [];
 
       defectScanResponses.forEach(dr => {
         const fTitle = formTitleMap[dr.questionId] || 'Selected Form';
@@ -4540,7 +4703,7 @@ export const getQualitySummary = async (req, res) => {
 
         let hasDefect = false;
 
-        // 1. Defect extraction from answers
+        // 1. Defect extraction from answers (Factory floor / General inspection)
         if (dr.answers && typeof dr.answers === 'object') {
           const answersObj = dr.answers instanceof Map ? Object.fromEntries(dr.answers) : dr.answers;
           for (const [key, val] of Object.entries(answersObj)) {
@@ -4565,56 +4728,100 @@ export const getQualitySummary = async (req, res) => {
           }
         }
 
-        // 2. Defect extraction from biwReview
+        // 2. Defect extraction from biwReview (Specifically for BIW Review tab)
         if (dr.biwReview) {
-          if (['Rejected', 'Reworked'].includes(dr.biwReview.status)) {
-            hasDefect = true;
-          }
+          const bStatus = String(dr.biwReview.status || '').toLowerCase();
+          const isBiwDefect = bStatus.includes('reject') || bStatus.includes('rework');
+          if (isBiwDefect) hasDefect = true;
+
+          let biwFlaggedFound = false;
           if (Array.isArray(dr.biwReview.flaggedQuestions)) {
             dr.biwReview.flaggedQuestions.forEach(fq => {
               const fqTitle = (fq.questionText || fq.text || fq.title || questionTitleMap[fq.questionId] || fq.reason || '').trim();
               if (fqTitle && !['other', 'none', '-', 'ok', 'accepted'].includes(fqTitle.toLowerCase())) {
-                defectTypeMap[fqTitle] = (defectTypeMap[fqTitle] || 0) + 1;
-                inspectorDefectMap[rawName][fqTitle] = (inspectorDefectMap[rawName][fqTitle] || 0) + 1;
-                if (!defectFormMap[fqTitle]) defectFormMap[fqTitle] = {};
-                defectFormMap[fqTitle][fTitle] = (defectFormMap[fqTitle][fTitle] || 0) + 1;
+                biwDefectTypeMap[fqTitle] = (biwDefectTypeMap[fqTitle] || 0) + 1;
+                if (!biwDefectFormMap[fqTitle]) biwDefectFormMap[fqTitle] = {};
+                biwDefectFormMap[fqTitle][fTitle] = (biwDefectFormMap[fqTitle][fTitle] || 0) + 1;
+                biwFlaggedFound = true;
               }
             });
           }
           if (dr.biwReview.reason && typeof dr.biwReview.reason === 'string') {
             const reasonTitle = dr.biwReview.reason.trim();
             if (reasonTitle && !['other', 'none', '-', 'ok', 'accepted'].includes(reasonTitle.toLowerCase())) {
-              defectTypeMap[reasonTitle] = (defectTypeMap[reasonTitle] || 0) + 1;
-              inspectorDefectMap[rawName][reasonTitle] = (inspectorDefectMap[rawName][reasonTitle] || 0) + 1;
-              if (!defectFormMap[reasonTitle]) defectFormMap[reasonTitle] = {};
-              defectFormMap[reasonTitle][fTitle] = (defectFormMap[reasonTitle][fTitle] || 0) + 1;
+              biwDefectTypeMap[reasonTitle] = (biwDefectTypeMap[reasonTitle] || 0) + 1;
+              if (!biwDefectFormMap[reasonTitle]) biwDefectFormMap[reasonTitle] = {};
+              biwDefectFormMap[reasonTitle][fTitle] = (biwDefectFormMap[reasonTitle][fTitle] || 0) + 1;
+              biwFlaggedFound = true;
+            }
+          }
+          // If BIW rejected/reworked without specific flagged question text, extract this response's defect answers
+          if (isBiwDefect && !biwFlaggedFound && dr.answers && typeof dr.answers === 'object') {
+            const answersObj = dr.answers instanceof Map ? Object.fromEntries(dr.answers) : dr.answers;
+            for (const [key, val] of Object.entries(answersObj)) {
+              if (!val || key === 'chassis_number' || key === 'chassis') continue;
+              let isDef = false;
+              if (typeof val === 'object' && val.status) {
+                const st = String(val.status).trim().toLowerCase();
+                if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok', 'fail'].includes(st)) isDef = true;
+              } else if (typeof val === 'string') {
+                const vLow = val.trim().toLowerCase();
+                if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok', 'fail'].includes(vLow)) isDef = true;
+              }
+              if (isDef) {
+                const qTitle = questionTitleMap[key] || key;
+                biwDefectTypeMap[qTitle] = (biwDefectTypeMap[qTitle] || 0) + 1;
+                if (!biwDefectFormMap[qTitle]) biwDefectFormMap[qTitle] = {};
+                biwDefectFormMap[qTitle][fTitle] = (biwDefectFormMap[qTitle][fTitle] || 0) + 1;
+              }
             }
           }
         }
 
-        // 3. Defect extraction from TVS review
+        // 3. Defect extraction from TVS review (Specifically for TVS Review tab)
         if (dr.review) {
-          const revStatus = dr.review.status || dr.review.reviewOption;
-          if (['Rejected', 'Rework', 'Reworked'].includes(revStatus)) {
-            hasDefect = true;
-          }
+          const revStatus = String(dr.review.status || dr.review.reviewOption || '').toLowerCase();
+          const isTvsDefect = revStatus.includes('reject') || revStatus.includes('rework');
+          if (isTvsDefect) hasDefect = true;
+
+          let tvsFlaggedFound = false;
           if (Array.isArray(dr.review.flaggedQuestions)) {
             dr.review.flaggedQuestions.forEach(fq => {
               const fqTitle = (fq.questionText || fq.text || fq.title || questionTitleMap[fq.questionId] || fq.reason || '').trim();
               if (fqTitle && !['other', 'none', '-', 'ok', 'accepted'].includes(fqTitle.toLowerCase())) {
-                defectTypeMap[fqTitle] = (defectTypeMap[fqTitle] || 0) + 1;
-                inspectorDefectMap[rawName][fqTitle] = (inspectorDefectMap[rawName][fqTitle] || 0) + 1;
-                if (!defectFormMap[fqTitle]) defectFormMap[fqTitle] = {};
-                defectFormMap[fqTitle][fTitle] = (defectFormMap[fqTitle][fTitle] || 0) + 1;
+                tvsDefectTypeMap[fqTitle] = (tvsDefectTypeMap[fqTitle] || 0) + 1;
+                if (!tvsDefectFormMap[fqTitle]) tvsDefectFormMap[fqTitle] = {};
+                tvsDefectFormMap[fqTitle][fTitle] = (tvsDefectFormMap[fqTitle][fTitle] || 0) + 1;
+                tvsFlaggedFound = true;
               }
             });
           }
           const revReason = (dr.review.reason || dr.review.remark || '').trim();
-          if (revReason && !['other', 'none', '-', 'ok', 'accepted'].includes(revReason.toLowerCase())) {
-            defectTypeMap[revReason] = (defectTypeMap[revReason] || 0) + 1;
-            inspectorDefectMap[rawName][revReason] = (inspectorDefectMap[rawName][revReason] || 0) + 1;
-            if (!defectFormMap[revReason]) defectFormMap[revReason] = {};
-            defectFormMap[revReason][fTitle] = (defectFormMap[revReason][fTitle] || 0) + 1;
+          if (revReason && !['other', 'none', '-', 'ok', 'accepted', 'test', 'rework requested for flagged questions.'].includes(revReason.toLowerCase())) {
+            tvsDefectTypeMap[revReason] = (tvsDefectTypeMap[revReason] || 0) + 1;
+            if (!tvsDefectFormMap[revReason]) tvsDefectFormMap[revReason] = {};
+            tvsDefectFormMap[revReason][fTitle] = (tvsDefectFormMap[revReason][fTitle] || 0) + 1;
+            tvsFlaggedFound = true;
+          }
+          if (isTvsDefect && !tvsFlaggedFound && dr.answers && typeof dr.answers === 'object') {
+            const answersObj = dr.answers instanceof Map ? Object.fromEntries(dr.answers) : dr.answers;
+            for (const [key, val] of Object.entries(answersObj)) {
+              if (!val || key === 'chassis_number' || key === 'chassis') continue;
+              let isDef = false;
+              if (typeof val === 'object' && val.status) {
+                const st = String(val.status).trim().toLowerCase();
+                if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok', 'fail'].includes(st)) isDef = true;
+              } else if (typeof val === 'string') {
+                const vLow = val.trim().toLowerCase();
+                if (['rework', 'reworked', 'defect', 'rejected', 'no', 'not ok', 'fail'].includes(vLow)) isDef = true;
+              }
+              if (isDef) {
+                const qTitle = questionTitleMap[key] || key;
+                tvsDefectTypeMap[qTitle] = (tvsDefectTypeMap[qTitle] || 0) + 1;
+                if (!tvsDefectFormMap[qTitle]) tvsDefectFormMap[qTitle] = {};
+                tvsDefectFormMap[qTitle][fTitle] = (tvsDefectFormMap[qTitle][fTitle] || 0) + 1;
+              }
+            }
           }
         }
 
@@ -4623,6 +4830,35 @@ export const getQualitySummary = async (req, res) => {
           inspectorDefectUnitCount[rawName] = (inspectorDefectUnitCount[rawName] || 0) + 1;
         }
       });
+
+      // Extract TVS defects from Review collection for reviews stored externally
+      try {
+        const reviewFilter = {
+          $or: [
+            { reviewOption: { $in: ['Rejected', 'Rework'] } },
+            { status: { $in: ['Rejected', 'Rework'] } },
+            { 'flaggedQuestions.0': { $exists: true } }
+          ],
+          ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : { createdAt: { $gte: thirtyDaysAgo } })
+        };
+        const collReviews = await Review.find(reviewFilter).select('flaggedQuestions reason remark reviewOption status').lean().limit(100);
+        collReviews.forEach(rev => {
+          if (Array.isArray(rev.flaggedQuestions)) {
+            rev.flaggedQuestions.forEach(fq => {
+              const fqTitle = (fq.questionText || fq.text || fq.title || questionTitleMap[fq.questionId] || fq.reason || '').trim();
+              if (fqTitle && !['other', 'none', '-', 'ok', 'accepted'].includes(fqTitle.toLowerCase())) {
+                tvsDefectTypeMap[fqTitle] = (tvsDefectTypeMap[fqTitle] || 0) + 1;
+              }
+            });
+          }
+          const revReason = (rev.reason || rev.remark || '').trim();
+          if (revReason && !['other', 'none', '-', 'ok', 'accepted', 'test', 'rework requested for flagged questions.'].includes(revReason.toLowerCase())) {
+            tvsDefectTypeMap[revReason] = (tvsDefectTypeMap[revReason] || 0) + 1;
+          }
+        });
+      } catch (collErr) {
+        console.warn('[Quality Summary] Coll reviews defect extraction note:', collErr.message);
+      }
     } catch (err) {
       console.warn('[Quality Summary] Defect extraction error:', err.message);
     }
@@ -4645,6 +4881,22 @@ export const getQualitySummary = async (req, res) => {
         name,
         count,
         forms: defectFormMap[name] || {}
+      }));
+
+    const biwDefectBreakdown = Object.entries(biwDefectTypeMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({
+        name,
+        count,
+        forms: biwDefectFormMap[name] || {}
+      }));
+
+    const tvsDefectBreakdown = Object.entries(tvsDefectTypeMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({
+        name,
+        count,
+        forms: tvsDefectFormMap[name] || {}
       }));
 
     // Per-Form Summary List - Combine metrics for both UUID and ObjectId keys of each form
@@ -5193,6 +5445,8 @@ export const getQualitySummary = async (req, res) => {
         formOptions,
         inspectors: inspectorList,
         defectBreakdown,
+        biwDefectBreakdown,
+        tvsDefectBreakdown,
         dailyTrends,
         rawResponses: rawResponsesList // Include raw forms data for the Excel-like grid
       }

@@ -5080,7 +5080,57 @@ export const getResponsesByForm = async (req, res) => {
 
     // Add status filter if provided
     if (status && status !== 'all') {
-      query.status = status;
+      const sLower = String(status).toLowerCase().trim();
+      if (sLower === 'direct ok') {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $and: [
+            { 'biwReview.status': { $nin: ['Rejected', 'Reworked', 'rejected', 'reworked'] } },
+            { 'review.status': { $nin: ['Rejected', 'Rework', 'Reworked', 'rejected', 'rework', 'reworked'] } },
+            { 'review.reviewOption': { $nin: ['Rejected', 'Rework', 'Reworked', 'rejected', 'rework', 'reworked'] } },
+            { status: { $not: { $regex: 'rework|reject|fail', $options: 'i' } } },
+            {
+              $expr: {
+                $not: {
+                  $anyElementTrue: {
+                    $map: {
+                      input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                      as: 'ans',
+                      in: {
+                        $regexMatch: {
+                          input: {
+                            $toLower: {
+                              $ifNull: [
+                                '$$ans.v.status',
+                                {
+                                  $cond: [
+                                    { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                    '$$ans.v',
+                                    ''
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          regex: 'rework|rejected|defect|fail|not ok'
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        });
+      } else if (sLower === 'rework accepted' || sLower === 'rework complete') {
+        query.status = { $regex: 'rework accept|rework complete', $options: 'i' };
+      } else if (sLower.includes('rework')) {
+        query.status = { $regex: 'rework(?! accept| complete)', $options: 'i' };
+      } else if (sLower === 'rejected') {
+        query.status = { $regex: 'reject', $options: 'i' };
+      } else {
+        query.status = status;
+      }
     }
 
     // Add batchId or uploadOnly filter if provided
@@ -5099,8 +5149,143 @@ export const getResponsesByForm = async (req, res) => {
       const dLower = String(dispatchParam).toLowerCase().trim();
       if (dLower === 'pending' || dLower === 'pending dispatch' || dLower === 'not_dispatched') {
         query.isDispatched = { $ne: true };
+        // Pending dispatch strictly includes ONLY approved / accepted units that are waiting for dispatch.
+        // It strictly excludes any units under active rework or rejection (which show '-' in the Dispatch column).
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $and: [
+            { 'biwReview.status': { $nin: ['Rejected', 'Reworked', 'rejected', 'reworked'] } },
+            { 'review.status': { $nin: ['Rejected', 'Rework', 'Reworked', 'rejected', 'rework', 'reworked'] } },
+            { 'review.reviewOption': { $nin: ['Rejected', 'Rework', 'Reworked', 'rejected', 'rework', 'reworked'] } },
+            { status: { $not: { $regex: 'rework|reject|fail', $options: 'i' } } },
+            {
+              $expr: {
+                $not: {
+                  $anyElementTrue: {
+                    $map: {
+                      input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                      as: 'ans',
+                      in: {
+                        $regexMatch: {
+                          input: {
+                            $toLower: {
+                              $ifNull: [
+                                '$$ans.v.status',
+                                {
+                                  $cond: [
+                                    { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                    '$$ans.v',
+                                    ''
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          regex: 'rework|rejected|defect|fail|not ok'
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        });
       } else if (dLower === 'dispatched' || dLower === 'true') {
         query.isDispatched = true;
+      }
+    }
+
+    // Add TVS Review filter if provided (e.g. tvsStatus=reviewed, accepted, rework, pending)
+    const tvsStatusParam = req.query.tvsStatus;
+    if (tvsStatusParam) {
+      const ts = String(tvsStatusParam).toLowerCase().trim();
+      if (ts === 'reviewed') {
+        const reviewDocIds = await Review.distinct('responseId', {
+          $or: [
+            { status: { $in: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } },
+            { reviewOption: { $in: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } }
+          ]
+        });
+        const orConditions = [
+          { 'review.status': { $in: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } },
+          { 'review.reviewOption': { $in: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } }
+        ];
+        if (reviewDocIds.length > 0) {
+          orConditions.push({ id: { $in: reviewDocIds } });
+          const validObjIds = reviewDocIds.filter(rid => mongoose.Types.ObjectId.isValid(rid)).map(rid => new mongoose.Types.ObjectId(rid));
+          if (validObjIds.length > 0) orConditions.push({ _id: { $in: validObjIds } });
+        }
+        if (!query.$and) query.$and = [];
+        query.$and.push({ $or: orConditions });
+      } else if (ts === 'accepted') {
+        const reviewDocIds = await Review.distinct('responseId', {
+          $or: [{ status: 'Accepted' }, { reviewOption: 'Accepted' }]
+        });
+        const orConditions = [
+          { 'review.status': 'Accepted' },
+          { 'review.reviewOption': 'Accepted' }
+        ];
+        if (reviewDocIds.length > 0) {
+          orConditions.push({ id: { $in: reviewDocIds } });
+          const validObjIds = reviewDocIds.filter(rid => mongoose.Types.ObjectId.isValid(rid)).map(rid => new mongoose.Types.ObjectId(rid));
+          if (validObjIds.length > 0) orConditions.push({ _id: { $in: validObjIds } });
+        }
+        if (!query.$and) query.$and = [];
+        query.$and.push({ $or: orConditions });
+      } else if (ts === 'rework' || ts === 'defects' || ts === 'rejected') {
+        const reviewDocIds = await Review.distinct('responseId', {
+          $or: [
+            { status: { $in: ['Rework', 'Reworked', 'Rejected'] } },
+            { reviewOption: { $in: ['Rework', 'Reworked', 'Rejected'] } }
+          ]
+        });
+        const orConditions = [
+          { 'review.status': { $in: ['Rework', 'Reworked', 'Rejected'] } },
+          { 'review.reviewOption': { $in: ['Rework', 'Reworked', 'Rejected'] } }
+        ];
+        if (reviewDocIds.length > 0) {
+          orConditions.push({ id: { $in: reviewDocIds } });
+          const validObjIds = reviewDocIds.filter(rid => mongoose.Types.ObjectId.isValid(rid)).map(rid => new mongoose.Types.ObjectId(rid));
+          if (validObjIds.length > 0) orConditions.push({ _id: { $in: validObjIds } });
+        }
+        if (!query.$and) query.$and = [];
+        query.$and.push({ $or: orConditions });
+      } else if (ts === 'pending') {
+        // Pending TVS Review = Dispatched units that have NO TVS review yet
+        query.isDispatched = true;
+        const reviewDocIds = await Review.distinct('responseId', {
+          $or: [
+            { status: { $in: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } },
+            { reviewOption: { $in: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } }
+          ]
+        });
+        const andConditions = [
+          { 'review.status': { $nin: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } },
+          { 'review.reviewOption': { $nin: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } }
+        ];
+        if (reviewDocIds.length > 0) {
+          andConditions.push({ id: { $nin: reviewDocIds } });
+          const validObjIds = reviewDocIds.filter(rid => mongoose.Types.ObjectId.isValid(rid)).map(rid => new mongoose.Types.ObjectId(rid));
+          if (validObjIds.length > 0) andConditions.push({ _id: { $nin: validObjIds } });
+        }
+        if (!query.$and) query.$and = [];
+        query.$and.push({ $and: andConditions });
+      }
+    }
+
+    // Add BIW Review filter if provided (e.g. biwStatus=accepted, rejected, reworked, pending)
+    const biwStatusParam = req.query.biwStatus;
+    if (biwStatusParam) {
+      const bs = String(biwStatusParam).toLowerCase().trim();
+      if (bs === 'accepted') {
+        query['biwReview.status'] = 'Accepted';
+      } else if (bs === 'rejected') {
+        query['biwReview.status'] = 'Rejected';
+      } else if (bs === 'rework' || bs === 'reworked') {
+        query['biwReview.status'] = { $in: ['Reworked', 'Rework', 'reworked', 'rework'] };
+      } else if (bs === 'pending' || bs === 'pending review' || bs === 'no review yet') {
+        query['biwReview.status'] = { $in: [null, '', undefined, 'no review yet', 'pending review', 'pending', '-'] };
       }
     }
 
@@ -5465,6 +5650,7 @@ export const getResponsesByForm = async (req, res) => {
             ]
           })
             .select('answers createdAt id _id status submittedBy chassisNumber parentResponseId biwReview')
+            .maxTimeMS(10000)
             .lean()
             .then(parentResponses => {
               parentResponses.forEach(pr => {
@@ -5526,6 +5712,7 @@ export const getResponsesByForm = async (req, res) => {
             isSectionSubmit: { $ne: true }
           })
             .select('answers createdAt id _id status submittedBy chassisNumber parentResponseId')
+            .maxTimeMS(10000)
             .lean()
             .then(childResponses => {
               childResponses.forEach(cr => {
@@ -5609,6 +5796,7 @@ export const getResponsesByForm = async (req, res) => {
             .select('answers createdAt id _id status submittedBy chassisNumber parentResponseId biwReview review')
             .sort({ createdAt: -1 })
             .limit(5000)
+            .maxTimeMS(10000)
             .lean()
             .then(parentResponses => {
 

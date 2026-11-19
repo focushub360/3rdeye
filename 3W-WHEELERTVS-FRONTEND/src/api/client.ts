@@ -1238,6 +1238,8 @@ class ApiClient {
       startDate?: string;
       endDate?: string;
       dispatch?: string;
+      tvsStatus?: string;
+      biwStatus?: string;
       units?: string;
       identificationNumber?: string;
       chassisNumber?: string;
@@ -1254,6 +1256,8 @@ class ApiClient {
     if (options?.batchId) query.set("batchId", options.batchId);
     if (options?.uploadOnly) query.set("uploadOnly", "true");
     if (options?.dispatch) query.set("dispatch", options.dispatch);
+    if (options?.tvsStatus) query.set("tvsStatus", options.tvsStatus);
+    if (options?.biwStatus) query.set("biwStatus", options.biwStatus);
     if (options?.startDate) query.set("startDate", options.startDate);
     if (options?.endDate) query.set("endDate", options.endDate);
     if (options?.units) query.set("units", options.units);
@@ -3753,6 +3757,8 @@ class ApiClient {
       batchId: options?.batchId,
       uploadOnly: options?.uploadOnly,
       dispatch: options?.dispatch,
+      tvsStatus: options?.tvsStatus,
+      biwStatus: options?.biwStatus,
       units: options?.units,
       identificationNumber: options?.identificationNumber,
       chassisNumber: options?.chassisNumber,
@@ -3795,6 +3801,8 @@ class ApiClient {
               batchId: options?.batchId,
               uploadOnly: options?.uploadOnly,
               dispatch: options?.dispatch,
+              tvsStatus: options?.tvsStatus,
+              biwStatus: options?.biwStatus,
             }).then((res) => ({ pageNumber: p, responses: res.responses || [] }))
           )
         );
@@ -3827,6 +3835,8 @@ class ApiClient {
                 batchId: options?.batchId,
                 uploadOnly: options?.uploadOnly,
                 dispatch: options?.dispatch,
+                tvsStatus: options?.tvsStatus,
+                biwStatus: options?.biwStatus,
               });
               const retryResponses = retryRes.responses || [];
               allResponses = allResponses.concat(retryResponses);

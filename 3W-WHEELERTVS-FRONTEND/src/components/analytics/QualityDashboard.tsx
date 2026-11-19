@@ -1065,41 +1065,37 @@ export const QualityDashboard: React.FC = () => {
   }), [tvsOverallSummary, activeSelectedForms, selectedFormIds]);
 
   const tvsDefectBreakdown = useMemo(() => {
-    if (data?.rawResponses && data.rawResponses.length > 0) {
-      const map: Record<string, number> = {};
-      data.rawResponses.forEach((r: any) => {
-        if (selectedFormIds.length > 0 && !selectedFormIds.includes(r.formId) && !selectedFormIds.includes(r.questionId)) {
-          return;
-        }
-        if (r.review) {
-          if (Array.isArray(r.review.flaggedQuestions)) {
-            r.review.flaggedQuestions.forEach((fq: any) => {
-              const title = (fq.questionText || fq.text || fq.title || fq.reason || '').trim();
-              if (title && !['other', 'none', '-', 'ok', 'accepted'].includes(title.toLowerCase())) {
-                map[title] = (map[title] || 0) + 1;
-              }
-            });
-          }
-          const reason = (r.review.reason || r.review.remark || '').trim();
-          if (reason && !['other', 'none', '-', 'ok', 'accepted'].includes(reason.toLowerCase())) {
-            map[reason] = (map[reason] || 0) + 1;
-          }
-        }
-        if (['Rejected', 'Rework', 'Reworked'].includes(r.review?.status || r.review?.reviewOption)) {
-          if (Array.isArray(r.defects)) {
-            r.defects.forEach((d: string) => {
-              if (d && typeof d === 'string' && !['other', 'none', '-'].includes(d.toLowerCase())) {
-                map[d] = (map[d] || 0) + 1;
-              }
-            });
-          }
-        }
-      });
-      const entries = Object.entries(map).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
-      if (entries.length > 0) return entries;
+    const list = data?.tvsDefectBreakdown || [];
+    if (list.length > 0) {
+      if (selectedFormIds.length > 0) {
+        const filtered = list.filter((d: any) => {
+          if (!d.forms) return true;
+          return Object.keys(d.forms).some((formTitle) => {
+            const matchedForm = activeSelectedForms.find(f => f.title === formTitle);
+            return matchedForm ? true : false;
+          });
+        });
+        return filtered.length > 0 ? filtered : list;
+      }
+      return list;
     }
-    return data?.defectBreakdown || [];
-  }, [data?.rawResponses, data?.defectBreakdown, selectedFormIds]);
+    return [];
+  }, [data?.tvsDefectBreakdown, selectedFormIds, activeSelectedForms]);
+
+  const biwDefectBreakdown = useMemo(() => {
+    const list = data?.biwDefectBreakdown || data?.defectBreakdown || [];
+    if (selectedFormIds.length > 0 && list.length > 0) {
+      const filtered = list.filter((d: any) => {
+        if (!d.forms) return true;
+        return Object.keys(d.forms).some((formTitle) => {
+          const matchedForm = activeSelectedForms.find(f => f.title === formTitle);
+          return matchedForm ? true : false;
+        });
+      });
+      return filtered.length > 0 ? filtered : list;
+    }
+    return list;
+  }, [data?.biwDefectBreakdown, data?.defectBreakdown, selectedFormIds, activeSelectedForms]);
 
   const totalTvsReworkCount = useMemo(() => {
     const listSum = tvsDefectBreakdown.reduce((sum: number, d: any) => sum + (Number(d.count) || 0), 0);
@@ -1107,9 +1103,9 @@ export const QualityDashboard: React.FC = () => {
   }, [tvsDefectBreakdown, tvsOverallSummary]);
 
   const totalBiwReworkCount = useMemo(() => {
-    const listSum = (data?.defectBreakdown || []).reduce((sum: number, d: any) => sum + (Number(d.count) || 0), 0);
-    return listSum > 0 ? listSum : (data?.summary?.rework1Count || data?.summary?.totalDefects || 0);
-  }, [data?.defectBreakdown, data?.summary]);
+    const listSum = biwDefectBreakdown.reduce((sum: number, d: any) => sum + (Number(d.count) || 0), 0);
+    return listSum > 0 ? listSum : (biwOverallSummary.totalDefect || biwOverallSummary.totalRework || 0);
+  }, [biwDefectBreakdown, biwOverallSummary]);
 
   const centerTextPlugin = useMemo(
     () => ({
@@ -1270,18 +1266,21 @@ export const QualityDashboard: React.FC = () => {
 
       progressIntervalRef.current = setInterval(() => {
         setLoadingProgress((prev) => {
-          if (prev >= 92) {
-            return Math.min(96, prev + 1);
+          if (prev >= 98) {
+            return 99;
+          }
+          if (prev >= 90) {
+            return prev < 98 ? prev + 1 : 98;
           }
           if (prev < 30) {
-            return prev + Math.floor(Math.random() * 8) + 6;
+            return prev + Math.floor(Math.random() * 5) + 3;
           }
           if (prev < 65) {
-            return prev + Math.floor(Math.random() * 6) + 4;
+            return prev + Math.floor(Math.random() * 4) + 2;
           }
-          return prev + Math.floor(Math.random() * 4) + 1;
+          return prev + Math.floor(Math.random() * 3) + 1;
         });
-      }, 160);
+      }, 200);
 
       const timerInterval = setInterval(() => {
         setElapsedMs(prev => prev + 100);
@@ -3898,9 +3897,9 @@ export const QualityDashboard: React.FC = () => {
                                     {passRate}% Rate
                                   </span>
                                   <button
-                                    onClick={() => navigate(`/forms/${form.id || form._id}/analytics?tab=responses`)}
+                                    onClick={() => navigate(`/forms/${form.id || form._id}/analytics?tab=responses&tvsStatus=reviewed`)}
                                     className="p-1 hover:bg-gray-100 text-gray-500 hover:text-purple-600 rounded transition-colors"
-                                    title="View responses"
+                                    title="View TVS Reviewed responses"
                                   >
                                     <FileSpreadsheet className="w-4 h-4" />
                                   </button>
@@ -3916,8 +3915,22 @@ export const QualityDashboard: React.FC = () => {
                               {/* Badges */}
                               <div className="flex items-center justify-between text-xs pt-1 text-gray-600">
                                 <div className="flex items-center gap-3">
-                                  <span className="font-semibold text-green-700">✓ Accepted: <b className="font-black text-green-900">{form.tvsAcceptCount || 0}</b></span>
-                                  <span className="font-semibold text-red-600">✕ Defects: <b className="font-black text-red-800">{defects}</b></span>
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/forms/${form.id || form._id}/analytics?tab=responses&tvsStatus=accepted`)}
+                                    className="font-semibold text-green-700 hover:text-green-900 hover:underline cursor-pointer"
+                                    title="View TVS Accepted responses"
+                                  >
+                                    ✓ Accepted: <b className="font-black text-green-900">{form.tvsAcceptCount || 0}</b>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/forms/${form.id || form._id}/analytics?tab=responses&tvsStatus=rework`)}
+                                    className="font-semibold text-red-600 hover:text-red-900 hover:underline cursor-pointer"
+                                    title="View TVS Defects / Rework responses"
+                                  >
+                                    ✕ Defects: <b className="font-black text-red-800">{defects}</b>
+                                  </button>
                                 </div>
                                 <span className="text-[11px] text-gray-400 font-medium">
                                   {form.totalInspectors} inspector{form.totalInspectors !== 1 ? 's' : ''}
@@ -4222,9 +4235,9 @@ export const QualityDashboard: React.FC = () => {
                                     {passRate}% Rate
                                   </span>
                                   <button
-                                    onClick={() => navigate(`/forms/${form.id || form._id}/analytics?tab=responses`)}
+                                    onClick={() => navigate(`/forms/${form.id || form._id}/analytics?tab=responses&biwStatus=accepted`)}
                                     className="p-1 hover:bg-gray-100 text-gray-500 hover:text-blue-600 rounded transition-colors"
-                                    title="View responses"
+                                    title="View BIW Reviewed responses"
                                   >
                                     <FileSpreadsheet className="w-4 h-4" />
                                   </button>
@@ -4240,8 +4253,22 @@ export const QualityDashboard: React.FC = () => {
                               {/* Badges */}
                               <div className="flex items-center justify-between text-xs pt-1 text-gray-600">
                                 <div className="flex items-center gap-3">
-                                  <span className="font-semibold text-green-700">✓ Accepted: <b className="font-black text-green-900">{form.biwAcceptCount || 0}</b></span>
-                                  <span className="font-semibold text-red-600">✕ Defects: <b className="font-black text-red-800">{form.biwDefectCount || 0}</b></span>
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/forms/${form.id || form._id}/analytics?tab=responses&biwStatus=accepted`)}
+                                    className="font-semibold text-green-700 hover:text-green-900 hover:underline cursor-pointer"
+                                    title="View BIW Accepted responses"
+                                  >
+                                    ✓ Accepted: <b className="font-black text-green-900">{form.biwAcceptCount || 0}</b>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/forms/${form.id || form._id}/analytics?tab=responses&biwStatus=rejected`)}
+                                    className="font-semibold text-red-600 hover:text-red-900 hover:underline cursor-pointer"
+                                    title="View BIW Defect / Rejected responses"
+                                  >
+                                    ✕ Defects: <b className="font-black text-red-800">{form.biwDefectCount || 0}</b>
+                                  </button>
                                 </div>
                                 <span className="text-[11px] text-gray-400 font-medium">
                                   {form.totalInspectors} inspector{form.totalInspectors !== 1 ? 's' : ''}
@@ -4272,15 +4299,15 @@ export const QualityDashboard: React.FC = () => {
                             <span>Total Rework: <strong className="text-amber-950 font-black">{totalBiwReworkCount.toLocaleString()}</strong></span>
                           </span>
                           <span className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">
-                            {data.defectBreakdown.length} Categories
+                            {biwDefectBreakdown.length} Categories
                           </span>
                         </div>
                       </div>
 
                       <div className="max-h-[460px] overflow-y-auto pr-1 space-y-2.5">
-                        {data.defectBreakdown.length > 0 ? (
-                          data.defectBreakdown.map((defect, idx) => {
-                            const maxCount = data.defectBreakdown[0].count;
+                        {biwDefectBreakdown.length > 0 ? (
+                          biwDefectBreakdown.map((defect: any, idx: number) => {
+                            const maxCount = biwDefectBreakdown[0].count;
                             const percentage = Math.max(5, (defect.count / maxCount) * 100);
                             return (
                               <div key={idx} className="bg-white p-3 rounded-xl border border-gray-200 relative overflow-hidden shadow-xs hover:border-red-200 transition-colors">

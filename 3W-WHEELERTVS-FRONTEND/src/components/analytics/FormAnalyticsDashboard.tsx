@@ -1670,28 +1670,90 @@ export default function FormAnalyticsDashboard({
     }
   }, [location.search, form, analyticsView]);
 
-  // Sync dispatch filter with URL parameter
+  // Sync dispatch, TVS review, BIW review, and status filters with URL parameters
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const dispatchParam = searchParams.get("dispatch") || searchParams.get("dispatchStatus");
-    if (dispatchParam) {
-      const l = dispatchParam.toLowerCase().trim();
-      if (l === "pending" || l === "pending dispatch") {
-        startFilterTransition(() => {
-          setColumnFilters((prev) => ({
-            ...prev,
-            __dispatch: ["Pending Dispatch"],
-          }));
-        });
-      } else if (l === "dispatched") {
-        startFilterTransition(() => {
-          setColumnFilters((prev) => ({
-            ...prev,
-            __dispatch: ["Dispatched / Enabled"],
-          }));
-        });
-      }
-    }
+    const tvsStatusParam = searchParams.get("tvsStatus");
+    const biwStatusParam = searchParams.get("biwStatus");
+    const statusParam = searchParams.get("status");
+
+    startFilterTransition(() => {
+      setColumnFilters((prev) => {
+        let changed = false;
+        const next = { ...prev };
+
+        // 1. Dispatch filter
+        if (dispatchParam) {
+          const l = dispatchParam.toLowerCase().trim();
+          const target = (l === "pending" || l === "pending dispatch") ? ["Pending Dispatch"] : (l === "dispatched" ? ["Dispatched / Enabled"] : null);
+          if (target && JSON.stringify(next.__dispatch) !== JSON.stringify(target)) {
+            next.__dispatch = target;
+            changed = true;
+          }
+        } else if (next.__dispatch) {
+          delete next.__dispatch;
+          changed = true;
+        }
+
+        // 2. TVS Review filter
+        if (tvsStatusParam) {
+          const ts = tvsStatusParam.toLowerCase().trim();
+          let target: string[] | null = null;
+          if (ts === "reviewed") target = ["Reviewed"];
+          else if (ts === "accepted") target = ["Accepted"];
+          else if (ts === "rework" || ts === "defects" || ts === "rejected") target = ["Rework"];
+          else if (ts === "pending") {
+            target = ["No review yet"];
+            if (!dispatchParam && !next.__dispatch) {
+              next.__dispatch = ["Dispatched / Enabled"];
+              changed = true;
+            }
+          }
+          if (target && JSON.stringify(next.__tvsReview) !== JSON.stringify(target)) {
+            next.__tvsReview = target;
+            changed = true;
+          }
+        } else if (next.__tvsReview) {
+          delete next.__tvsReview;
+          changed = true;
+        }
+
+        // 3. BIW Review filter
+        if (biwStatusParam) {
+          const bs = biwStatusParam.toLowerCase().trim();
+          let target: string[] | null = null;
+          if (bs === "accepted") target = ["Accepted"];
+          else if (bs === "rework" || bs === "reworked") target = ["Reworked"];
+          else if (bs === "rejected") target = ["Rejected"];
+          else if (bs === "pending" || bs === "pending review" || bs === "no review yet") target = ["No review yet"];
+          if (target && JSON.stringify(next.__biwReview) !== JSON.stringify(target)) {
+            next.__biwReview = target;
+            changed = true;
+          }
+        } else if (next.__biwReview) {
+          delete next.__biwReview;
+          changed = true;
+        }
+
+        // 4. Status filter
+        if (statusParam) {
+          const spLower = statusParam.toLowerCase().trim();
+          let target: string[] | null = null;
+          if (spLower === "direct ok") target = ["Direct Ok"];
+          else if (spLower === "rework accepted" || spLower === "rework completed") target = ["Rework Accepted"];
+          else if (spLower === "rework 1" || spLower === "rework") target = ["Rework"];
+          else if (spLower === "rejected") target = ["Rejected"];
+          else target = [statusParam];
+          if (target && JSON.stringify(next.__status) !== JSON.stringify(target)) {
+            next.__status = target;
+            changed = true;
+          }
+        }
+
+        return changed ? next : prev;
+      });
+    });
   }, [location.search]);
 
   // Set initial tab based on permissions after form loads
@@ -2304,11 +2366,18 @@ export default function FormAnalyticsDashboard({
       : relatedFormData.parentForm?.sections?.length
         ? relatedFormData.parentForm
         : (form?.parentForm || relatedFormData.parentForm);
-    const childDocs = (form?.childForms || []).map((cf: any) => {
+    const rawChildDocs = (form?.childForms || []).map((cf: any) => {
       const found = (relatedFormData.childForms || []).find(
         (rf: any) => rf.id === (cf.formId || cf.id) || rf._id === (cf.formId || cf.id)
       );
       return found || cf;
+    });
+    const seenChildIds = new Set<string>();
+    const childDocs = rawChildDocs.filter((cf: any) => {
+      const cId = String(cf.formId || cf.id || cf._id || "");
+      if (!cId || seenChildIds.has(cId)) return false;
+      seenChildIds.add(cId);
+      return true;
     });
 
     const tabs: Array<{
@@ -3182,12 +3251,18 @@ export default function FormAnalyticsDashboard({
       const isUploadOnly = searchParams.get("uploadOnly") === "true";
       const currentUnits = searchParams.get("units") || searchParams.get("identificationNumber") || searchParams.get("chassisNumber");
       const currentDispatch = searchParams.get("dispatch") || searchParams.get("dispatchStatus");
+      const currentTvsStatus = searchParams.get("tvsStatus");
+      const currentBiwStatus = searchParams.get("biwStatus");
+      const currentStatus = searchParams.get("status");
       const responsesData = await apiClient.getAllFormResponses(id, {
         analytics: true,
         forceNetwork: true,
         ...(currentBatchId ? { batchId: currentBatchId } : {}),
         ...(isUploadOnly ? { uploadOnly: true } : {}),
         ...(currentDispatch ? { dispatch: currentDispatch } : {}),
+        ...(currentTvsStatus ? { tvsStatus: currentTvsStatus } : {}),
+        ...(currentBiwStatus ? { biwStatus: currentBiwStatus } : {}),
+        ...(currentStatus ? { status: currentStatus } : {}),
         onPage: ({ responses: pageResponses, pageNumber, totalPages, totalResponses, isLast }: {
           responses: any[];
           pageNumber: number;
@@ -3231,6 +3306,9 @@ export default function FormAnalyticsDashboard({
       const isUploadOnly = searchParams.get("uploadOnly") === "true";
       const currentUnits = searchParams.get("units") || searchParams.get("identificationNumber") || searchParams.get("chassisNumber");
       const currentDispatch = searchParams.get("dispatch") || searchParams.get("dispatchStatus");
+      const currentTvsStatus = searchParams.get("tvsStatus");
+      const currentBiwStatus = searchParams.get("biwStatus");
+      const currentStatus = searchParams.get("status");
       const data = await apiClient.getFormResponses(id, {
         page: page,
         limit: responsesPageSize,
@@ -3239,6 +3317,9 @@ export default function FormAnalyticsDashboard({
         ...(currentBatchId ? { batchId: currentBatchId } : {}),
         ...(isUploadOnly ? { uploadOnly: true } : {}),
         ...(currentDispatch ? { dispatch: currentDispatch } : {}),
+        ...(currentTvsStatus ? { tvsStatus: currentTvsStatus } : {}),
+        ...(currentBiwStatus ? { biwStatus: currentBiwStatus } : {}),
+        ...(currentStatus ? { status: currentStatus } : {}),
       });
       setTableResponses(data.responses || []);
       setTotalResponsesCount(data.pagination?.totalResponses || 0);
@@ -3694,20 +3775,7 @@ export default function FormAnalyticsDashboard({
 
     // 4. Column Filters (skip __attemptRank here – resolved in filteredResponses to avoid TDZ on chassisAttemptRanks/tableDisplayStatuses/responseStatuses)
     const activeColumnFilters = Object.entries(columnFilters).filter(
-      ([colId, values]) => {
-        if (!values || values.length === 0) return false;
-        // When the server already pre-filtered by dispatch=pending (URL param) and the full
-        // dataset hasn't streamed yet, skip the __dispatch client filter — tableDisplayStatuses
-        // is empty so it would incorrectly zero out all rows.
-        if (
-          colId === "__dispatch" &&
-          urlDispatch?.toLowerCase().includes("pending") &&
-          responses.length === 0
-        ) {
-          return false;
-        }
-        return true;
-      },
+      ([, values]) => Boolean(values && values.length > 0)
     );
 
     if (activeColumnFilters.length > 0) {
@@ -4357,6 +4425,7 @@ export default function FormAnalyticsDashboard({
   // Filter options for TVS Review (Chat) column
   const tvsReviewFilterOptions = useMemo(() => {
     const opts = new Set<string>();
+    opts.add("Reviewed");
     opts.add("Accepted");
     opts.add("Rework");
     opts.add("Rejected");
@@ -5265,11 +5334,17 @@ export default function FormAnalyticsDashboard({
       const biwStatus = (response.biwReview?.status || "").toLowerCase().trim();
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
-        if (avLower === "no review yet" || avLower === "pending review") {
-          return !biwStatus || biwStatus === "pending review";
+        if (avLower === "no review yet" || avLower === "pending review" || avLower === "pending" || avLower === "-") {
+          return !biwStatus || biwStatus === "pending review" || biwStatus === "pending" || biwStatus === "no review yet" || biwStatus === "-";
         }
         if (avLower === "rework" || avLower === "reworked") {
           return biwStatus === "rework" || biwStatus === "reworked";
+        }
+        if (avLower === "accepted") {
+          return biwStatus === "accepted";
+        }
+        if (avLower === "rejected") {
+          return biwStatus === "rejected";
         }
         return biwStatus === avLower;
       });
@@ -5278,7 +5353,10 @@ export default function FormAnalyticsDashboard({
     // 6b. __tvsReview / __review (Chat & Discussion Review filter)
     if (columnId === "__tvsReview" || columnId === "__review") {
       const serverRev = (response as any).review;
-      const tvsRev = tvsReviews.find((tr) => String(tr.responseId || tr.response_id || "") === String(response.id));
+      const tvsRev = tvsReviews.find((tr) =>
+        String(tr.responseId || tr.response_id || "") === String(response.id) ||
+        String(tr.responseId || tr.response_id || "") === String(response._id)
+      );
       const localReview = reviewedBy[response.id];
 
       const revStatus = String(
@@ -5302,8 +5380,11 @@ export default function FormAnalyticsDashboard({
 
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
-        if (avLower === "no review yet" || avLower === "pending review" || avLower === "unreviewed") {
-          return !revStatus;
+        if (avLower === "no review yet" || avLower === "pending review" || avLower === "unreviewed" || avLower === "pending" || avLower === "-") {
+          return !revStatus || revStatus === "pending" || revStatus === "no review yet" || revStatus === "-";
+        }
+        if (avLower === "reviewed") {
+          return Boolean(revStatus && revStatus !== "no review yet" && revStatus !== "pending" && revStatus !== "-");
         }
         if (avLower === "accepted") {
           return revStatus === "accepted";
@@ -5311,8 +5392,8 @@ export default function FormAnalyticsDashboard({
         if (avLower === "rejected") {
           return revStatus === "rejected";
         }
-        if (avLower === "reworked" || avLower === "rework") {
-          return revStatus === "reworked" || revStatus === "rework";
+        if (avLower === "reworked" || avLower === "rework" || avLower === "defects") {
+          return revStatus === "reworked" || revStatus === "rework" || revStatus === "rejected";
         }
         if (revReviewer && (revReviewer === avLower || revReviewer.includes(avLower))) {
           return true;
@@ -5324,14 +5405,61 @@ export default function FormAnalyticsDashboard({
     // 7. __dispatch
     if (columnId === "__dispatch") {
       const isDispatched = !!response.isDispatched;
+      const status =
+        tableDisplayStatuses[response.id] ||
+        responseStatuses[response.id] ||
+        response.status ||
+        "";
+      const biwStatus = (response.biwReview?.status || "").toLowerCase().trim();
+      const tvsStatus = String(
+        (response as any).review?.status ||
+        (response as any).review?.reviewOption ||
+        ""
+      ).toLowerCase().trim();
+
+      let hasDefectInAnswers = false;
+      if (response.answers) {
+        for (const [k, v] of Object.entries(response.answers)) {
+          if (!v || k === "chassis_number" || k === "chassis") continue;
+          const vStr = typeof v === "object" ? String((v as any).status || (v as any).value || "") : String(v);
+          if (/rework|defect|fail|reject|not ok|no/i.test(vStr.trim())) {
+            hasDefectInAnswers = true;
+            break;
+          }
+        }
+      }
+
+      const isReworkOrRejected =
+        hasDefectInAnswers ||
+        status === "Rejected" ||
+        status === "Rework 1" ||
+        status === "Rework 2" ||
+        status === "Rework" ||
+        status === "Reworked" ||
+        (status?.toLowerCase().includes("rework") && !status?.toLowerCase().includes("accepted") && !status?.toLowerCase().includes("completed")) ||
+        biwStatus === "rejected" ||
+        biwStatus === "reworked" ||
+        biwStatus === "rework" ||
+        tvsStatus === "rejected" ||
+        tvsStatus === "rework" ||
+        tvsStatus === "reworked";
+
+      const canShowDispatch =
+        !isReworkOrRejected &&
+        (status === "Direct Ok" ||
+          status === "Rework Accepted" ||
+          status === "Rework Completed" ||
+          status === "Accepted" ||
+          (!hasDefectInAnswers && (status === "pending" || !status)));
+
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
         if (avLower.includes("dispatched") && !avLower.includes("pending")) {
           return isDispatched;
         }
         if (avLower.includes("pending") || avLower.includes("not")) {
-          // A response is Pending Dispatch if it has not yet been marked dispatched and is not rejected by BIW
-          return !isDispatched && response.biwReview?.status !== "Rejected";
+          // A response is Pending Dispatch ONLY if it is not dispatched AND canShowDispatch AND not under rework (displays checkbox, never '-')
+          return !isDispatched && canShowDispatch && !isReworkOrRejected;
         }
         return true;
       });
@@ -5479,20 +5607,7 @@ export default function FormAnalyticsDashboard({
 
     // 4. Column filters (supports __attemptRank, __status, __submittedBy, __chassisNumber, __parentMatch, __biwReview, __dispatch, and questions)
     const activeColumnFilters = Object.entries(columnFilters).filter(
-      ([colId, values]) => {
-        if (!values || values.length === 0) return false;
-        // When the server already pre-filtered by dispatch=pending (URL param) and the full
-        // dataset hasn't streamed yet, skip the __dispatch client filter — tableDisplayStatuses
-        // is empty so it would incorrectly zero out all rows.
-        if (
-          colId === "__dispatch" &&
-          urlDispatch?.toLowerCase().includes("pending") &&
-          responses.length === 0
-        ) {
-          return false;
-        }
-        return true;
-      },
+      ([, values]) => Boolean(values && values.length > 0)
     );
     if (activeColumnFilters.length > 0) {
       result = result.filter((response) => {
@@ -5688,20 +5803,7 @@ export default function FormAnalyticsDashboard({
     }
 
     const activeColumnFilters = Object.entries(columnFilters).filter(
-      ([colId, values]) => {
-        if (!values || values.length === 0) return false;
-        // When the server already pre-filtered by dispatch=pending (URL param) and the full
-        // dataset hasn't streamed yet, skip the __dispatch client filter — tableDisplayStatuses
-        // is empty so it would incorrectly zero out all rows.
-        if (
-          colId === "__dispatch" &&
-          urlDispatch?.toLowerCase().includes("pending") &&
-          responses.length === 0
-        ) {
-          return false;
-        }
-        return true;
-      },
+      ([, values]) => Boolean(values && values.length > 0)
     );
 
     if (activeColumnFilters.length > 0) {
@@ -7012,9 +7114,33 @@ export default function FormAnalyticsDashboard({
       }
 
       // Dispatch is tracked independently of status - once marked dispatched, it remains counted as dispatched.
+      // Units that are NOT dispatched can only be "Pending Dispatch" if they are APPROVED (Direct Ok or Rework Accepted)
+      // and NOT under active rework or rejection (which display '-' in the table).
+      let hasDefectInAns = false;
+      if (response.answers) {
+        for (const [k, v] of Object.entries(response.answers)) {
+          if (!v || k === "chassis_number" || k === "chassis") continue;
+          const vStr = typeof v === "object" ? String((v as any).status || (v as any).value || "") : String(v);
+          if (/rework|defect|fail|reject|not ok|no/i.test(vStr.trim())) {
+            hasDefectInAns = true;
+            break;
+          }
+        }
+      }
+
+      const isEligibleForDispatch =
+        !hasDefectInAns &&
+        (isAccepted || isReworkAccepted) &&
+        !isRework &&
+        !isRejected &&
+        response.biwReview?.status !== "Rejected" &&
+        response.biwReview?.status !== "Reworked" &&
+        (response as any).review?.status !== "Rejected" &&
+        (response as any).review?.status !== "Rework";
+
       if (response.isDispatched) {
         dispatched++;
-      } else if (!isRejected && response.biwReview?.status !== "Rejected") {
+      } else if (isEligibleForDispatch) {
         nonDispatched++;
       }
     });
@@ -7034,10 +7160,8 @@ export default function FormAnalyticsDashboard({
       ? biwReviewedChassis.size + nonChassisBiwReviewed
       : rawBiwReviewed;
 
-    // When filtered by pending dispatch, pendingDispatch is the exact non-dispatched count
-    const pendingDispatch = columnFilters["__dispatch"]?.includes("Pending Dispatch") || urlDispatch?.toLowerCase().includes("pending")
-      ? nonDispatched
-      : Math.max(0, nonDispatched > 0 ? nonDispatched : ((accepted + reworkCompleted) - dispatched));
+    // Pending dispatch strictly represents approved units waiting for dispatch (excluding active rework/rejected units showing '-')
+    const pendingDispatch = Math.max(0, (accepted + reworkCompleted) - dispatched);
 
     return {
       accepted,
@@ -8799,7 +8923,7 @@ export default function FormAnalyticsDashboard({
                           {responsesSearchTerm.trim() !== "" && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 shadow-2xs">
                               Search: "{responsesSearchTerm}"
-                              <button onClick={() => setResponsesSearchTerm("")} className="hover:text-red-500 ml-0.5 cursor-pointer">×</button>
+                              <button onClick={() => setResponsesSearchTerm("")} className="hover:text-red-500 ml-0.5 cursor-pointer flex items-center justify-center"><X className="w-3 h-3" /></button>
                             </span>
                           )}
                           {Object.entries(columnFilters).map(([colId, vals]) => {
@@ -8810,7 +8934,7 @@ export default function FormAnalyticsDashboard({
                             else if (colId === "__chassisNumber") colLabel = "Chassis";
                             else if (colId === "__parentMatch") colLabel = "Parent Match";
                             else if (colId === "__biwReview") colLabel = "BIW Review";
-                            else if (colId === "__review") colLabel = "Review";
+                            else if (colId === "__review" || colId === "__tvsReview") colLabel = "TVS Review";
                             else if (colId === "__dispatch") colLabel = "Dispatch";
                             else if (colId === "__attemptRank") colLabel = "Attempt";
                             else {
@@ -8826,12 +8950,49 @@ export default function FormAnalyticsDashboard({
                                 <span className="font-bold">{colLabel}:</span> {vals.slice(0, 2).join(", ")}{vals.length > 2 ? ` +${vals.length - 2}` : ""}
                                 <button
                                   onClick={() => {
+                                    const nextParams = new URLSearchParams(searchParams);
+                                    let urlChanged = false;
                                     if (colId === "__dispatch") {
-                                      const nextParams = new URLSearchParams(searchParams);
-                                      nextParams.delete("dispatch");
-                                      nextParams.delete("dispatchStatus");
+                                      if (nextParams.has("dispatch") || nextParams.has("dispatchStatus")) {
+                                        nextParams.delete("dispatch");
+                                        nextParams.delete("dispatchStatus");
+                                        urlChanged = true;
+                                      }
+                                    } else if (colId === "__tvsReview" || colId === "__review") {
+                                      if (nextParams.has("tvsStatus") || nextParams.has("review") || nextParams.has("tvsReview")) {
+                                        nextParams.delete("tvsStatus");
+                                        nextParams.delete("review");
+                                        nextParams.delete("tvsReview");
+                                        urlChanged = true;
+                                      }
+                                    } else if (colId === "__biwReview") {
+                                      if (nextParams.has("biwStatus") || nextParams.has("biwReview")) {
+                                        nextParams.delete("biwStatus");
+                                        nextParams.delete("biwReview");
+                                        urlChanged = true;
+                                      }
+                                    } else if (colId === "__status") {
+                                      if (nextParams.has("status")) {
+                                        nextParams.delete("status");
+                                        urlChanged = true;
+                                      }
+                                    } else if (colId === "__chassisNumber") {
+                                      if (nextParams.has("chassisNumber") || nextParams.has("chassis")) {
+                                        nextParams.delete("chassisNumber");
+                                        nextParams.delete("chassis");
+                                        urlChanged = true;
+                                      }
+                                    } else if (colId === "__submittedBy") {
+                                      if (nextParams.has("submittedBy")) {
+                                        nextParams.delete("submittedBy");
+                                        urlChanged = true;
+                                      }
+                                    }
+
+                                    if (urlChanged) {
                                       navigate(`/forms/${id}/analytics?${nextParams.toString()}`, { replace: true });
                                     }
+
                                     startFilterTransition(() => {
                                       setColumnFilters((prev) => {
                                         const next = { ...prev };
@@ -8840,10 +9001,10 @@ export default function FormAnalyticsDashboard({
                                       });
                                     });
                                   }}
-                                  className="hover:text-red-600 dark:hover:text-red-400 font-bold ml-1 text-xs cursor-pointer"
+                                  className="hover:text-red-600 dark:hover:text-red-400 font-bold ml-1 text-xs cursor-pointer p-0.5 rounded hover:bg-red-100/60 dark:hover:bg-red-900/40 inline-flex items-center justify-center"
                                   title={`Remove ${colLabel} filter`}
                                 >
-                                  ×
+                                  <X className="w-3 h-3" />
                                 </button>
                               </span>
                             );
@@ -8852,9 +9013,31 @@ export default function FormAnalyticsDashboard({
                         <button
                           onClick={() => {
                             const nextParams = new URLSearchParams(searchParams);
-                            nextParams.delete("dispatch");
-                            nextParams.delete("dispatchStatus");
-                            navigate(`/forms/${id}/analytics?${nextParams.toString()}`, { replace: true });
+                            const keysToDelete = [
+                              "dispatch",
+                              "dispatchStatus",
+                              "tvsStatus",
+                              "review",
+                              "tvsReview",
+                              "biwStatus",
+                              "biwReview",
+                              "status",
+                              "chassisNumber",
+                              "chassis",
+                              "submittedBy",
+                              "batchId",
+                              "uploadOnly",
+                            ];
+                            let urlChanged = false;
+                            for (const k of keysToDelete) {
+                              if (nextParams.has(k)) {
+                                nextParams.delete(k);
+                                urlChanged = true;
+                              }
+                            }
+                            if (urlChanged) {
+                              navigate(`/forms/${id}/analytics?${nextParams.toString()}`, { replace: true });
+                            }
                             startFilterTransition(() => {
                               setColumnFilters({});
                               setAppliedFilters([]);
@@ -8875,14 +9058,33 @@ export default function FormAnalyticsDashboard({
                         <div
                           onClick={() => {
                             const nextParams = new URLSearchParams(searchParams);
-                            nextParams.delete("dispatch");
-                            nextParams.delete("dispatchStatus");
-                            navigate(`/forms/${id}/analytics?${nextParams.toString()}`, { replace: true });
+                            const keysToDelete = [
+                              "dispatch",
+                              "dispatchStatus",
+                              "tvsStatus",
+                              "review",
+                              "tvsReview",
+                              "biwStatus",
+                              "biwReview",
+                              "status",
+                            ];
+                            let urlChanged = false;
+                            for (const k of keysToDelete) {
+                              if (nextParams.has(k)) {
+                                nextParams.delete(k);
+                                urlChanged = true;
+                              }
+                            }
+                            if (urlChanged) {
+                              navigate(`/forms/${id}/analytics?${nextParams.toString()}`, { replace: true });
+                            }
                             startFilterTransition(() => {
                               setColumnFilters((prev) => {
                                 const next = { ...prev };
                                 delete next["__status"];
                                 delete next["__dispatch"];
+                                delete next["__tvsReview"];
+                                delete next["__biwReview"];
                                 return next;
                               });
                             });

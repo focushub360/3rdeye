@@ -1021,19 +1021,20 @@ export const getFormById = async (req, res) => {
         item.sections = dc.sections || [];
       });
 
-      const enrichedChildForms = [];
-      for (const [key, cf] of childMap.entries()) {
-        const cIds = [cf.formId, cf.id, cf._id].filter(Boolean);
-        const count = await Response.countDocuments({
-          questionId: { $in: cIds },
-          isSectionSubmit: { $ne: true }
-        });
-        enrichedChildForms.push({
-          ...cf,
-          responseCount: count
-        });
-      }
-      formObj.childForms = enrichedChildForms;
+      const childEntries = Array.from(childMap.values());
+      const childCounts = await Promise.all(
+        childEntries.map(cf => {
+          const cIds = [cf.formId, cf.id, cf._id].filter(Boolean);
+          return Response.countDocuments({
+            questionId: { $in: cIds },
+            isSectionSubmit: { $ne: true }
+          }).maxTimeMS(5000).catch(() => 0);
+        })
+      );
+      formObj.childForms = childEntries.map((cf, idx) => ({
+        ...cf,
+        responseCount: childCounts[idx] || 0
+      }));
 
       // 2. If this form itself is a child form, attach parentForm details
       const formIdentifiers = [formObj.id, formObj._id ? formObj._id.toString() : null].filter(Boolean);
@@ -1057,7 +1058,7 @@ export const getFormById = async (req, res) => {
           const pCount = await Response.countDocuments({
             questionId: { $in: [pDoc.id, pDoc._id.toString()] },
             isSectionSubmit: { $ne: true }
-          });
+          }).maxTimeMS(5000).catch(() => 0);
           formObj.parentForm = {
             _id: pDoc._id.toString(),
             id: pDoc.id,
