@@ -142,7 +142,7 @@ const qualitySummaryClientCache = new Map<string, {
   timestamp: number;
 }>();
 
-const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v22_';
+const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v23_';
 
 const isValidSummaryData = (item: any): boolean => {
   const d = item?.data || item;
@@ -1188,21 +1188,21 @@ export const QualityDashboard: React.FC = () => {
     [data, hoveredSlice, summaryPieDetails],
   );
 
-  // Compute start/end dates with normalized day boundaries for 0ms SWR cache hits
+  // Compute start/end dates with normalized YYYY-MM-DD format for 100% exact boundary matching
   const { startDate, endDate } = useMemo(() => {
     if (dateRange === 'all') return { startDate: undefined, endDate: undefined };
     if (dateRange === 'custom') {
       return {
-        startDate: customStartDate ? new Date(customStartDate).toISOString() : undefined,
-        endDate: customEndDate ? new Date(customEndDate + 'T23:59:59.999Z').toISOString() : undefined
+        startDate: customStartDate || undefined,
+        endDate: customEndDate || undefined
       };
     }
     const today = new Date();
-    const end = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+    const endStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const start = new Date(today);
 
     if (dateRange === 'today') {
-      // today start of day
+      // today
     } else if (dateRange === '7d') {
       start.setDate(start.getDate() - 7);
     } else if (dateRange === '30d') {
@@ -1210,7 +1210,8 @@ export const QualityDashboard: React.FC = () => {
     } else {
       start.setDate(start.getDate() - 90);
     }
-    return { startDate: start.toISOString(), endDate: end.toISOString() };
+    const startStr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+    return { startDate: startStr, endDate: endStr };
   }, [dateRange, customStartDate, customEndDate]);
 
   const fetchSummary = async (forceNetwork = false) => {
@@ -3446,6 +3447,8 @@ export const QualityDashboard: React.FC = () => {
                     endDate={endDate}
                     formIds={selectedFormIds.length > 0 ? selectedFormIds : undefined}
                     title={selectedFormIds.length > 1 ? `Combined Performance Table (${selectedFormIds.length} Forms)` : undefined}
+                    selectedSlice={selectedSlice}
+                    onClearSlice={() => handleSelectSlice('all')}
                   />
                 </div>
               )}

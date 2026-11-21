@@ -17,6 +17,8 @@ const PerformanceTable = ({
   formId,
   formIds,
   title,
+  selectedSlice,
+  onClearSlice,
 }: {
   useInternalTrackingEndpoint?: boolean;
   startDate?: string;
@@ -24,6 +26,8 @@ const PerformanceTable = ({
   formId?: string;
   formIds?: string[];
   title?: string;
+  selectedSlice?: string;
+  onClearSlice?: () => void;
 }) => {
   const { user } = useAuth();
   const [performanceTableData, setPerformanceTableData] = useState<any[]>([]);
@@ -62,6 +66,100 @@ const PerformanceTable = ({
     } else {
       setSortColumn(column);
       setSortOrder(column === "name" ? "asc" : "desc");
+    }
+  };
+
+  // Synchronize sort column when user selects a pie slice
+  useEffect(() => {
+    if (!selectedSlice || selectedSlice === "all") return;
+    switch (selectedSlice) {
+      case "directOk":
+        setSortColumn("Direct Ok");
+        setSortOrder("desc");
+        break;
+      case "reworkCompleted":
+        setSortColumn("Rework QC Completed");
+        setSortOrder("desc");
+        break;
+      case "rework":
+        setSortColumn("Rework QC Pending");
+        setSortOrder("desc");
+        break;
+      case "rejected":
+        setSortColumn("Rejected");
+        setSortOrder("desc");
+        break;
+      case "pendingDispatch":
+        setSortColumn("dispatchPending");
+        setSortOrder("desc");
+        break;
+      case "dispatched":
+        setSortColumn("dispatched");
+        setSortOrder("desc");
+        break;
+      case "biwReviewed":
+        setSortColumn("totalReviewed");
+        setSortOrder("desc");
+        break;
+      case "pendingData":
+        setSortColumn("reviewPending");
+        setSortOrder("desc");
+        break;
+      case "accepted":
+        setSortColumn("accepted");
+        setSortOrder("desc");
+        break;
+      case "tvsReviewed":
+        setSortColumn("tvsTotalReviewed");
+        setSortOrder("desc");
+        break;
+      case "tvsAccepted":
+        setSortColumn("tvsAccepted");
+        setSortOrder("desc");
+        break;
+      case "tvsDefects":
+        setSortColumn("tvsRejected");
+        setSortOrder("desc");
+        break;
+      case "pendingTvs":
+        setSortColumn("tvsReviewPending");
+        setSortOrder("desc");
+        break;
+    }
+  }, [selectedSlice]);
+
+  const isSliceActive = (columnKey: string) => {
+    if (!selectedSlice || selectedSlice === "all") return false;
+    switch (columnKey) {
+      case "Direct Ok":
+        return selectedSlice === "directOk";
+      case "Rework QC Completed":
+        return selectedSlice === "reworkCompleted";
+      case "Rework QC Pending":
+        return selectedSlice === "rework";
+      case "Rejected":
+        return selectedSlice === "rejected";
+      case "dispatchPending":
+        return selectedSlice === "pendingDispatch";
+      case "dispatched":
+        return selectedSlice === "dispatched";
+      case "totalReviewed":
+        return selectedSlice === "biwReviewed";
+      case "reviewPending":
+        return selectedSlice === "pendingData";
+      case "accepted":
+        return selectedSlice === "accepted";
+      case "tvsTotalReviewed":
+        return selectedSlice === "tvsReviewed";
+      case "tvsReviewPending":
+        return selectedSlice === "pendingTvs";
+      case "tvsAccepted":
+        return selectedSlice === "tvsAccepted";
+      case "tvsRejected":
+      case "tvsReworked":
+        return selectedSlice === "tvsDefects";
+      default:
+        return false;
     }
   };
 
@@ -124,7 +222,7 @@ const PerformanceTable = ({
   // ✅ Cache key for performance data
   const getCacheKey = useCallback(() => {
     const fKey = formIds ? (Array.isArray(formIds) ? formIds.slice().sort().join('-') : String(formIds)) : (formId || 'all');
-    return `perf_v4_${fKey}_${effectiveStartDate}_${effectiveEndDate}_${performancePage}_${performancePageSize}`;
+    return `perf_v7_${fKey}_${effectiveStartDate}_${effectiveEndDate}_${performancePage}_${performancePageSize}`;
   }, [formId, formIds, effectiveStartDate, effectiveEndDate, performancePage, performancePageSize]);
 
   // ✅ Load performance data with caching and timeout
@@ -375,9 +473,91 @@ const PerformanceTable = ({
     return statuses.filter(status => !isNumeric(status));
   }, [STANDARD_STATUSES, perfInspectorSummary]);
 
-  // Filter data by inspector / user search term
+  // Map qcInspector to their status counts
+  const inspectorStatusMap = useMemo(() => {
+    const map: Record<string, Record<string, number>> = {};
+    perfInspectorSummary.forEach((item: any) => {
+      const name = item.qcInspector;
+      if (!name) return;
+      if (!map[name]) map[name] = {};
+      Object.entries(item.statusCounts || {}).forEach(([status, count]) => {
+        map[name][status] = (map[name][status] || 0) + (count as number);
+      });
+    });
+    return map;
+  }, [perfInspectorSummary]);
+
+  const sliceLabelMap: Record<string, string> = useMemo(() => ({
+    directOk: "Direct Ok",
+    reworkCompleted: "Rework Accepted",
+    accepted: "Accepted",
+    rework: "Rework QC Pending",
+    rejected: "Rejected",
+    pendingDispatch: "Dispatch Pending",
+    dispatched: "Dispatched",
+    biwReviewed: "BIW Reviewed",
+    pendingData: "BIW Review Pending",
+    tvsReviewed: "TVS Reviewed",
+    tvsAccepted: "TVS Accepted",
+    tvsDefects: "TVS Defects / Rework",
+    pendingTvs: "TVS Review Pending",
+  }), []);
+
+  // Filter data by selected pie slice AND inspector / user search term
   const filteredData = useMemo(() => {
     let data = [...performanceTableData];
+
+    // Filter by selected pie slice if active
+    if (selectedSlice && selectedSlice !== "all") {
+      data = data.filter((row) => {
+        const rowName = row.name || row.qcInspector || row.qcInspectorName || row.inspectorName || row.username || "";
+        const m = inspectorStatusMap[rowName] || {};
+        const dOk = (row.directOk !== undefined ? row.directOk : m["Direct Ok"]) || 0;
+        const rwComp = (row.reworkQcCompleted !== undefined ? row.reworkQcCompleted : m["Rework QC Completed"]) || 0;
+        const rwPend = (row.reworkQcPending !== undefined ? row.reworkQcPending : m["Rework QC Pending"]) || 0;
+        const rej = (row.rejected !== undefined ? row.rejected : m["Rejected"]) || 0;
+        const disp = row.dispatched || 0;
+        const dispPend = row.dispatchPending || 0;
+        const biwRev = row.biwTotalReviewed || row.totalReviewed || 0;
+        const biwPend = row.biwReviewPending || row.reviewPending || 0;
+        const tvsRev = row.tvsTotalReviewed || 0;
+        const tvsAcc = row.tvsAccepted || 0;
+        const tvsDef = (row.tvsRejected || 0) + (row.tvsReworked || 0);
+        const tvsPend = row.tvsReviewPending || 0;
+
+        switch (selectedSlice) {
+          case "directOk":
+            return dOk > 0;
+          case "reworkCompleted":
+            return rwComp > 0;
+          case "accepted":
+            return (dOk + rwComp) > 0 || (row.accepted || 0) > 0;
+          case "rework":
+            return rwPend > 0;
+          case "rejected":
+            return rej > 0;
+          case "pendingDispatch":
+            return dispPend > 0;
+          case "dispatched":
+            return disp > 0;
+          case "biwReviewed":
+            return biwRev > 0;
+          case "pendingData":
+            return biwPend > 0;
+          case "tvsReviewed":
+            return tvsRev > 0;
+          case "tvsAccepted":
+            return tvsAcc > 0;
+          case "tvsDefects":
+            return tvsDef > 0;
+          case "pendingTvs":
+            return tvsPend > 0;
+          default:
+            return true;
+        }
+      });
+    }
+
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase().trim();
       data = data.filter((row) => {
@@ -388,10 +568,9 @@ const PerformanceTable = ({
       });
     }
     return data;
-  }, [performanceTableData, searchTerm]);
+  }, [performanceTableData, selectedSlice, searchTerm, inspectorStatusMap]);
 
   const {
-    inspectorStatusMap,
     totalPerformanceItems,
     totalPerformancePages,
     startIndex,
@@ -417,24 +596,14 @@ const PerformanceTable = ({
     totalDispatchPending,
     totalReviewPending,
   } = useMemo(() => {
-    const inspectorStatusMap: Record<string, Record<string, number>> = {};
-    perfInspectorSummary.forEach((item: any) => {
-      const name = item.qcInspector;
-      if (!name) return;
-      if (!inspectorStatusMap[name]) inspectorStatusMap[name] = {};
-      Object.entries(item.statusCounts || {}).forEach(([status, count]) => {
-        inspectorStatusMap[name][status] =
-          (inspectorStatusMap[name][status] || 0) + (count as number);
-      });
-    });
-
     const getUserTotalSubmitted = (rowName: string, backendTotal: number) => {
+      if (backendTotal !== undefined && backendTotal !== null && backendTotal > 0) return backendTotal;
       const directOk = inspectorStatusMap[rowName]?.["Direct Ok"] || 0;
       const reworkCompleted = inspectorStatusMap[rowName]?.["Rework QC Completed"] || 0;
       const reworkPending = inspectorStatusMap[rowName]?.["Rework QC Pending"] || 0;
       const rejected = inspectorStatusMap[rowName]?.["Rejected"] || 0;
       const statusSum = directOk + reworkCompleted + reworkPending + rejected;
-      return Math.max(backendTotal || 0, statusSum);
+      return backendTotal || statusSum || 0;
     };
 
     const sortRows = (rows: any[]) => {
@@ -577,13 +746,12 @@ const PerformanceTable = ({
     );
 
     const totalDispatched = filteredData.reduce(
-      (sum, row) =>
-        sum + (inspectorStatusMap[row.name]?.["Dispatched"] || 0),
+      (sum, row) => sum + (row.dispatched || 0),
       0,
     );
 
     const totalTotalSubmitted = filteredData.reduce(
-      (sum, row) => sum + getUserTotalSubmitted(row.name, row.totalSubmitted || 0),
+      (sum, row) => sum + (row.totalSubmitted || 0),
       0,
     );
     const totalTotalReviewed = filteredData.reduce(
@@ -616,27 +784,28 @@ const PerformanceTable = ({
         : null;
 
     const statusTotals: Record<string, number> = {};
+    const statusKeyMap: Record<string, string> = {
+      "Direct Ok": "directOk",
+      "Rework QC Completed": "reworkQcCompleted",
+      "Rework QC Pending": "reworkQcPending",
+      "Rejected": "rejected",
+    };
     performanceStatuses
       .filter((s) => s !== "Dispatched")
       .forEach((status) => {
-        statusTotals[status] = filteredData.reduce(
-          (sum, row) =>
-            sum + (inspectorStatusMap[row.name]?.[status] || 0),
-          0,
-        );
+        const key = statusKeyMap[status];
+        statusTotals[status] = filteredData.reduce((sum, row) => {
+          const val = key && row[key] !== undefined ? row[key] : (inspectorStatusMap[row.name]?.[status] || 0);
+          return sum + (val || 0);
+        }, 0);
       });
 
     const totalDirectOk = filteredData.reduce(
-      (sum, row) =>
-        sum + (inspectorStatusMap[row.name]?.["Direct Ok"] || row.directOk || 0),
+      (sum, row) => sum + (row.directOk ?? inspectorStatusMap[row.name]?.["Direct Ok"] ?? 0),
       0,
     );
     const totalReworkQCCompleted = filteredData.reduce(
-      (sum, row) =>
-        sum +
-        (inspectorStatusMap[row.name]?.["Rework QC Completed"] ||
-          row.reworkQcCompleted ||
-          0),
+      (sum, row) => sum + (row.reworkQcCompleted ?? inspectorStatusMap[row.name]?.["Rework QC Completed"] ?? 0),
       0,
     );
     const totalDispatchPending = Math.max(
@@ -654,7 +823,7 @@ const PerformanceTable = ({
     );
     const totalTvsReviewPending = filteredData.reduce(
       (sum, row) => {
-        const sub = getUserTotalSubmitted(row.name, row.totalSubmitted || 0);
+        const sub = row.totalSubmitted || 0;
         return sum + (row.tvsReviewPending ?? Math.max(0, sub - (row.tvsTotalReviewed || 0)));
       },
       0,
@@ -738,7 +907,7 @@ const PerformanceTable = ({
       const rej = row.rejected ?? 0;
       const disp = row.dispatched ?? 0;
       const dPending = Math.max(0, dOk + rComp - disp);
-      const sub = getUserTotalSubmitted(row.name, row.totalSubmitted || 0);
+      const sub = row.totalSubmitted || 0;
 
       g.totals.directOk += dOk;
       g.totals.reworkQcCompleted += rComp;
@@ -820,7 +989,7 @@ const PerformanceTable = ({
     filteredData,
     sortColumn,
     sortOrder,
-    perfInspectorSummary,
+    inspectorStatusMap,
     performancePage,
     performancePageSize,
     performanceStatuses,
@@ -984,6 +1153,24 @@ const PerformanceTable = ({
             )}
           </div>
 
+          {/* Active Status / Slice Filter Badge (Synced with Top Pie Chart) */}
+          {selectedSlice && selectedSlice !== "all" && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 rounded-2xl border border-emerald-300/60 dark:border-emerald-800/40 text-xs font-bold shadow-2xs whitespace-nowrap animate-fadeIn">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Status: {sliceLabelMap[selectedSlice] || selectedSlice}</span>
+              {onClearSlice && (
+                <button
+                  type="button"
+                  onClick={onClearSlice}
+                  className="ml-1 p-0.5 hover:bg-emerald-200 dark:hover:bg-emerald-900 rounded-full text-emerald-700 dark:text-emerald-300 transition-colors cursor-pointer"
+                  title="Clear status filter"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Active Top Date Filter Badge (Applied from parent/top dashboard filter) */}
           {(effectiveStartDate || effectiveEndDate) && (
             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50/80 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 rounded-2xl border border-purple-200/60 dark:border-purple-800/40 text-xs font-bold shadow-2xs whitespace-nowrap" title="Applied from top dashboard date filter">
@@ -1087,7 +1274,7 @@ const PerformanceTable = ({
                     <th
                       key={status}
                       onClick={() => handleSort(status)}
-                      className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-indigo-600 cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group"
+                      className={`px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-indigo-600 cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group ${isSliceActive(status) ? "bg-purple-100 dark:bg-purple-900/60 ring-2 ring-inset ring-purple-600 font-black" : ""}`}
                       title={`Click to sort by ${status}`}
                     >
                       <div className="inline-flex items-center gap-1 justify-center">
@@ -1098,7 +1285,7 @@ const PerformanceTable = ({
                   ))}
                 <th
                   onClick={() => handleSort("dispatchPending")}
-                  className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-violet-600 cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group"
+                  className={`px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-violet-600 cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group ${isSliceActive("dispatchPending") ? "bg-purple-100 dark:bg-purple-900/60 ring-2 ring-inset ring-purple-600 font-black" : ""}`}
                   title="Click to sort by Dispatch Pending"
                 >
                   <div className="inline-flex items-center gap-1 justify-center">
@@ -1109,7 +1296,7 @@ const PerformanceTable = ({
                 {performanceStatuses.includes("Dispatched") && (
                   <th
                     onClick={() => handleSort("dispatched")}
-                    className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-indigo-600 cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group"
+                    className={`px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center text-indigo-600 cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group ${isSliceActive("dispatched") ? "bg-purple-100 dark:bg-purple-900/60 ring-2 ring-inset ring-purple-600 font-black" : ""}`}
                     title="Click to sort by Dispatched"
                   >
                     <div className="inline-flex items-center gap-1 justify-center">
@@ -1131,7 +1318,7 @@ const PerformanceTable = ({
                 {/* BIW Review Section Columns */}
                 <th
                   onClick={() => handleSort("totalReviewed")}
-                  className="px-2 py-2 border-b border-l border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-purple-800 dark:text-purple-200 cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group"
+                  className={`px-2 py-2 border-b border-l border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-purple-800 dark:text-purple-200 cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group ${isSliceActive("totalReviewed") ? "bg-purple-200 dark:bg-purple-900/80 ring-2 ring-inset ring-purple-600 font-black" : ""}`}
                   title="Click to sort by Total Reviewed"
                 >
                   <div className="inline-flex items-center gap-1 justify-center">
@@ -1141,7 +1328,7 @@ const PerformanceTable = ({
                 </th>
                 <th
                   onClick={() => handleSort("reviewPending")}
-                  className="px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group"
+                  className={`px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group ${isSliceActive("reviewPending") ? "bg-amber-100 dark:bg-amber-900/80 ring-2 ring-inset ring-amber-500 font-black" : ""}`}
                   title="Click to sort by Review Pending"
                 >
                   <div className="inline-flex items-center gap-1 justify-center">
@@ -1151,7 +1338,7 @@ const PerformanceTable = ({
                 </th>
                 <th
                   onClick={() => handleSort("accepted")}
-                  className="px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-green-600 dark:text-green-400 font-extrabold cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group"
+                  className={`px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-green-600 dark:text-green-400 font-extrabold cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group ${isSliceActive("accepted") ? "bg-green-100 dark:bg-green-900/80 ring-2 ring-inset ring-green-600 font-black" : ""}`}
                   title="Click to sort by BIW Accepted"
                 >
                   <div className="inline-flex items-center gap-1 justify-center">
@@ -1161,7 +1348,7 @@ const PerformanceTable = ({
                 </th>
                 <th
                   onClick={() => handleSort("rejectedReview")}
-                  className="px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-red-600 dark:text-red-400 font-extrabold cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group"
+                  className={`px-2 py-2 border-b bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-red-600 dark:text-red-400 font-extrabold cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group ${isSliceActive("Rejected") ? "bg-red-100 dark:bg-red-900/80 ring-2 ring-inset ring-red-600 font-black" : ""}`}
                   title="Click to sort by BIW Rejected"
                 >
                   <div className="inline-flex items-center gap-1 justify-center">
@@ -1171,7 +1358,7 @@ const PerformanceTable = ({
                 </th>
                 <th
                   onClick={() => handleSort("reworked")}
-                  className="px-2 py-2 border-b border-r border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-orange-600 dark:text-orange-400 font-extrabold cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group"
+                  className={`px-2 py-2 border-b border-r border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 whitespace-nowrap text-center text-orange-600 dark:text-orange-400 font-extrabold cursor-pointer hover:bg-purple-100/80 dark:hover:bg-purple-900/50 select-none group ${isSliceActive("Rework QC Pending") ? "bg-orange-100 dark:bg-orange-900/80 ring-2 ring-inset ring-orange-600 font-black" : ""}`}
                   title="Click to sort by BIW Reworked"
                 >
                   <div className="inline-flex items-center gap-1 justify-center">
@@ -1182,7 +1369,7 @@ const PerformanceTable = ({
                 {/* TVS Review Section Columns */}
                 <th
                   onClick={() => handleSort("tvsTotalReviewed")}
-                  className="px-2 py-2 border-b border-l border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-blue-800 dark:text-blue-200 cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group"
+                  className={`px-2 py-2 border-b border-l border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-blue-800 dark:text-blue-200 cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group ${isSliceActive("tvsTotalReviewed") ? "bg-blue-200 dark:bg-blue-900/80 ring-2 ring-inset ring-blue-600 font-black" : ""}`}
                   title="Click to sort by TVS Reviewed"
                 >
                   <div className="inline-flex items-center gap-1 justify-center">
@@ -1192,7 +1379,7 @@ const PerformanceTable = ({
                 </th>
                 <th
                   onClick={() => handleSort("tvsReviewPending")}
-                  className="px-2 py-2 border-b bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group"
+                  className={`px-2 py-2 border-b bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group ${isSliceActive("tvsReviewPending") ? "bg-amber-100 dark:bg-amber-900/80 ring-2 ring-inset ring-amber-500 font-black" : ""}`}
                   title="Click to sort by TVS Pending"
                 >
                   <div className="inline-flex items-center gap-1 justify-center">
@@ -1202,7 +1389,7 @@ const PerformanceTable = ({
                 </th>
                 <th
                   onClick={() => handleSort("tvsAccepted")}
-                  className="px-2 py-2 border-b bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-emerald-600 dark:text-emerald-400 font-extrabold cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group"
+                  className={`px-2 py-2 border-b bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-emerald-600 dark:text-emerald-400 font-extrabold cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group ${isSliceActive("tvsAccepted") ? "bg-emerald-100 dark:bg-emerald-900/80 ring-2 ring-inset ring-emerald-600 font-black" : ""}`}
                   title="Click to sort by TVS Accepted"
                 >
                   <div className="inline-flex items-center gap-1 justify-center">
@@ -1212,7 +1399,7 @@ const PerformanceTable = ({
                 </th>
                 <th
                   onClick={() => handleSort("tvsRejected")}
-                  className="px-2 py-2 border-b bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-rose-600 dark:text-rose-400 font-extrabold cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group"
+                  className={`px-2 py-2 border-b bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-rose-600 dark:text-rose-400 font-extrabold cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group ${isSliceActive("tvsRejected") ? "bg-rose-100 dark:bg-rose-900/80 ring-2 ring-inset ring-rose-600 font-black" : ""}`}
                   title="Click to sort by TVS Rejected"
                 >
                   <div className="inline-flex items-center gap-1 justify-center">
@@ -1222,7 +1409,7 @@ const PerformanceTable = ({
                 </th>
                 <th
                   onClick={() => handleSort("tvsReworked")}
-                  className="px-2 py-2 border-b border-r border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 font-extrabold cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group"
+                  className={`px-2 py-2 border-b border-r border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 font-extrabold cursor-pointer hover:bg-blue-100/80 dark:hover:bg-blue-900/50 select-none group ${isSliceActive("tvsReworked") ? "bg-amber-100 dark:bg-amber-900/80 ring-2 ring-inset ring-amber-500 font-black" : ""}`}
                   title="Click to sort by TVS Rework"
                 >
                   <div className="inline-flex items-center gap-1 justify-center">
@@ -1692,10 +1879,10 @@ const PerformanceTable = ({
                           };
                           const key = statusKeyMap[status];
                           const count =
+                            (key && row[key] !== undefined ? row[key] : undefined) ??
                             (inspectorStatusMap[row.name]?.[status] !== undefined
                               ? inspectorStatusMap[row.name][status]
-                              : undefined) ??
-                            (key && row[key] !== undefined ? row[key] : 0);
+                              : 0);
                           const isZero = count === 0;
                           const colorClass =
                             status === "Direct Ok" || status === "Rework Accepted"
@@ -1715,15 +1902,10 @@ const PerformanceTable = ({
                           );
                         })}
                       {(() => {
-                        const directOk =
-                          inspectorStatusMap[row.name]?.["Direct Ok"] ?? row.directOk ?? 0;
-                        const reworkQCCompleted =
-                          inspectorStatusMap[row.name]?.["Rework QC Completed"] ??
-                          row.reworkQcCompleted ??
-                          0;
-                        const dispatched =
-                          inspectorStatusMap[row.name]?.["Dispatched"] ?? row.dispatched ?? 0;
-                        const dispatchPending = Math.max(
+                        const directOk = row.directOk ?? inspectorStatusMap[row.name]?.["Direct Ok"] ?? 0;
+                        const reworkQCCompleted = row.reworkQcCompleted ?? inspectorStatusMap[row.name]?.["Rework QC Completed"] ?? 0;
+                        const dispatched = row.dispatched ?? inspectorStatusMap[row.name]?.["Dispatched"] ?? 0;
+                        const dispatchPending = row.dispatchPending ?? Math.max(
                           0,
                           directOk + reworkQCCompleted - dispatched,
                         );
@@ -1738,8 +1920,7 @@ const PerformanceTable = ({
                       })()}
                       {performanceStatuses.includes("Dispatched") &&
                         (() => {
-                          const count =
-                            inspectorStatusMap[row.name]?.["Dispatched"] ?? row.dispatched ?? 0;
+                          const count = row.dispatched ?? inspectorStatusMap[row.name]?.["Dispatched"] ?? 0;
                           const isZero = count === 0;
                           return (
                             <td
@@ -1750,7 +1931,7 @@ const PerformanceTable = ({
                           );
                         })()}
                       <td className="px-2 py-1.5 font-bold text-center tabular-nums border-r border-gray-100 dark:border-gray-700">
-                        {getUserTotalSubmitted(row.name, row.totalSubmitted)}
+                        {row.totalSubmitted || 0}
                       </td>
                       {/* BIW Review Data Cells with distinct shading */}
                       <td className="px-2 py-1.5 font-bold text-center tabular-nums border-l border-purple-100 dark:border-purple-900/30 bg-purple-50/25 dark:bg-purple-950/10 text-purple-900 dark:text-purple-200">

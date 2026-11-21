@@ -2356,7 +2356,7 @@ const performanceTableCache = new Map();
 
 const buildPerformanceTableCacheKey = ({
   tenantKey, startDate, endDate, formId, queryTenantId, page, limit
-}) => JSON.stringify({ tenantKey, startDate, endDate, formId, queryTenantId, page, limit });
+}) => JSON.stringify({ v: 'v27', tenantKey, startDate, endDate, formId, queryTenantId, page, limit });
 
 const getCachedPerformanceTable = (key) => {
   const entry = performanceTableCache.get(key);
@@ -2386,9 +2386,22 @@ export const getPerformanceTable = async (req, res) => {
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
     const skip = (page - 1) * limit;
 
-    const start = startDate ? new Date(startDate) : new Date(0);
-    const end = endDate ? new Date(endDate) : new Date();
-    if (endDate) end.setHours(23, 59, 59, 999);
+    let start = null;
+    let end = null;
+    if (startDate) {
+      const datePart = typeof startDate === 'string' && startDate.includes('T') ? startDate.split('T')[0] : startDate;
+      start = new Date(`${datePart}T00:00:00.000Z`);
+      if (isNaN(start.getTime())) start = new Date(0);
+    } else {
+      start = new Date(0);
+    }
+    if (endDate) {
+      const datePart = typeof endDate === 'string' && endDate.includes('T') ? endDate.split('T')[0] : endDate;
+      end = new Date(`${datePart}T23:59:59.999Z`);
+      if (isNaN(end.getTime())) end = new Date();
+    } else {
+      end = new Date();
+    }
 
     let tenantFilter = { ...req.tenantFilter };
     let crossTenantAccess = false;
@@ -2591,13 +2604,168 @@ export const getPerformanceTable = async (req, res) => {
     }
 
     // ── Fetch all responses in date range (up to 10,000) for full per-user aggregation ──
-    const [totalResponsesInRange, allResponses] = await Promise.all([
+    const [totalResponsesInRange, allResponses, aggregatedInspectors] = await Promise.all([
       Response.countDocuments(responseBaseFilter).maxTimeMS(30000),
       Response.find(responseBaseFilter)
         .select('createdBy submittedBy isDispatched biwReview review tvsReview status chassisNumber questionId createdAt id _id tenantId')
         .limit(10000)
         .maxTimeMS(30000)
         .lean(),
+      Response.aggregate([
+        { $match: responseBaseFilter },
+        {
+          $group: {
+            _id: { $trim: { input: { $ifNull: ['$submittedBy', 'Unknown Submitter'] } } },
+            totalSubmitted: { $sum: 1 },
+            defectCount: {
+              $sum: {
+                $cond: [
+                  {
+                    $or: [
+                      { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                      { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
+                      { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
+                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } },
+                      {
+                        $anyElementTrue: {
+                          $map: {
+                            input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                            as: 'ans',
+                            in: {
+                              $regexMatch: {
+                                input: {
+                                  $toLower: {
+                                    $ifNull: [
+                                      '$$ans.v.status',
+                                      {
+                                        $cond: [
+                                          { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                          '$$ans.v',
+                                          ''
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                },
+                                regex: 'rework|rejected|defect|fail|not ok'
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  1,
+                  0
+                ]
+              }
+            },
+            rework1Count: {
+              $sum: {
+                $cond: [
+                  {
+                    $or: [
+                      { $eq: ['$biwReview.status', 'Reworked'] },
+                      { $in: ['$review.status', ['Rework', 'Reworked']] },
+                      { $in: ['$review.reviewOption', ['Rework', 'Reworked']] },
+                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
+                    ]
+                  },
+                  1,
+                  0
+                ]
+              }
+            },
+            reworkAcceptedCount: {
+              $sum: {
+                $cond: [
+                  { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                  1,
+                  0
+                ]
+              }
+            },
+            rejectedCount: {
+              $sum: {
+                $cond: [
+                  {
+                    $or: [
+                      { $eq: ['$biwReview.status', 'Rejected'] },
+                      { $eq: ['$review.status', 'Rejected'] },
+                      { $eq: ['$review.reviewOption', 'Rejected'] },
+                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'reject' } }
+                    ]
+                  },
+                  1,
+                  0
+                ]
+              }
+            },
+            dispatched: {
+              $sum: {
+                $cond: [
+                  {
+                    $or: [
+                      { $eq: ['$isDispatched', true] },
+                      { $and: [{ $ne: ['$dispatchedAt', null] }, { $gt: ['$dispatchedAt', ''] }] }
+                    ]
+                  },
+                  1,
+                  0
+                ]
+              }
+            },
+            biwTotalReviewed: {
+              $sum: { $cond: [{ $in: ['$biwReview.status', ['Accepted', 'Rejected', 'Reworked']] }, 1, 0] }
+            },
+            biwAccepted: {
+              $sum: { $cond: [{ $eq: ['$biwReview.status', 'Accepted'] }, 1, 0] }
+            },
+            biwRejected: {
+              $sum: { $cond: [{ $eq: ['$biwReview.status', 'Rejected'] }, 1, 0] }
+            },
+            biwReworked: {
+              $sum: { $cond: [{ $in: ['$biwReview.status', ['Rejected', 'Reworked']] }, 1, 0] }
+            },
+            tvsTotalReviewed: {
+              $sum: {
+                $cond: [
+                  { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] },
+                  1,
+                  0
+                ]
+              }
+            },
+            tvsAccepted: {
+              $sum: {
+                $cond: [
+                  { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] },
+                  1,
+                  0
+                ]
+              }
+            },
+            tvsRejected: {
+              $sum: {
+                $cond: [
+                  { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] },
+                  1,
+                  0
+                ]
+              }
+            },
+            tvsReworked: {
+              $sum: {
+                $cond: [
+                  { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] },
+                  1,
+                  0
+                ]
+              }
+            }
+          }
+        }
+      ]).option({ maxTimeMS: 30000, allowDiskUse: true })
     ]);
 
     console.log(`[Performance Table] Found ${allResponses.length} responses (of ${totalResponsesInRange} total in range)`);
@@ -3174,8 +3342,40 @@ export const getPerformanceTable = async (req, res) => {
       }
     });
 
-    // Calculate final metrics
+    // Build lookup from inspector DB aggregation
+    const aggMap = new Map();
+    (aggregatedInspectors || []).forEach(ai => {
+      const nameKey = (ai._id || '').trim();
+      if (nameKey) {
+        aggMap.set(nameKey, ai);
+        aggMap.set(nameKey.toLowerCase(), ai);
+      }
+    });
+
+    // Calculate final metrics strictly reconciled with DB aggregation truth
     for (const [userId, stats] of userStatsMap) {
+      const matchAgg = aggMap.get(stats.userName) || aggMap.get((stats.userName || '').toLowerCase());
+      if (matchAgg) {
+        stats.totalSubmitted = matchAgg.totalSubmitted || stats.totalSubmitted;
+        stats.defectCount = matchAgg.defectCount || 0;
+        stats.directOk = Math.max(0, stats.totalSubmitted - stats.defectCount);
+        stats.reworkQcPending = stats.defectCount;
+        stats.reworkQcCompleted = matchAgg.reworkAcceptedCount || 0;
+        stats.rejected = matchAgg.rejectedCount || 0;
+        stats.dispatched = matchAgg.dispatched || stats.dispatched || 0;
+        stats.dispatchPending = Math.max(0, stats.directOk + stats.reworkQcCompleted - stats.dispatched);
+        stats.biwTotalReviewed = matchAgg.biwTotalReviewed || stats.biwTotalReviewed || 0;
+        stats.biwAccepted = matchAgg.biwAccepted || stats.biwAccepted || 0;
+        stats.biwRejected = matchAgg.biwRejected || stats.biwRejected || 0;
+        stats.biwReworked = matchAgg.biwReworked || stats.biwReworked || 0;
+        stats.tvsTotalReviewed = matchAgg.tvsTotalReviewed || stats.tvsTotalReviewed || 0;
+        stats.tvsAccepted = matchAgg.tvsAccepted || stats.tvsAccepted || 0;
+        stats.tvsRejected = matchAgg.tvsRejected || stats.tvsRejected || 0;
+        stats.tvsReworked = matchAgg.tvsReworked || stats.tvsReworked || 0;
+      } else {
+        stats.dispatchPending = Math.max(0, stats.directOk + stats.reworkQcCompleted - stats.dispatched);
+      }
+
       stats.biwReviewPending = Math.max(0, stats.totalSubmitted - stats.biwTotalReviewed);
       stats.reviewPending = stats.biwReviewPending;
       stats.tvsReviewPending = Math.max(0, stats.totalSubmitted - stats.tvsTotalReviewed);
@@ -3191,30 +3391,50 @@ export const getPerformanceTable = async (req, res) => {
       } else {
         stats.performanceScore = 0;
       }
+    }
 
-      if (stats.responses.length > 0) {
-        const chassisGroups = new Map();
-        stats.responses.forEach(response => {
-          const chassisKey = String(response.chassisNumber || response.id || response._id || 'unknown');
+    // Add any submitters from aggregatedInspectors not yet in userStatsMap
+    for (const ai of (aggregatedInspectors || [])) {
+      const nameKey = (ai._id || '').trim();
+      if (!nameKey || nameKey.toLowerCase() === 'unknown submitter') continue;
+      const lower = nameKey.toLowerCase();
+      const existing = Array.from(userStatsMap.values()).find(s => (s.userName || '').toLowerCase() === lower);
+      if (!existing && ai.totalSubmitted > 0) {
+        const u = users.find(u => `${u.firstName || ''} ${u.lastName || ''}`.trim().toLowerCase() === lower || u.username?.toLowerCase() === lower);
+        const tenantName = u?.tenantId?.companyName || u?.tenantId?.name || '';
+        const dOk = Math.max(0, ai.totalSubmitted - (ai.defectCount || 0));
+        const disp = ai.dispatched || 0;
+        const totalRev = (ai.biwTotalReviewed || 0) + (ai.tvsTotalReviewed || 0);
+        const totalAcc = (ai.biwAccepted || 0) + (ai.tvsAccepted || 0);
+        const pScore = totalRev > 0 ? Math.round((totalAcc / totalRev) * 100) : (ai.totalSubmitted > 0 ? Math.round((dOk / ai.totalSubmitted) * 100) : 0);
 
-          if (!chassisGroups.has(chassisKey)) {
-            chassisGroups.set(chassisKey, []);
-          }
-          chassisGroups.get(chassisKey).push(response);
+        userStatsMap.set(`insp_${nameKey}`, {
+          userId: u?._id?.toString() || `insp_${nameKey}`,
+          userName: nameKey,
+          userEmail: u?.email || '',
+          userRole: u?.role || 'inspector',
+          tenantName: tenantName,
+          totalSubmitted: ai.totalSubmitted,
+          directOk: dOk,
+          reworkQcPending: ai.defectCount || 0,
+          reworkQcCompleted: ai.reworkAcceptedCount || 0,
+          rejected: ai.rejectedCount || 0,
+          dispatched: disp,
+          dispatchPending: Math.max(0, dOk + (ai.reworkAcceptedCount || 0) - disp),
+          biwTotalReviewed: ai.biwTotalReviewed || 0,
+          biwAccepted: ai.biwAccepted || 0,
+          biwRejected: ai.biwRejected || 0,
+          biwReworked: ai.biwReworked || 0,
+          biwReviewPending: Math.max(0, ai.totalSubmitted - (ai.biwTotalReviewed || 0)),
+          reviewPending: Math.max(0, ai.totalSubmitted - (ai.biwTotalReviewed || 0)),
+          tvsTotalReviewed: ai.tvsTotalReviewed || 0,
+          tvsAccepted: ai.tvsAccepted || 0,
+          tvsRejected: ai.tvsRejected || 0,
+          tvsReworked: ai.tvsReworked || 0,
+          tvsReviewPending: Math.max(0, ai.totalSubmitted - (ai.tvsTotalReviewed || 0)),
+          performanceScore: pScore,
+          responses: []
         });
-
-        let reworkCompletedCount = 0;
-        for (const [chassisKey, chassisResponses] of chassisGroups) {
-          const sorted = chassisResponses.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-
-          sorted.forEach((response, index) => {
-            const status = getInspectionStatus(response);
-            if (status === 'Direct Ok' && index > 0) {
-              reworkCompletedCount++;
-            }
-          });
-        }
-        stats.reworkQcCompleted = reworkCompletedCount;
       }
     }
 
@@ -3652,20 +3872,18 @@ export const getQualitySummary = async (req, res) => {
     const { formId, formIds, startDate, endDate, tenantId: queryTenantId } = req.query;
     const { role, tenantId: userTenantId } = req.user;
 
-    // Parse date objects safely once at function level
+    // Parse date objects safely once at function level (normalized to full day UTC boundaries)
     let startObj = null;
     let endObj = null;
     if (startDate) {
-      startObj = new Date(startDate);
+      const datePart = typeof startDate === 'string' && startDate.includes('T') ? startDate.split('T')[0] : startDate;
+      startObj = new Date(`${datePart}T00:00:00.000Z`);
       if (isNaN(startObj.getTime())) startObj = null;
     }
     if (endDate) {
-      endObj = new Date(endDate);
-      if (isNaN(endObj.getTime())) {
-        endObj = null;
-      } else {
-        endObj.setHours(23, 59, 59, 999);
-      }
+      const datePart = typeof endDate === 'string' && endDate.includes('T') ? endDate.split('T')[0] : endDate;
+      endObj = new Date(`${datePart}T23:59:59.999Z`);
+      if (isNaN(endObj.getTime())) endObj = null;
     }
 
     // Parse formIds (can be an array, comma-separated string, or single formId)
@@ -3681,7 +3899,7 @@ export const getQualitySummary = async (req, res) => {
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
     const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
-    const cacheKey = `quality_summary_v25_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v27_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers?.['cache-control'] === 'no-cache';
     if (!shouldBypassCache) {
       const cached = appCache.get(cacheKey);
@@ -3894,14 +4112,10 @@ export const getQualitySummary = async (req, res) => {
       return res.json(emptyPayload);
     }
 
-    if (startDate || endDate) {
+    if (startObj || endObj) {
       responseFilter.createdAt = {};
-      if (startDate) responseFilter.createdAt.$gte = new Date(startDate);
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        responseFilter.createdAt.$lte = end;
-      }
+      if (startObj) responseFilter.createdAt.$gte = startObj;
+      if (endObj) responseFilter.createdAt.$lte = endObj;
     }
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -4377,7 +4591,34 @@ export const getQualitySummary = async (req, res) => {
                           { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
                           { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
                           { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
-                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } },
+                          {
+                            $anyElementTrue: {
+                              $map: {
+                                input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                                as: 'ans',
+                                in: {
+                                  $regexMatch: {
+                                    input: {
+                                      $toLower: {
+                                        $ifNull: [
+                                          '$$ans.v.status',
+                                          {
+                                            $cond: [
+                                              { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                              '$$ans.v',
+                                              ''
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    regex: 'rework|rejected|defect|fail|not ok'
+                                  }
+                                }
+                              }
+                            }
+                          }
                         ]
                       },
                       1,
@@ -4515,7 +4756,34 @@ export const getQualitySummary = async (req, res) => {
                           { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
                           { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
                           { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
-                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } }
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } },
+                          {
+                            $anyElementTrue: {
+                              $map: {
+                                input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                                as: 'ans',
+                                in: {
+                                  $regexMatch: {
+                                    input: {
+                                      $toLower: {
+                                        $ifNull: [
+                                          '$$ans.v.status',
+                                          {
+                                            $cond: [
+                                              { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                              '$$ans.v',
+                                              ''
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    regex: 'rework|rejected|defect|fail|not ok'
+                                  }
+                                }
+                              }
+                            }
+                          }
                         ]
                       },
                       1,
