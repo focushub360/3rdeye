@@ -222,7 +222,7 @@ const PerformanceTable = ({
   // ✅ Cache key for performance data
   const getCacheKey = useCallback(() => {
     const fKey = formIds ? (Array.isArray(formIds) ? formIds.slice().sort().join('-') : String(formIds)) : (formId || 'all');
-    return `perf_v7_${fKey}_${effectiveStartDate}_${effectiveEndDate}_${performancePage}_${performancePageSize}`;
+    return `perf_v8_${fKey}_${effectiveStartDate}_${effectiveEndDate}_${performancePage}_${performancePageSize}`;
   }, [formId, formIds, effectiveStartDate, effectiveEndDate, performancePage, performancePageSize]);
 
   // ✅ Load performance data with caching and timeout

@@ -2356,7 +2356,7 @@ const performanceTableCache = new Map();
 
 const buildPerformanceTableCacheKey = ({
   tenantKey, startDate, endDate, formId, queryTenantId, page, limit
-}) => JSON.stringify({ v: 'v27', tenantKey, startDate, endDate, formId, queryTenantId, page, limit });
+}) => JSON.stringify({ v: 'v28', tenantKey, startDate, endDate, formId, queryTenantId, page, limit });
 
 const getCachedPerformanceTable = (key) => {
   const entry = performanceTableCache.get(key);
@@ -2592,9 +2592,10 @@ export const getPerformanceTable = async (req, res) => {
       tenantNameMap.set(t._id.toString(), t.name || t.companyName || 'Unknown Plant');
     });
 
-    // Build response query
+    // Build response query — must exclude section-submit responses to match getQualitySummary
     const responseBaseFilter = {
-      createdAt: { $gte: start, $lte: end }
+      createdAt: { $gte: start, $lte: end },
+      isSectionSubmit: { $ne: true }
     };
 
     if (formIdVariants && formIdVariants.length > 0) {
@@ -3899,7 +3900,7 @@ export const getQualitySummary = async (req, res) => {
 
     // ─── Cache check (3 minute TTL) ─────────────────────────────────────
     const formKeyForCache = selectedFormIdList.length > 0 ? [...selectedFormIdList].sort().join(',') : 'all';
-    const cacheKey = `quality_summary_v27_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
+    const cacheKey = `quality_summary_v28_${userTenantId || 'superadmin'}_${formKeyForCache}_${startDate || ''}_${endDate || ''}_${queryTenantId || ''}`;
     const shouldBypassCache = req.query.forceNetwork === 'true' || req.query.bypassCache === 'true' || req.headers?.['cache-control'] === 'no-cache';
     if (!shouldBypassCache) {
       const cached = appCache.get(cacheKey);
