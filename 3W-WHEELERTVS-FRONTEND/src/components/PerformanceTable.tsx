@@ -358,18 +358,22 @@ const PerformanceTable = ({
     });
   };
 
+  // Standard inspection statuses that must always be present to guarantee column alignment
+  const STANDARD_STATUSES = useMemo(() => ["Direct Ok", "Rework QC Completed", "Rework QC Pending", "Rejected", "Dispatched"], []);
+
   // Computed values
   const performanceStatuses = useMemo(() => {
     const isNumeric = (str: string) => /^\d+$/.test(str);
     const statuses = Array.from(
-      new Set(
-        perfInspectorSummary.flatMap((item: any) =>
+      new Set([
+        ...STANDARD_STATUSES,
+        ...perfInspectorSummary.flatMap((item: any) =>
           Object.keys(item.statusCounts || {}),
         ),
-      ),
+      ]),
     );
     return statuses.filter(status => !isNumeric(status));
-  }, [perfInspectorSummary]);
+  }, [STANDARD_STATUSES, perfInspectorSummary]);
 
   // Filter data by inspector / user search term
   const filteredData = useMemo(() => {
@@ -1310,18 +1314,34 @@ const PerformanceTable = ({
                             </span>
                           </div>
                         </td>
-                        <td className="px-2 py-2 font-black text-center tabular-nums text-emerald-700 dark:text-emerald-300">
-                          {group.totals.directOk}
-                        </td>
-                        <td className="px-2 py-2 font-black text-center tabular-nums text-amber-700 dark:text-amber-300">
-                          {group.totals.reworkQcCompleted}
-                        </td>
-                        <td className="px-2 py-2 font-black text-center tabular-nums text-amber-700 dark:text-amber-300">
-                          {group.totals.reworkQcPending}
-                        </td>
-                        <td className="px-2 py-2 font-black text-center tabular-nums text-rose-700 dark:text-rose-300">
-                          {group.totals.rejected}
-                        </td>
+                        {performanceStatuses
+                          .filter((status) => status !== "Dispatched")
+                          .map((status) => {
+                            const statusKeyMap: Record<string, string> = {
+                              "Direct Ok": "directOk",
+                              "Rework QC Completed": "reworkQcCompleted",
+                              "Rework QC Pending": "reworkQcPending",
+                              "Rejected": "rejected",
+                            };
+                            const key = statusKeyMap[status];
+                            const count = key ? (group.totals as any)[key] ?? 0 : (group.totals as any)[status] ?? 0;
+                            const colorClass =
+                              status === "Direct Ok" || status === "Rework Accepted"
+                                ? "text-emerald-700 dark:text-emerald-300"
+                                : status.startsWith("Rework")
+                                  ? "text-amber-700 dark:text-amber-300"
+                                  : status === "Rejected"
+                                    ? "text-rose-700 dark:text-rose-300"
+                                    : "text-blue-700 dark:text-blue-300";
+                            return (
+                              <td
+                                key={`group-status-${group.tenantName}-${status}`}
+                                className={`px-2 py-2 font-black text-center tabular-nums ${colorClass}`}
+                              >
+                                {count}
+                              </td>
+                            );
+                          })}
                         <td className="px-2 py-2 font-black text-center tabular-nums text-violet-700 dark:text-violet-300">
                           {group.totals.dispatchPending}
                         </td>

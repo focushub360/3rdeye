@@ -2594,8 +2594,7 @@ export const getPerformanceTable = async (req, res) => {
     const [totalResponsesInRange, allResponses] = await Promise.all([
       Response.countDocuments(responseBaseFilter).maxTimeMS(30000),
       Response.find(responseBaseFilter)
-        .select('createdBy submittedBy isDispatched biwReview status chassisNumber questionId createdAt id _id answers tenantId')
-        .sort({ createdAt: -1 })
+        .select('createdBy submittedBy isDispatched biwReview review tvsReview status chassisNumber questionId createdAt id _id tenantId')
         .limit(10000)
         .maxTimeMS(30000)
         .lean(),
@@ -2704,43 +2703,39 @@ export const getPerformanceTable = async (req, res) => {
     )];
 
     if (submitterNamesFromResponses.length > 0) {
-      console.log(`[Performance Table] Searching users for ${submitterNamesFromResponses.length} submitter names`);
-      const orClauses = [];
-      submitterNamesFromResponses.forEach(name => {
-        const cleanLower = name.toLowerCase();
-        orClauses.push({ email: cleanLower });
-        orClauses.push({ username: { $regex: new RegExp(`^${name}$`, 'i') } });
-        orClauses.push({ $expr: { $eq: [{ $toLower: { $concat: ['$firstName', ' ', '$lastName'] } }, cleanLower] } });
-        orClauses.push({ $expr: { $eq: [{ $toLower: { $concat: ['$firstName', '$lastName'] } }, cleanLower.replace(/\s+/g, '')] } });
+      try {
+        const allPotentialUsers = await User.find({})
+          .select('firstName lastName username email role tenantId isActive status performanceScore totalReviews acceptedCount rejectedCount reworkCount')
+          .populate('tenantId', 'name companyName')
+          .maxTimeMS(10000)
+          .lean();
 
-        const parts = name.split(' ').filter(Boolean);
-        if (parts.length >= 2) {
-          const first = parts.slice(0, -1).join(' ');
-          const last = parts[parts.length - 1];
-          orClauses.push({
-            firstName: { $regex: new RegExp(`^${first}`, 'i') },
-            lastName: { $regex: new RegExp(`^${last}`, 'i') }
+        const existingIds = new Set(users.map(u => u._id.toString()));
+        const matchedNewUsers = [];
+
+        submitterNamesFromResponses.forEach(name => {
+          const cleanLower = name.toLowerCase();
+          const found = allPotentialUsers.find(u => {
+            const fullName = `${u.firstName || ''} ${u.lastName || ''}`.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+            return (
+              (fullName && fullName === cleanLower) ||
+              (u.email && u.email.toLowerCase() === cleanLower) ||
+              (u.username && u.username.toLowerCase() === cleanLower) ||
+              (u.firstName && u.firstName.toLowerCase() === cleanLower)
+            );
           });
-        }
-      });
-
-      if (orClauses.length > 0) {
-        try {
-          const submitterUsers = await User.find({ $or: orClauses })
-            .select('firstName lastName username email role tenantId isActive status performanceScore totalReviews acceptedCount rejectedCount reworkCount')
-            .populate('tenantId', 'name companyName')
-            .maxTimeMS(30000)
-            .lean();
-
-          if (submitterUsers.length > 0) {
-            const existingIds = new Set(users.map(u => u._id.toString()));
-            const newUsers = submitterUsers.filter(u => !existingIds.has(u._id.toString()));
-            users = [...users, ...newUsers];
-            console.log(`[Performance Table] Added ${newUsers.length} users matched from submittedBy names`);
+          if (found && !existingIds.has(found._id.toString())) {
+            existingIds.add(found._id.toString());
+            matchedNewUsers.push(found);
           }
-        } catch (sErr) {
-          console.error('Error fetching users by submittedBy names:', sErr);
+        });
+
+        if (matchedNewUsers.length > 0) {
+          users = [...users, ...matchedNewUsers];
+          console.log(`[Performance Table] Added ${matchedNewUsers.length} users matched from submittedBy names in memory`);
         }
+      } catch (sErr) {
+        console.error('Error fetching users by submittedBy names:', sErr);
       }
     }
 
@@ -3200,15 +3195,7 @@ export const getPerformanceTable = async (req, res) => {
       if (stats.responses.length > 0) {
         const chassisGroups = new Map();
         stats.responses.forEach(response => {
-          const answersObj = response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers;
-          let chassisKey = 'unknown';
-
-          for (const [key, value] of Object.entries(answersObj || {})) {
-            if (key.includes('chassis') || key.includes('Chassis')) {
-              chassisKey = String(value);
-              break;
-            }
-          }
+          const chassisKey = String(response.chassisNumber || response.id || response._id || 'unknown');
 
           if (!chassisGroups.has(chassisKey)) {
             chassisGroups.set(chassisKey, []);
