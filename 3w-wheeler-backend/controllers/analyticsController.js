@@ -2356,7 +2356,7 @@ const performanceTableCache = new Map();
 
 const buildPerformanceTableCacheKey = ({
   tenantKey, startDate, endDate, formId, queryTenantId, page, limit
-}) => JSON.stringify({ v: 'v28', tenantKey, startDate, endDate, formId, queryTenantId, page, limit });
+}) => JSON.stringify({ v: 'v29', tenantKey, startDate, endDate, formId, queryTenantId, page, limit });
 
 const getCachedPerformanceTable = (key) => {
   const entry = performanceTableCache.get(key);
@@ -2563,7 +2563,14 @@ export const getPerformanceTable = async (req, res) => {
         ]
       }).select('id _id tenantId sharedWithTenants chassisTenantAssignments sections parentFormId').maxTimeMS(30000).lean() : [];
 
-      const combinedDocs = [...baseForms, ...childDocs];
+      // Deduplicate combined docs by MongoDB _id to prevent double-counting
+      const seenDocIds = new Set();
+      const combinedDocs = [...baseForms, ...childDocs].filter(f => {
+        const docId = f._id?.toString();
+        if (!docId || seenDocIds.has(docId)) return false;
+        seenDocIds.add(docId);
+        return true;
+      });
       formDocs = combinedDocs;
       formDoc = combinedDocs[0] || null;
       formIdVariants = [];
@@ -3155,13 +3162,15 @@ export const getPerformanceTable = async (req, res) => {
 
     Object.values(userMap).forEach(user => {
       const uId = user._id.toString();
+      const tIdStr = user.tenantId?._id?.toString() || user.tenantId?.toString() || '';
+      const tName = (tIdStr && tenantNameMap.get(tIdStr)) || user.tenantId?.name || user.tenantId?.companyName || 'Unknown Plant';
       userStatsMap.set(uId, {
         userId: uId,
-        userName: `${user.firstName} ${user.lastName}`,
-        userEmail: user.email,
-        userRole: user.role,
-        tenantId: user.tenantId?.toString(),
-        tenantName: user.tenantId?.name || user.tenantId?.companyName || 'Unknown Tenant',
+        userName: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+        userEmail: user.email || '',
+        userRole: user.role || 'inspector',
+        tenantId: tIdStr,
+        tenantName: tName,
         totalSubmitted: 0,
         directOk: 0,
         reworkQcCompleted: 0,
@@ -3230,12 +3239,24 @@ export const getPerformanceTable = async (req, res) => {
         || (matchedUser?.tenantId?.name || matchedUser?.tenantId?.companyName)
         || (respTenantId === userTenantId?.toString() ? (req.user?.tenantName || 'Main Plant') : 'Unknown Plant');
 
-      // Key by (tenantId + user) so that submissions under LMPL vs Saify are cleanly segregated per plant
-      const statsKey = `${respTenantId || 'default'}___${userId}`;
+      // Single entry per inspector/user to ensure exact match with Quality Summary / Pie Chart
+      let statsKey = matchedUser ? matchedUser._id.toString() : null;
+      if (!statsKey && rawSubmittedBy) {
+        const rawLower = rawSubmittedBy.toLowerCase();
+        for (const [k, s] of userStatsMap) {
+          if ((s.userName || '').toLowerCase() === rawLower) {
+            statsKey = k;
+            break;
+          }
+        }
+      }
+      if (!statsKey) {
+        statsKey = userId || 'unknown';
+      }
 
       if (!userStatsMap.has(statsKey)) {
         userStatsMap.set(statsKey, {
-          userId,
+          userId: statsKey,
           userName: userName,
           userEmail: matchedUser?.email || '',
           userRole: matchedUser?.role || 'inspector',
@@ -3266,6 +3287,12 @@ export const getPerformanceTable = async (req, res) => {
           performanceScore: 0,
           responses: []
         });
+      } else {
+        const existingEntry = userStatsMap.get(statsKey);
+        if (respTenantName && respTenantName !== 'Unknown Plant' && (!existingEntry.tenantName || existingEntry.tenantName === 'Unknown Tenant' || existingEntry.tenantName === 'Unknown Plant')) {
+          existingEntry.tenantName = respTenantName;
+          if (respTenantId) existingEntry.tenantId = respTenantId;
+        }
       }
 
       const stats = userStatsMap.get(statsKey);
@@ -3363,16 +3390,16 @@ export const getPerformanceTable = async (req, res) => {
         stats.reworkQcPending = stats.defectCount;
         stats.reworkQcCompleted = matchAgg.reworkAcceptedCount || 0;
         stats.rejected = matchAgg.rejectedCount || 0;
-        stats.dispatched = matchAgg.dispatched || stats.dispatched || 0;
+        stats.dispatched = matchAgg.dispatched !== undefined ? matchAgg.dispatched : (stats.dispatched || 0);
         stats.dispatchPending = Math.max(0, stats.directOk + stats.reworkQcCompleted - stats.dispatched);
-        stats.biwTotalReviewed = matchAgg.biwTotalReviewed || stats.biwTotalReviewed || 0;
-        stats.biwAccepted = matchAgg.biwAccepted || stats.biwAccepted || 0;
-        stats.biwRejected = matchAgg.biwRejected || stats.biwRejected || 0;
-        stats.biwReworked = matchAgg.biwReworked || stats.biwReworked || 0;
-        stats.tvsTotalReviewed = matchAgg.tvsTotalReviewed || stats.tvsTotalReviewed || 0;
-        stats.tvsAccepted = matchAgg.tvsAccepted || stats.tvsAccepted || 0;
-        stats.tvsRejected = matchAgg.tvsRejected || stats.tvsRejected || 0;
-        stats.tvsReworked = matchAgg.tvsReworked || stats.tvsReworked || 0;
+        stats.biwTotalReviewed = matchAgg.biwTotalReviewed !== undefined ? matchAgg.biwTotalReviewed : (stats.biwTotalReviewed || 0);
+        stats.biwAccepted = matchAgg.biwAccepted !== undefined ? matchAgg.biwAccepted : (stats.biwAccepted || 0);
+        stats.biwRejected = matchAgg.biwRejected !== undefined ? matchAgg.biwRejected : (stats.biwRejected || 0);
+        stats.biwReworked = matchAgg.biwReworked !== undefined ? matchAgg.biwReworked : (stats.biwReworked || 0);
+        stats.tvsTotalReviewed = matchAgg.tvsTotalReviewed !== undefined ? matchAgg.tvsTotalReviewed : (stats.tvsTotalReviewed || 0);
+        stats.tvsAccepted = matchAgg.tvsAccepted !== undefined ? matchAgg.tvsAccepted : (stats.tvsAccepted || 0);
+        stats.tvsRejected = matchAgg.tvsRejected !== undefined ? matchAgg.tvsRejected : (stats.tvsRejected || 0);
+        stats.tvsReworked = matchAgg.tvsReworked !== undefined ? matchAgg.tvsReworked : (stats.tvsReworked || 0);
       } else {
         stats.dispatchPending = Math.max(0, stats.directOk + stats.reworkQcCompleted - stats.dispatched);
       }
@@ -3402,7 +3429,10 @@ export const getPerformanceTable = async (req, res) => {
       const existing = Array.from(userStatsMap.values()).find(s => (s.userName || '').toLowerCase() === lower);
       if (!existing && ai.totalSubmitted > 0) {
         const u = users.find(u => `${u.firstName || ''} ${u.lastName || ''}`.trim().toLowerCase() === lower || u.username?.toLowerCase() === lower);
-        const tenantName = u?.tenantId?.companyName || u?.tenantId?.name || '';
+        const sampleResp = allResponses.find(r => (r.submittedBy || '').trim().toLowerCase() === lower);
+        const respTId = sampleResp?.tenantId?.toString() || (sampleResp?.questionId && formTenantMap.get(sampleResp.questionId.toString()));
+        const uTId = u?.tenantId?._id?.toString() || u?.tenantId?.toString() || respTId;
+        const tenantName = (uTId && tenantNameMap.get(uTId)) || u?.tenantId?.companyName || u?.tenantId?.name || 'Unknown Plant';
         const dOk = Math.max(0, ai.totalSubmitted - (ai.defectCount || 0));
         const disp = ai.dispatched || 0;
         const totalRev = (ai.biwTotalReviewed || 0) + (ai.tvsTotalReviewed || 0);

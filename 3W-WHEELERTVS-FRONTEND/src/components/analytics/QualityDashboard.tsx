@@ -142,7 +142,7 @@ const qualitySummaryClientCache = new Map<string, {
   timestamp: number;
 }>();
 
-const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v23_';
+const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v24_';
 
 const isValidSummaryData = (item: any): boolean => {
   const d = item?.data || item;
@@ -1380,7 +1380,7 @@ export const QualityDashboard: React.FC = () => {
   // Clean up any stale legacy caches on mount
   useEffect(() => {
     try {
-      const prefixes = ['quality_summary_swr_', 'quality_summary_v15_', 'quality_summary_v16_', 'v15_', 'v16_'];
+      const prefixes = ['quality_summary_swr_', 'quality_summary_v15_', 'quality_summary_v16_', 'v15_', 'v16_', 'perf_v5_', 'perf_v6_', 'perf_v7_', 'perf_v8_'];
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
         if (k && prefixes.some(p => k.startsWith(p)) && !k.startsWith(SWR_STORAGE_KEY_PREFIX)) {
