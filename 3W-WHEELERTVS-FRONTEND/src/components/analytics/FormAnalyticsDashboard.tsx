@@ -1742,7 +1742,7 @@ export default function FormAnalyticsDashboard({
           let target: string[] | null = null;
           if (spLower === "direct ok") target = ["Direct Ok"];
           else if (spLower === "rework accepted" || spLower === "rework completed") target = ["Rework Accepted"];
-          else if (spLower === "rework 1" || spLower === "rework") target = ["Rework"];
+          else if (spLower.includes("rework")) target = ["Rework"];
           else if (spLower === "rejected") target = ["Rejected"];
           else target = [statusParam];
           if (target && JSON.stringify(next.__status) !== JSON.stringify(target)) {
@@ -5282,7 +5282,7 @@ export default function FormAnalyticsDashboard({
 
       for (let i = 0; i < allowedValues.length; i++) {
         const avLower = allowedValues[i].toLowerCase().trim();
-        if (avLower === "rework" || avLower === "ongoing rework") {
+        if ((avLower.includes("rework") && avLower !== "rework accepted" && avLower !== "rework completed") || avLower === "ongoing rework") {
           const isReworkStatus = rawStatus.includes("rework") && rawStatus !== "rework accepted" && rawStatus !== "rework completed";
           if (isReworkStatus) {
             const itemId = getChassisOrItemId(response, chassisQuestionId);

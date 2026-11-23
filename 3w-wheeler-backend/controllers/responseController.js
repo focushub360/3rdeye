@@ -4282,7 +4282,136 @@ export const getAllResponses = async (req, res) => {
 
     // Filter by status
     if (status && status !== 'all') {
-      query.status = status;
+      const sLower = String(status).toLowerCase().trim();
+      if (sLower === 'direct ok') {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $and: [
+            { 'biwReview.status': { $nin: ['Rejected', 'Reworked', 'rejected', 'reworked'] } },
+            { 'review.status': { $nin: ['Rejected', 'Rework', 'Reworked', 'rejected', 'rework', 'reworked'] } },
+            { 'review.reviewOption': { $nin: ['Rejected', 'Rework', 'Reworked', 'rejected', 'rework', 'reworked'] } },
+            { status: { $not: { $regex: 'rework|reject|fail', $options: 'i' } } },
+            {
+              $expr: {
+                $not: {
+                  $anyElementTrue: {
+                    $map: {
+                      input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                      as: 'ans',
+                      in: {
+                        $regexMatch: {
+                          input: {
+                            $toLower: {
+                              $ifNull: [
+                                '$$ans.v.status',
+                                {
+                                  $cond: [
+                                    { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                    '$$ans.v',
+                                    ''
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          regex: 'rework|rejected|defect|fail|not ok'
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        });
+      } else if (sLower === 'rework accepted' || sLower === 'rework complete') {
+        query.status = { $regex: 'rework accept|rework complete', $options: 'i' };
+      } else if (sLower.includes('rework')) {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $and: [
+            { status: { $not: { $regex: 'rework accept|rework complete', $options: 'i' } } },
+            {
+              $or: [
+                { 'biwReview.status': 'Reworked' },
+                { 'review.status': { $in: ['Rework', 'Reworked', 'rework', 'reworked'] } },
+                { 'review.reviewOption': { $in: ['Rework', 'Reworked', 'rework', 'reworked'] } },
+                { status: { $regex: 'rework(?! accept| complete)', $options: 'i' } },
+                {
+                  $expr: {
+                    $anyElementTrue: {
+                      $map: {
+                        input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                        as: 'ans',
+                        in: {
+                          $regexMatch: {
+                            input: {
+                              $toLower: {
+                                $ifNull: [
+                                  '$$ans.v.status',
+                                  {
+                                    $cond: [
+                                      { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                      '$$ans.v',
+                                      ''
+                                    ]
+                                  }
+                                ]
+                              }
+                            },
+                            regex: 'rework|rejected|defect|fail|not ok'
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        });
+      } else if (sLower === 'rejected') {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $or: [
+            { 'biwReview.status': 'Rejected' },
+            { 'review.status': { $in: ['Rejected', 'rejected'] } },
+            { 'review.reviewOption': { $in: ['Rejected', 'rejected'] } },
+            { status: { $regex: 'reject', $options: 'i' } },
+            {
+              $expr: {
+                $anyElementTrue: {
+                  $map: {
+                    input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                    as: 'ans',
+                    in: {
+                      $regexMatch: {
+                        input: {
+                          $toLower: {
+                            $ifNull: [
+                              '$$ans.v.status',
+                              {
+                                $cond: [
+                                  { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                  '$$ans.v',
+                                  ''
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        regex: 'rejected'
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        });
+      } else {
+        query.status = status;
+      }
     }
 
     // Filter by assigned user
@@ -5125,9 +5254,88 @@ export const getResponsesByForm = async (req, res) => {
       } else if (sLower === 'rework accepted' || sLower === 'rework complete') {
         query.status = { $regex: 'rework accept|rework complete', $options: 'i' };
       } else if (sLower.includes('rework')) {
-        query.status = { $regex: 'rework(?! accept| complete)', $options: 'i' };
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $and: [
+            { status: { $not: { $regex: 'rework accept|rework complete', $options: 'i' } } },
+            {
+              $or: [
+                { 'biwReview.status': 'Reworked' },
+                { 'review.status': { $in: ['Rework', 'Reworked', 'rework', 'reworked'] } },
+                { 'review.reviewOption': { $in: ['Rework', 'Reworked', 'rework', 'reworked'] } },
+                { status: { $regex: 'rework(?! accept| complete)', $options: 'i' } },
+                {
+                  $expr: {
+                    $anyElementTrue: {
+                      $map: {
+                        input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                        as: 'ans',
+                        in: {
+                          $regexMatch: {
+                            input: {
+                              $toLower: {
+                                $ifNull: [
+                                  '$$ans.v.status',
+                                  {
+                                    $cond: [
+                                      { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                      '$$ans.v',
+                                      ''
+                                    ]
+                                  }
+                                ]
+                              }
+                            },
+                            regex: 'rework|rejected|defect|fail|not ok'
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        });
       } else if (sLower === 'rejected') {
-        query.status = { $regex: 'reject', $options: 'i' };
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $or: [
+            { 'biwReview.status': 'Rejected' },
+            { 'review.status': { $in: ['Rejected', 'rejected'] } },
+            { 'review.reviewOption': { $in: ['Rejected', 'rejected'] } },
+            { status: { $regex: 'reject', $options: 'i' } },
+            {
+              $expr: {
+                $anyElementTrue: {
+                  $map: {
+                    input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                    as: 'ans',
+                    in: {
+                      $regexMatch: {
+                        input: {
+                          $toLower: {
+                            $ifNull: [
+                              '$$ans.v.status',
+                              {
+                                $cond: [
+                                  { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                  '$$ans.v',
+                                  ''
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        regex: 'rejected'
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        });
       } else {
         query.status = status;
       }
@@ -6392,7 +6600,136 @@ export const exportResponses = async (req, res) => {
     }
 
     if (status && status !== 'all') {
-      query.status = status;
+      const sLower = String(status).toLowerCase().trim();
+      if (sLower === 'direct ok') {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $and: [
+            { 'biwReview.status': { $nin: ['Rejected', 'Reworked', 'rejected', 'reworked'] } },
+            { 'review.status': { $nin: ['Rejected', 'Rework', 'Reworked', 'rejected', 'rework', 'reworked'] } },
+            { 'review.reviewOption': { $nin: ['Rejected', 'Rework', 'Reworked', 'rejected', 'rework', 'reworked'] } },
+            { status: { $not: { $regex: 'rework|reject|fail', $options: 'i' } } },
+            {
+              $expr: {
+                $not: {
+                  $anyElementTrue: {
+                    $map: {
+                      input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                      as: 'ans',
+                      in: {
+                        $regexMatch: {
+                          input: {
+                            $toLower: {
+                              $ifNull: [
+                                '$$ans.v.status',
+                                {
+                                  $cond: [
+                                    { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                    '$$ans.v',
+                                    ''
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          regex: 'rework|rejected|defect|fail|not ok'
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        });
+      } else if (sLower === 'rework accepted' || sLower === 'rework complete') {
+        query.status = { $regex: 'rework accept|rework complete', $options: 'i' };
+      } else if (sLower.includes('rework')) {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $and: [
+            { status: { $not: { $regex: 'rework accept|rework complete', $options: 'i' } } },
+            {
+              $or: [
+                { 'biwReview.status': 'Reworked' },
+                { 'review.status': { $in: ['Rework', 'Reworked', 'rework', 'reworked'] } },
+                { 'review.reviewOption': { $in: ['Rework', 'Reworked', 'rework', 'reworked'] } },
+                { status: { $regex: 'rework(?! accept| complete)', $options: 'i' } },
+                {
+                  $expr: {
+                    $anyElementTrue: {
+                      $map: {
+                        input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                        as: 'ans',
+                        in: {
+                          $regexMatch: {
+                            input: {
+                              $toLower: {
+                                $ifNull: [
+                                  '$$ans.v.status',
+                                  {
+                                    $cond: [
+                                      { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                      '$$ans.v',
+                                      ''
+                                    ]
+                                  }
+                                ]
+                              }
+                            },
+                            regex: 'rework|rejected|defect|fail|not ok'
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        });
+      } else if (sLower === 'rejected') {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $or: [
+            { 'biwReview.status': 'Rejected' },
+            { 'review.status': { $in: ['Rejected', 'rejected'] } },
+            { 'review.reviewOption': { $in: ['Rejected', 'rejected'] } },
+            { status: { $regex: 'reject', $options: 'i' } },
+            {
+              $expr: {
+                $anyElementTrue: {
+                  $map: {
+                    input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                    as: 'ans',
+                    in: {
+                      $regexMatch: {
+                        input: {
+                          $toLower: {
+                            $ifNull: [
+                              '$$ans.v.status',
+                              {
+                                $cond: [
+                                  { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                  '$$ans.v',
+                                  ''
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        regex: 'rejected'
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        });
+      } else {
+        query.status = status;
+      }
     }
 
     if (startDate || endDate) {

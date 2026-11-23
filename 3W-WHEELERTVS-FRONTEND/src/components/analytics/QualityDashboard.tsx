@@ -3036,7 +3036,7 @@ export const QualityDashboard: React.FC = () => {
                       if (slice === 'pendingTvs') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=pending`;
                       if (slice === 'directOk') return `/forms/${formIdStr}/analytics?tab=responses&status=Direct Ok`;
                       if (slice === 'reworkCompleted') return `/forms/${formIdStr}/analytics?tab=responses&status=Rework Accepted`;
-                      if (slice === 'rework') return `/forms/${formIdStr}/analytics?tab=responses&status=Rework 1`;
+                      if (slice === 'rework') return `/forms/${formIdStr}/analytics?tab=responses&status=Rework`;
                       if (slice === 'rejected') return `/forms/${formIdStr}/analytics?tab=responses&status=Rejected`;
                       return `/forms/${formIdStr}/analytics?tab=responses`;
                     };
