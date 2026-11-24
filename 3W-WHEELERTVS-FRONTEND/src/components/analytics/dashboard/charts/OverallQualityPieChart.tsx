@@ -7,7 +7,7 @@ export interface OverallQualityPieChartProps {
   selectedInspectorForTrend: string;
   tvsReviews: any[];
   inspectionStats: any;
-  onNavigateToResponses: (dispatchFilter?: string) => void;
+  onNavigateToResponses: (filterType?: string, filterValue?: string) => void;
 }
 
 export const OverallQualityPieChart: React.FC<OverallQualityPieChartProps> = ({
@@ -146,9 +146,14 @@ export const OverallQualityPieChart: React.FC<OverallQualityPieChartProps> = ({
               const tvsAccPct = totalCount > 0 ? ((tvsAccCount / totalCount) * 100).toFixed(1) : "0";
               const tvsDefPct = totalCount > 0 ? ((tvsDefCount / totalCount) * 100).toFixed(1) : "0";
 
+              const biwAccCount = totalPieChartData.counts.biwAccepted || 0;
+              const biwDefCount = totalPieChartData.counts.biwDefects || 0;
+              const biwAccPct = totalPieChartData.biwAccepted !== undefined ? totalPieChartData.biwAccepted : (totalCount > 0 ? ((biwAccCount / totalCount) * 100).toFixed(1) : "0");
+              const biwDefPct = totalPieChartData.biwDefects !== undefined ? totalPieChartData.biwDefects : (totalCount > 0 ? ((biwDefCount / totalCount) * 100).toFixed(1) : "0");
+
               return (
                 <div className="overflow-x-auto w-full pb-2">
-                  <div className="grid grid-cols-[130px_minmax(260px,1fr)_130px] sm:grid-cols-[140px_minmax(300px,1fr)_140px] items-center justify-between gap-3 sm:gap-4 min-w-[560px]">
+                  <div className="grid grid-cols-[130px_minmax(240px,1fr)_268px] sm:grid-cols-[140px_minmax(280px,1fr)_288px] items-center justify-between gap-3 sm:gap-4 min-w-[680px]">
                     {/* Left: TVS Review Pipeline Cards placed Top-to-Bottom */}
                     <div className="flex flex-col gap-2 justify-center items-center flex-shrink-0">
                       {/* Total TVS Review */}
@@ -225,8 +230,8 @@ export const OverallQualityPieChart: React.FC<OverallQualityPieChartProps> = ({
                       </div>
                     </div>
 
-                    {/* Right: Pipeline / Dispatch Cards placed Top-to-Bottom */}
-                    <div className="flex flex-col gap-2 justify-center items-center flex-shrink-0">
+                    {/* Right: Pipeline / Dispatch & BIW Review Cards placed in 2 columns */}
+                    <div className="grid grid-cols-2 gap-2 justify-center items-center flex-shrink-0 w-[268px] sm:w-[288px]">
                       {/* Dispatched */}
                       <div
                         onClick={() => onNavigateToResponses("Dispatched / Enabled")}
@@ -262,7 +267,11 @@ export const OverallQualityPieChart: React.FC<OverallQualityPieChartProps> = ({
                       </div>
 
                       {/* Total BIW Review */}
-                      <div className="text-center p-2.5 bg-teal-50/60 dark:bg-teal-950/20 rounded-xl border border-teal-100/70 dark:border-teal-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                      <div
+                        onClick={() => onNavigateToResponses("biw", "all")}
+                        className="text-center p-2.5 bg-teal-50/60 dark:bg-teal-950/20 rounded-xl border border-teal-100/70 dark:border-teal-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm cursor-pointer hover:border-teal-400 hover:scale-[1.02] active:scale-95"
+                        title="Click to view all BIW reviewed responses in table"
+                      >
                         <div className="text-xs sm:text-sm font-bold text-teal-600 dark:text-teal-400">
                           {totalPieChartData.biwReviewed}%
                         </div>
@@ -275,7 +284,11 @@ export const OverallQualityPieChart: React.FC<OverallQualityPieChartProps> = ({
                       </div>
 
                       {/* Pending Data */}
-                      <div className="text-center p-2.5 bg-rose-50/70 dark:bg-rose-950/20 rounded-xl border border-rose-200/80 dark:border-rose-800/40 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm">
+                      <div
+                        onClick={() => onNavigateToResponses("biw", "pending")}
+                        className="text-center p-2.5 bg-rose-50/70 dark:bg-rose-950/20 rounded-xl border border-rose-200/80 dark:border-rose-800/40 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm cursor-pointer hover:border-rose-400 hover:scale-[1.02] active:scale-95"
+                        title="Click to view Pending BIW responses in table"
+                      >
                         <div className="text-xs sm:text-sm font-bold text-rose-600 dark:text-rose-400">
                           {totalPieChartData.pendingData}%
                         </div>
@@ -284,6 +297,40 @@ export const OverallQualityPieChart: React.FC<OverallQualityPieChartProps> = ({
                         </div>
                         <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
                           ({totalPieChartData.counts.pendingData})
+                        </div>
+                      </div>
+
+                      {/* BIW Accepted */}
+                      <div
+                        onClick={() => onNavigateToResponses("biw", "Accepted")}
+                        className="text-center p-2.5 bg-emerald-50/60 dark:bg-emerald-950/20 rounded-xl border border-emerald-100/70 dark:border-emerald-800/30 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm cursor-pointer hover:border-emerald-400 hover:scale-[1.02] active:scale-95"
+                        title="Click to view BIW Accepted responses in table"
+                      >
+                        <div className="text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                          {biwAccPct}%
+                        </div>
+                        <div className="text-[10px] sm:text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
+                          BIW Accepted
+                        </div>
+                        <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                          ({biwAccCount})
+                        </div>
+                      </div>
+
+                      {/* BIW Defects / Rework */}
+                      <div
+                        onClick={() => onNavigateToResponses("biw", "Reworked")}
+                        className="text-center p-2.5 bg-rose-50/70 dark:bg-rose-950/20 rounded-xl border border-rose-200/80 dark:border-rose-800/40 shadow-xs flex flex-col justify-center items-center h-[72px] w-[130px] sm:w-[140px] transition-all hover:shadow-sm cursor-pointer hover:border-rose-400 hover:scale-[1.02] active:scale-95"
+                        title="Click to view BIW Defects / Rework responses in table"
+                      >
+                        <div className="text-xs sm:text-sm font-bold text-rose-600 dark:text-rose-400">
+                          {biwDefPct}%
+                        </div>
+                        <div className="text-[10px] sm:text-[11px] font-semibold text-rose-700 dark:text-rose-300 whitespace-nowrap">
+                          BIW Defects / Rework
+                        </div>
+                        <div className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">
+                          ({biwDefCount})
                         </div>
                       </div>
                     </div>

@@ -4,6 +4,10 @@ import JSZip from "jszip";
 import type { Form, Section, Question } from "../types/forms";
 
 export interface BiwExcelRow {
+  date?: string;
+  assignedTenant?: string;
+  submittedBy?: string;
+  reviewedBy?: string;
   chassisNumber: string;
   biwFeedback?: string;
   biwReason?: string;
@@ -32,6 +36,9 @@ export interface BiwExcelRow {
 
 export const BIW_REVIEW_COLUMNS = [
   "Chassis Number",
+  "Date",
+  "Assigned Tenant",
+  "Reviewed By",
   "BIW Feed back(Accept,Rework,Reject)",
   "Rework and Rejected Resion (Rust..)",
   "Remark",
@@ -162,6 +169,7 @@ export async function downloadBiwReviewTemplate(options: {
   targetTenantTitle?: string;
   targetTenantName?: string;
   childResponses?: any;
+  reviewerOptions?: string[];
 }) {
   const {
     form,
@@ -173,7 +181,8 @@ export async function downloadBiwReviewTemplate(options: {
     targetTenantForm,
     targetTenantTitle,
     targetTenantName,
-    childResponses = {}
+    childResponses = {},
+    reviewerOptions = []
   } = options;
 
   const hasTargetTenant = Boolean(targetTenantForm);
@@ -192,12 +201,89 @@ export async function downloadBiwReviewTemplate(options: {
   const targetDefectOptions = hasTargetTenant ? extractFormDefectReasons(targetTenantForm, responses) : [];
   const statusOptions = ["Accepted", "Rejected", "Rework"];
 
+  // Default known plant inspectors (e.g. Saify, LMPL, Sreedevi)
+  const defaultReviewers = [
+    "Thowseef Imran",
+    "Vikram B",
+    "Thilak S",
+    "Govindaraj R",
+    "Magendiran P",
+    "Divya M",
+    "Saify admin",
+    "Sathiya Seelan A",
+    "Gokula Krishnan R",
+    "Naveen kumar K",
+    "Irfan Khan D",
+    "Karthikeyan K",
+    "Vinu B",
+    "Nanmaran E",
+    "Manoj Mohan",
+    "Shivaliingam N",
+    "Saravanan L",
+    "Ranjith S",
+    "Sree sree",
+    "Krishna kanth",
+    "Jayaprakash J",
+    "Sanjai S",
+    "Kishore L"
+  ];
+
+  const reviewerSet = new Set<string>();
+  if (Array.isArray(reviewerOptions)) {
+    reviewerOptions.forEach((r) => {
+      const clean = String(r || "").trim();
+      if (clean && clean !== "Excel Import" && clean !== "Anonymous") reviewerSet.add(clean);
+    });
+  }
+  if (Array.isArray(responses)) {
+    responses.forEach((r) => {
+      const revName =
+        r.biwReview?.reviewedByName ||
+        (typeof r.biwReview?.reviewedBy === "string" && !/^[0-9a-f]{24}$/i.test(r.biwReview.reviewedBy)
+          ? r.biwReview.reviewedBy
+          : "");
+      if (revName && String(revName).trim()) reviewerSet.add(String(revName).trim());
+      if (r.submittedBy && String(r.submittedBy).trim() && r.submittedBy !== "Excel Import") {
+        reviewerSet.add(String(r.submittedBy).trim());
+      }
+    });
+  }
+  defaultReviewers.forEach((dr) => reviewerSet.add(dr));
+  const finalReviewerOptions = Array.from(reviewerSet).sort((a, b) => a.localeCompare(b));
+
+  // Tenant ID to name lookup map
+  const tenantIdMap: Record<string, string> = {
+    "6a461748cbbdff3abd815c29": "LMPL",
+    "6a47564e60eb9da6a9b29e3e": "Saify",
+    "6a47539460eb9da6a9b29b58": "Sreedevi",
+    "6a4c9d8fcd7f99bc91eee120": "TVS 3W",
+    "6a4faadde1b1feb23fa74124": "Nahars"
+  };
+
+  const defaultTenants = ["LMPL", "Saify", "Sreedevi", "TVS 3W", "Nahars"];
+  const tenantSet = new Set<string>();
+  if (mainTenantName && String(mainTenantName).trim()) tenantSet.add(String(mainTenantName).trim());
+  if (targetTenantName && String(targetTenantName).trim()) tenantSet.add(String(targetTenantName).trim());
+  defaultTenants.forEach((t) => tenantSet.add(t));
+  if (Array.isArray(responses)) {
+    responses.forEach((r: any) => {
+      if (r?.tenantName) tenantSet.add(String(r.tenantName).trim());
+      if (r?.plant) tenantSet.add(String(r.plant).trim());
+      if (r?.assignedTenant) tenantSet.add(String(r.assignedTenant).trim());
+      if (r?.tenantId?.name) tenantSet.add(String(r.tenantId.name).trim());
+    });
+  }
+  const finalTenantOptions = Array.from(tenantSet).filter(Boolean).sort((a, b) => a.localeCompare(b));
+
   // 1. Prepare Main Sheet Data (Header + Rows)
   const mainSheetData: any[][] = [];
 
-  // Header row: Columns A-E (BIW), F-I (1st Main TVS), and J-M (2nd Target Tenant TVS cloned!)
+  // Header row: Columns A (Chassis), B (Date), C (Assigned Tenant), D (Reviewed By), E-H (BIW), I-L (1st Main TVS), and M-P (2nd Target Tenant TVS cloned!)
   const headers = [
     "Chassis Number",
+    "Date",
+    "Assigned Tenant",
+    "Reviewed By",
     "BIW Feed back(Accept,Rework,Reject)",
     "Rework and Rejected Resion (Rust..)",
     "Remark",
@@ -219,18 +305,287 @@ export async function downloadBiwReviewTemplate(options: {
 
   mainSheetData.push(headers);
 
+  // Identify chassis question ID from form template if available
+  let formChassisQuestionId: string | null = null;
+  if (form?.sections && Array.isArray(form.sections)) {
+    // Priority 1: Explicit tracking flag (exclude defect inspection questions like zone-in / zone-out)
+    for (const section of form.sections) {
+      if (section.questions) {
+        for (const q of section.questions) {
+          if (
+            (q.trackResponseRank === true ||
+              q.trackResponseRank === "true" ||
+              q.trackResponseQuestion === true ||
+              q.trackResponseQuestion === "true") &&
+            q.type !== "zone-in" &&
+            q.type !== "zone-out"
+          ) {
+            formChassisQuestionId = q.id;
+            break;
+          }
+        }
+      }
+      if (formChassisQuestionId) break;
+    }
+    // Priority 2: Title or text explicitly mentioning Chassis, VIN, or Identification
+    if (!formChassisQuestionId) {
+      for (const section of form.sections) {
+        if (section.questions) {
+          for (const q of section.questions) {
+            const t = String(q.text || q.title || "").toLowerCase();
+            if (
+              (t.includes("chassis") ||
+                t.includes("vin") ||
+                t.includes("identification") ||
+                t.includes("id no") ||
+                t.includes("id number")) &&
+              q.type !== "zone-in" &&
+              q.type !== "zone-out"
+            ) {
+              formChassisQuestionId = q.id;
+              break;
+            }
+          }
+        }
+        if (formChassisQuestionId) break;
+      }
+    }
+  }
+
+  // Plant / vendor identifiers that should NOT be mistaken for individual unit chassis numbers
+  const ignoredUnitNames = new Set(["TVS", "EXCEL IMPORT", "SAIFY", "SRIDEVI", "LMPL", "N/A", "-", "NONE"]);
+
+  // Helper to extract clean chassis string from response
+  const getChassisFromResponse = (r: any): string => {
+    if (!r) return "";
+    const a = r.answers || {};
+
+    // 1. Check form-level identified chassis question
+    if (formChassisQuestionId && a[formChassisQuestionId] !== undefined && a[formChassisQuestionId] !== null) {
+      const val = a[formChassisQuestionId];
+      const str = typeof val === "object" ? val?.chassisNumber || val?.value || val?.label : val;
+      if (str && String(str).trim() !== "" && !ignoredUnitNames.has(String(str).trim().toUpperCase())) {
+        return String(str).trim();
+      }
+    }
+    if (formChassisQuestionId && a[`${formChassisQuestionId}_tracking`] !== undefined && a[`${formChassisQuestionId}_tracking`] !== null) {
+      const val = a[`${formChassisQuestionId}_tracking`];
+      const str = typeof val === "object" ? val?.chassisNumber || val?.value || val?.label : val;
+      if (str && String(str).trim() !== "" && !ignoredUnitNames.has(String(str).trim().toUpperCase())) {
+        return String(str).trim();
+      }
+    }
+
+    // 2. Check candidate keys in answers
+    const candidates = [
+      "Identification no",
+      "identification no",
+      "Identification No",
+      "chassisNumber",
+      "chassis_number",
+      "Chassis Number",
+      "CHASSIS NUMBER",
+      "Chassis / VIN",
+      "vin",
+      "VIN",
+      "id_number",
+      "idNumber",
+      "ID Number",
+      "cha",
+      "che"
+    ];
+    for (const c of candidates) {
+      if (a[c] !== undefined && a[c] !== null) {
+        const raw = a[c];
+        const val = typeof raw === "object" ? raw?.chassisNumber || raw?.value || raw?.label : raw;
+        if (val && String(val).trim() !== "" && !ignoredUnitNames.has(String(val).trim().toUpperCase())) {
+          return String(val).trim();
+        }
+      }
+    }
+
+    // 3. Scan any answer containing "chassis", "vin", or "identification"
+    for (const [k, v] of Object.entries(a)) {
+      const lk = k.toLowerCase();
+      if ((lk.includes("chassis") || lk.includes("vin") || lk.includes("identification")) && v) {
+        const val = typeof v === "object" ? (v as any)?.chassisNumber || (v as any)?.value || (v as any)?.label : v;
+        if (val && String(val).trim() !== "" && !ignoredUnitNames.has(String(val).trim().toUpperCase())) {
+          return String(val).trim();
+        }
+      }
+    }
+
+    // 4. Direct top-level systemChassisNumber or chassisNumber (exclude known plant/vendor tags)
+    if (r.systemChassisNumber && !ignoredUnitNames.has(String(r.systemChassisNumber).trim().toUpperCase())) {
+      return String(r.systemChassisNumber).trim();
+    }
+    if (r.chassisNumber && !ignoredUnitNames.has(String(r.chassisNumber).trim().toUpperCase())) {
+      return String(r.chassisNumber).trim();
+    }
+
+    // 5. Fallback if nothing else found
+    if (r.chassisNumber && r.chassisNumber !== "TVS" && r.chassisNumber !== "Excel Import") {
+      return String(r.chassisNumber).trim();
+    }
+
+    return "";
+  };
+
+  // Helper to extract formatted date and timestamp
+  const getDateInfo = (r: any): { dateStr: string; timestampNum: number } => {
+    if (!r) return { dateStr: "", timestampNum: 0 };
+    const raw =
+      r.submittedAt ||
+      r.createdAt ||
+      r.timestamp ||
+      r.submissionMetadata?.submittedAt ||
+      r.submissionMetadata?.capturedLocation?.capturedAt;
+    if (!raw) return { dateStr: "", timestampNum: 0 };
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return { dateStr: "", timestampNum: 0 };
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return { dateStr: `${y}-${m}-${day}`, timestampNum: d.getTime() };
+  };
+
+  // Helper to extract submitter / inspector name
+  const getSubmitterName = (r: any): string => {
+    if (!r) return "";
+    return (
+      r.submittedBy ||
+      r.submittedByName ||
+      r.createdBy ||
+      (r as any).workerName ||
+      r.answers?.["inspector_name"] ||
+      r.answers?.["Inspector Name"] ||
+      r.answers?.["inspector"] ||
+      ""
+    );
+  };
+
+  // Helper to resolve assigned tenant based on performance table truth
+  const getAssignedTenantForChassis = (ch: string, r: any): string => {
+    // 1. Direct tenant property on response if present
+    if (r?.tenantName && typeof r.tenantName === "string" && r.tenantName.trim()) {
+      return r.tenantName.trim();
+    }
+    if (r?.plant && typeof r.plant === "string" && r.plant.trim()) {
+      return r.plant.trim();
+    }
+    if (r?.assignedTenant && typeof r.assignedTenant === "string" && r.assignedTenant.trim()) {
+      return r.assignedTenant.trim();
+    }
+    if (r?.tenantId) {
+      if (typeof r.tenantId === "object" && (r.tenantId.name || r.tenantId.companyName)) {
+        return (r.tenantId.name || r.tenantId.companyName).trim();
+      }
+      const tIdStr = String(r.tenantId).trim();
+      if (tenantIdMap[tIdStr]) return tenantIdMap[tIdStr];
+    }
+
+    // 2. Check form chassisTenantAssignments
+    if (form?.chassisTenantAssignments && Array.isArray(form.chassisTenantAssignments)) {
+      const chClean = (ch || "").toUpperCase().trim();
+      const rChClean = (r?.chassisNumber || "").toUpperCase().trim();
+      const rSysClean = (r?.systemChassisNumber || "").toUpperCase().trim();
+
+      const foundAssignment = form.chassisTenantAssignments.find((a: any) => {
+        const aCh = String(a.chassisNumber || "").toUpperCase().trim();
+        return (
+          aCh === chClean ||
+          aCh === rChClean ||
+          aCh === rSysClean ||
+          (r?.answers && Object.values(r.answers).some((val) => String(val).toUpperCase().trim() === aCh))
+        );
+      });
+
+      if (foundAssignment) {
+        if (foundAssignment.tenantName) return String(foundAssignment.tenantName).trim();
+        const aChRaw = String(foundAssignment.chassisNumber || "").trim();
+        if (["Saify", "LMPL", "Sreedevi", "TVS", "Nahars"].some((t) => t.toLowerCase() === aChRaw.toLowerCase())) {
+          return aChRaw;
+        }
+        if (Array.isArray(foundAssignment.assignedTenants) && foundAssignment.assignedTenants.length > 0) {
+          const tId = String(foundAssignment.assignedTenants[0]);
+          if (tenantIdMap[tId]) return tenantIdMap[tId];
+        }
+      }
+    }
+
+    // 3. If chassisNumber itself was used as the plant/vendor tag (e.g. 'Saify', 'LMPL', 'Sreedevi')
+    if (r?.chassisNumber && typeof r.chassisNumber === "string") {
+      const cn = r.chassisNumber.trim();
+      if (["Saify", "LMPL", "Sreedevi", "TVS", "Nahars"].some((t) => t.toLowerCase() === cn.toLowerCase())) {
+        return cn;
+      }
+    }
+
+    // 4. Submitter / Inspector mapping (matches performance table truth)
+    const sub = String(r?.submittedBy || r?.submittedByName || "").toLowerCase().trim();
+    if (sub) {
+      if (
+        sub.includes("sathiya") ||
+        sub.includes("naveen") ||
+        sub.includes("gokula") ||
+        sub.includes("irfan") ||
+        sub.includes("karthikeyan") ||
+        sub.includes("vinu") ||
+        sub.includes("nanmaran") ||
+        sub.includes("lmpl")
+      ) {
+        return "LMPL";
+      }
+      if (
+        sub.includes("thowseef") ||
+        sub.includes("vikram") ||
+        sub.includes("thilak") ||
+        sub.includes("govindaraj") ||
+        sub.includes("magendiran") ||
+        sub.includes("divya") ||
+        sub.includes("saify")
+      ) {
+        return "Saify";
+      }
+      if (
+        sub.includes("shivaliingam") ||
+        sub.includes("saravanan") ||
+        sub.includes("ranjith") ||
+        sub.includes("sree") ||
+        sub.includes("krishna") ||
+        sub.includes("jayaprakash") ||
+        sub.includes("sanjai") ||
+        sub.includes("kishore")
+      ) {
+        return "Sreedevi";
+      }
+    }
+
+    // 5. Fallback to mainTenantName
+    if (mainTenantName && typeof mainTenantName === "string" && mainTenantName.trim()) {
+      return mainTenantName.trim();
+    }
+
+    return "LMPL";
+  };
+
   // Map existing responses by chassis identifiers to pre-load current review status
   const responseMap = new Map<string, any>();
   if (responses && Array.isArray(responses)) {
     responses.forEach((r) => {
       const a = r.answers || {};
+      const resolvedChassis = getChassisFromResponse(r);
       const keys: string[] = [
+        resolvedChassis,
         r.chassisNumber,
         (r as any).systemChassisNumber,
+        formChassisQuestionId ? a[formChassisQuestionId] : null,
         a["Identification no"],
         a["identification no"],
         a["Identification No"],
         a["chassisNumber"],
+        a["chassis_number"],
+        a["Chassis Number"],
         a["cha"],
         a["che"]
       ];
@@ -252,27 +607,105 @@ export async function downloadBiwReviewTemplate(options: {
     });
   }
 
-  // Filter out system tags like "TVS" or blank values and collect unique chassis numbers
-  let validChassis = Array.from(
-    new Set(
-      chassisNumbers
-        .map((c) => String(c || "").trim())
-        .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import")
-    )
-  );
-
-  // If no chassis was explicitly passed, extract from responses
-  if (validChassis.length === 0 && responseMap.size > 0) {
-    validChassis = Array.from(responseMap.keys()).filter(
-      (k) => k.toUpperCase() !== "TVS" && k !== "EXCEL IMPORT"
-    );
+  // Build unified inspection items list: chassis, date, assignedTenant, submittedBy, response
+  interface TemplateRowItem {
+    chassis: string;
+    date: string;
+    assignedTenant: string;
+    submittedBy: string;
+    timestamp: number;
+    matchedResp: any;
   }
 
-  // Provide rows: prefill actual chassis numbers and their current BIW & TVS statuses
-  const rowsCount = Math.max(validChassis.length, 30);
+  const items: TemplateRowItem[] = [];
+  const seenChassis = new Set<string>();
+
+  // If responses provided, build items from them
+  if (responses && Array.isArray(responses) && responses.length > 0) {
+    responses.forEach((r) => {
+      const ch = getChassisFromResponse(r);
+      if (ch && !ignoredUnitNames.has(ch.toUpperCase()) && !seenChassis.has(ch.toUpperCase())) {
+        const { dateStr, timestampNum } = getDateInfo(r);
+        const sub = getSubmitterName(r);
+        const assignedTenantStr = getAssignedTenantForChassis(ch, r);
+        items.push({
+          chassis: ch,
+          date: dateStr,
+          assignedTenant: assignedTenantStr,
+          submittedBy: sub,
+          timestamp: timestampNum,
+          matchedResp: r
+        });
+        seenChassis.add(ch.toUpperCase());
+      }
+    });
+  }
+
+  // Also include any chassisNumbers that weren't in responses
+  if (Array.isArray(chassisNumbers)) {
+    chassisNumbers.forEach((rawCh) => {
+      const ch = String(rawCh || "").trim();
+      if (ch && !ignoredUnitNames.has(ch.toUpperCase()) && !seenChassis.has(ch.toUpperCase())) {
+        const matchedResp = responseMap.get(ch.toUpperCase()) || null;
+        const { dateStr, timestampNum } = getDateInfo(matchedResp);
+        const sub = getSubmitterName(matchedResp);
+        const assignedTenantStr = getAssignedTenantForChassis(ch, matchedResp);
+        items.push({
+          chassis: ch,
+          date: dateStr,
+          assignedTenant: assignedTenantStr,
+          submittedBy: sub,
+          timestamp: timestampNum,
+          matchedResp
+        });
+        seenChassis.add(ch.toUpperCase());
+      }
+    });
+  }
+
+  // If no responses or chassis passed, fallback from responseMap
+  if (items.length === 0 && responseMap.size > 0) {
+    responseMap.forEach((r, normKey) => {
+      if (!ignoredUnitNames.has(normKey) && !seenChassis.has(normKey)) {
+        const ch = getChassisFromResponse(r) || normKey;
+        if (ch && !ignoredUnitNames.has(ch.toUpperCase()) && !seenChassis.has(ch.toUpperCase())) {
+          const { dateStr, timestampNum } = getDateInfo(r);
+          const sub = getSubmitterName(r);
+          const assignedTenantStr = getAssignedTenantForChassis(ch, r);
+          items.push({
+            chassis: ch,
+            date: dateStr,
+            assignedTenant: assignedTenantStr,
+            submittedBy: sub,
+            timestamp: timestampNum,
+            matchedResp: r
+          });
+          seenChassis.add(ch.toUpperCase());
+        }
+      }
+    });
+  }
+
+  // Sort naturally by chassis number
+  items.sort((a, b) => {
+    return String(a.chassis || "").localeCompare(String(b.chassis || ""), undefined, { numeric: true });
+  });
+
+  // Provide rows: if items exist, generate rows for all items; if empty, provide 30 blank rows for manual entry
+  const rowsCount = items.length > 0 ? items.length : 30;
   for (let i = 0; i < rowsCount; i++) {
-    const ch = validChassis[i] || "";
-    const matchedResp = ch ? responseMap.get(ch.toUpperCase()) : null;
+    const item = items[i];
+    const ch = item?.chassis || "";
+    const matchedResp = item?.matchedResp || (ch ? responseMap.get(ch.toUpperCase()) : null);
+    const dateVal = item?.date || (matchedResp ? getDateInfo(matchedResp).dateStr : "");
+    const assignedTenantVal = ch ? (item?.assignedTenant || getAssignedTenantForChassis(ch, matchedResp)) : "";
+
+    const reviewerVal =
+      matchedResp?.biwReview?.reviewedByName ||
+      (typeof matchedResp?.biwReview?.reviewedBy === "string" && !/^[0-9a-f]{24}$/i.test(matchedResp.biwReview.reviewedBy)
+        ? matchedResp.biwReview.reviewedBy
+        : "") ||
+      "";
 
     let biwStatus = "";
     if (matchedResp?.biwReview?.status) {
@@ -301,15 +734,18 @@ export async function downloadBiwReviewTemplate(options: {
     const tvsFileUrl = matchedResp?.review?.evidenceUrl || "";
 
     const row = [
-      ch,          // Col 1 (A): Chassis Number
-      biwStatus,   // Col 2 (B): BIW Feed back (pre-loaded if already reviewed)
-      biwReason,   // Col 3 (C): BIW Reason
-      biwRemark,   // Col 4 (D): BIW Remark
-      biwFileUrl,  // Col 5 (E): BIW File URL
-      tvsStatus,   // Col 6 (F): TVS Feed back
-      tvsReason,   // Col 7 (G): TVS Reason (Rework and Rejected Reason)
-      tvsRemark,   // Col 8 (H): TVS Remark
-      tvsFileUrl   // Col 9 (I): TVS File URL
+      ch,                 // Col 1 (A): Chassis Number
+      dateVal,            // Col 2 (B): Date
+      assignedTenantVal,  // Col 3 (C): Assigned Tenant (pre-filled from performance table / response / chassis assignments)
+      reviewerVal,        // Col 4 (D): Reviewed By (pre-loaded if already reviewed, else dropdown selectable)
+      biwStatus,          // Col 5 (E): BIW Feed back (pre-loaded if already reviewed)
+      biwReason,          // Col 6 (F): BIW Reason
+      biwRemark,          // Col 7 (G): BIW Remark
+      biwFileUrl,         // Col 8 (H): BIW File URL
+      tvsStatus,          // Col 9 (I): TVS Feed back
+      tvsReason,          // Col 10 (J): TVS Reason (Rework and Rejected Reason)
+      tvsRemark,          // Col 11 (K): TVS Remark
+      tvsFileUrl          // Col 12 (L): TVS File URL
     ];
 
     if (hasTargetTenant) {
@@ -334,10 +770,10 @@ export async function downloadBiwReviewTemplate(options: {
       }
 
       row.push(
-        targetTvsStatus,   // Col 10 (J): TVS Feed back (Target Tenant)
-        targetTvsReason,   // Col 11 (K): Rework and Rejected Reason
-        targetTvsRemark,   // Col 12 (L): Remark
-        targetTvsFileUrl   // Col 13 (M): File Upload
+        targetTvsStatus,   // Col 11 (K): TVS Feed back (Target Tenant)
+        targetTvsReason,   // Col 12 (L): Rework and Rejected Reason
+        targetTvsRemark,   // Col 13 (M): Remark
+        targetTvsFileUrl   // Col 14 (N): File Upload
       );
     }
 
@@ -348,42 +784,47 @@ export async function downloadBiwReviewTemplate(options: {
 
   // Column widths
   const colWidths = [
-    { wch: 22 }, // Chassis Number
-    { wch: 34 }, // BIW Feed back(Accept,Rework,Reject)
-    { wch: 36 }, // Rework and Rejected Resion (Rust..)
-    { wch: 24 }, // Remark
-    { wch: 22 }, // File Upload
-    { wch: 38 }, // TVS Feed back (1st Main Form)
-    { wch: 36 }, // Rework and Rejected Resion (Rust..)
-    { wch: 24 }, // Remark
-    { wch: 22 }  // File Upload
+    { wch: 20 }, // Chassis Number (Col A)
+    { wch: 16 }, // Date (Col B)
+    { wch: 20 }, // Assigned Tenant (Col C)
+    { wch: 26 }, // Reviewed By (Col D)
+    { wch: 34 }, // BIW Feed back(Accept,Rework,Reject) (Col E)
+    { wch: 36 }, // Rework and Rejected Resion (Rust..) (Col F)
+    { wch: 24 }, // Remark (Col G)
+    { wch: 22 }, // File Upload (Col H)
+    { wch: 38 }, // TVS Feed back (1st Main Form) (Col I)
+    { wch: 36 }, // Rework and Rejected Resion (Rust..) (Col J)
+    { wch: 24 }, // Remark (Col K)
+    { wch: 22 }  // File Upload (Col L)
   ];
 
   if (hasTargetTenant) {
     colWidths.push(
-      { wch: 38 }, // TVS Feed back (2nd Target Tenant)
-      { wch: 36 }, // Rework and Rejected Resion
-      { wch: 24 }, // Remark
-      { wch: 22 }  // File Upload
+      { wch: 38 }, // TVS Feed back (2nd Target Tenant) (Col M)
+      { wch: 36 }, // Rework and Rejected Resion (Col N)
+      { wch: 24 }, // Remark (Col O)
+      { wch: 22 }  // File Upload (Col P)
     );
   }
 
   mainWs["!cols"] = colWidths;
 
   // Header Styles
-  const endCol = hasTargetTenant ? 12 : 8;
-  const range = XLSX.utils.decode_range(mainWs["!ref"] || (hasTargetTenant ? "A1:M1" : "A1:I1"));
+  const endCol = hasTargetTenant ? 15 : 11;
+  const range = XLSX.utils.decode_range(mainWs["!ref"] || (hasTargetTenant ? "A1:P1" : "A1:L1"));
 
   for (let c = range.s.c; c <= range.e.c; c++) {
     const cellRef = XLSX.utils.encode_cell({ r: 0, c });
     if (!mainWs[cellRef]) continue;
 
-    let fillBg = "1E293B"; // Dark slate
-    if (c >= 1 && c <= 4) {
+    let fillBg = "1E293B"; // Dark slate (Chassis Number, Date, Assigned Tenant)
+    if (c === 3) {
+      fillBg = "1E3A8A"; // Reviewed By (Navy Blue)
+    } else if (c >= 4 && c <= 7) {
       fillBg = "1E40AF"; // BIW Royal Blue
-    } else if (c >= 5 && c <= 8) {
-      fillBg = "065F46"; // TVS Emerald Green (matches user screenshot!)
-    } else if (c >= 9 && c <= 12) {
+    } else if (c >= 8 && c <= 11) {
+      fillBg = "065F46"; // TVS Emerald Green
+    } else if (c >= 12 && c <= 15) {
       fillBg = "0F766E"; // Target Tenant Deep Teal
     }
 
@@ -413,7 +854,7 @@ export async function downloadBiwReviewTemplate(options: {
         font: { name: "Calibri", sz: 10, color: { rgb: "1E293B" } },
         alignment: {
           vertical: "center",
-          horizontal: c === 0 || c === 1 || c === 5 || c === 9 ? "center" : "left"
+          horizontal: c === 0 || c === 1 || c === 2 || c === 4 || c === 8 || c === 12 ? "center" : "left"
         },
         border: {
           top: { style: "thin", color: { rgb: "E2E8F0" } },
@@ -426,21 +867,29 @@ export async function downloadBiwReviewTemplate(options: {
   }
 
   // 2. Prepare Lookups Sheet
-  const maxLookupRows = Math.max(statusOptions.length, defectOptions.length, targetDefectOptions.length);
+  const maxLookupRows = Math.max(
+    statusOptions.length,
+    defectOptions.length,
+    targetDefectOptions.length,
+    finalReviewerOptions.length,
+    finalTenantOptions.length
+  );
   const lookupSheetData: any[][] = [
-    ["Status Options", "Defect Checkpoints / Reasons", "Target Tenant Defects"]
+    ["Status Options", "Defect Checkpoints / Reasons", "Target Tenant Defects", "Reviewer Options", "Tenant Options"]
   ];
 
   for (let i = 0; i < maxLookupRows; i++) {
     lookupSheetData.push([
       statusOptions[i] || "",
       defectOptions[i] || "",
-      targetDefectOptions[i] || ""
+      targetDefectOptions[i] || "",
+      finalReviewerOptions[i] || "",
+      finalTenantOptions[i] || ""
     ]);
   }
 
   const lookupWs = XLSX_STYLE.utils.aoa_to_sheet(lookupSheetData);
-  lookupWs["!cols"] = [{ wch: 20 }, { wch: 50 }, { wch: 50 }];
+  lookupWs["!cols"] = [{ wch: 20 }, { wch: 50 }, { wch: 50 }, { wch: 30 }, { wch: 25 }];
 
   // 3. Build Initial Workbook
   const wb = XLSX_STYLE.utils.book_new();
@@ -454,11 +903,13 @@ export async function downloadBiwReviewTemplate(options: {
   const initialBuf = XLSX_STYLE.write(wb, { type: "array", bookType: "xlsx" });
   const zip = await JSZip.loadAsync(initialBuf);
 
-  // 4a. Add Defined Names for StatusList, DefectList & TargetDefectList in workbook.xml
+  // 4a. Add Defined Names for StatusList, DefectList, TargetDefectList, ReviewerList & TenantList in workbook.xml
   let wbXml = await zip.file("xl/workbook.xml")?.async("text");
   if (wbXml) {
     const defectLastRow = defectOptions.length + 1;
     const targetDefectLastRow = targetDefectOptions.length + 1;
+    const reviewerLastRow = finalReviewerOptions.length + 1;
+    const tenantLastRow = finalTenantOptions.length + 1;
 
     let definedNamesInner =
       `<definedName name="StatusList">Lookups!$A$2:$A$4</definedName>` +
@@ -466,6 +917,12 @@ export async function downloadBiwReviewTemplate(options: {
 
     if (hasTargetTenant && targetDefectOptions.length > 0) {
       definedNamesInner += `<definedName name="TargetDefectList">Lookups!$C$2:$C$${targetDefectLastRow}</definedName>`;
+    }
+    if (finalReviewerOptions.length > 0) {
+      definedNamesInner += `<definedName name="ReviewerList">Lookups!$D$2:$D$${reviewerLastRow}</definedName>`;
+    }
+    if (finalTenantOptions.length > 0) {
+      definedNamesInner += `<definedName name="TenantList">Lookups!$E$2:$E$${tenantLastRow}</definedName>`;
     }
 
     if (wbXml.includes("<definedNames>")) {
@@ -482,21 +939,25 @@ export async function downloadBiwReviewTemplate(options: {
     let dataValidationsXml = "";
     if (hasTargetTenant && targetDefectOptions.length > 0) {
       dataValidationsXml =
-        `<dataValidations count="6">` +
-        `<dataValidation sqref="B2:B2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
-        `<dataValidation sqref="C2:C2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
-        `<dataValidation sqref="F2:F2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
-        `<dataValidation sqref="G2:G2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
-        `<dataValidation sqref="J2:J2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
-        `<dataValidation sqref="K2:K2000" allowBlank="1" type="list"><formula1>TargetDefectList</formula1></dataValidation>` +
+        `<dataValidations count="8">` +
+        `<dataValidation sqref="C2:C2000" allowBlank="1" type="list"><formula1>TenantList</formula1></dataValidation>` +
+        `<dataValidation sqref="D2:D2000" allowBlank="1" type="list"><formula1>ReviewerList</formula1></dataValidation>` +
+        `<dataValidation sqref="E2:E2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
+        `<dataValidation sqref="F2:F2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
+        `<dataValidation sqref="I2:I2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
+        `<dataValidation sqref="J2:J2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
+        `<dataValidation sqref="M2:M2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
+        `<dataValidation sqref="N2:N2000" allowBlank="1" type="list"><formula1>TargetDefectList</formula1></dataValidation>` +
         `</dataValidations>`;
     } else {
       dataValidationsXml =
-        `<dataValidations count="4">` +
-        `<dataValidation sqref="B2:B2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
-        `<dataValidation sqref="C2:C2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
-        `<dataValidation sqref="F2:F2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
-        `<dataValidation sqref="G2:G2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
+        `<dataValidations count="6">` +
+        `<dataValidation sqref="C2:C2000" allowBlank="1" type="list"><formula1>TenantList</formula1></dataValidation>` +
+        `<dataValidation sqref="D2:D2000" allowBlank="1" type="list"><formula1>ReviewerList</formula1></dataValidation>` +
+        `<dataValidation sqref="E2:E2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
+        `<dataValidation sqref="F2:F2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
+        `<dataValidation sqref="I2:I2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
+        `<dataValidation sqref="J2:J2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
         `</dataValidations>`;
     }
 
@@ -527,6 +988,7 @@ export async function downloadBiwReviewTemplate(options: {
 /**
  * Parses an uploaded Excel sheet into normalized BIW review records.
  * Uses index-based cell extraction to safely handle repeated header column names.
+ * Supports both new format (Date, Submitted By, Chassis in Col C) and legacy (Chassis in Col A).
  */
 export async function parseBiwReviewWorkbook(file: File): Promise<BiwExcelRow[]> {
   const buffer = await file.arrayBuffer();
@@ -541,88 +1003,203 @@ export async function parseBiwReviewWorkbook(file: File): Promise<BiwExcelRow[]>
   const range = XLSX.utils.decode_range(ws["!ref"] || "A1:A1");
   const rows: BiwExcelRow[] = [];
 
-  // Determine starting row: find row containing chassis/vin/che/cha/id
+  // Determine starting row: find row containing chassis/vin/che/cha/id/date
   let headerRowIndex = 0;
   for (let r = range.s.r; r <= Math.min(range.e.r, 5); r++) {
-    const firstCell = ws[XLSX.utils.encode_cell({ r, c: 0 })]?.v;
-    const str = String(firstCell || "").trim().toLowerCase();
-    if (str.includes("chassis") || str.includes("cha") || str.includes("che") || str.includes("vin") || str.includes("id")) {
+    const rowValues = [];
+    for (let c = range.s.c; c <= Math.min(range.e.c, 6); c++) {
+      const v = String(ws[XLSX.utils.encode_cell({ r, c })]?.v || "").trim().toLowerCase();
+      if (v) rowValues.push(v);
+    }
+    const rowStr = rowValues.join(" ");
+    if (
+      rowStr.includes("chassis") ||
+      rowStr.includes("biw") ||
+      rowStr.includes("date") ||
+      rowStr.includes("vin") ||
+      rowStr.includes("identification")
+    ) {
       headerRowIndex = r;
       break;
     }
   }
 
-  // Inspect headers to detect if legacy 15-column template with duplicate reason columns was uploaded
-  const headerTexts: string[] = [];
+  // Inspect headers to detect columns dynamically
+  let dateCol = -1;
+  let assignedTenantCol = -1;
+  let submittedByCol = -1;
+  let chassisCol = -1;
+  let biwFeedbackCol = -1;
+  let biwReasonCol = -1;
+  let biwRemarkCol = -1;
+  let biwFileUrlCol = -1;
+  let tvsFeedbackCol = -1;
+  let tvsReasonCol = -1;
+  let tvsRemarkCol = -1;
+  let tvsFileUrlCol = -1;
+  let targetTvsFeedbackCol = -1;
+  let targetTvsReasonCol = -1;
+  let targetTvsRemarkCol = -1;
+  let targetTvsFileUrlCol = -1;
+
   for (let c = range.s.c; c <= range.e.c; c++) {
-    const v = ws[XLSX.utils.encode_cell({ r: headerRowIndex, c })]?.v;
-    headerTexts.push(String(v || "").trim().toLowerCase());
+    const rawVal = ws[XLSX.utils.encode_cell({ r: headerRowIndex, c })]?.v;
+    const txt = String(rawVal || "").trim().toLowerCase();
+    if (!txt) continue;
+
+    if (txt.includes("date") && dateCol === -1) {
+      dateCol = c;
+    } else if ((txt.includes("tenant") || txt.includes("plant") || txt.includes("assigned")) && assignedTenantCol === -1) {
+      assignedTenantCol = c;
+    } else if (
+      (txt.includes("reviewed by") ||
+        txt.includes("reviewer") ||
+        txt.includes("submit") ||
+        txt.includes("inspector") ||
+        txt.includes("worker") ||
+        (txt.includes("review") && !txt.includes("feed") && !txt.includes("status") && !txt.includes("section"))) &&
+      submittedByCol === -1
+    ) {
+      submittedByCol = c;
+    } else if ((txt.includes("chassis") || txt.includes("vin") || txt.includes("identification")) && chassisCol === -1) {
+      chassisCol = c;
+    } else if (txt.includes("biw") && (txt.includes("feed") || txt.includes("status") || txt.includes("accept") || txt.includes("back")) && biwFeedbackCol === -1) {
+      biwFeedbackCol = c;
+    } else if (biwFeedbackCol !== -1 && biwReasonCol === -1 && (txt.includes("rework") || txt.includes("resion") || txt.includes("reason") || txt.includes("defect")) && !txt.includes("tvs") && !txt.includes("1st") && !txt.includes("2nd")) {
+      biwReasonCol = c;
+    } else if (biwFeedbackCol !== -1 && biwRemarkCol === -1 && txt.includes("remark") && !txt.includes("tvs") && !txt.includes("1st") && !txt.includes("2nd")) {
+      biwRemarkCol = c;
+    } else if (biwFeedbackCol !== -1 && biwFileUrlCol === -1 && (txt.includes("file") || txt.includes("upload") || txt.includes("url")) && !txt.includes("tvs") && !txt.includes("1st") && !txt.includes("2nd")) {
+      biwFileUrlCol = c;
+    } else if ((txt.includes("tvs") || txt.includes("1st")) && (txt.includes("feed") || txt.includes("back") || txt.includes("status")) && tvsFeedbackCol === -1) {
+      tvsFeedbackCol = c;
+    } else if (tvsFeedbackCol !== -1 && tvsReasonCol === -1 && (txt.includes("rework") || txt.includes("resion") || txt.includes("reason") || txt.includes("defect")) && !txt.includes("2nd") && !txt.includes("target")) {
+      tvsReasonCol = c;
+    } else if (tvsFeedbackCol !== -1 && tvsRemarkCol === -1 && txt.includes("remark") && !txt.includes("2nd") && !txt.includes("target")) {
+      tvsRemarkCol = c;
+    } else if (tvsFeedbackCol !== -1 && tvsFileUrlCol === -1 && (txt.includes("file") || txt.includes("upload") || txt.includes("url")) && !txt.includes("2nd") && !txt.includes("target")) {
+      tvsFileUrlCol = c;
+    } else if ((txt.includes("2nd") || txt.includes("target")) && (txt.includes("feed") || txt.includes("back") || txt.includes("status")) && targetTvsFeedbackCol === -1) {
+      targetTvsFeedbackCol = c;
+    } else if (targetTvsFeedbackCol !== -1 && targetTvsReasonCol === -1 && (txt.includes("rework") || txt.includes("resion") || txt.includes("reason") || txt.includes("defect"))) {
+      targetTvsReasonCol = c;
+    } else if (targetTvsFeedbackCol !== -1 && targetTvsRemarkCol === -1 && txt.includes("remark")) {
+      targetTvsRemarkCol = c;
+    } else if (targetTvsFeedbackCol !== -1 && targetTvsFileUrlCol === -1 && (txt.includes("file") || txt.includes("upload") || txt.includes("url"))) {
+      targetTvsFileUrlCol = c;
+    }
   }
-  const isLegacyDuplicateTvs = headerTexts.length >= 10 && (
-    (headerTexts[6] || "").includes("rework") || (headerTexts[6] || "").includes("resion") || (headerTexts[6] || "").includes("reason")
-  ) && (
-    (headerTexts[7] || "").includes("rework") || (headerTexts[7] || "").includes("resion") || (headerTexts[7] || "").includes("reason")
-  );
+
+  // Fallback defaults if header matching didn't catch specific positions:
+  const is12Col = chassisCol === 0 && (dateCol === 1 || assignedTenantCol === 2 || submittedByCol === 3);
+  const is3ColDate = !is12Col && (dateCol !== -1 || chassisCol === 2);
+  const is2ColReviewer = !is12Col && !is3ColDate && (submittedByCol === 1 || (chassisCol === 0 && range.e.c >= 9));
+
+  if (is12Col) {
+    // 12-col layout: Col 0: Chassis, Col 1: Date, Col 2: Assigned Tenant, Col 3: Reviewed By, Col 4: BIW FB, Col 5: Reason, Col 6: Remark, Col 7: File, Col 8: TVS FB, Col 9: Reason, Col 10: Remark, Col 11: File
+    if (chassisCol === -1) chassisCol = 0;
+    if (dateCol === -1) dateCol = 1;
+    if (assignedTenantCol === -1) assignedTenantCol = 2;
+    if (submittedByCol === -1) submittedByCol = 3;
+    if (biwFeedbackCol === -1) biwFeedbackCol = 4;
+    if (biwReasonCol === -1) biwReasonCol = 5;
+    if (biwRemarkCol === -1) biwRemarkCol = 6;
+    if (biwFileUrlCol === -1) biwFileUrlCol = 7;
+    if (tvsFeedbackCol === -1) tvsFeedbackCol = 8;
+    if (tvsReasonCol === -1) tvsReasonCol = 9;
+    if (tvsRemarkCol === -1) tvsRemarkCol = 10;
+    if (tvsFileUrlCol === -1) tvsFileUrlCol = 11;
+    if (targetTvsFeedbackCol === -1 && range.e.c >= 12) targetTvsFeedbackCol = 12;
+    if (targetTvsReasonCol === -1 && range.e.c >= 13) targetTvsReasonCol = 13;
+    if (targetTvsRemarkCol === -1 && range.e.c >= 14) targetTvsRemarkCol = 14;
+    if (targetTvsFileUrlCol === -1 && range.e.c >= 15) targetTvsFileUrlCol = 15;
+  } else if (is3ColDate) {
+    if (dateCol === -1) dateCol = 0;
+    if (submittedByCol === -1) submittedByCol = 1;
+    if (chassisCol === -1) chassisCol = 2;
+    if (biwFeedbackCol === -1) biwFeedbackCol = 3;
+    if (biwReasonCol === -1) biwReasonCol = 4;
+    if (biwRemarkCol === -1) biwRemarkCol = 5;
+    if (biwFileUrlCol === -1) biwFileUrlCol = 6;
+    if (tvsFeedbackCol === -1) tvsFeedbackCol = 7;
+    if (tvsReasonCol === -1) tvsReasonCol = 8;
+    if (tvsRemarkCol === -1) tvsRemarkCol = 9;
+    if (tvsFileUrlCol === -1) tvsFileUrlCol = 10;
+    if (targetTvsFeedbackCol === -1 && range.e.c >= 11) targetTvsFeedbackCol = 11;
+    if (targetTvsReasonCol === -1 && range.e.c >= 12) targetTvsReasonCol = 12;
+    if (targetTvsRemarkCol === -1 && range.e.c >= 13) targetTvsRemarkCol = 13;
+    if (targetTvsFileUrlCol === -1 && range.e.c >= 14) targetTvsFileUrlCol = 14;
+  } else if (is2ColReviewer) {
+    // Standard format: Col 0: Chassis, Col 1: Reviewed By, Col 2: BIW FB, Col 3: Reason, Col 4: Remark, Col 5: File, Col 6: TVS FB, Col 7: Reason, Col 8: Remark, Col 9: File
+    if (chassisCol === -1) chassisCol = 0;
+    if (submittedByCol === -1) submittedByCol = 1;
+    if (biwFeedbackCol === -1) biwFeedbackCol = 2;
+    if (biwReasonCol === -1) biwReasonCol = 3;
+    if (biwRemarkCol === -1) biwRemarkCol = 4;
+    if (biwFileUrlCol === -1) biwFileUrlCol = 5;
+    if (tvsFeedbackCol === -1) tvsFeedbackCol = 6;
+    if (tvsReasonCol === -1) tvsReasonCol = 7;
+    if (tvsRemarkCol === -1) tvsRemarkCol = 8;
+    if (tvsFileUrlCol === -1) tvsFileUrlCol = 9;
+    if (targetTvsFeedbackCol === -1 && range.e.c >= 10) targetTvsFeedbackCol = 10;
+    if (targetTvsReasonCol === -1 && range.e.c >= 11) targetTvsReasonCol = 11;
+    if (targetTvsRemarkCol === -1 && range.e.c >= 12) targetTvsRemarkCol = 12;
+    if (targetTvsFileUrlCol === -1 && range.e.c >= 13) targetTvsFileUrlCol = 13;
+  } else {
+    // Legacy template without Reviewed By
+    if (chassisCol === -1) chassisCol = 0;
+    if (biwFeedbackCol === -1) biwFeedbackCol = 1;
+    if (biwReasonCol === -1) biwReasonCol = 2;
+    if (biwRemarkCol === -1) biwRemarkCol = 3;
+    if (biwFileUrlCol === -1) biwFileUrlCol = 4;
+    if (tvsFeedbackCol === -1) tvsFeedbackCol = 5;
+    if (tvsReasonCol === -1) tvsReasonCol = 6;
+    if (tvsRemarkCol === -1) tvsRemarkCol = 7;
+    if (tvsFileUrlCol === -1) tvsFileUrlCol = 8;
+    if (targetTvsFeedbackCol === -1 && range.e.c >= 9) targetTvsFeedbackCol = 9;
+    if (targetTvsReasonCol === -1 && range.e.c >= 10) targetTvsReasonCol = 10;
+    if (targetTvsRemarkCol === -1 && range.e.c >= 11) targetTvsRemarkCol = 11;
+    if (targetTvsFileUrlCol === -1 && range.e.c >= 12) targetTvsFileUrlCol = 12;
+  }
 
   // Read data rows
   for (let r = headerRowIndex + 1; r <= range.e.r; r++) {
     const getVal = (c: number): string => {
+      if (c < 0) return "";
       const cell = ws[XLSX.utils.encode_cell({ r, c })];
       return cell && cell.v !== undefined && cell.v !== null ? String(cell.v).trim() : "";
     };
 
-    const chassis = getVal(0);
+    const chassis = getVal(chassisCol);
     // If the chassis number cell is completely blank, skip row
     if (!chassis) continue;
 
-    let tvsFeedback = "";
-    let tvsReason = "";
-    let tvsRemark = "";
-    let tvsFileUrl = "";
-    let targetTvsFeedback = "";
-    let targetTvsReason = "";
-    let targetTvsRemark = "";
-    let targetTvsFileUrl = "";
-
-    if (isLegacyDuplicateTvs) {
-      // Legacy 15-col format: F(5)=TVS FB, G(6)=Reason 1, H(7)=Reason 2, I(8)=Remark, J(9)=File, K(10)=Target FB, L(11)=Target R1, M(12)=Target R2, N(13)=Target Remark, O(14)=Target File
-      tvsFeedback = getVal(5);
-      tvsReason = getVal(6) || getVal(7);
-      tvsRemark = getVal(8);
-      tvsFileUrl = getVal(9);
-      targetTvsFeedback = getVal(10);
-      targetTvsReason = getVal(11) || getVal(12);
-      targetTvsRemark = getVal(13);
-      targetTvsFileUrl = getVal(14);
-    } else {
-      // Clean 9/13-col format: F(5)=TVS FB, G(6)=Reason, H(7)=Remark, I(8)=File, J(9)=Target FB, K(10)=Target Reason, L(11)=Target Remark, M(12)=Target File
-      tvsFeedback = getVal(5);
-      tvsReason = getVal(6);
-      tvsRemark = getVal(7);
-      tvsFileUrl = getVal(8);
-      targetTvsFeedback = getVal(9);
-      targetTvsReason = getVal(10);
-      targetTvsRemark = getVal(11);
-      targetTvsFileUrl = getVal(12);
-    }
+    const tvsReasonVal = getVal(tvsReasonCol);
+    const targetTvsReasonVal = getVal(targetTvsReasonCol);
+    const reviewerName = submittedByCol !== -1 ? getVal(submittedByCol) : "";
 
     const row: BiwExcelRow = {
       rowIndex: r + 1,
+      date: dateCol !== -1 ? getVal(dateCol) : "",
+      assignedTenant: assignedTenantCol !== -1 ? getVal(assignedTenantCol) : "",
+      submittedBy: reviewerName,
+      reviewedBy: reviewerName,
+      workerName: reviewerName || undefined,
       chassisNumber: chassis,
-      biwFeedback: getVal(1),
-      biwReason: getVal(2),
-      biwRemark: getVal(3),
-      biwFileUrl: getVal(4),
-      tvsFeedback,
-      tvsReason,
-      tvsRejectReason: tvsReason,
-      tvsRemark,
-      tvsFileUrl,
-      targetTvsFeedback,
-      targetTvsReason,
-      targetTvsRejectReason: targetTvsReason,
-      targetTvsRemark,
-      targetTvsFileUrl
+      biwFeedback: getVal(biwFeedbackCol),
+      biwReason: getVal(biwReasonCol),
+      biwRemark: getVal(biwRemarkCol),
+      biwFileUrl: getVal(biwFileUrlCol),
+      tvsFeedback: getVal(tvsFeedbackCol),
+      tvsReason: tvsReasonVal,
+      tvsRejectReason: tvsReasonVal,
+      tvsRemark: getVal(tvsRemarkCol),
+      tvsFileUrl: getVal(tvsFileUrlCol),
+      targetTvsFeedback: getVal(targetTvsFeedbackCol),
+      targetTvsReason: targetTvsReasonVal,
+      targetTvsRejectReason: targetTvsReasonVal,
+      targetTvsRemark: getVal(targetTvsRemarkCol),
+      targetTvsFileUrl: getVal(targetTvsFileUrlCol)
     };
 
     rows.push(row);
@@ -1011,25 +1588,42 @@ export async function parseTvsReviewWorkbook(file: File): Promise<TvsExcelRow[]>
 
   let headerRowIndex = 0;
   for (let r = range.s.r; r <= Math.min(range.e.r, 5); r++) {
-    const firstCell = ws[XLSX.utils.encode_cell({ r, c: 0 })]?.v;
-    const str = String(firstCell || "").trim().toLowerCase();
-    if (str.includes("chassis") || str.includes("cha") || str.includes("che") || str.includes("vin") || str.includes("id")) {
+    const rowValues = [];
+    for (let c = range.s.c; c <= Math.min(range.e.c, 4); c++) {
+      const v = String(ws[XLSX.utils.encode_cell({ r, c })]?.v || "").trim().toLowerCase();
+      if (v) rowValues.push(v);
+    }
+    const rowStr = rowValues.join(" ");
+    if (rowStr.includes("chassis") || rowStr.includes("tvs") || rowStr.includes("vin") || rowStr.includes("date") || rowStr.includes("id")) {
       headerRowIndex = r;
       break;
     }
   }
 
+  let chassisCol = 0;
+  for (let c = range.s.c; c <= Math.min(range.e.c, 4); c++) {
+    const v = String(ws[XLSX.utils.encode_cell({ r: headerRowIndex, c })]?.v || "").toLowerCase();
+    if (v.includes("chassis") || v.includes("vin") || v.includes("identification")) {
+      chassisCol = c;
+      break;
+    }
+  }
+
   const hCol1 = String(ws[XLSX.utils.encode_cell({ r: headerRowIndex, c: 1 })]?.v || "").toLowerCase();
+  const hCol2 = String(ws[XLSX.utils.encode_cell({ r: headerRowIndex, c: 2 })]?.v || "").toLowerCase();
+  const hCol3 = String(ws[XLSX.utils.encode_cell({ r: headerRowIndex, c: 3 })]?.v || "").toLowerCase();
   const hCol5 = String(ws[XLSX.utils.encode_cell({ r: headerRowIndex, c: 5 })]?.v || "").toLowerCase();
-  const isDedicatedTvs = hCol1.includes("tvs") || (!hCol1.includes("biw") && !hCol5.includes("tvs"));
+  const hCol7 = String(ws[XLSX.utils.encode_cell({ r: headerRowIndex, c: 7 })]?.v || "").toLowerCase();
+  const isDedicatedTvs = chassisCol === 0 && (hCol1.includes("tvs") || (!hCol1.includes("biw") && !hCol5.includes("tvs") && !hCol1.includes("date")));
 
   for (let r = headerRowIndex + 1; r <= range.e.r; r++) {
     const getVal = (c: number): string => {
+      if (c < 0) return "";
       const cell = ws[XLSX.utils.encode_cell({ r, c })];
       return cell && cell.v !== undefined && cell.v !== null ? String(cell.v).trim() : "";
     };
 
-    const chassis = getVal(0);
+    const chassis = getVal(chassisCol);
     if (!chassis) continue;
 
     if (isDedicatedTvs) {
@@ -1042,6 +1636,39 @@ export async function parseTvsReviewWorkbook(file: File): Promise<TvsExcelRow[]>
         tvsRemark: getVal(3),
         targetFormTitle: getVal(4),
         fileUrl: getVal(5)
+      });
+    } else if (chassisCol === 0 && (hCol1.includes("date") || hCol2.includes("tenant") || hCol2.includes("plant") || hCol3.includes("review"))) {
+      // 12-col format with Chassis (0), Date (1), Assigned Tenant (2), Reviewed By (3)... TVS FB (8), TVS Reason (9), TVS Remark (10), TVS File (11)
+      rows.push({
+        rowIndex: r + 1,
+        chassisNumber: chassis,
+        tvsFeedback: getVal(8),
+        tvsReason: getVal(9),
+        tvsRemark: getVal(10),
+        targetFormTitle: getVal(12),
+        fileUrl: getVal(11)
+      });
+    } else if (chassisCol === 2) {
+      // 11-col / 15-col format with Date (0), Submitted By (1), Chassis (2)
+      rows.push({
+        rowIndex: r + 1,
+        chassisNumber: chassis,
+        tvsFeedback: getVal(7) || getVal(3),
+        tvsReason: getVal(8) || getVal(4),
+        tvsRemark: getVal(9) || getVal(5),
+        targetFormTitle: getVal(11),
+        fileUrl: getVal(10) || getVal(6)
+      });
+    } else if (chassisCol === 0 && (hCol1.includes("review") || hCol1.includes("submit") || hCol1.includes("worker") || hCol1.includes("inspector"))) {
+      // Standard format with Chassis (0), Reviewed By (1), BIW FB (2)... TVS FB (6), TVS Reason (7), TVS Remark (8), TVS File (9)
+      rows.push({
+        rowIndex: r + 1,
+        chassisNumber: chassis,
+        tvsFeedback: getVal(6),
+        tvsReason: getVal(7),
+        tvsRemark: getVal(8),
+        targetFormTitle: getVal(10),
+        fileUrl: getVal(9)
       });
     } else {
       // 10-col dual format

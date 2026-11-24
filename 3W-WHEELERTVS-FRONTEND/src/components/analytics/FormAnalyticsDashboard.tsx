@@ -554,8 +554,46 @@ export default function FormAnalyticsDashboard({
   // Downloads BIW template pre-loaded with current table chassis, BIW reviews & TVS reviews cloned for targeted tenant
   const handleDownloadBiwTemplate = async () => {
     try {
-      const targetChassis = (responses || [])
+      let activeResponsesSource: any[] = [];
+      const hasExplicitSelection = selectedResponsesSectionIds && selectedResponsesSectionIds.length > 0;
+
+      if (hasExplicitSelection) {
+        // User specifically selected checkboxes -> only include selected rows
+        activeResponsesSource = (filteredResponses || responses || tableResponses || []).filter((r: any) =>
+          selectedResponsesSectionIds.includes(String(r._id || r.id))
+        );
+      } else {
+        // Retrieve full dataset across all pages so template contains ALL chassis units (not just current page of 20)
+        try {
+          const exportData = await apiClient.getAllResponsesForExport(formId);
+          if (exportData && exportData.length > 0) {
+            activeResponsesSource = exportData;
+          }
+        } catch (_) {}
+
+        // Fallback to in-memory responses if export call returns empty
+        if (!activeResponsesSource || activeResponsesSource.length === 0) {
+          activeResponsesSource =
+            responses && responses.length > 0
+              ? responses
+              : filteredResponses && filteredResponses.length > 0
+                ? filteredResponses
+                : tableResponses && tableResponses.length > 0
+                  ? tableResponses
+                  : [];
+        }
+      }
+
+      const ignoredUnits = ["TVS", "EXCEL IMPORT", "SAIFY", "SRIDEVI", "LMPL"];
+      const targetChassis = (activeResponsesSource || [])
         .map((r) => {
+          const ch = getChassisOrItemId(r);
+          if (ch && ch !== "-" && ch !== "N/A" && ch !== "None") {
+            const clean = ch.split("—")[0].trim();
+            if (clean && !ignoredUnits.includes(clean.toUpperCase())) {
+              return clean;
+            }
+          }
           const a = r.answers || {};
           const tracked = chassisQuestionId ? a[chassisQuestionId] : null;
           const trackedVal =
@@ -569,14 +607,19 @@ export default function FormAnalyticsDashboard({
             a["identification no"] ||
             a["Identification No"] ||
             a["chassisNumber"] ||
+            a["chassis_number"] ||
+            a["Chassis Number"] ||
             a["cha"] ||
             a["che"] ||
-            (r.chassisNumber && r.chassisNumber !== "TVS" && r.chassisNumber !== "Excel Import"
+            (r.systemChassisNumber && !ignoredUnits.includes(String(r.systemChassisNumber).trim().toUpperCase())
+              ? r.systemChassisNumber
+              : "") ||
+            (r.chassisNumber && !ignoredUnits.includes(String(r.chassisNumber).trim().toUpperCase())
               ? r.chassisNumber
               : "");
           return String(val || "").trim();
         })
-        .filter((c) => Boolean(c) && c.toUpperCase() !== "TVS" && c !== "Excel Import");
+        .filter((c) => Boolean(c) && !ignoredUnits.includes(c.toUpperCase()));
 
       const isChild = Boolean(
         (form as any)?.isFollowUpForm ||
@@ -619,12 +662,20 @@ export default function FormAnalyticsDashboard({
         ? (form?.title || "Child Form")
         : (targetTenantDoc?.title || "");
 
+      const reviewerOptionsList = Array.from(
+        new Set([
+          ...Array.from(uniqueInspectors || []),
+          ...(allInspectors || []).map((i: any) => i.name || `${i.firstName || ''} ${i.lastName || ''}`.trim()).filter(Boolean)
+        ])
+      );
+
       await downloadBiwReviewTemplate({
         form: mainDoc,
         formTitle: mainTitle,
         mainTenantName,
         chassisNumbers: targetChassis,
-        responses,
+        responses: activeResponsesSource,
+        reviewerOptions: reviewerOptionsList,
         targetTenantForm: targetTenantDoc,
         targetTenantTitle: targetTitle,
         targetTenantName,
@@ -7006,6 +7057,8 @@ export default function FormAnalyticsDashboard({
     let dispatched = 0;
     let pending = 0;
     let rawBiwReviewed = 0;
+    let rawBiwAccepted = 0;
+    let rawBiwDefects = 0;
     let nonDispatched = 0;
 
     // Track active rework per chassis so no pending rework unit is missed
@@ -7100,6 +7153,11 @@ export default function FormAnalyticsDashboard({
 
       if (hasBiwReview) {
         rawBiwReviewed++;
+        if (biwStatus === "accepted") {
+          rawBiwAccepted++;
+        } else if (biwStatus === "rework" || biwStatus === "reworked" || biwStatus === "rejected") {
+          rawBiwDefects++;
+        }
       }
 
       if (hasValidChassis) {
@@ -7174,6 +7232,8 @@ export default function FormAnalyticsDashboard({
       pending,
       biwReviewed,
       rawBiwReviewed,
+      biwAccepted: rawBiwAccepted,
+      biwDefects: rawBiwDefects,
     };
   }, [filteredResponses, responseStatuses, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet, getChassisOrItemId, reviewedBy]);
 
@@ -7184,6 +7244,8 @@ export default function FormAnalyticsDashboard({
     const totalNA = inspectionStats.reworked;
     const totalDispatched = inspectionStats.dispatched;
     const totalBiwReviewed = inspectionStats.rawBiwReviewed || 0;
+    const totalBiwAccepted = inspectionStats.biwAccepted || 0;
+    const totalBiwDefects = inspectionStats.biwDefects || 0;
 
     const total = directOk + reworkCompleted + totalNo + totalNA + (inspectionStats.pending || 0);
 
@@ -7198,6 +7260,8 @@ export default function FormAnalyticsDashboard({
         pendingDispatch: 0,
         biwReviewed: 0,
         pendingData: 0,
+        biwAccepted: 0,
+        biwDefects: 0,
         counts: {
           directOk: 0,
           reworkCompleted: 0,
@@ -7208,6 +7272,8 @@ export default function FormAnalyticsDashboard({
           pendingDispatch: 0,
           biwReviewed: 0,
           pendingData: 0,
+          biwAccepted: 0,
+          biwDefects: 0,
           total: 0,
         },
       };
@@ -7230,6 +7296,9 @@ export default function FormAnalyticsDashboard({
     const biwReviewedPercent = (biwReviewedCount / total) * 100;
     const pendingDataPercent = (pendingDataCount / total) * 100;
 
+    const biwAcceptedPercent = total > 0 ? (totalBiwAccepted / total) * 100 : 0;
+    const biwDefectsPercent = total > 0 ? (totalBiwDefects / total) * 100 : 0;
+
     return {
       directOk: Number(directOkPercent.toFixed(1)),
       reworkCompleted: Number(reworkCompletedPercent.toFixed(1)),
@@ -7240,6 +7309,8 @@ export default function FormAnalyticsDashboard({
       pendingDispatch: Number(pendingDispatchPercent.toFixed(1)),
       biwReviewed: Number(biwReviewedPercent.toFixed(1)),
       pendingData: Number(pendingDataPercent.toFixed(1)),
+      biwAccepted: Number(biwAcceptedPercent.toFixed(1)),
+      biwDefects: Number(biwDefectsPercent.toFixed(1)),
       counts: {
         directOk: directOk,
         reworkCompleted: reworkCompleted,
@@ -7250,6 +7321,8 @@ export default function FormAnalyticsDashboard({
         pendingDispatch: pendingDispatchCount,
         biwReviewed: biwReviewedCount,
         pendingData: pendingDataCount,
+        biwAccepted: totalBiwAccepted,
+        biwDefects: totalBiwDefects,
         total: total,
       },
     };
@@ -7348,14 +7421,33 @@ export default function FormAnalyticsDashboard({
       selectedInspectorForTrend={selectedInspectorForTrend}
       tvsReviews={tvsReviews}
       inspectionStats={inspectionStats}
-      onNavigateToResponses={(dispatchFilter?: string) => {
+      onNavigateToResponses={(filterType?: string, filterValue?: string) => {
         setAnalyticsView("responses");
         setActiveTab("responses");
-        if (dispatchFilter) {
+        if (filterType === "biw" && filterValue) {
+          startFilterTransition(() => {
+            if (filterValue === "all") {
+              setColumnFilters((prev) => ({
+                ...prev,
+                __biwReview: ["Accepted", "Reworked", "Rejected"],
+              }));
+            } else if (filterValue === "pending") {
+              setColumnFilters((prev) => ({
+                ...prev,
+                __biwReview: ["No review yet"],
+              }));
+            } else {
+              setColumnFilters((prev) => ({
+                ...prev,
+                __biwReview: [filterValue],
+              }));
+            }
+          });
+        } else if (filterType) {
           startFilterTransition(() => {
             setColumnFilters((prev) => ({
               ...prev,
-              __dispatch: [dispatchFilter],
+              __dispatch: [filterType],
             }));
           });
         }
@@ -8913,13 +9005,29 @@ export default function FormAnalyticsDashboard({
                 {selectedResponsesSectionIds.length > 0 ? (
                   <>
                     {/* Active Filters Bar */}
-                    {(Object.entries(columnFilters).some(([_, v]) => v && v.length > 0) || responsesSearchTerm.trim() !== "" || appliedFilters.length > 0) && (
+                    {(Object.entries(columnFilters).some(([_, v]) => v && v.length > 0) || responsesSearchTerm.trim() !== "" || appliedFilters.length > 0 || dateFilter.type !== "all") && (
                       <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 mb-3 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs shadow-2xs">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1">
                             <Filter className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                             Active Filters:
                           </span>
+                          {dateFilter.type !== "all" && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-700 shadow-2xs">
+                              <Calendar className="w-3 h-3 text-amber-600" />
+                              <span className="font-bold">Date:</span> {commonDateRangeLabel || (dateFilter.startDate ? `${dateFilter.startDate} to ${dateFilter.endDate}` : "Filtered")}
+                              <button
+                                onClick={() => {
+                                  setDateFilter({ type: "all", startDate: "", endDate: "" });
+                                  setAppliedFilters((prev) => prev.filter((f) => f.id !== "date"));
+                                }}
+                                className="hover:text-red-600 dark:hover:text-red-400 font-bold ml-1 text-xs cursor-pointer p-0.5 rounded hover:bg-red-100/60 dark:hover:bg-red-900/40 inline-flex items-center justify-center"
+                                title="Remove date filter and show all time"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          )}
                           {responsesSearchTerm.trim() !== "" && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 shadow-2xs">
                               Search: "{responsesSearchTerm}"
@@ -9041,6 +9149,7 @@ export default function FormAnalyticsDashboard({
                             startFilterTransition(() => {
                               setColumnFilters({});
                               setAppliedFilters([]);
+                              setDateFilter({ type: "all", startDate: "", endDate: "" });
                             });
                             setResponsesSearchTerm("");
                           }}

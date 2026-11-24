@@ -2541,7 +2541,7 @@ export const getPerformanceTable = async (req, res) => {
       }
 
       const baseForms = await Form.find(formQuery)
-        .select('id _id tenantId sharedWithTenants chassisTenantAssignments sections parentFormId childForms')
+        .select('id _id title tenantId sharedWithTenants chassisTenantAssignments sections parentFormId childForms')
         .maxTimeMS(30000)
         .lean();
 
@@ -2561,7 +2561,7 @@ export const getPerformanceTable = async (req, res) => {
           { id: { $in: linkedChildIds } },
           { _id: { $in: linkedChildIds.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id)) } }
         ]
-      }).select('id _id tenantId sharedWithTenants chassisTenantAssignments sections parentFormId').maxTimeMS(30000).lean() : [];
+      }).select('id _id title tenantId sharedWithTenants chassisTenantAssignments sections parentFormId').maxTimeMS(30000).lean() : [];
 
       // Deduplicate combined docs by MongoDB _id to prevent double-counting
       const seenDocIds = new Set();
@@ -2582,13 +2582,22 @@ export const getPerformanceTable = async (req, res) => {
       });
     }
 
-    // Preload form -> tenantId map for accurate plant-level accountability
+    // Preload form -> tenantId and form -> title maps for accurate plant-level accountability & cross-tenant inspection breakdown
     const formTenantMap = new Map();
+    const formTitleMap = new Map();
     if (formDocs && formDocs.length > 0) {
       formDocs.forEach(f => {
         const tId = f.tenantId ? f.tenantId.toString() : null;
-        if (f.id && tId) formTenantMap.set(f.id, tId);
-        if (f._id && tId) formTenantMap.set(f._id.toString(), tId);
+        const fTitle = f.title || f.name || 'Inspection Form';
+        if (f.id) {
+          if (tId) formTenantMap.set(f.id, tId);
+          formTitleMap.set(f.id, fTitle);
+        }
+        if (f._id) {
+          const fIdStr = f._id.toString();
+          if (tId) formTenantMap.set(fIdStr, tId);
+          formTitleMap.set(fIdStr, fTitle);
+        }
       });
     }
 
@@ -2837,6 +2846,36 @@ export const getPerformanceTable = async (req, res) => {
 
     const allUserIds = [...new Set([...userIdsFromResponses, ...objectIdsFromResponses])];
     console.log(`[Performance Table] Found ${allUserIds.length} unique user IDs from responses`);
+
+    // Ensure all forms appearing in responses are loaded in formTenantMap and formTitleMap
+    const allResponseQuestionIds = [...new Set(allResponses.map(r => r.questionId).filter(Boolean))];
+    const missingFormIds = allResponseQuestionIds.filter(id => !formTitleMap.has(id.toString()) && !formTitleMap.has(id));
+    if (missingFormIds.length > 0) {
+      try {
+        const objectIds = missingFormIds.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
+        const fetchedForms = await Form.find({
+          $or: [
+            { id: { $in: missingFormIds } },
+            { _id: { $in: objectIds } }
+          ]
+        }).select('id _id title name tenantId').lean();
+        fetchedForms.forEach(f => {
+          const tId = f.tenantId ? f.tenantId.toString() : null;
+          const fTitle = f.title || f.name || 'Inspection Form';
+          if (f.id) {
+            if (tId) formTenantMap.set(f.id, tId);
+            formTitleMap.set(f.id, fTitle);
+          }
+          if (f._id) {
+            const fIdStr = f._id.toString();
+            if (tId) formTenantMap.set(fIdStr, tId);
+            formTitleMap.set(fIdStr, fTitle);
+          }
+        });
+      } catch (err) {
+        console.warn('[Performance Table] Error fetching missing forms for title/tenant maps:', err);
+      }
+    }
 
     // Fetch cross-tenant users
     const crossTenantUserIds = allUserIds.filter(id =>
@@ -3157,6 +3196,42 @@ export const getPerformanceTable = async (req, res) => {
       return 'Direct Ok';
     };
 
+    // Helper to get or create form breakdown entry for an inspector
+    const getOrCreateFormStat = (statsEntry, respFormId) => {
+      if (!statsEntry.formBreakdownMap) statsEntry.formBreakdownMap = new Map();
+      const formKey = respFormId ? respFormId.toString() : 'general_form';
+      if (!statsEntry.formBreakdownMap.has(formKey)) {
+        const fTitle = (respFormId && formTitleMap.get(respFormId.toString())) || (respFormId && formTitleMap.get(respFormId)) || 'Inspection Form';
+        const fTenantId = (respFormId && formTenantMap.get(respFormId.toString())) || (respFormId && formTenantMap.get(respFormId)) || null;
+        const fTenantName = fTenantId ? (tenantNameMap.get(fTenantId) || 'Unknown Plant') : (statsEntry.tenantName || 'Unknown Plant');
+        const isOwn = Boolean(statsEntry.tenantId && fTenantId && statsEntry.tenantId.toString() === fTenantId.toString());
+        statsEntry.formBreakdownMap.set(formKey, {
+          formId: formKey,
+          formTitle: fTitle,
+          formTenantId: fTenantId,
+          formTenantName: fTenantName,
+          isOwnForm: isOwn,
+          relationship: isOwn ? 'own' : 'assigned',
+          totalSubmitted: 0,
+          directOk: 0,
+          reworkQcPending: 0,
+          reworkQcCompleted: 0,
+          rejected: 0,
+          dispatched: 0,
+          dispatchPending: 0,
+          biwTotalReviewed: 0,
+          biwAccepted: 0,
+          biwRejected: 0,
+          biwReworked: 0,
+          tvsTotalReviewed: 0,
+          tvsAccepted: 0,
+          tvsRejected: 0,
+          tvsReworked: 0
+        });
+      }
+      return statsEntry.formBreakdownMap.get(formKey);
+    };
+
     // Initialize stats for all users
     const userStatsMap = new Map();
 
@@ -3194,7 +3269,8 @@ export const getPerformanceTable = async (req, res) => {
         tvsRejected: 0,
         tvsReworked: 0,
         performanceScore: 0,
-        responses: []
+        responses: [],
+        formBreakdownMap: new Map()
       });
     });
 
@@ -3285,7 +3361,8 @@ export const getPerformanceTable = async (req, res) => {
           tvsRejected: 0,
           tvsReworked: 0,
           performanceScore: 0,
-          responses: []
+          responses: [],
+          formBreakdownMap: new Map()
         });
       } else {
         const existingEntry = userStatsMap.get(statsKey);
@@ -3299,19 +3376,32 @@ export const getPerformanceTable = async (req, res) => {
       stats.totalSubmitted++;
       stats.responses.push(response);
 
+      // Track form-level breakdown for the submitter
+      const formStat = getOrCreateFormStat(stats, response.questionId);
+      formStat.totalSubmitted++;
+
       const status = getInspectionStatus(response);
-      if (status === 'Direct Ok') stats.directOk++;
-      else if (status === 'Rework QC Pending') stats.reworkQcPending++;
-      else if (status === 'Rejected') stats.rejected++;
+      if (status === 'Direct Ok') {
+        stats.directOk++;
+        formStat.directOk++;
+      } else if (status === 'Rework QC Pending') {
+        stats.reworkQcPending++;
+        formStat.reworkQcPending++;
+      } else if (status === 'Rejected') {
+        stats.rejected++;
+        formStat.rejected++;
+      }
 
       // Dispatched count is credited to the inspector who submitted the inspection form,
       // regardless of who clicked the dispatch action.
       if (response.isDispatched) {
         stats.dispatched++;
+        formStat.dispatched++;
       } else {
         const dispatchableStatuses = ['Direct Ok', 'Rework QC Completed', 'Accepted'];
         if (dispatchableStatuses.includes(status)) {
           stats.dispatchPending++;
+          formStat.dispatchPending++;
         }
       }
 
@@ -3319,30 +3409,106 @@ export const getPerformanceTable = async (req, res) => {
       const rId1 = response._id ? response._id.toString() : '';
       const rId2 = response.id ? String(response.id) : '';
 
-      // 1. BIW Review outcomes (from response.biwReview)
+      // 1. BIW Review outcomes (credited to the reviewer, e.g. Saify inspector, or submitter if not specified)
+      let biwTargetStats = stats;
+      const biwReviewerId = response.biwReview?.reviewedBy?.toString();
+      const biwReviewerNameRaw = (response.biwReview?.reviewedByName || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+
+      if (biwReviewerId && userStatsMap.has(biwReviewerId)) {
+        biwTargetStats = userStatsMap.get(biwReviewerId);
+      } else if (biwReviewerNameRaw) {
+        const rLower = biwReviewerNameRaw.toLowerCase();
+        for (const [k, s] of userStatsMap) {
+          if ((s.userName || '').toLowerCase() === rLower || (s.userEmail || '').toLowerCase() === rLower) {
+            biwTargetStats = s;
+            break;
+          }
+        }
+        if (biwTargetStats === stats && biwReviewerNameRaw.toLowerCase() !== (stats.userName || '').toLowerCase()) {
+          const matchedReviewerUser = users.find(u => {
+            const fullName = `${u.firstName || ''} ${u.lastName || ''}`.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+            return (fullName && fullName === rLower) || (u.email && u.email.toLowerCase() === rLower) || (u.username && u.username.toLowerCase() === rLower);
+          });
+          if (matchedReviewerUser) {
+            const muId = matchedReviewerUser._id.toString();
+            if (userStatsMap.has(muId)) {
+              biwTargetStats = userStatsMap.get(muId);
+            } else {
+              const tIdStr = matchedReviewerUser.tenantId?._id?.toString() || matchedReviewerUser.tenantId?.toString() || '';
+              const tName = (tIdStr && tenantNameMap.get(tIdStr)) || matchedReviewerUser.tenantId?.name || matchedReviewerUser.tenantId?.companyName || 'Unknown Plant';
+              const newReviewerEntry = {
+                userId: muId,
+                userName: `${matchedReviewerUser.firstName || ''} ${matchedReviewerUser.lastName || ''}`.trim(),
+                userEmail: matchedReviewerUser.email || '',
+                userRole: matchedReviewerUser.role || 'inspector',
+                tenantId: tIdStr,
+                tenantName: tName,
+                totalSubmitted: 0,
+                directOk: 0,
+                reworkQcCompleted: 0,
+                reworkQcPending: 0,
+                rejected: 0,
+                dispatchPending: 0,
+                dispatched: 0,
+                totalReviewed: 0,
+                reviewPending: 0,
+                accepted: 0,
+                rejectedReview: 0,
+                reworked: 0,
+                biwTotalReviewed: 0,
+                biwReviewPending: 0,
+                biwAccepted: 0,
+                biwRejected: 0,
+                biwReworked: 0,
+                tvsTotalReviewed: 0,
+                tvsReviewPending: 0,
+                tvsAccepted: 0,
+                tvsRejected: 0,
+                tvsReworked: 0,
+                performanceScore: 0,
+                responses: [],
+                formBreakdownMap: new Map()
+              };
+              userStatsMap.set(muId, newReviewerEntry);
+              biwTargetStats = newReviewerEntry;
+            }
+          }
+        }
+      }
+
       const biwStatus = response.biwReview?.status;
       if (biwStatus) {
         const bsLower = String(biwStatus).toLowerCase();
+        const biwFormStat = getOrCreateFormStat(biwTargetStats, response.questionId);
         if (
           bsLower.includes('accept') ||
           bsLower.includes('direct ok') ||
           bsLower.includes('ok') ||
           bsLower === 'verified'
         ) {
-          stats.biwAccepted++;
-          stats.accepted++;
-          stats.biwTotalReviewed++;
-          stats.totalReviewed++;
+          biwTargetStats.biwAccepted++;
+          biwTargetStats.accepted++;
+          biwTargetStats.biwTotalReviewed++;
+          biwTargetStats.totalReviewed++;
+
+          biwFormStat.biwAccepted++;
+          biwFormStat.biwTotalReviewed++;
         } else if (bsLower.includes('reject')) {
-          stats.biwRejected++;
-          stats.rejectedReview++;
-          stats.biwTotalReviewed++;
-          stats.totalReviewed++;
+          biwTargetStats.biwRejected++;
+          biwTargetStats.rejectedReview++;
+          biwTargetStats.biwTotalReviewed++;
+          biwTargetStats.totalReviewed++;
+
+          biwFormStat.biwRejected++;
+          biwFormStat.biwTotalReviewed++;
         } else if (bsLower.includes('rework')) {
-          stats.biwReworked++;
-          stats.reworked++;
-          stats.biwTotalReviewed++;
-          stats.totalReviewed++;
+          biwTargetStats.biwReworked++;
+          biwTargetStats.reworked++;
+          biwTargetStats.biwTotalReviewed++;
+          biwTargetStats.totalReviewed++;
+
+          biwFormStat.biwReworked++;
+          biwFormStat.biwTotalReviewed++;
         }
       }
 
@@ -3352,6 +3518,7 @@ export const getPerformanceTable = async (req, res) => {
 
       if (tvsStatus) {
         const tsLower = String(tvsStatus).toLowerCase();
+        const tvsFormStat = getOrCreateFormStat(stats, response.questionId);
         if (
           tsLower.includes('accept') ||
           tsLower.includes('direct ok') ||
@@ -3360,12 +3527,21 @@ export const getPerformanceTable = async (req, res) => {
         ) {
           stats.tvsAccepted++;
           stats.tvsTotalReviewed++;
+
+          tvsFormStat.tvsAccepted++;
+          tvsFormStat.tvsTotalReviewed++;
         } else if (tsLower.includes('reject')) {
           stats.tvsRejected++;
           stats.tvsTotalReviewed++;
+
+          tvsFormStat.tvsRejected++;
+          tvsFormStat.tvsTotalReviewed++;
         } else if (tsLower.includes('rework')) {
           stats.tvsReworked++;
           stats.tvsTotalReviewed++;
+
+          tvsFormStat.tvsReworked++;
+          tvsFormStat.tvsTotalReviewed++;
         }
       }
     });
@@ -3392,10 +3568,11 @@ export const getPerformanceTable = async (req, res) => {
         stats.rejected = matchAgg.rejectedCount || 0;
         stats.dispatched = matchAgg.dispatched !== undefined ? matchAgg.dispatched : (stats.dispatched || 0);
         stats.dispatchPending = Math.max(0, stats.directOk + stats.reworkQcCompleted - stats.dispatched);
-        stats.biwTotalReviewed = matchAgg.biwTotalReviewed !== undefined ? matchAgg.biwTotalReviewed : (stats.biwTotalReviewed || 0);
-        stats.biwAccepted = matchAgg.biwAccepted !== undefined ? matchAgg.biwAccepted : (stats.biwAccepted || 0);
-        stats.biwRejected = matchAgg.biwRejected !== undefined ? matchAgg.biwRejected : (stats.biwRejected || 0);
-        stats.biwReworked = matchAgg.biwReworked !== undefined ? matchAgg.biwReworked : (stats.biwReworked || 0);
+        // Preserve individual reviewer-credited BIW stats; fallback to matchAgg only if not set
+        stats.biwTotalReviewed = stats.biwTotalReviewed !== undefined ? stats.biwTotalReviewed : (matchAgg.biwTotalReviewed || 0);
+        stats.biwAccepted = stats.biwAccepted !== undefined ? stats.biwAccepted : (matchAgg.biwAccepted || 0);
+        stats.biwRejected = stats.biwRejected !== undefined ? stats.biwRejected : (matchAgg.biwRejected || 0);
+        stats.biwReworked = stats.biwReworked !== undefined ? stats.biwReworked : (matchAgg.biwReworked || 0);
         stats.tvsTotalReviewed = matchAgg.tvsTotalReviewed !== undefined ? matchAgg.tvsTotalReviewed : (stats.tvsTotalReviewed || 0);
         stats.tvsAccepted = matchAgg.tvsAccepted !== undefined ? matchAgg.tvsAccepted : (stats.tvsAccepted || 0);
         stats.tvsRejected = matchAgg.tvsRejected !== undefined ? matchAgg.tvsRejected : (stats.tvsRejected || 0);
@@ -3464,7 +3641,8 @@ export const getPerformanceTable = async (req, res) => {
           tvsReworked: ai.tvsReworked || 0,
           tvsReviewPending: Math.max(0, ai.totalSubmitted - (ai.tvsTotalReviewed || 0)),
           performanceScore: pScore,
-          responses: []
+          responses: [],
+          formBreakdownMap: new Map()
         });
       }
     }
@@ -3489,6 +3667,10 @@ export const getPerformanceTable = async (req, res) => {
         } else if (/^[0-9a-f]{24}$/i.test(stats.userId)) {
           displayName = `User ${stats.userId.substring(0, 8)}`;
         }
+
+        const formBreakdown = Array.from(stats.formBreakdownMap ? stats.formBreakdownMap.values() : []);
+        const ownFormsCount = formBreakdown.filter(f => f.isOwnForm).length;
+        const assignedFormsCount = formBreakdown.filter(f => !f.isOwnForm).length;
 
         return {
           name: displayName,
@@ -3527,7 +3709,10 @@ export const getPerformanceTable = async (req, res) => {
           tvsRejected: stats.tvsRejected || 0,
           tvsReworked: stats.tvsReworked || 0,
 
-          performanceScore: stats.performanceScore || 0
+          performanceScore: stats.performanceScore || 0,
+          formBreakdown,
+          ownFormsCount,
+          assignedFormsCount
         };
       });
 

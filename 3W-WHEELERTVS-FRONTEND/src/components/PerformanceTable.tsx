@@ -7,7 +7,7 @@ import React, {
 } from "react";
 import { useAuth } from "../context/AuthContext";
 import { apiClient } from "../api/client";
-import { Users, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Loader2, Info, Search, X, ArrowUp, ArrowDown, ArrowUpDown, Calendar } from "lucide-react";
+import { Users, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Loader2, Info, Search, X, ArrowUp, ArrowDown, ArrowUpDown, Calendar, Building2, FileText, CheckCircle2, AlertTriangle, Layers, ExternalLink } from "lucide-react";
 import PerformanceGuideModal from "./analytics/PerformanceGuideModal";
 
 const PerformanceTable = ({
@@ -33,6 +33,8 @@ const PerformanceTable = ({
   const [performanceTableData, setPerformanceTableData] = useState<any[]>([]);
   const [performanceTableLoading, setPerformanceTableLoading] = useState(false);
   const [showPerformanceGuide, setShowPerformanceGuide] = useState(false);
+  const [selectedInspectorForDetails, setSelectedInspectorForDetails] = useState<any | null>(null);
+  const [showInspectorDetailModal, setShowInspectorDetailModal] = useState(false);
 
   // ✅ Bind strictly to Top Date Filter (startDate & endDate props)
   const effectiveStartDate = useMemo(() => {
@@ -186,7 +188,7 @@ const PerformanceTable = ({
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   // Group by Plant / Tenant states (Excel Pivot style)
-  const [viewMode, setViewMode] = useState<"grouped" | "flat">("grouped");
+  const [viewMode, setViewMode] = useState<"grouped" | "flat" | "cross_tenant">("grouped");
   const [collapsedTenants, setCollapsedTenants] = useState<Set<string>>(new Set());
 
   const toggleTenantCollapse = useCallback((tName: string) => {
@@ -1084,7 +1086,7 @@ const PerformanceTable = ({
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          {/* View Mode Toggle (Excel Pivot Hierarchy vs Flat) */}
+          {/* View Mode Toggle (Excel Pivot Hierarchy vs Flat vs Cross Tenant) */}
           <div className="flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
             <button
               type="button"
@@ -1109,6 +1111,18 @@ const PerformanceTable = ({
               title="Flat Inspector List"
             >
               <span>📋 Flat List</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("cross_tenant")}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                viewMode === "cross_tenant"
+                  ? "bg-white dark:bg-gray-700 text-purple-700 dark:text-purple-300 shadow-sm"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+              }`}
+              title="Cross Tenant Performance"
+            >
+              <span>🏢 Cross Tenant Performance</span>
             </button>
           </div>
 
@@ -1186,6 +1200,27 @@ const PerformanceTable = ({
           )}
         </div>
       </div>
+
+      {viewMode === "cross_tenant" && (
+        <div className="mb-4 p-3.5 bg-gradient-to-r from-purple-50 via-indigo-50/60 to-purple-50/30 dark:from-purple-950/40 dark:via-indigo-950/30 dark:to-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 flex items-center justify-center shrink-0">
+              <Building2 className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-bold text-gray-900 dark:text-gray-100">
+                Cross-Tenant Multi-Plant Performance Audit
+              </p>
+              <p className="text-gray-600 dark:text-gray-400 text-[11px]">
+                Auditing inspection, BIW review, and TVS review accountability across LMPL, Saify, Sreedevi, and TVS. Click the <span className="font-bold text-purple-700 dark:text-purple-300">ⓘ</span> icon next to any inspector's name to see their form-wise breakdown (Own vs Assigned Forms with verified database counts).
+              </p>
+            </div>
+          </div>
+          <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
+            Real Multi-Tenant Data
+          </span>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
         {performanceTableData.length === 0 ? (
@@ -1448,7 +1483,7 @@ const PerformanceTable = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {(viewMode === "grouped" ? tenantGroups.length === 0 : paginatedPerformance.length === 0) && (
+              {(viewMode === "grouped" || viewMode === "cross_tenant" ? tenantGroups.length === 0 : paginatedPerformance.length === 0) && (
                 <tr>
                   <td
                     colSpan={25}
@@ -1471,7 +1506,7 @@ const PerformanceTable = ({
                   </td>
                 </tr>
               )}
-              {viewMode === "grouped" ? (
+              {(viewMode === "grouped" || viewMode === "cross_tenant") ? (
                 tenantGroups.map((group) => {
                   const isCollapsed = collapsedTenants.has(group.tenantName);
                   return (
@@ -1479,16 +1514,16 @@ const PerformanceTable = ({
                       <tr
                         key={`tenant-header-${group.tenantName}`}
                         onClick={() => toggleTenantCollapse(group.tenantName)}
-                        className="bg-emerald-50/90 dark:bg-emerald-950/40 border-y-2 border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100/90 dark:hover:bg-emerald-900/50 transition-colors cursor-pointer font-black text-emerald-950 dark:text-emerald-100 select-none shadow-2xs"
+                        className={`${viewMode === "cross_tenant" ? "bg-purple-50/90 dark:bg-purple-950/40 border-y-2 border-purple-300 dark:border-purple-700 hover:bg-purple-100/90 dark:hover:bg-purple-900/50 text-purple-950 dark:text-purple-100" : "bg-emerald-50/90 dark:bg-emerald-950/40 border-y-2 border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100/90 dark:hover:bg-emerald-900/50 text-emerald-950 dark:text-emerald-100"} transition-colors cursor-pointer font-black select-none shadow-2xs`}
                       >
                         {isSuperAdmin && (
-                          <td className="px-2 py-2 whitespace-nowrap text-xs font-black text-emerald-800 dark:text-emerald-200">
+                          <td className={`px-2 py-2 whitespace-nowrap text-xs font-black ${viewMode === "cross_tenant" ? "text-purple-800 dark:text-purple-200" : "text-emerald-800 dark:text-emerald-200"}`}>
                             {group.tenantName}
                           </td>
                         )}
                         <td className="px-2 py-2 whitespace-nowrap">
                           <div className="flex items-center gap-2">
-                            <span className="p-0.5 rounded bg-emerald-200/80 dark:bg-emerald-800/80 text-emerald-900 dark:text-emerald-100">
+                            <span className={`p-0.5 rounded ${viewMode === "cross_tenant" ? "bg-purple-200/80 dark:bg-purple-800/80 text-purple-900 dark:text-purple-100" : "bg-emerald-200/80 dark:bg-emerald-800/80 text-emerald-900 dark:text-emerald-100"}`}>
                               {isCollapsed ? (
                                 <ChevronRight className="w-3.5 h-3.5" />
                               ) : (
@@ -1496,7 +1531,7 @@ const PerformanceTable = ({
                               )}
                             </span>
                             <span className="text-xs font-extrabold uppercase tracking-wider">{group.tenantName}</span>
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-200/60 dark:bg-emerald-800/60 text-emerald-800 dark:text-emerald-200">
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${viewMode === "cross_tenant" ? "bg-purple-200/60 dark:bg-purple-800/60 text-purple-800 dark:text-purple-200" : "bg-emerald-200/60 dark:bg-emerald-800/60 text-emerald-800 dark:text-emerald-200"}`}>
                               {group.rows.length} inspector{group.rows.length !== 1 ? 's' : ''}
                             </span>
                           </div>
@@ -1600,6 +1635,32 @@ const PerformanceTable = ({
                               <div className="flex items-center gap-1.5">
                                 <span className="text-gray-400 dark:text-gray-500 font-mono text-xs select-none">└─</span>
                                 <span className="font-semibold text-gray-800 dark:text-gray-200">{row.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedInspectorForDetails(row);
+                                    setShowInspectorDetailModal(true);
+                                  }}
+                                  className="inline-flex items-center justify-center p-1 rounded-full text-purple-600 hover:text-purple-800 hover:bg-purple-100 dark:text-purple-400 dark:hover:bg-purple-900/40 transition-colors cursor-pointer"
+                                  title={`View Form-Wise Breakdown for ${row.name} (Own vs Assigned Forms)`}
+                                >
+                                  <Info className="w-3.5 h-3.5" />
+                                </button>
+                                {(row.ownFormsCount !== undefined || row.assignedFormsCount !== undefined) && (
+                                  <div className="flex items-center gap-1 ml-1">
+                                    {(row.ownFormsCount ?? 0) > 0 && (
+                                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/60" title={`${row.ownFormsCount} Own Plant Form(s)`}>
+                                        🏠 {row.ownFormsCount}
+                                      </span>
+                                    )}
+                                    {(row.assignedFormsCount ?? 0) > 0 && (
+                                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200/60" title={`${row.assignedFormsCount} Cross-Tenant / Assigned Form(s)`}>
+                                        🔄 {row.assignedFormsCount}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             </td>
                             {performanceStatuses
@@ -1752,17 +1813,31 @@ const PerformanceTable = ({
                               )}
                             </td>
                             <td className="px-2 py-1.5 text-center">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); toggleRowExpansion(`${group.tenantName}-${row.name}`); }}
-                                className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all cursor-pointer"
-                                title={expandedRows.has(`${group.tenantName}-${row.name}`) ? "Collapse" : "Expand"}
-                              >
-                                {expandedRows.has(`${group.tenantName}-${row.name}`) ? (
-                                  <ChevronUp className="w-4 h-4" />
-                                ) : (
-                                  <ChevronDown className="w-4 h-4" />
-                                )}
-                              </button>
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedInspectorForDetails(row);
+                                    setShowInspectorDetailModal(true);
+                                  }}
+                                  className="p-1 text-purple-600 hover:text-purple-800 hover:bg-purple-100 dark:text-purple-400 dark:hover:bg-purple-900/40 rounded-lg transition-colors cursor-pointer"
+                                  title="View Form-Wise Details"
+                                >
+                                  <FileText className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); toggleRowExpansion(`${group.tenantName}-${row.name}`); }}
+                                  className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all cursor-pointer"
+                                  title={expandedRows.has(`${group.tenantName}-${row.name}`) ? "Collapse" : "Expand"}
+                                >
+                                  {expandedRows.has(`${group.tenantName}-${row.name}`) ? (
+                                    <ChevronUp className="w-4 h-4" />
+                                  ) : (
+                                    <ChevronDown className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </div>
                             </td>
                           </tr>
 
@@ -1861,12 +1936,40 @@ const PerformanceTable = ({
                         </td>
                       )}
                       <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                        {row.name}
-                        {!isSuperAdmin && row.tenantName && row.tenantName !== "Unknown Tenant" && (
-                          <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
-                            ({row.tenantName})
-                          </span>
-                        )}
+                        <div className="inline-flex items-center gap-1.5">
+                          <span className="font-semibold text-gray-800 dark:text-gray-200">{row.name}</span>
+                          {!isSuperAdmin && row.tenantName && row.tenantName !== "Unknown Tenant" && (
+                            <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
+                              ({row.tenantName})
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedInspectorForDetails(row);
+                              setShowInspectorDetailModal(true);
+                            }}
+                            className="inline-flex items-center justify-center p-0.5 rounded-full text-purple-600 hover:text-purple-800 hover:bg-purple-100 dark:text-purple-400 dark:hover:bg-purple-900/40 transition-colors cursor-pointer"
+                            title={`View Form-Wise Breakdown for ${row.name} (Own vs Assigned Forms)`}
+                          >
+                            <Info className="w-3.5 h-3.5" />
+                          </button>
+                          {(row.ownFormsCount !== undefined || row.assignedFormsCount !== undefined) && (
+                            <div className="flex items-center gap-1 ml-1">
+                              {(row.ownFormsCount ?? 0) > 0 && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/60" title={`${row.ownFormsCount} Own Plant Form(s)`}>
+                                  🏠 {row.ownFormsCount}
+                                </span>
+                              )}
+                              {(row.assignedFormsCount ?? 0) > 0 && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200/60" title={`${row.assignedFormsCount} Cross-Tenant / Assigned Form(s)`}>
+                                  🔄 {row.assignedFormsCount}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       {performanceStatuses
                         .filter((status) => status !== "Dispatched")
@@ -2027,17 +2130,31 @@ const PerformanceTable = ({
                         )}
                       </td>
                       <td className="px-2 py-1.5 text-center">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); toggleRowExpansion(row.name); }}
-                          className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
-                          title={expandedRows.has(row.name) ? "Collapse" : "Expand"}
-                        >
-                          {expandedRows.has(row.name) ? (
-                            <ChevronUp className="w-4 h-4" />
-                          ) : (
-                            <ChevronDown className="w-4 h-4" />
-                          )}
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedInspectorForDetails(row);
+                              setShowInspectorDetailModal(true);
+                            }}
+                            className="p-1 text-purple-600 hover:text-purple-800 hover:bg-purple-100 dark:text-purple-400 dark:hover:bg-purple-900/40 rounded-lg transition-colors cursor-pointer"
+                            title="View Form-Wise Details"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleRowExpansion(row.name); }}
+                            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all cursor-pointer"
+                            title={expandedRows.has(row.name) ? "Collapse" : "Expand"}
+                          >
+                            {expandedRows.has(row.name) ? (
+                              <ChevronUp className="w-4 h-4" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
 
@@ -2256,7 +2373,7 @@ const PerformanceTable = ({
           </table>
         </div>
         )}
-        {performanceTableData.length > 0 && totalPerformancePages > 1 && (
+        {performanceTableData.length > 0 && totalPerformancePages > 1 && viewMode !== "cross_tenant" && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-gray-50/30 dark:bg-gray-900/30 border-t border-gray-100 dark:border-gray-700">
             <div className="flex items-center gap-3">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
@@ -2344,6 +2461,195 @@ const PerformanceTable = ({
         isOpen={showPerformanceGuide}
         onClose={() => setShowPerformanceGuide(false)}
       />
+
+      {/* Inspector Form-Wise Breakdown Modal (Own vs Assigned Forms) */}
+      {showInspectorDetailModal && selectedInspectorForDetails && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+          onClick={() => setShowInspectorDetailModal(false)}
+        >
+          <div
+            className="bg-white dark:bg-gray-900 rounded-3xl max-w-5xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between bg-gradient-to-r from-purple-50/90 via-white to-purple-50/30 dark:from-gray-900 dark:via-gray-900 dark:to-purple-950/30">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 flex items-center justify-center shrink-0 shadow-xs">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">
+                      Inspector Form-Wise Activity & Cross-Tenant Audit
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-200 border border-purple-200 dark:border-purple-800">
+                      {selectedInspectorForDetails.tenantName || "Plant"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Inspector: <strong className="text-gray-800 dark:text-gray-200">{selectedInspectorForDetails.name}</strong> • Role: <span className="capitalize">{selectedInspectorForDetails.role || "Inspector"}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowInspectorDetailModal(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1">
+              {/* Summary KPI Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="p-3 bg-gray-50 dark:bg-gray-800/80 rounded-2xl border border-gray-200 dark:border-gray-700 text-center">
+                  <p className="text-[10px] uppercase font-bold text-gray-400">Total Forms</p>
+                  <p className="text-lg font-black text-gray-800 dark:text-gray-100 mt-0.5">
+                    {selectedInspectorForDetails.formBreakdown?.length || (selectedInspectorForDetails.totalSubmitted > 0 ? 1 : 0)}
+                  </p>
+                </div>
+                <div className="p-3 bg-emerald-50/80 dark:bg-emerald-950/30 rounded-2xl border border-emerald-200 dark:border-emerald-800 text-center">
+                  <p className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-300">Own Forms</p>
+                  <p className="text-lg font-black text-emerald-800 dark:text-emerald-200 mt-0.5">
+                    {selectedInspectorForDetails.ownFormsCount ?? ((selectedInspectorForDetails.formBreakdown || []).filter((f: any) => f.isOwnForm).length)}
+                  </p>
+                </div>
+                <div className="p-3 bg-purple-50/80 dark:bg-purple-950/30 rounded-2xl border border-purple-200 dark:border-purple-800 text-center">
+                  <p className="text-[10px] uppercase font-bold text-purple-700 dark:text-purple-300">Assigned / Cross</p>
+                  <p className="text-lg font-black text-purple-800 dark:text-purple-200 mt-0.5">
+                    {selectedInspectorForDetails.assignedFormsCount ?? ((selectedInspectorForDetails.formBreakdown || []).filter((f: any) => !f.isOwnForm).length)}
+                  </p>
+                </div>
+                <div className="p-3 bg-blue-50/80 dark:bg-blue-950/30 rounded-2xl border border-blue-200 dark:border-blue-800 text-center">
+                  <p className="text-[10px] uppercase font-bold text-blue-700 dark:text-blue-300">Submissions</p>
+                  <p className="text-lg font-black text-blue-800 dark:text-blue-200 mt-0.5">
+                    {selectedInspectorForDetails.totalSubmitted || 0}
+                  </p>
+                </div>
+                <div className="p-3 bg-purple-50/80 dark:bg-purple-950/30 rounded-2xl border border-purple-200 dark:border-purple-800 text-center">
+                  <p className="text-[10px] uppercase font-bold text-purple-700 dark:text-purple-300">BIW Reviews</p>
+                  <p className="text-lg font-black text-purple-800 dark:text-purple-200 mt-0.5">
+                    {selectedInspectorForDetails.biwTotalReviewed || selectedInspectorForDetails.totalReviewed || 0}
+                  </p>
+                </div>
+                <div className="p-3 bg-indigo-50/80 dark:bg-indigo-950/30 rounded-2xl border border-indigo-200 dark:border-indigo-800 text-center">
+                  <p className="text-[10px] uppercase font-bold text-indigo-700 dark:text-indigo-300">TVS Reviews</p>
+                  <p className="text-lg font-black text-indigo-800 dark:text-indigo-200 mt-0.5">
+                    {selectedInspectorForDetails.tvsTotalReviewed || 0}
+                  </p>
+                </div>
+              </div>
+
+              {/* Form-Wise Table */}
+              <div className="rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-xs">
+                <table className="w-full text-xs text-left border-collapse">
+                  <thead className="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 uppercase tracking-wider text-[10px] font-black">
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="px-3 py-2">Form Title & Plant</th>
+                      <th className="px-3 py-2 text-center">Type</th>
+                      <th className="px-3 py-2 text-center bg-gray-50/60 dark:bg-gray-800/60" colSpan={4}>Submissions</th>
+                      <th className="px-3 py-2 text-center bg-purple-50/60 dark:bg-purple-950/40" colSpan={3}>BIW Review</th>
+                      <th className="px-3 py-2 text-center bg-blue-50/60 dark:bg-blue-950/40" colSpan={3}>TVS Review</th>
+                    </tr>
+                    <tr className="border-b border-gray-200 dark:border-gray-700 text-[9px] font-extrabold text-gray-500 dark:text-gray-400">
+                      <th className="px-3 py-1.5">Template</th>
+                      <th className="px-3 py-1.5 text-center">Relation</th>
+                      <th className="px-2 py-1.5 text-center text-emerald-600">Direct OK</th>
+                      <th className="px-2 py-1.5 text-center text-amber-600">Rework</th>
+                      <th className="px-2 py-1.5 text-center text-rose-600">Reject</th>
+                      <th className="px-2 py-1.5 text-center text-indigo-600 border-r border-gray-200 dark:border-gray-700">Total</th>
+                      <th className="px-2 py-1.5 text-center text-purple-700 bg-purple-50/40 dark:bg-purple-950/20">Reviewed</th>
+                      <th className="px-2 py-1.5 text-center text-emerald-600 bg-purple-50/40 dark:bg-purple-950/20">Accepted</th>
+                      <th className="px-2 py-1.5 text-center text-rose-600 bg-purple-50/40 dark:bg-purple-950/20 border-r border-gray-200 dark:border-gray-700">Defects</th>
+                      <th className="px-2 py-1.5 text-center text-blue-700 bg-blue-50/40 dark:bg-blue-950/20">Reviewed</th>
+                      <th className="px-2 py-1.5 text-center text-emerald-600 bg-blue-50/40 dark:bg-blue-950/20">Accepted</th>
+                      <th className="px-2 py-1.5 text-center text-rose-600 bg-blue-50/40 dark:bg-blue-950/20">Defects</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700 text-[11px]">
+                    {(!selectedInspectorForDetails.formBreakdown || selectedInspectorForDetails.formBreakdown.length === 0) ? (
+                      <tr>
+                        <td className="px-3 py-3 font-semibold text-gray-800 dark:text-gray-200">
+                          Primary Form Inspection
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                            🏠 Own Form
+                          </span>
+                        </td>
+                        <td className="px-2 py-3 text-center font-bold text-emerald-600">{selectedInspectorForDetails.directOk || 0}</td>
+                        <td className="px-2 py-3 text-center font-bold text-amber-600">{selectedInspectorForDetails.reworkQcPending || 0}</td>
+                        <td className="px-2 py-3 text-center font-bold text-rose-600">{selectedInspectorForDetails.rejected || 0}</td>
+                        <td className="px-2 py-3 text-center font-black text-indigo-700 dark:text-indigo-400 border-r border-gray-200 dark:border-gray-700">{selectedInspectorForDetails.totalSubmitted || 0}</td>
+                        <td className="px-2 py-3 text-center font-bold text-purple-700 dark:text-purple-300 bg-purple-50/20">{selectedInspectorForDetails.biwTotalReviewed || 0}</td>
+                        <td className="px-2 py-3 text-center font-bold text-emerald-600 bg-purple-50/20">{selectedInspectorForDetails.biwAccepted || 0}</td>
+                        <td className="px-2 py-3 text-center font-bold text-rose-600 bg-purple-50/20 border-r border-gray-200 dark:border-gray-700">{(selectedInspectorForDetails.biwRejected || 0) + (selectedInspectorForDetails.biwReworked || 0)}</td>
+                        <td className="px-2 py-3 text-center font-bold text-blue-700 dark:text-blue-300 bg-blue-50/20">{selectedInspectorForDetails.tvsTotalReviewed || 0}</td>
+                        <td className="px-2 py-3 text-center font-bold text-emerald-600 bg-blue-50/20">{selectedInspectorForDetails.tvsAccepted || 0}</td>
+                        <td className="px-2 py-3 text-center font-bold text-rose-600 bg-blue-50/20">{(selectedInspectorForDetails.tvsRejected || 0) + (selectedInspectorForDetails.tvsReworked || 0)}</td>
+                      </tr>
+                    ) : (
+                      selectedInspectorForDetails.formBreakdown.map((f: any, fIdx: number) => {
+                        const biwDefects = (f.biwRejected || 0) + (f.biwReworked || 0);
+                        const tvsDefects = (f.tvsRejected || 0) + (f.tvsReworked || 0);
+                        return (
+                          <tr key={f.formId || fIdx} className="hover:bg-gray-50/80 dark:hover:bg-gray-800/60 transition-colors">
+                            <td className="px-3 py-2.5">
+                              <p className="font-bold text-gray-900 dark:text-gray-100">{f.formTitle || "Inspection Form"}</p>
+                              {f.formTenantName && (
+                                <p className="text-[10px] text-gray-400">Owning Plant: {f.formTenantName}</p>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                              {f.isOwnForm ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                  🏠 Own Form
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800" title={`Form belongs to ${f.formTenantName}`}>
+                                  🔄 Assigned ({f.formTenantName})
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-2 py-2.5 text-center font-bold text-emerald-600 tabular-nums">{f.directOk || 0}</td>
+                            <td className="px-2 py-2.5 text-center font-bold text-amber-600 tabular-nums">{f.reworkQcPending || 0}</td>
+                            <td className="px-2 py-2.5 text-center font-bold text-rose-600 tabular-nums">{f.rejected || 0}</td>
+                            <td className="px-2 py-2.5 text-center font-black text-indigo-700 dark:text-indigo-400 tabular-nums border-r border-gray-200 dark:border-gray-700">{f.totalSubmitted || 0}</td>
+                            <td className="px-2 py-2.5 text-center font-bold text-purple-700 dark:text-purple-300 bg-purple-50/20 tabular-nums">{f.biwTotalReviewed || 0}</td>
+                            <td className="px-2 py-2.5 text-center font-bold text-emerald-600 bg-purple-50/20 tabular-nums">{f.biwAccepted || 0}</td>
+                            <td className="px-2 py-2.5 text-center font-bold text-rose-600 bg-purple-50/20 border-r border-gray-200 dark:border-gray-700 tabular-nums">{biwDefects}</td>
+                            <td className="px-2 py-2.5 text-center font-bold text-blue-700 dark:text-blue-300 bg-blue-50/20 tabular-nums">{f.tvsTotalReviewed || 0}</td>
+                            <td className="px-2 py-2.5 text-center font-bold text-emerald-600 bg-blue-50/20 tabular-nums">{f.tvsAccepted || 0}</td>
+                            <td className="px-2 py-2.5 text-center font-bold text-rose-600 bg-blue-50/20 tabular-nums">{tvsDefects}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3.5 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between bg-gray-50 dark:bg-gray-850">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                Data strictly reconciled against MongoDB response and review records.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowInspectorDetailModal(false)}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

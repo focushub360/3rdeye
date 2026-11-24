@@ -7400,6 +7400,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
 
     const mainResponsesByChassis = indexResponsesByChassis(mainCandidateResponses);
     const childResponsesByChassis = indexResponsesByChassis(childCandidateResponses);
+    const allDbUsers = await User.find({}).select('_id firstName lastName username email tenantId').lean();
 
     let updatedCount = 0;
     let skippedCount = 0;
@@ -7480,14 +7481,39 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           const biwRemark = String(row.biwRemark || row.remark || row['Remark'] || '').trim();
           const biwFileUrl = String(row.biwFileUrl || row.fileUpload || row['File Upload'] || '').trim();
 
+          const explicitReviewer = String(
+            row.reviewedBy || row.reviewedByName || row['Reviewed By'] || row['Reviewer'] || row.workerName || ''
+          ).trim();
+          let effectiveReviewerName = explicitReviewer || reviewerName;
+          let effectiveReviewerId = req.user?._id;
+          let effectiveTenantId = activeResp.tenantId;
+
+          if (explicitReviewer) {
+            const expLower = explicitReviewer.toLowerCase();
+            const matchedUser = allDbUsers.find(u => {
+              const full = `${u.firstName || ''} ${u.lastName || ''}`.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+              return (
+                (full && full === expLower) ||
+                (u.username && u.username.toLowerCase() === expLower) ||
+                (u.email && u.email.toLowerCase() === expLower) ||
+                (u.firstName && u.firstName.toLowerCase() === expLower)
+              );
+            });
+            if (matchedUser) {
+              effectiveReviewerId = matchedUser._id;
+              if (matchedUser.tenantId) effectiveTenantId = matchedUser.tenantId;
+            }
+          }
+
           activeResp.biwReview = {
             status: biwStatus,
-            reviewedBy: req.user?._id || new mongoose.Types.ObjectId(),
-            reviewedByName: reviewerName,
+            reviewedBy: effectiveReviewerId || req.user?._id || new mongoose.Types.ObjectId(),
+            reviewedByName: effectiveReviewerName,
             reviewedAt: new Date(),
             reason: biwReason,
             remark: biwRemark,
             evidenceUrl: biwFileUrl,
+            tenantId: effectiveTenantId,
             flaggedQuestions: biwReason ? [{ questionId: 'biw-excel', questionText: biwReason }] : []
           };
           if (biwStatus === 'Rejected') {

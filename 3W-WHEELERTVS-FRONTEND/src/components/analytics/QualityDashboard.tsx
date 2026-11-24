@@ -501,6 +501,8 @@ export const QualityDashboard: React.FC = () => {
     const totalDispatched = matchedForms.reduce((sum: number, f: any) => sum + (f.dispatchedCount || 0), 0);
     const pendingDispatch = matchedForms.reduce((sum: number, f: any) => sum + (f.pendingDispatchCount !== undefined ? f.pendingDispatchCount : Math.max(0, ((f.directOkCount || 0) + (f.reworkAcceptedCount || 0)) - (f.dispatchedCount || 0))), 0);
     const totalBiwReviewed = matchedForms.reduce((sum: number, f: any) => sum + (f.biwReviewedCount !== undefined ? f.biwReviewedCount : ((f.biwAcceptCount || 0) + (f.biwDefectCount || 0))), 0);
+    const biwAcceptCount = matchedForms.reduce((sum: number, f: any) => sum + (f.biwAcceptCount || 0), 0);
+    const biwDefectCount = matchedForms.reduce((sum: number, f: any) => sum + (f.biwDefectCount || 0), 0);
     const pendingBiw = Math.max(0, totalDispatched - totalBiwReviewed);
     const tvsReviewedCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsReviewedCount || 0), 0);
     const tvsAcceptCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsAcceptCount || 0), 0);
@@ -524,6 +526,8 @@ export const QualityDashboard: React.FC = () => {
       totalDispatched: totalDispatched || data.summary.totalDispatched,
       pendingDispatch: pendingDispatch !== undefined ? pendingDispatch : data.summary.pendingDispatch,
       totalBiwReviewed: totalBiwReviewed || data.summary.totalBiwReviewed,
+      biwAcceptCount: biwAcceptCount || data.summary.biwAcceptCount || 0,
+      biwDefectCount: biwDefectCount || data.summary.biwDefectCount || 0,
       pendingBiw: pendingBiw !== undefined ? pendingBiw : data.summary.pendingBiw,
       tvsReviewedCount: tvsReviewedCount || data.summary.tvsReviewedCount || 0,
       tvsAcceptCount: tvsAcceptCount || data.summary.tvsAcceptCount || 0,
@@ -568,6 +572,8 @@ export const QualityDashboard: React.FC = () => {
         pendingDispatch: 0,
         biwReviewed: 0,
         pendingData: 0,
+        biwAccepted: 0,
+        biwDefects: 0,
         counts: {
           directOk: 0,
           reworkCompleted: 0,
@@ -578,6 +584,8 @@ export const QualityDashboard: React.FC = () => {
           pendingDispatch: 0,
           biwReviewed: 0,
           pendingData: 0,
+          biwAccepted: 0,
+          biwDefects: 0,
           total: 0,
         },
       };
@@ -664,6 +672,15 @@ export const QualityDashboard: React.FC = () => {
     const biwReviewedPercent = (biwReviewedCount / total) * 100;
     const pendingDataPercent = (pendingDataCount / total) * 100;
 
+    const biwAcceptCount = activeSummary.biwAcceptCount !== undefined
+      ? activeSummary.biwAcceptCount
+      : formsList.reduce((s, f) => s + (f.biwAcceptCount || 0), 0);
+    const biwDefectCount = activeSummary.biwDefectCount !== undefined
+      ? activeSummary.biwDefectCount
+      : formsList.reduce((s, f) => s + (f.biwDefectCount || 0), 0);
+    const biwAcceptPercent = total > 0 ? (biwAcceptCount / total) * 100 : 0;
+    const biwDefectPercent = total > 0 ? (biwDefectCount / total) * 100 : 0;
+
     // Real TVS reviewed
     const tvsReviewedCount = activeSummary.tvsReviewedCount !== undefined
       ? activeSummary.tvsReviewedCount
@@ -696,6 +713,8 @@ export const QualityDashboard: React.FC = () => {
       pendingDispatch: Number(pendingDispatchPercent.toFixed(1)),
       biwReviewed: Number(biwReviewedPercent.toFixed(1)),
       pendingData: Number(pendingDataPercent.toFixed(1)),
+      biwAccepted: Number(biwAcceptPercent.toFixed(1)),
+      biwDefects: Number(biwDefectPercent.toFixed(1)),
       tvsReviewed: Number(tvsReviewedPercent.toFixed(1)),
       pendingTvs: Number(pendingTvsPercent.toFixed(1)),
       tvsAccepted: Number(tvsAcceptPercent.toFixed(1)),
@@ -710,6 +729,8 @@ export const QualityDashboard: React.FC = () => {
         pendingDispatch: pendingDispatchCount,
         biwReviewed: biwReviewedCount,
         pendingData: pendingDataCount,
+        biwAccepted: biwAcceptCount,
+        biwDefects: biwDefectCount,
         tvsReviewed: tvsReviewedCount,
         pendingTvs: pendingTvsCount,
         tvsAccepted: tvsAcceptCount,
@@ -2140,7 +2161,7 @@ export const QualityDashboard: React.FC = () => {
 
             {/* 3-Column Layout: Left TVS Review Cards | Center Donut Chart | Right BIW Cards */}
             <div className="overflow-x-auto w-full pb-2">
-              <div className="grid grid-cols-[135px_minmax(280px,1fr)_135px] sm:grid-cols-[145px_minmax(320px,1fr)_145px] items-center justify-between gap-3 sm:gap-6 py-2 min-w-[580px]">
+              <div className="grid grid-cols-[135px_minmax(260px,1fr)_280px] sm:grid-cols-[145px_minmax(300px,1fr)_300px] items-center justify-between gap-3 sm:gap-6 py-2 min-w-[720px]">
                 {/* Left: 4 TVS Review Pipeline Cards placed Top-to-Bottom */}
                 <div className="flex flex-col gap-2.5 justify-center items-center flex-shrink-0">
                   {/* Total TVS Review */}
@@ -2267,6 +2288,10 @@ export const QualityDashboard: React.FC = () => {
                                         ? summaryPieDetails.counts.dispatched.toLocaleString()
                                         : hoveredSlice === 'biwReviewed'
                                           ? summaryPieDetails.counts.biwReviewed.toLocaleString()
+                                          : hoveredSlice === 'biwAccepted'
+                                            ? summaryPieDetails.counts.biwAccepted.toLocaleString()
+                                            : hoveredSlice === 'biwDefects'
+                                              ? summaryPieDetails.counts.biwDefects.toLocaleString()
                                           : hoveredSlice === 'tvsReviewed'
                                             ? summaryPieDetails.counts.tvsReviewed.toLocaleString()
                                             : hoveredSlice === 'tvsAccepted'
@@ -2284,6 +2309,8 @@ export const QualityDashboard: React.FC = () => {
                                   hoveredSlice === 'pendingTvs' ? 'text-amber-600' :
                                     hoveredSlice === 'dispatched' ? 'text-indigo-600' :
                                       hoveredSlice === 'biwReviewed' ? 'text-teal-600' :
+                                        hoveredSlice === 'biwAccepted' ? 'text-emerald-600' :
+                                          hoveredSlice === 'biwDefects' ? 'text-rose-600' :
                                         hoveredSlice === 'tvsReviewed' ? 'text-purple-600' :
                                           hoveredSlice === 'tvsAccepted' ? 'text-emerald-600' :
                                             hoveredSlice === 'tvsDefects' ? 'text-rose-600' : 'text-gray-500'
@@ -2297,6 +2324,8 @@ export const QualityDashboard: React.FC = () => {
                                     hoveredSlice === 'pendingTvs' ? 'PENDING TVS' :
                                       hoveredSlice === 'dispatched' ? 'DISPATCHED' :
                                         hoveredSlice === 'biwReviewed' ? 'BIW REVIEWED' :
+                                          hoveredSlice === 'biwAccepted' ? 'BIW ACCEPTED' :
+                                            hoveredSlice === 'biwDefects' ? 'BIW DEFECTS' :
                                           hoveredSlice === 'tvsReviewed' ? 'TVS REVIEWED' :
                                             hoveredSlice === 'tvsAccepted' ? 'TVS ACCEPTED' :
                                               hoveredSlice === 'tvsDefects' ? 'TVS DEFECTS' : 'ACCEPTED'}
@@ -2349,8 +2378,8 @@ export const QualityDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Right: 4 Pipeline / Dispatch Cards placed Top-to-Bottom */}
-                <div className="flex flex-row sm:flex-col gap-2.5 flex-wrap sm:flex-nowrap justify-center items-center flex-shrink-0">
+                {/* Right: Pipeline / Dispatch & BIW Review Cards in 2 columns */}
+                <div className="grid grid-cols-2 gap-2 sm:gap-2.5 justify-center items-center flex-shrink-0 w-[280px] sm:w-[300px]">
                   {/* Dispatched */}
                   <div
                     onClick={() => handleSelectSlice('dispatched')}
@@ -2434,6 +2463,48 @@ export const QualityDashboard: React.FC = () => {
                     </div>
                     <div className="text-[9px] text-gray-500 font-medium">
                       ({summaryPieDetails.counts.pendingData.toLocaleString()})
+                    </div>
+                  </div>
+
+                  {/* BIW Accepted */}
+                  <div
+                    onClick={() => handleSelectSlice('biwAccepted')}
+                    onMouseEnter={() => handleHoverSlice('biwAccepted')}
+                    onMouseLeave={handleHoverLeave}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${hoveredSlice === 'biwAccepted'
+                      ? 'bg-emerald-100/90 border-emerald-400 ring-2 ring-emerald-300'
+                      : 'bg-emerald-50/70 border-emerald-100 hover:bg-emerald-100/60 hover:shadow-xs'
+                      }`}
+                  >
+                    <div className="text-xs sm:text-sm font-bold text-emerald-600">
+                      {summaryPieDetails.biwAccepted}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-emerald-700 whitespace-nowrap">
+                      BIW Accepted
+                    </div>
+                    <div className="text-[9px] text-gray-500 font-medium">
+                      ({summaryPieDetails.counts.biwAccepted.toLocaleString()})
+                    </div>
+                  </div>
+
+                  {/* BIW Defects / Rework */}
+                  <div
+                    onClick={() => handleSelectSlice('biwDefects')}
+                    onMouseEnter={() => handleHoverSlice('biwDefects')}
+                    onMouseLeave={handleHoverLeave}
+                    className={`text-center p-2.5 rounded-xl border shadow-2xs flex flex-col justify-center items-center h-[72px] w-[135px] sm:w-[145px] transition-all cursor-pointer ${hoveredSlice === 'biwDefects'
+                      ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-300'
+                      : 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/60 hover:shadow-xs'
+                      }`}
+                  >
+                    <div className="text-xs sm:text-sm font-bold text-rose-600">
+                      {summaryPieDetails.biwDefects}%
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-semibold text-rose-700 whitespace-nowrap">
+                      BIW Defects / Rework
+                    </div>
+                    <div className="text-[9px] text-gray-500 font-medium">
+                      ({summaryPieDetails.counts.biwDefects.toLocaleString()})
                     </div>
                   </div>
                 </div>
@@ -3001,6 +3072,20 @@ export const QualityDashboard: React.FC = () => {
                         : '0';
                       tagColor = 'text-teal-700 bg-teal-50 border-teal-300';
                       activeLabel = 'BIW Reviewed';
+                    } else if (hoveredSlice === 'biwAccepted') {
+                      displayCount = form.biwAcceptCount || 0;
+                      displayPct = summaryPieDetails.counts.biwAccepted > 0
+                        ? (((form.biwAcceptCount || 0) / summaryPieDetails.counts.biwAccepted) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-emerald-700 bg-emerald-50 border-emerald-300';
+                      activeLabel = 'BIW Accepted';
+                    } else if (hoveredSlice === 'biwDefects') {
+                      displayCount = form.biwDefectCount || 0;
+                      displayPct = summaryPieDetails.counts.biwDefects > 0
+                        ? (((form.biwDefectCount || 0) / summaryPieDetails.counts.biwDefects) * 100).toFixed(1)
+                        : '0';
+                      tagColor = 'text-rose-700 bg-rose-50 border-rose-300';
+                      activeLabel = 'BIW Defects';
                     } else if (hoveredSlice === 'tvsReviewed') {
                       displayCount = formTvsReviewed;
                       displayPct = formDispatched > 0
@@ -3029,6 +3114,8 @@ export const QualityDashboard: React.FC = () => {
                       if (slice === 'pendingDispatch') return `/forms/${formIdStr}/analytics?tab=responses&dispatch=pending`;
                       if (slice === 'dispatched') return `/forms/${formIdStr}/analytics?tab=responses&dispatch=dispatched`;
                       if (slice === 'biwReviewed') return `/forms/${formIdStr}/analytics?tab=responses&biwStatus=accepted`;
+                      if (slice === 'biwAccepted') return `/forms/${formIdStr}/analytics?tab=responses&biwStatus=accepted`;
+                      if (slice === 'biwDefects') return `/forms/${formIdStr}/analytics?tab=responses&biwStatus=rework`;
                       if (slice === 'pendingData') return `/forms/${formIdStr}/analytics?tab=responses&dispatch=dispatched&biwStatus=pending`;
                       if (slice === 'tvsReviewed') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=reviewed`;
                       if (slice === 'tvsAccepted') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=accepted`;

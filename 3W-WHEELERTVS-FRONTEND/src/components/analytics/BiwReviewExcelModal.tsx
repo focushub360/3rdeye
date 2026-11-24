@@ -344,12 +344,32 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
           ? (form?.tenantId as any)?.name || (form?.tenantId as any)?.title
           : "");
 
+      let responsesToUse = responses || [];
+      const formIdToFetch = (form as any)?._id || (form as any)?.id;
+      if (prefillChassis && formIdToFetch) {
+        try {
+          const allExport = await apiClient.getAllResponsesForExport(String(formIdToFetch));
+          if (allExport && allExport.length > 0) {
+            responsesToUse = allExport;
+          }
+        } catch (_) {}
+      }
+
+      const reviewerOptionsList = Array.from(
+        new Set(
+          responsesToUse
+            .map((r: any) => r.biwReview?.reviewedByName || r.submittedBy)
+            .filter((n: string) => n && n !== "Excel Import" && n !== "Anonymous")
+        )
+      );
+
       await downloadBiwReviewTemplate({
         form,
         formTitle,
         mainTenantName: resolvedMainTenantName,
         chassisNumbers: prefillChassis ? uniqueChassisList : [],
-        responses,
+        responses: responsesToUse,
+        reviewerOptions: reviewerOptionsList,
         targetTenantForm,
         targetTenantTitle,
         targetTenantName: resolvedTargetTenantName,
