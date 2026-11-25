@@ -569,22 +569,15 @@ export default function FormAnalyticsDashboard({
           activeSelectionIds.includes(String(r._id || r.id))
         );
       } else {
-        // ⚡ INSTANT IN-MEMORY EXPORT: If full dataset is already in memory, use it directly (0ms network latency!)
         const targetFormId = String(id || (form as any)?._id || (form as any)?.id || propFormId || "");
+        const exportParams: any = {};
+        if (dateFilter && dateFilter.type !== "all") {
+          if (dateFilter.startDate) exportParams.startDate = dateFilter.startDate;
+          if (dateFilter.endDate) exportParams.endDate = dateFilter.endDate;
+        }
 
-        if (responses && responses.length > 0) {
-          activeResponsesSource = responses;
-        } else if (filteredResponses && filteredResponses.length > 0) {
-          activeResponsesSource = filteredResponses;
-        } else if (tableResponses && tableResponses.length > 0) {
-          activeResponsesSource = tableResponses;
-        } else if (targetFormId) {
-          // Fallback to network only if no responses are loaded in memory yet
-          const exportParams: any = {};
-          if (dateFilter && dateFilter.type !== "all") {
-            if (dateFilter.startDate) exportParams.startDate = dateFilter.startDate;
-            if (dateFilter.endDate) exportParams.endDate = dateFilter.endDate;
-          }
+        // Always fetch the complete dataset across all pages for the active date range (e.g. last 30 days)
+        if (targetFormId) {
           try {
             const exportData = await apiClient.getAllResponsesForExport(targetFormId, exportParams);
             if (exportData && exportData.length > 0) {
@@ -600,15 +593,15 @@ export default function FormAnalyticsDashboard({
           }
         }
 
-        // Fallback to table responses or in-memory responses if export call returns empty
+        // Fallback to in-memory responses if export call returns empty
         if (!activeResponsesSource || activeResponsesSource.length === 0) {
           activeResponsesSource =
-            tableResponses && tableResponses.length > 0
-              ? tableResponses
+            responses && responses.length > 0
+              ? responses
               : filteredResponses && filteredResponses.length > 0
                 ? filteredResponses
-                : responses && responses.length > 0
-                  ? responses
+                : tableResponses && tableResponses.length > 0
+                  ? tableResponses
                   : [];
         }
 
@@ -850,17 +843,130 @@ export default function FormAnalyticsDashboard({
 
       const reviewerOptionsList = Array.from(new Set(assignedTenantStaff));
 
+      const dateRangeParams: any = {};
+      if (dateFilter && dateFilter.type !== "all") {
+        if (dateFilter.startDate) dateRangeParams.startDate = dateFilter.startDate;
+        if (dateFilter.endDate) dateRangeParams.endDate = dateFilter.endDate;
+      }
+
+      const extractChassisKey = (r: any): string => {
+        const a = r?.answers || {};
+        const candidates = [
+          r?.systemChassisNumber,
+          r?.chassisNumber,
+          detectedChassisQId ? a[detectedChassisQId] : null,
+          a["chassis_number"],
+          a["chassisNumber"],
+          a["Chassis Number"],
+          a["Identification no"],
+          a["identification no"]
+        ];
+        for (const cand of candidates) {
+          const val = typeof cand === "object" ? cand?.chassisNumber || cand?.value || cand?.label : cand;
+          const s = String(val || "").trim();
+          if (s && !ignoredUnits.includes(s.toUpperCase())) return s;
+        }
+        return "";
+      };
+
+      const indexResponsesByChassis = (list: any[]) => {
+        const map: Record<string, any> = {};
+        list.forEach((item: any) => {
+          const ch = extractChassisKey(item);
+          if (!ch) return;
+          const norm = ch.toUpperCase();
+          const stripped = norm.replace(/\s+/g, "");
+          const existing = map[norm];
+          const hasRev = Boolean(item?.review?.reviewOption || item?.review?.status);
+          const exHasRev = Boolean(existing?.review?.reviewOption || existing?.review?.status);
+          const curTime = new Date(item?.updatedAt || item?.createdAt || item?.submittedAt || 0).getTime();
+          const exTime = new Date(existing?.updatedAt || existing?.createdAt || existing?.submittedAt || 0).getTime();
+          if (!existing || (hasRev && !exHasRev) || (hasRev === exHasRev && curTime > exTime)) {
+            map[ch] = item;
+            map[norm] = item;
+            map[stripped] = item;
+          }
+        });
+        return map;
+      };
+
+      let resolvedMainResponses = activeResponsesSource;
+      let resolvedChildResponses: Record<string, any> = { ...(relatedFormData.childResponses || {}) };
+
+      if (isChild) {
+        // activeResponsesSource holds the child (2nd) form's responses
+        resolvedChildResponses = {
+          ...resolvedChildResponses,
+          ...indexResponsesByChassis(activeResponsesSource)
+        };
+        const mainId = String((mainDoc as any)?._id || (mainDoc as any)?.id || "");
+        const currentId = String(id || (form as any)?._id || (form as any)?.id || "");
+        if (mainId && mainId !== currentId) {
+          try {
+            const parentExport = await apiClient.getAllResponsesForExport(mainId, dateRangeParams);
+            const parentList = Array.isArray(parentExport) && parentExport.length > 0
+              ? parentExport
+              : await apiClient.getAllResponsesForExport(mainId, {}).catch(() => []);
+            if (Array.isArray(parentList) && parentList.length > 0) {
+              const parentByCh = indexResponsesByChassis(parentList);
+              // Keep all chassis from activeResponsesSource (the user's current form & date range),
+              // enriched with parent form's BIW & 1st TVS review data
+              resolvedMainResponses = activeResponsesSource.map((childR: any) => {
+                const ch = extractChassisKey(childR);
+                const norm = ch.toUpperCase();
+                const parentMatch = ch ? (parentByCh[norm] || parentByCh[norm.replace(/\s+/g, "")]) : null;
+                if (parentMatch) {
+                  return {
+                    ...parentMatch,
+                    // Preserve child's date if parent date is older or missing
+                    submittedAt: childR.submittedAt || parentMatch.submittedAt,
+                    createdAt: childR.createdAt || parentMatch.createdAt,
+                    childResponse: childR,
+                    childReview: childR.review || parentMatch.childReview
+                  };
+                }
+                return {
+                  ...childR,
+                  // Map parentReview -> review so 1st TVS Review column shows parent review if available
+                  review: childR.parentReview || childR.followUpStatus?.parentReview || null,
+                  biwReview: childR.parentBiwReview || childR.biwReview || null,
+                  childResponse: childR,
+                  childReview: childR.review
+                };
+              });
+            }
+          } catch (_) { }
+        }
+      } else if (targetTenantDoc) {
+        const childId = String((targetTenantDoc as any)?._id || (targetTenantDoc as any)?.id || "");
+        const currentId = String(id || (form as any)?._id || (form as any)?.id || "");
+        if (childId && childId !== currentId) {
+          try {
+            const childExport = await apiClient.getAllResponsesForExport(childId, dateRangeParams);
+            const childList = Array.isArray(childExport) && childExport.length > 0
+              ? childExport
+              : await apiClient.getAllResponsesForExport(childId, {}).catch(() => []);
+            if (Array.isArray(childList) && childList.length > 0) {
+              resolvedChildResponses = {
+                ...resolvedChildResponses,
+                ...indexResponsesByChassis(childList)
+              };
+            }
+          } catch (_) { }
+        }
+      }
+
       await downloadBiwReviewTemplate({
         form: mainDoc,
         formTitle: mainTitle,
         mainTenantName,
         chassisNumbers: targetChassis,
-        responses: activeResponsesSource,
+        responses: resolvedMainResponses,
         reviewerOptions: reviewerOptionsList,
         targetTenantForm: targetTenantDoc,
         targetTenantTitle: targetTitle,
         targetTenantName,
-        childResponses: relatedFormData.childResponses || {},
+        childResponses: resolvedChildResponses,
         filename: `BIW Review Template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
       });
       showToast("BIW Review template downloaded (with cloned TVS review columns for target tenant)!", "success");

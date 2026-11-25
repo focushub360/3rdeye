@@ -744,11 +744,37 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
 
       let responsesToUse = responses || [];
       const formIdToFetch = (form as any)?._id || (form as any)?.id;
+      const targetFormIdToFetch = (targetTenantForm as any)?._id || (targetTenantForm as any)?.id;
+
+      let childResponsesMap: Record<string, any> = {};
       if (prefillChassis && formIdToFetch) {
         try {
-          const allExport = await apiClient.getAllResponsesForExport(String(formIdToFetch));
+          const [allExport, childExport] = await Promise.all([
+            apiClient.getAllResponsesForExport(String(formIdToFetch)),
+            targetFormIdToFetch
+              ? apiClient.getAllResponsesForExport(String(targetFormIdToFetch)).catch(() => [])
+              : Promise.resolve([])
+          ]);
           if (allExport && allExport.length > 0) {
             responsesToUse = allExport;
+          }
+          if (Array.isArray(childExport) && childExport.length > 0) {
+            childExport.forEach((cr: any) => {
+              const ch = getChassisFromResponse(cr);
+              if (!ch) return;
+              const norm = ch.trim().toUpperCase();
+              const stripped = norm.replace(/\s+/g, "");
+              const existing = childResponsesMap[norm];
+              const hasRev = Boolean(cr?.review?.reviewOption || cr?.review?.status);
+              const exHasRev = Boolean(existing?.review?.reviewOption || existing?.review?.status);
+              const curTime = new Date(cr.updatedAt || cr.createdAt || cr.submittedAt || 0).getTime();
+              const exTime = new Date(existing?.updatedAt || existing?.createdAt || existing?.submittedAt || 0).getTime();
+              if (!existing || (hasRev && !exHasRev) || (hasRev === exHasRev && curTime > exTime)) {
+                childResponsesMap[ch.trim()] = cr;
+                childResponsesMap[norm] = cr;
+                childResponsesMap[stripped] = cr;
+              }
+            });
           }
         } catch (_) { }
       }
@@ -778,6 +804,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         mainTenantName: finalMainTenant,
         chassisNumbers: prefillChassis ? uniqueChassisList : [],
         responses: responsesToUse,
+        childResponses: childResponsesMap,
         reviewerOptions: reviewerOptionsList,
         targetTenantForm,
         targetTenantTitle,

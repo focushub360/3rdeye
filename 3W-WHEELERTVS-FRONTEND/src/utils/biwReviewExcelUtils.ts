@@ -639,6 +639,22 @@ export async function downloadBiwReviewTemplate(options: {
     return "LMPL";
   };
 
+  // Helper to score response completeness (BIW + TVS + childReview + recency)
+  const getResponseScore = (r: any) => {
+    if (!r) return -1;
+    const hasBiw = Boolean(r.biwReview && r.biwReview.status);
+    const hasTvs = Boolean(r.review && (r.review.reviewOption || r.review.status));
+    const hasChildTvs = Boolean(
+      r.childResponse?.review?.reviewOption ||
+      r.childResponse?.review?.status ||
+      r.childReview?.reviewOption ||
+      r.childReview?.status ||
+      r.followUpStatus?.childReview?.reviewOption ||
+      r.followUpStatus?.childReview?.status
+    );
+    return (hasBiw ? 4 : 0) + (hasTvs ? 2 : 0) + (hasChildTvs ? 1 : 0);
+  };
+
   // Map existing responses by chassis identifiers to pre-load current review status
   const responseMap = new Map<string, any>();
   if (responses && Array.isArray(responses)) {
@@ -668,10 +684,19 @@ export async function downloadBiwReviewTemplate(options: {
           keys.push(String(v).trim());
         }
       });
+      const rScore = getResponseScore(r);
+      const rTime = new Date(r.updatedAt || r.createdAt || r.submittedAt || 0).getTime();
       keys.filter(Boolean).forEach((k) => {
         const norm = String(k).trim().toUpperCase();
-        if (!responseMap.has(norm)) {
+        const existing = responseMap.get(norm);
+        if (!existing) {
           responseMap.set(norm, r);
+        } else {
+          const exScore = getResponseScore(existing);
+          const exTime = new Date(existing.updatedAt || existing.createdAt || existing.submittedAt || 0).getTime();
+          if (rScore > exScore || (rScore === exScore && rTime > exTime)) {
+            responseMap.set(norm, r);
+          }
         }
       });
     });
@@ -688,60 +713,20 @@ export async function downloadBiwReviewTemplate(options: {
   }
 
   const items: TemplateRowItem[] = [];
-  const seenChassis = new Set<string>();
+  const itemIndexByChassis = new Map<string, number>();
 
-  // If responses provided, build items from them
+  // If responses provided, build items from them (preferring highest-scored / most recent per chassis)
   if (responses && Array.isArray(responses) && responses.length > 0) {
     responses.forEach((r) => {
       const ch = getChassisFromResponse(r);
-      if (ch && !ignoredUnitNames.has(ch.toUpperCase()) && !seenChassis.has(ch.toUpperCase())) {
+      if (ch && !ignoredUnitNames.has(ch.toUpperCase())) {
+        const normCh = ch.toUpperCase();
         const { dateStr, timestampNum } = getDateInfo(r);
         const sub = getSubmitterName(r);
         const assignedTenantStr = getAssignedTenantForChassis(ch, r);
-        items.push({
-          chassis: ch,
-          date: dateStr,
-          assignedTenant: assignedTenantStr,
-          submittedBy: sub,
-          timestamp: timestampNum,
-          matchedResp: r
-        });
-        seenChassis.add(ch.toUpperCase());
-      }
-    });
-  }
-
-  // Also include any chassisNumbers that weren't in responses
-  if (Array.isArray(chassisNumbers)) {
-    chassisNumbers.forEach((rawCh) => {
-      const ch = String(rawCh || "").trim();
-      if (ch && !ignoredUnitNames.has(ch.toUpperCase()) && !seenChassis.has(ch.toUpperCase())) {
-        const matchedResp = responseMap.get(ch.toUpperCase()) || null;
-        const { dateStr, timestampNum } = getDateInfo(matchedResp);
-        const sub = getSubmitterName(matchedResp);
-        const assignedTenantStr = getAssignedTenantForChassis(ch, matchedResp);
-        items.push({
-          chassis: ch,
-          date: dateStr,
-          assignedTenant: assignedTenantStr,
-          submittedBy: sub,
-          timestamp: timestampNum,
-          matchedResp
-        });
-        seenChassis.add(ch.toUpperCase());
-      }
-    });
-  }
-
-  // If no responses or chassis passed, fallback from responseMap
-  if (items.length === 0 && responseMap.size > 0) {
-    responseMap.forEach((r, normKey) => {
-      if (!ignoredUnitNames.has(normKey) && !seenChassis.has(normKey)) {
-        const ch = getChassisFromResponse(r) || normKey;
-        if (ch && !ignoredUnitNames.has(ch.toUpperCase()) && !seenChassis.has(ch.toUpperCase())) {
-          const { dateStr, timestampNum } = getDateInfo(r);
-          const sub = getSubmitterName(r);
-          const assignedTenantStr = getAssignedTenantForChassis(ch, r);
+        const existingIdx = itemIndexByChassis.get(normCh);
+        if (existingIdx === undefined) {
+          itemIndexByChassis.set(normCh, items.length);
           items.push({
             chassis: ch,
             date: dateStr,
@@ -750,7 +735,65 @@ export async function downloadBiwReviewTemplate(options: {
             timestamp: timestampNum,
             matchedResp: r
           });
-          seenChassis.add(ch.toUpperCase());
+        } else {
+          const exItem = items[existingIdx];
+          const rScore = getResponseScore(r);
+          const exScore = getResponseScore(exItem.matchedResp);
+          if (rScore > exScore || (rScore === exScore && timestampNum > exItem.timestamp)) {
+            items[existingIdx] = {
+              chassis: ch,
+              date: dateStr,
+              assignedTenant: assignedTenantStr,
+              submittedBy: sub,
+              timestamp: timestampNum,
+              matchedResp: r
+            };
+          }
+        }
+      }
+    });
+  }
+
+  // Also include any chassisNumbers that weren't in responses
+  if (Array.isArray(chassisNumbers)) {
+    chassisNumbers.forEach((rawCh) => {
+      const ch = String(rawCh || "").trim();
+      if (ch && !ignoredUnitNames.has(ch.toUpperCase()) && !itemIndexByChassis.has(ch.toUpperCase())) {
+        const matchedResp = responseMap.get(ch.toUpperCase()) || null;
+        const { dateStr, timestampNum } = getDateInfo(matchedResp);
+        const sub = getSubmitterName(matchedResp);
+        const assignedTenantStr = getAssignedTenantForChassis(ch, matchedResp);
+        itemIndexByChassis.set(ch.toUpperCase(), items.length);
+        items.push({
+          chassis: ch,
+          date: dateStr,
+          assignedTenant: assignedTenantStr,
+          submittedBy: sub,
+          timestamp: timestampNum,
+          matchedResp
+        });
+      }
+    });
+  }
+
+  // If no responses or chassis passed, fallback from responseMap
+  if (items.length === 0 && responseMap.size > 0) {
+    responseMap.forEach((r, normKey) => {
+      if (!ignoredUnitNames.has(normKey) && !itemIndexByChassis.has(normKey)) {
+        const ch = getChassisFromResponse(r) || normKey;
+        if (ch && !ignoredUnitNames.has(ch.toUpperCase()) && !itemIndexByChassis.has(ch.toUpperCase())) {
+          const { dateStr, timestampNum } = getDateInfo(r);
+          const sub = getSubmitterName(r);
+          const assignedTenantStr = getAssignedTenantForChassis(ch, r);
+          itemIndexByChassis.set(ch.toUpperCase(), items.length);
+          items.push({
+            chassis: ch,
+            date: dateStr,
+            assignedTenant: assignedTenantStr,
+            submittedBy: sub,
+            timestamp: timestampNum,
+            matchedResp: r
+          });
         }
       }
     });
@@ -777,9 +820,11 @@ export async function downloadBiwReviewTemplate(options: {
     });
   }
 
-  // Sort naturally by chassis number
+  // Sort by most recent date/timestamp first (newest on top, older at bottom)
   items.sort((a, b) => {
-    return String(a.chassis || "").localeCompare(String(b.chassis || ""), undefined, { numeric: true });
+    const timeDiff = (b.timestamp || 0) - (a.timestamp || 0);
+    if (timeDiff !== 0) return timeDiff;
+    return String(b.chassis || "").localeCompare(String(a.chassis || ""), undefined, { numeric: true });
   });
 
   // Provide rows: generate rows for all items
@@ -813,16 +858,23 @@ export async function downloadBiwReviewTemplate(options: {
     const biwRemark = matchedResp?.biwReview?.remark || "";
     const biwFileUrl = matchedResp?.biwReview?.evidenceUrl || "";
 
+    const tvsRev = matchedResp?.review || null;
     let tvsStatus = "";
-    if (matchedResp?.review?.reviewOption) {
-      const st = String(matchedResp.review.reviewOption).toLowerCase();
+    const rawTvsOpt = tvsRev?.reviewOption || tvsRev?.status || "";
+    if (rawTvsOpt) {
+      const st = String(rawTvsOpt).toLowerCase();
       if (st.includes("accept")) tvsStatus = "Accepted";
       else if (st.includes("reject")) tvsStatus = "Rejected";
-      else if (st.includes("rework")) tvsStatus = "Rework";
+      else if (st.includes("rework") || st.includes("defect")) tvsStatus = "Rework";
     }
-    const tvsReason = matchedResp?.review?.reason || "";
-    const tvsRemark = matchedResp?.review?.remark || "";
-    const tvsFileUrl = matchedResp?.review?.evidenceUrl || "";
+    const tvsReason =
+      tvsRev?.reason ||
+      (Array.isArray(tvsRev?.flaggedQuestions) && tvsRev.flaggedQuestions.length > 0
+        ? tvsRev.flaggedQuestions.map((fq: any) => fq?.questionText || fq?.text).filter(Boolean).join(", ")
+        : "") ||
+      "";
+    const tvsRemark = tvsRev?.remark || tvsRev?.message || "";
+    const tvsFileUrl = tvsRev?.evidenceUrl || "";
 
     const row = [
       ch,                 // Col 1 (A): Chassis Number
@@ -845,19 +897,38 @@ export async function downloadBiwReviewTemplate(options: {
       let targetTvsRemark = "";
       let targetTvsFileUrl = "";
 
+      const normChUpper = ch.toUpperCase();
+      const normChStripped = normChUpper.replace(/\s+/g, "");
       const childResp =
         matchedResp?.childResponse ||
-        (childResponses && (childResponses[ch] || childResponses[ch.toUpperCase()])) ||
+        (childResponses &&
+          (childResponses[ch] ||
+            childResponses[normChUpper] ||
+            childResponses[normChStripped])) ||
         null;
 
-      if (childResp?.review?.reviewOption) {
-        const st = String(childResp.review.reviewOption).toLowerCase();
+      const childRev =
+        childResp?.review ||
+        matchedResp?.childReview ||
+        matchedResp?.followUpStatus?.childReview ||
+        null;
+
+      const rawTargetTvsOpt = childRev?.reviewOption || childRev?.status || "";
+      if (rawTargetTvsOpt) {
+        const st = String(rawTargetTvsOpt).toLowerCase();
         if (st.includes("accept")) targetTvsStatus = "Accepted";
         else if (st.includes("reject")) targetTvsStatus = "Rejected";
-        else if (st.includes("rework")) targetTvsStatus = "Rework";
-        targetTvsReason = childResp.review.reason || "";
-        targetTvsRemark = childResp.review.remark || childResp.review.message || "";
-        targetTvsFileUrl = childResp.review.evidenceUrl || "";
+        else if (st.includes("rework") || st.includes("defect")) targetTvsStatus = "Rework";
+      }
+      if (childRev) {
+        targetTvsReason =
+          childRev.reason ||
+          (Array.isArray(childRev.flaggedQuestions) && childRev.flaggedQuestions.length > 0
+            ? childRev.flaggedQuestions.map((fq: any) => fq?.questionText || fq?.text).filter(Boolean).join(", ")
+            : "") ||
+          "";
+        targetTvsRemark = childRev.remark || childRev.message || "";
+        targetTvsFileUrl = childRev.evidenceUrl || "";
       }
 
       row.push(
@@ -1024,9 +1095,18 @@ export async function downloadBiwReviewTemplate(options: {
     zip.file("xl/workbook.xml", wbXml);
   }
 
-  // 4b. Add dataValidations in sheet1.xml (strictly BEFORE <ignoredErrors or </worksheet>)
+  // 4b. Add autoFilter + dataValidations in sheet1.xml (autoFilter after </sheetData>, dataValidations before <ignoredErrors or </worksheet>)
   let sheet1Xml = await zip.file("xl/worksheets/sheet1.xml")?.async("text");
   if (sheet1Xml) {
+    const lastColLetter = hasTargetTenant ? "P" : "L";
+    const lastRowNum = Math.max(2, mainSheetData.length);
+    if (!sheet1Xml.includes("<autoFilter")) {
+      sheet1Xml = sheet1Xml.replace(
+        "</sheetData>",
+        `</sheetData><autoFilter ref="A1:${lastColLetter}${lastRowNum}"/>`
+      );
+    }
+
     let dataValidationsXml = "";
     if (hasTargetTenant && targetDefectOptions.length > 0) {
       dataValidationsXml =
@@ -1624,9 +1704,17 @@ export async function downloadTvsReviewTemplate(options: {
     zip.file("xl/workbook.xml", wbXml);
   }
 
-  // dataValidations in sheet1.xml: Column B (Status), Column C (Defects)
+  // autoFilter + dataValidations in sheet1.xml: Column B (Status), Column C (Defects)
   let sheet1Xml = await zip.file("xl/worksheets/sheet1.xml")?.async("text");
   if (sheet1Xml) {
+    const lastRowNum = Math.max(2, mainSheetData.length);
+    if (!sheet1Xml.includes("<autoFilter")) {
+      sheet1Xml = sheet1Xml.replace(
+        "</sheetData>",
+        `</sheetData><autoFilter ref="A1:F${lastRowNum}"/>`
+      );
+    }
+
     const dataValidationsXml =
       `<dataValidations count="2">` +
       `<dataValidation sqref="B2:B2000" allowBlank="1" type="list"><formula1>TvsStatusList</formula1></dataValidation>` +
