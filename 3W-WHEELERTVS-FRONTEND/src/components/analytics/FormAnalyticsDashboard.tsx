@@ -553,6 +553,8 @@ export default function FormAnalyticsDashboard({
 
   // Downloads BIW template pre-loaded with current table chassis, BIW reviews & TVS reviews cloned for targeted tenant
   const handleDownloadBiwTemplate = async () => {
+    setIsExporting(true);
+    showToast("Preparing BIW Review Excel template (last 30 days)...", "info");
     try {
       let activeResponsesSource: any[] = [];
       const hasExplicitSelection =
@@ -576,8 +578,15 @@ export default function FormAnalyticsDashboard({
           if (dateFilter.endDate) exportParams.endDate = dateFilter.endDate;
         }
 
-        // Always fetch the complete dataset across all pages for the active date range (e.g. last 30 days)
-        if (targetFormId) {
+        const expectedTotal = totalResponsesCount || 0;
+        const hasFullInMemory =
+          responses &&
+          responses.length > 20 &&
+          (expectedTotal === 0 || responses.length >= expectedTotal);
+
+        if (hasFullInMemory) {
+          activeResponsesSource = responses;
+        } else if (targetFormId) {
           try {
             const exportData = await apiClient.getAllResponsesForExport(targetFormId, exportParams);
             if (exportData && exportData.length > 0) {
@@ -971,7 +980,10 @@ export default function FormAnalyticsDashboard({
       });
       showToast("BIW Review template downloaded (with cloned TVS review columns for target tenant)!", "success");
     } catch (err: any) {
+      console.error("[handleDownloadBiwTemplate] Error:", err);
       showToast(`Failed to generate template: ${err.message || err}`, "error");
+    } finally {
+      setIsExporting(false);
     }
   };
   const [isBulkDispatching, setIsBulkDispatching] = useState(false);
