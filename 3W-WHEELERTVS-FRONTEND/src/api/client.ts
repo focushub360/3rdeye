@@ -787,10 +787,33 @@ class ApiClient {
   }
 
   // Users
-  async getUsersHierarchy(params?: { role?: string }) {
+  async getUsersHierarchy(params?: { role?: string; forImport?: boolean; allTenants?: boolean }) {
+    const query = new URLSearchParams();
+    if (params?.role) query.set("role", params.role);
+    if (params?.forImport) query.set("forImport", "true");
+    if (params?.allTenants) query.set("allTenants", "true");
+    const qs = query.toString() ? `?${query.toString()}` : "";
     return this.request<{ users: any[] }>(
-      `/users/hierarchy${params?.role ? `?role=${params.role}` : ""}`,
+      `/users/hierarchy${qs}`,
     );
+  }
+
+  // Forms: Scoped inspectors for a specific form template
+  async getFormInspectors(formId: string) {
+    return this.request<{
+      tenant: { _id: string; name: string; slug?: string } | null;
+      inspectors: Array<{
+        _id?: string | null;
+        name: string;
+        firstName?: string;
+        lastName?: string;
+        email?: string;
+        role?: string;
+        tenantId?: string;
+        tenantName?: string;
+      }>;
+      tenantName?: string;
+    }>(`/forms/${formId}/inspectors`);
   }
 
   async getUserActivityLogs(params?: {

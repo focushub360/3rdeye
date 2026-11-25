@@ -134,6 +134,13 @@ Accepted    Rejected     Reworked
 - Once inspection and BIW review are complete, chassis units are marked as dispatched.
 - Sets `isDispatched: true`, saving `dispatchedBy`, `dispatchedByName`, and `dispatchedAt`.
 
+### D. Dispatch Immutability & Status Integrity
+- **Ironclad Invariant**: A chassis can only be dispatched (`isDispatched: true`) when its inspection status is `Direct Ok`, `Accepted`, or `Rework Accepted`.
+- **Active Rework Guard**: Units under active rework (`Rework 1`, `Rework 2`, `Rejected`) cannot be dispatched. Backend `updateResponse` validates `response.status`, `biwReview.status`, and `review.reviewOption` to reject dispatch attempts with HTTP 400 if defects are unresolved.
+- **Post-Dispatch Status Immutability**:
+  - Once a chassis is dispatched (`isDispatched: true`), subsequent reviews (such as TVS Quality / Chat Review in `submitReview`) are stored strictly under `review.*` without regressing the core inspection `status` to `Rework 1`.
+  - Frontend display (`computeFastRowStatus` and `responseStatuses`) guarantees that any response with `isDispatched: true` always resolves to `Accepted` or `Rework Accepted`, never active `Rework 1` or `Rework 2`.
+
 ---
 
 ## 6. Authentication & API Client Resilience

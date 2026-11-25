@@ -577,7 +577,16 @@ export const getUsersHierarchy = async (req, res) => {
     const query = { ...req.tenantFilter };
 
     if (req.user.role === 'admin') {
-      const subadmins = await User.find({ createdBy: req.user._id })
+      const adminQuery = (req.query.allTenants === 'true' || req.query.forImport === 'true')
+        ? {}
+        : {
+            $or: [
+              { createdBy: req.user._id },
+              { tenantId: req.user.tenantId }
+            ]
+          };
+      const subadmins = await User.find(adminQuery)
+        .populate('tenantId', 'name slug')
         .select('-password').sort({ createdAt: -1 });
       return res.json({
         success: true,
@@ -589,7 +598,7 @@ export const getUsersHierarchy = async (req, res) => {
     // Either a tree structure or list with populated createdBy
     const users = await User.find(query)
       .populate('createdBy', 'username firstName lastName email role')
-      .populate('tenantId', 'name')
+      .populate('tenantId', 'name slug')
       .select('-password')
       .sort({ role: 1, createdAt: -1 });
 
@@ -1113,11 +1122,8 @@ export const submitReview = async (req, res) => {
         ? { $or: [{ _id: responseId }, { id: responseId }] }
         : { id: responseId };
 
-      const newRespStatus = reviewOption === 'Rejected'
-        ? 'Rejected'
-        : (reviewOption === 'Rework' || reviewOption === 'Reworked')
-          ? 'Rework 1'
-          : 'Accepted';
+      // Only update the underlying inspection status if response is NOT already dispatched
+      const isAlreadyDispatched = targetResponse?.isDispatched || false;
 
       const reviewFieldsToSet = {
         'review.status': reviewOption,
@@ -1127,16 +1133,25 @@ export const submitReview = async (req, res) => {
         'review.reviewedAt': new Date(),
         'review.remark': finalReason || '',
         'review.reason': finalReason || '',
-        status: newRespStatus,
         ...(Array.isArray(req.body.flaggedQuestions) ? {
           'review.flaggedQuestions': req.body.flaggedQuestions
         } : {})
       };
 
+      let newRespStatus = reviewOption === 'Rejected'
+        ? 'Rejected'
+        : (reviewOption === 'Rework' || reviewOption === 'Reworked')
+          ? 'Rework 1'
+          : 'Accepted';
+
+      if (!isAlreadyDispatched) {
+        reviewFieldsToSet.status = newRespStatus;
+      }
+
       updatedRespDoc = await Response.findOneAndUpdate(respQuery, {
         $set: reviewFieldsToSet
       }, { new: true });
-      console.log('[submitReview] Synced review state to Response document for responseId:', responseId, 'status:', newRespStatus);
+      console.log('[submitReview] Synced review state to Response document for responseId:', responseId, 'status:', updatedRespDoc?.status || newRespStatus);
       if (updatedRespDoc) {
         const formTargetId = String(updatedRespDoc.formId || updatedRespDoc.questionId || '');
         if (formTargetId) {

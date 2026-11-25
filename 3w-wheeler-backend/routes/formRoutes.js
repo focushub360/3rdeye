@@ -19,6 +19,7 @@ import {
   linkChildForm,
   unlinkChildForm,
   getChildForms,
+  getFormInspectors,
   reorderChildForms,
   setSectionBranching,
   getSectionBranching,
@@ -136,6 +137,7 @@ router.get('/:id/followup-config', getFollowUpConfig);
 router.post('/:id/child-forms', linkChildForm);
 router.delete('/:id/child-forms/:childFormId', unlinkChildForm);
 router.get('/:id/child-forms', getChildForms);
+router.get('/:id/inspectors', getFormInspectors);
 router.put('/:id/child-forms/reorder', reorderChildForms);
 
 // Section branching management

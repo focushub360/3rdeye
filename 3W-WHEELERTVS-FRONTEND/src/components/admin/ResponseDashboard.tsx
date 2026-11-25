@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Users, FileText, ChevronLeft, ChevronRight, Download, Search, CheckCircle, Clock, FolderOpen, XCircle, BarChart2, ThumbsUp, ThumbsDown, Minus, Activity } from 'lucide-react';
+import { Loader2, Users, FileText, ChevronLeft, ChevronRight, Download, Search, CheckCircle, Clock, FolderOpen, XCircle, BarChart2, ThumbsUp, ThumbsDown, Minus, Activity, RefreshCw } from 'lucide-react';
 import { apiClient, ApiError } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';

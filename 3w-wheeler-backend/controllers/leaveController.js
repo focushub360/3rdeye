@@ -11,14 +11,28 @@ export const applyLeave = async (req, res) => {
     const inspectorId = req.user._id;
     const tenantId = req.user.tenantId;
 
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, message: 'Start date and end date are required' });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid start date or end date' });
+    }
+
+    if (end < start) {
+      return res.status(400).json({ success: false, message: 'End date cannot be earlier than start date' });
+    }
+
     console.log('applyLeave - received:', { leaveType, startDate, endDate, reason, inspectorId, tenantId });
 
     const leave = await Leave.create({
       inspector: inspectorId,
       tenantId,
       leaveType,
-      startDate: new Date(startDate),
-      endDate: new Date(endDate),
+      startDate: start,
+      endDate: end,
       reason
     });
 

@@ -4262,9 +4262,22 @@ export const getAllResponses = async (req, res) => {
       query.isSectionSubmit = { $in: [false, null, undefined] };
     }
 
-    // Filter by form (single ID)
+    // Filter by form (single ID) - resolve both string UUID id and Mongo _id so historical records are never partitioned
     if (questionId) {
-      query.questionId = questionId;
+      const qIds = [questionId];
+      try {
+        const fDoc = await Form.findOne({
+          $or: [
+            { id: questionId },
+            ...(mongoose.Types.ObjectId.isValid(questionId) ? [{ _id: new mongoose.Types.ObjectId(questionId) }] : [])
+          ]
+        }).select('id _id').lean();
+        if (fDoc) {
+          if (fDoc.id && !qIds.includes(fDoc.id)) qIds.push(fDoc.id);
+          if (fDoc._id && !qIds.includes(fDoc._id.toString())) qIds.push(fDoc._id.toString());
+        }
+      } catch (_) {}
+      query.questionId = qIds.length === 1 ? qIds[0] : { $in: qIds };
     }
 
     // Filter by multiple form IDs (comma-separated formIds param)
@@ -4658,16 +4671,21 @@ export const updateResponse = async (req, res) => {
       if (req.body.isDispatched === true && !response.isDispatched) {
         const biwStatus = String(response.biwReview?.status || '').toLowerCase();
         const tvsStatus = String(response.review?.reviewOption || response.review?.status || '').toLowerCase();
+        const respStatus = String(response.status || '').toLowerCase();
         if (
           biwStatus === 'rework' ||
           biwStatus === 'reworked' ||
           biwStatus === 'rejected' ||
           tvsStatus === 'rework' ||
-          tvsStatus === 'rejected'
+          tvsStatus === 'rejected' ||
+          respStatus === 'rework 1' ||
+          respStatus === 'rework 2' ||
+          respStatus === 'rework' ||
+          respStatus === 'rejected'
         ) {
           return res.status(400).json({
             success: false,
-            message: 'Cannot dispatch this chassis because it has an active Rework or Rejected review. It must be Accepted first.'
+            message: 'Cannot dispatch this chassis because it has an active Rework or Rejected status. It must be Accepted or Rework Accepted first.'
           });
         }
 
@@ -6536,23 +6554,36 @@ export const exportResponses = async (req, res) => {
     const { formId } = req.params;
     const { format = 'json', status, includePartial = 'false', startDate, endDate } = req.query;
 
-    // Verify form exists
-    let formSearchQuery = { id: formId };
+    // Verify form exists - support either string id or mongo _id
+    const isObjectId = mongoose.Types.ObjectId.isValid(formId);
+    let formSearchQuery = isObjectId
+      ? { $or: [{ id: formId }, { _id: new mongoose.Types.ObjectId(formId) }] }
+      : { id: formId };
 
-    // If not superadmin, check if form belongs to or is shared with this tenant
-    // If not superadmin, check if form belongs to or is shared with this tenant
-    if (req.user.role !== 'superadmin' && req.user.tenantId) {
-      const tenantId = req.user.tenantId instanceof mongoose.Types.ObjectId
-        ? req.user.tenantId
-        : new mongoose.Types.ObjectId(req.user.tenantId);
+    const isAdminOrSuper = ['superadmin', 'admin', 'subadmin'].includes(req.user.role);
+    if (!isAdminOrSuper && !req.user.isGuest && req.user.tenantId) {
+      const tenantIdStr = req.user.tenantId.toString();
+      const tenantIdObj = mongoose.Types.ObjectId.isValid(tenantIdStr)
+        ? new mongoose.Types.ObjectId(tenantIdStr)
+        : null;
+      const tenantValues = [tenantIdStr, tenantIdObj].filter(Boolean);
 
-      const tenantIdStr = tenantId.toString();
-
-      formSearchQuery.$or = [
-        { tenantId: tenantId },
-        { sharedWithTenants: tenantId },
+      const tenantOr = [
+        { tenantId: { $in: tenantValues } },
+        { sharedWithTenants: { $in: tenantValues } },
         { "chassisTenantAssignments.assignedTenants": tenantIdStr }
       ];
+
+      if (formSearchQuery.$or) {
+        formSearchQuery = {
+          $and: [
+            { $or: formSearchQuery.$or },
+            { $or: tenantOr }
+          ]
+        };
+      } else {
+        formSearchQuery.$or = tenantOr;
+      }
     }
 
     const form = await Form.findOne(formSearchQuery);
@@ -6572,7 +6603,16 @@ export const exportResponses = async (req, res) => {
       a => a.assignedTenants && a.assignedTenants.includes(userTenantIdStr)
     );
 
-    const query = { questionId: { $in: [form.id, form._id.toString()] } };
+    const query = {
+      questionId: {
+        $in: [
+          form.id,
+          form._id.toString(),
+          form._id,
+          ...(mongoose.Types.ObjectId.isValid(form.id) ? [new mongoose.Types.ObjectId(form.id)] : [])
+        ].filter(Boolean)
+      }
+    };
 
     // Apply tenant filtering
     if (req.user.role === 'inspector') {
@@ -6588,6 +6628,8 @@ export const exportResponses = async (req, res) => {
         { "submitterContact.email": userEmail },
         { tenantId: { $ne: userTenantId } }
       ];
+    } else if (req.user.role === 'admin' || req.user.role === 'subadmin') {
+      // Admins and subadmins viewing an authorized form can export all of the form's responses without tenant isolation restricting to their own org
     } else if (isOwner || isSuperAdmin) {
       Object.assign(query, req.tenantFilter);
     } else if (!isShared && !hasChassisShare) {
@@ -6782,6 +6824,34 @@ export const exportResponses = async (req, res) => {
       }
     }
 
+    const ignoredUnitNames = new Set(["TVS", "EXCEL IMPORT", "SAIFY", "SRIDEVI", "SREEDEVI", "LMPL", "N/A", "-", "NONE"]);
+
+    // Find chassis question ID from form sections
+    let formChassisQuestionId = null;
+    (form.sections || []).forEach(s => {
+      (s.questions || []).forEach(q => {
+        if (
+          (q.trackResponseRank || q.isTrackingNumber || q.isChassisQuestion || q.type === 'chassisNumber') &&
+          q.type !== 'zone-in' && q.type !== 'zone-out'
+        ) {
+          formChassisQuestionId = q.id;
+        }
+      });
+    });
+    if (!formChassisQuestionId) {
+      (form.sections || []).forEach(s => {
+        (s.questions || []).forEach(q => {
+          const t = String(q.text || q.title || q.label || '').toLowerCase();
+          if (
+            (t.includes('chassis') || t.includes('vin') || t.includes('identification')) &&
+            q.type !== 'zone-in' && q.type !== 'zone-out'
+          ) {
+            formChassisQuestionId = q.id;
+          }
+        });
+      });
+    }
+
     const formConfiguredChassis = (form.chassisNumbers || [])
       .map(c => typeof c === 'string' ? c : (c.chassisNumber || c.name))
       .filter(Boolean);
@@ -6790,8 +6860,55 @@ export const exportResponses = async (req, res) => {
     const formattedResponses = responses.map(response => {
       const respObj = response.toObject();
       const ansObj = response.answers ? (response.answers instanceof Map ? Object.fromEntries(response.answers) : response.answers) : {};
-      let resolvedChassis = respObj.chassisNumber || ansObj.chassis_number;
-      if (formConfiguredChassis.length > 0) {
+
+      let resolvedChassis = "";
+      if (formChassisQuestionId && ansObj[formChassisQuestionId]) {
+        const v = ansObj[formChassisQuestionId];
+        const s = typeof v === 'object' ? (v.chassisNumber || v.value || v.label) : v;
+        if (s && !ignoredUnitNames.has(String(s).trim().toUpperCase())) {
+          resolvedChassis = String(s).trim();
+        }
+      }
+
+      if (!resolvedChassis) {
+        const candidateKeys = [
+          'Identification no', 'identification no', 'Identification No',
+          'chassisNumber', 'chassis_number', 'Chassis Number', 'CHASSIS NUMBER',
+          'Chassis / VIN', 'VIN', 'vin', 'id_number', 'idNumber', 'ID Number', 'cha', 'che'
+        ];
+        for (const k of candidateKeys) {
+          if (ansObj[k]) {
+            const v = typeof ansObj[k] === 'object' ? (ansObj[k].chassisNumber || ansObj[k].value || ansObj[k].label) : ansObj[k];
+            const s = String(v || '').trim();
+            if (s && !ignoredUnitNames.has(s.toUpperCase())) {
+              resolvedChassis = s;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!resolvedChassis) {
+        for (const [k, v] of Object.entries(ansObj)) {
+          if (typeof v === 'string' || typeof v === 'number') {
+            const s = String(v).trim();
+            if (
+              s.length >= 2 && s.length <= 30 &&
+              /\d/.test(s) &&
+              !/^\d{4}-\d{2}-\d{2}/.test(s) &&
+              !s.startsWith('http') &&
+              !s.startsWith('data:') &&
+              !ignoredUnitNames.has(s.toUpperCase()) &&
+              !['OK', 'NOT OK', 'PASS', 'FAIL', 'REWORK', 'REJECT', 'REJECTED', 'ACCEPTED', 'YES', 'NO'].includes(s.toUpperCase())
+            ) {
+              resolvedChassis = s;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!resolvedChassis && formConfiguredChassis.length > 0) {
         if (ansObj.chassis_number && formConfiguredChassis.includes(ansObj.chassis_number)) {
           resolvedChassis = ansObj.chassis_number;
         } else if (respObj.chassisNumber && formConfiguredChassis.includes(respObj.chassisNumber)) {
@@ -6800,12 +6917,24 @@ export const exportResponses = async (req, res) => {
           resolvedChassis = formConfiguredChassis[0];
         }
       }
+
+      if (!resolvedChassis) {
+        if (respObj.chassisNumber && !ignoredUnitNames.has(String(respObj.chassisNumber).trim().toUpperCase())) {
+          resolvedChassis = String(respObj.chassisNumber).trim();
+        } else if (respObj.systemChassisNumber && !ignoredUnitNames.has(String(respObj.systemChassisNumber).trim().toUpperCase())) {
+          resolvedChassis = String(respObj.systemChassisNumber).trim();
+        }
+      }
+
       if (resolvedChassis && !ansObj.chassis_number) {
         ansObj.chassis_number = resolvedChassis;
       }
+
       return {
         ...respObj,
-        chassisNumber: resolvedChassis,
+        chassisNumber: resolvedChassis || respObj.chassisNumber,
+        systemChassisNumber: respObj.systemChassisNumber || respObj.chassisNumber,
+        rawChassisNumber: respObj.chassisNumber,
         answers: ansObj,
         responseRanks: response.responseRanks ? (response.responseRanks instanceof Map ? Object.fromEntries(response.responseRanks) : response.responseRanks) : {}
       };

@@ -190,6 +190,8 @@ export default function ResponseDetailsPage() {
 
   const permissionSet = new Set(user?.permissions || []);
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
+  const isInspector = user?.role === 'inspector' || user?.role === 'user' || user?.role === 'subadmin';
+  const canDelete = !isInspector && Boolean(isAdmin);
 
   const canViewDashboard = isAdmin || permissionSet.has('requests:dashboard');
   const canViewResponses = isAdmin || permissionSet.has('requests:response');
@@ -2225,15 +2227,17 @@ export default function ResponseDetailsPage() {
               <span className="hidden sm:inline">Edit</span>
             </button>
 
-            <button
-              onClick={handleDeleteResponse}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white rounded-lg transition-all duration-200 hover:opacity-90"
-              style={{ backgroundColor: "#dc2626" }}
-              title="Delete Response"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Delete</span>
-            </button>
+            {canDelete && (
+              <button
+                onClick={handleDeleteResponse}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white rounded-lg transition-all duration-200 hover:opacity-90"
+                style={{ backgroundColor: "#dc2626" }}
+                title="Delete Response"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span className="hidden sm:inline">Delete</span>
+              </button>
+            )}
 
             {viewMode === "responses" && (
               <>

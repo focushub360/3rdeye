@@ -1,118 +1,148 @@
-import React, { useState, useEffect } from"react";
-import { format } from"date-fns";
+import React, { useState, useEffect } from "react";
+import { format } from "date-fns";
 import {
- Calendar,
- Plus,
- Clock,
- CheckCircle,
- XCircle,
- Info,
- ChevronRight,
- Filter,
- Download,
- ChevronLeft,
- ChevronFirst,
- ChevronLast,
-} from"lucide-react";
-import { apiClient } from"../../api/client";
-import { useAuth } from"../../context/AuthContext";
+  Calendar,
+  Plus,
+  Clock,
+  CheckCircle,
+  XCircle,
+  Info,
+  ChevronRight,
+  Filter,
+  Download,
+  ChevronLeft,
+  ChevronFirst,
+  ChevronLast,
+  X,
+  Loader2,
+  AlertCircle,
+  User,
+  Sparkles,
+  FileText,
+} from "lucide-react";
+import { apiClient } from "../../api/client";
+import { useAuth } from "../../context/AuthContext";
+import { useNotification } from "../../context/NotificationContext";
 
 const ITEMS_PER_PAGE = 10;
 
 export default function LeaveManagement() {
- const { user } = useAuth();
- const isAdmin = user?.role ==="admin" || user?.role ==="subadmin";
- const [activeTab, setActiveTab] = useState(isAdmin ?"all" :"my");
+  const { user } = useAuth();
+  const { showSuccess, showError } = useNotification();
+  const isAdmin = user?.role === "admin" || user?.role === "subadmin" || user?.role === "superadmin";
+  const [activeTab, setActiveTab] = useState(isAdmin ? "all" : "my");
 
- const [myLeaves, setMyLeaves] = useState<any[]>([]);
- const [allLeaves, setAllLeaves] = useState<any[]>([]);
- const [loading, setLoading] = useState(false);
- const [statusMessage, setStatusMessage] = useState<{
- type:"success" |"error";
- text: string;
- } | null>(null);
- const [showApplyModal, setShowApplyModal] = useState(false);
+  const [myLeaves, setMyLeaves] = useState<any[]>([]);
+  const [allLeaves, setAllLeaves] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
- // Pagination
- const [currentPage, setCurrentPage] = useState(1);
- const [totalItems, setTotalItems] = useState(0);
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
 
- const [selectedLeave, setSelectedLeave] = useState<any | null>(null);
- const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedLeave, setSelectedLeave] = useState<any | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
 
- // Form state
- const [formData, setFormData] = useState({
- leaveType:"sick",
- startDate: new Date().toISOString().split("T")[0],
- endDate: new Date().toISOString().split("T")[0],
- reason:"",
- });
+  // Form state
+  const [formData, setFormData] = useState({
+    leaveType: "sick",
+    startDate: format(new Date(), "yyyy-MM-dd"),
+    endDate: format(new Date(), "yyyy-MM-dd"),
+    reason: "",
+  });
 
- const fetchData = async () => {
- setLoading(true);
- const page = currentPage;
- const limit = ITEMS_PER_PAGE;
- try {
- if (isAdmin) {
- const res = await apiClient.getAllLeaves({ page, limit, getAll: true });
- if (res && Array.isArray(res)) {
- setAllLeaves(res);
- setTotalItems(res.length);
- } else if (res?.data) {
- setAllLeaves(res.data);
- setTotalItems(res.pagination?.total || res.data.length);
- }
- }
+  const calculateDays = (start: string, end: string) => {
+    if (!start || !end) return 1;
+    const s = new Date(start);
+    const e = new Date(end);
+    if (isNaN(s.getTime()) || isNaN(e.getTime()) || e < s) return 0;
+    const diffTime = Math.abs(e.getTime() - s.getTime());
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+  };
 
- const myRes = await apiClient.getMyLeaves({ page, limit });
- console.log("My leaves response:", myRes);
- if (myRes && Array.isArray(myRes)) {
- setMyLeaves(myRes);
- setTotalItems(myRes.length);
- } else if (myRes?.data) {
- setMyLeaves(myRes.data);
- setTotalItems(myRes.pagination?.total || myRes.data.length);
- }
- } catch (error) {
- console.error("Failed to fetch leaves", error);
- } finally {
- setLoading(false);
- }
- };
+  const fetchData = async () => {
+    setLoading(true);
+    const page = currentPage;
+    const limit = ITEMS_PER_PAGE;
+    try {
+      if (isAdmin) {
+        const res = await apiClient.getAllLeaves({ page, limit, getAll: true });
+        if (res && Array.isArray(res)) {
+          setAllLeaves(res);
+          setTotalItems(res.length);
+        } else if (res?.data) {
+          setAllLeaves(res.data);
+          setTotalItems(res.pagination?.total || res.data.length);
+        }
+      }
 
- useEffect(() => {
- fetchData();
+      const myRes = await apiClient.getMyLeaves({ page, limit });
+      if (myRes && Array.isArray(myRes)) {
+        setMyLeaves(myRes);
+        if (!isAdmin) setTotalItems(myRes.length);
+      } else if (myRes?.data) {
+        setMyLeaves(myRes.data);
+        if (!isAdmin) setTotalItems(myRes.pagination?.total || myRes.data.length);
+      }
+    } catch (error) {
+      console.error("Failed to fetch leaves", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
- const interval = setInterval(() => {
- fetchData();
- }, 30000);
+  useEffect(() => {
+    fetchData();
 
- return () => clearInterval(interval);
- }, [currentPage, isAdmin]);
+    const interval = setInterval(() => {
+      fetchData();
+    }, 30000);
 
- const handleApply = async (e: React.FormEvent) => {
- e.preventDefault();
- try {
- console.log("Applying leave with data:", formData);
- const res = await apiClient.applyLeave(formData);
- console.log("Leave apply response:", res);
+    return () => clearInterval(interval);
+  }, [currentPage, isAdmin]);
 
- setStatusMessage({
- type:"success",
- text:"Leave request submitted successfully!",
- });
- setShowApplyModal(false);
- fetchData();
- setFormData({
- leaveType:"sick",
- startDate: format(new Date(),"yyyy-MM-dd"),
- endDate: format(new Date(),"yyyy-MM-dd"),
- reason:"",
- });
- } catch (error: any) {
- setStatusMessage({ type:"error", text:"Failed to apply for leave." });
- }
- };
+  const handleApply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+
+    if (!formData.startDate || !formData.endDate) {
+      setFormError("Start date and end date are required.");
+      return;
+    }
+
+    if (new Date(formData.endDate) < new Date(formData.startDate)) {
+      setFormError("End date cannot be earlier than start date.");
+      return;
+    }
+
+    if (!formData.reason.trim()) {
+      setFormError("Please provide a reason for the leave request.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await apiClient.applyLeave(formData);
+      showSuccess("Leave request submitted successfully!");
+      setShowApplyModal(false);
+      setFormData({
+        leaveType: "sick",
+        startDate: format(new Date(), "yyyy-MM-dd"),
+        endDate: format(new Date(), "yyyy-MM-dd"),
+        reason: "",
+      });
+      fetchData();
+    } catch (error: any) {
+      const msg = error?.message || "Failed to apply for leave. Please try again.";
+      setFormError(msg);
+      showError(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
  const handleUpdateStatus = async (
  id: string,
@@ -142,42 +172,68 @@ export default function LeaveManagement() {
  }
  };
 
+ const currentLeaves = activeTab === "all" ? allLeaves : myLeaves;
+ const pendingCount = currentLeaves.filter((l) => l.status === "pending").length;
+ const approvedCount = currentLeaves.filter((l) => l.status === "approved").length;
+ const rejectedCount = currentLeaves.filter((l) => l.status === "rejected").length;
+
  return (
  <div className="p-6 w-full font-sans">
- <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+ <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
  <div>
  <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
  Leave Management
  </h1>
  <p className="text-gray-500 mt-1">
- Manage your leave requests and track approvals.
+ Manage your leave requests and track approvals smoothly.
  </p>
  </div>
 
- {!isAdmin && (
  <button
- onClick={() => setShowApplyModal(true)}
- className="flex items-center justify-center gap-2 bg-[#1e3a8a] text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-800 transition-all active:scale-95"
+ onClick={() => {
+   setFormError(null);
+   setShowApplyModal(true);
+ }}
+ className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-700 to-indigo-700 text-white px-6 py-3 rounded-xl font-bold hover:from-blue-800 hover:to-indigo-800 transition-all shadow-md shadow-blue-900/10 active:scale-95"
  >
  <Plus size={20} />
  Apply for Leave
  </button>
- )}
+ </div>
+
+ {/* Metric Summary Cards */}
+ <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+   <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
+     <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total Requests</p>
+     <p className="text-2xl font-black text-gray-900 dark:text-white mt-1">{currentLeaves.length}</p>
+   </div>
+   <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
+     <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider">Pending</p>
+     <p className="text-2xl font-black text-amber-600 mt-1">{pendingCount}</p>
+   </div>
+   <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
+     <p className="text-xs font-semibold text-green-600 uppercase tracking-wider">Approved</p>
+     <p className="text-2xl font-black text-green-600 mt-1">{approvedCount}</p>
+   </div>
+   <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
+     <p className="text-xs font-semibold text-red-600 uppercase tracking-wider">Rejected</p>
+     <p className="text-2xl font-black text-red-600 mt-1">{rejectedCount}</p>
+   </div>
  </div>
 
  {/* Tabs */}
- <div className="flex bg-gray-100/50 p-1 rounded-2xl mb-8 w-fit border border-gray-100">
+ <div className="flex bg-gray-100/70 dark:bg-gray-800 p-1 rounded-2xl mb-6 w-fit border border-gray-200/50 dark:border-gray-700">
  {isAdmin && (
  <button
  onClick={() => setActiveTab("all")}
- className={`px-8 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab ==="all" ?"bg-white text-[#1e3a8a] border border-gray-200" :"text-gray-500 hover:text-gray-700"}`}
+ className={`px-8 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab ==="all" ?"bg-white dark:bg-gray-900 text-blue-700 dark:text-blue-400 shadow-sm border border-gray-200 dark:border-gray-700" :"text-gray-500 hover:text-gray-700 dark:text-gray-400"}`}
  >
  All Requests
  </button>
  )}
  <button
  onClick={() => setActiveTab("my")}
- className={`px-8 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab ==="my" ?"bg-white text-[#1e3a8a] border border-gray-200" :"text-gray-500 hover:text-gray-700"}`}
+ className={`px-8 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab ==="my" ?"bg-white dark:bg-gray-900 text-blue-700 dark:text-blue-400 shadow-sm border border-gray-200 dark:border-gray-700" :"text-gray-500 hover:text-gray-700 dark:text-gray-400"}`}
  >
  My Leaves
  </button>
@@ -576,106 +632,170 @@ export default function LeaveManagement() {
 
  {/* Apply Modal */}
  {showApplyModal && (
- <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
- <div
- className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm"
- onClick={() => setShowApplyModal(false)}
- ></div>
- <div className="relative bg-white rounded-[2rem] w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
- <div className="p-8 bg-[#1e3a8a] text-white">
- <h2 className="text-2xl font-bold mb-2">Apply for Leave</h2>
- <p className="text-blue-100 opacity-80 font-light">
- Enter the details of your leave request.
- </p>
- </div>
+   <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+     <div
+       className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
+       onClick={() => !isSubmitting && setShowApplyModal(false)}
+     />
+     <div className="relative bg-white dark:bg-gray-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-700 animate-in zoom-in-95 duration-200">
+       {/* Header */}
+       <div className="px-6 py-5 bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 text-white flex items-center justify-between">
+         <div className="flex items-center gap-3">
+           <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shadow-inner">
+             <Calendar className="w-5 h-5 text-white" />
+           </div>
+           <div>
+             <h2 className="text-xl font-bold tracking-tight">Apply for Leave</h2>
+             <p className="text-xs text-blue-100 opacity-90">Submit a leave request for supervisor review</p>
+           </div>
+         </div>
+         <button
+           type="button"
+           onClick={() => !isSubmitting && setShowApplyModal(false)}
+           className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+           disabled={isSubmitting}
+         >
+           <X size={18} />
+         </button>
+       </div>
 
- <form onSubmit={handleApply} className="p-8 space-y-5">
- <div>
- <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">
- Leave Type
- </label>
- <select
- className="w-full bg-gray-50 border border-transparent rounded-2xl px-4 py-3 focus:bg-white focus:border-blue-100 transition-all outline-none text-gray-700 font-bold"
- value={formData.leaveType}
- onChange={(e) =>
- setFormData({ ...formData, leaveType: e.target.value })
- }
- >
- <option value="sick">Sick Leave</option>
- <option value="casual">Casual Leave</option>
- <option value="annual">Annual Leave</option>
- <option value="maternity">Maternity Leave</option>
- <option value="paternity">Paternity Leave</option>
- <option value="comp-off">Comp-Off</option>
- <option value="other">Other</option>
- </select>
- </div>
+       <form onSubmit={handleApply} className="p-6 space-y-4">
+         {formError && (
+           <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 rounded-xl text-xs font-semibold text-red-600 dark:text-red-400 flex items-center gap-2">
+             <AlertCircle className="w-4 h-4 flex-shrink-0" />
+             <span>{formError}</span>
+           </div>
+         )}
 
- <div className="grid grid-cols-2 gap-4">
- <div>
- <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">
- Start Date
- </label>
- <input
- type="date"
- required
- className="w-full bg-gray-50 border border-transparent rounded-2xl px-4 py-3 focus:bg-white focus:border-blue-100 transition-all outline-none text-gray-700"
- value={formData.startDate}
- onChange={(e) =>
- setFormData({ ...formData, startDate: e.target.value })
- }
- />
- </div>
- <div>
- <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">
- End Date
- </label>
- <input
- type="date"
- required
- className="w-full bg-gray-50 border border-transparent rounded-2xl px-4 py-3 focus:bg-white focus:border-blue-100 transition-all outline-none text-gray-700"
- value={formData.endDate}
- onChange={(e) =>
- setFormData({ ...formData, endDate: e.target.value })
- }
- />
- </div>
- </div>
+         {/* Leave Type */}
+         <div>
+           <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+             Leave Type
+           </label>
+           <div className="grid grid-cols-3 gap-2 mb-2">
+             {[
+               { id: "sick", label: "Sick Leave" },
+               { id: "casual", label: "Casual Leave" },
+               { id: "annual", label: "Annual Leave" },
+             ].map((t) => (
+               <button
+                 key={t.id}
+                 type="button"
+                 onClick={() => setFormData({ ...formData, leaveType: t.id })}
+                 className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all ${
+                   formData.leaveType === t.id
+                     ? "bg-blue-50 dark:bg-blue-900/40 border-blue-600 text-blue-700 dark:text-blue-300 shadow-sm"
+                     : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100"
+                 }`}
+               >
+                 {t.label}
+               </button>
+             ))}
+           </div>
+           <select
+             className="w-full bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-2.5 text-sm text-gray-800 dark:text-white font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 outline-none transition-all"
+             value={formData.leaveType}
+             onChange={(e) => setFormData({ ...formData, leaveType: e.target.value })}
+           >
+             <option value="sick">Sick Leave</option>
+             <option value="casual">Casual Leave</option>
+             <option value="annual">Annual Leave</option>
+             <option value="comp-off">Comp-Off</option>
+             <option value="maternity">Maternity Leave</option>
+             <option value="paternity">Paternity Leave</option>
+             <option value="other">Other</option>
+           </select>
+         </div>
 
- <div>
- <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">
- Reason
- </label>
- <textarea
- required
- rows={3}
- placeholder="Explain the reason for leave..."
- className="w-full bg-gray-50 border border-transparent rounded-2xl px-4 py-3 focus:bg-white focus:border-blue-100 transition-all outline-none text-gray-700 font-medium placeholder:text-gray-300"
- value={formData.reason}
- onChange={(e) =>
- setFormData({ ...formData, reason: e.target.value })
- }
- ></textarea>
- </div>
+         {/* Date Range */}
+         <div className="grid grid-cols-2 gap-4">
+           <div>
+             <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+               Start Date
+             </label>
+             <input
+               type="date"
+               required
+               className="w-full bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl px-3.5 py-2.5 text-sm text-gray-800 dark:text-white font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 outline-none transition-all"
+               value={formData.startDate}
+               onChange={(e) => {
+                 const newStart = e.target.value;
+                 setFormData((prev) => ({
+                   ...prev,
+                   startDate: newStart,
+                   endDate: prev.endDate < newStart ? newStart : prev.endDate,
+                 }));
+               }}
+             />
+           </div>
+           <div>
+             <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+               End Date
+             </label>
+             <input
+               type="date"
+               required
+               min={formData.startDate}
+               className="w-full bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl px-3.5 py-2.5 text-sm text-gray-800 dark:text-white font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 outline-none transition-all"
+               value={formData.endDate}
+               onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+             />
+           </div>
+         </div>
 
- <div className="flex gap-4 pt-2">
- <button
- type="button"
- onClick={() => setShowApplyModal(false)}
- className="flex-1 py-4 text-gray-500 font-bold hover:bg-gray-50 rounded-2xl transition-all"
- >
- Cancel
- </button>
- <button
- type="submit"
- className="flex-1 py-4 bg-[#1e3a8a] text-white font-bold rounded-2xl hover:bg-blue-800 transition-all active:scale-95"
- >
- Submit Request
- </button>
- </div>
- </form>
- </div>
- </div>
+         {/* Duration Indicator */}
+         <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50/70 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/40 rounded-xl">
+           <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Total Requested Duration:</span>
+           <span className="text-xs font-extrabold text-blue-900 dark:text-blue-200 px-2.5 py-1 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-blue-200/50">
+             {calculateDays(formData.startDate, formData.endDate) === 1
+               ? "1 Day"
+               : `${calculateDays(formData.startDate, formData.endDate)} Days`}
+           </span>
+         </div>
+
+         {/* Reason */}
+         <div>
+           <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+             Reason for Leave <span className="text-red-500">*</span>
+           </label>
+           <textarea
+             required
+             rows={3}
+             placeholder="Explain the reason for taking leave..."
+             className="w-full bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-3 text-sm text-gray-800 dark:text-white font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 outline-none transition-all placeholder:text-gray-400"
+             value={formData.reason}
+             onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+           />
+         </div>
+
+         {/* Action Buttons */}
+         <div className="flex gap-3 pt-2">
+           <button
+             type="button"
+             disabled={isSubmitting}
+             onClick={() => setShowApplyModal(false)}
+             className="flex-1 py-3 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-bold text-sm hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-all"
+           >
+             Cancel
+           </button>
+           <button
+             type="submit"
+             disabled={isSubmitting}
+             className="flex-1 py-3 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white font-bold text-sm rounded-xl transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
+           >
+             {isSubmitting ? (
+               <>
+                 <Loader2 className="w-4 h-4 animate-spin" />
+                 <span>Submitting...</span>
+               </>
+             ) : (
+               <span>Submit Request</span>
+             )}
+           </button>
+         </div>
+       </form>
+     </div>
+   </div>
  )}
  </div>
  );

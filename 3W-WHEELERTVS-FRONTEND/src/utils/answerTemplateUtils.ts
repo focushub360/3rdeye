@@ -16,6 +16,64 @@ export interface ParsedAnswers {
   [questionId: string]: unknown;
 }
 
+/**
+ * Injects OpenXML definedNames into xl/workbook.xml and dataValidations into xl/worksheets/sheet1.xml
+ * so native Excel dropdown lists function seamlessly across Excel, Sheets, and Calc.
+ */
+async function injectDataValidationsIntoZip(
+  zip: JSZip,
+  validations: Array<{
+    colIdx: number;
+    definedName: string;
+    startRow?: number;
+    endRow?: number;
+  }>,
+  definedNames: Array<{
+    name: string;
+    sheetName: string;
+    colLetter: string;
+    startRow: number;
+    endRow: number;
+  }>
+) {
+  // 1. Add definedNames into xl/workbook.xml
+  let wbXml = await zip.file("xl/workbook.xml")?.async("text");
+  if (wbXml && definedNames.length > 0) {
+    const definedNamesInner = definedNames
+      .map(
+        (dn) =>
+          `<definedName name="${dn.name}">${dn.sheetName}!$${dn.colLetter}$${dn.startRow}:$${dn.colLetter}$${dn.endRow}</definedName>`
+      )
+      .join("");
+
+    if (wbXml.includes("<definedNames>")) {
+      wbXml = wbXml.replace("</definedNames>", `${definedNamesInner}</definedNames>`);
+    } else {
+      wbXml = wbXml.replace("</sheets>", `</sheets><definedNames>${definedNamesInner}</definedNames>`);
+    }
+    zip.file("xl/workbook.xml", wbXml);
+  }
+
+  // 2. Add dataValidations into xl/worksheets/sheet1.xml
+  let sheet1Xml = await zip.file("xl/worksheets/sheet1.xml")?.async("text");
+  if (sheet1Xml && validations.length > 0) {
+    const dvItems = validations.map((v) => {
+      const colLetter = XLSX.utils.encode_col(v.colIdx);
+      const startR = v.startRow || 3;
+      const endR = v.endRow || 5000;
+      return `<dataValidation sqref="${colLetter}${startR}:${colLetter}${endR}" allowBlank="1" type="list"><formula1>${v.definedName}</formula1></dataValidation>`;
+    });
+
+    const dataValidationsXml = `<dataValidations count="${dvItems.length}">${dvItems.join("")}</dataValidations>`;
+    let insertPos = sheet1Xml.indexOf("<ignoredErrors");
+    if (insertPos === -1) insertPos = sheet1Xml.indexOf("<pageMargins");
+    if (insertPos === -1) insertPos = sheet1Xml.indexOf("</worksheet>");
+
+    sheet1Xml = sheet1Xml.slice(0, insertPos) + dataValidationsXml + sheet1Xml.slice(insertPos);
+    zip.file("xl/worksheets/sheet1.xml", sheet1Xml);
+  }
+}
+
 export function convertGoogleDriveLink(url: string): string {
   if (!url || typeof url !== "string") {
     return url;
@@ -168,15 +226,30 @@ function collectZoneQuestions(
 
 export async function generateFollowUpAnswerTemplate(
   form: Question,
-  inspectors?: any[]
+  inspectors?: any[],
+  tenantName?: string
 ) {
   console.log("🔄 Generating follow-up only answer template...");
 
   const inspectorNames = inspectors
-    ? inspectors.map((i) =>
-      `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.username || i.email
-    )
+    ? Array.from(
+        new Set(
+          inspectors
+            .map((i) => {
+              if (typeof i === "string") return i.trim();
+              const full = `${i.firstName || ""} ${i.lastName || ""}`.trim();
+              return i.name || full || i.username || i.email || "";
+            })
+            .filter((n) => Boolean(n) && n !== "Excel Import" && n !== "Anonymous")
+        )
+      ).sort()
     : [];
+
+  const resolvedTenantName =
+    tenantName ||
+    (form as any).tenantId?.name ||
+    (form as any).tenantName ||
+    "Tenant";
 
   if (!form.sections || form.sections.length === 0) {
     throw new Error("Form has no sections or questions");
@@ -328,8 +401,9 @@ export async function generateFollowUpAnswerTemplate(
     required: false,
   });
 
+  let chassisOptions: string[] = [];
   if (form.chassisNumbers && form.chassisNumbers.length > 0) {
-    const chassisOptions = form.chassisNumbers.map((cn: any) =>
+    chassisOptions = form.chassisNumbers.map((cn: any) =>
       typeof cn === "string" ? cn : cn.chassisNumber
     );
     columns.push({
@@ -389,6 +463,22 @@ export async function generateFollowUpAnswerTemplate(
   const workbook = utils.book_new();
   utils.book_append_sheet(workbook, worksheet, "Follow-up Responses");
 
+  // Create Lookups worksheet with Tenant info and dropdown source lists
+  const maxLookupRows = Math.max(1, inspectorNames.length, chassisOptions.length);
+  const lookupData: any[][] = [
+    ["Tenant", `Inspectors (${resolvedTenantName})`, "Chassis Numbers"]
+  ];
+  for (let i = 0; i < maxLookupRows; i++) {
+    lookupData.push([
+      i === 0 ? resolvedTenantName : "",
+      inspectorNames[i] || "",
+      chassisOptions[i] || ""
+    ]);
+  }
+  const lookupWs = utils.aoa_to_sheet(lookupData);
+  lookupWs["!cols"] = [{ wch: 25 }, { wch: 35 }, { wch: 25 }];
+  utils.book_append_sheet(workbook, lookupWs, "Lookups");
+
   const headerStyle = {
     font: { bold: true, color: { rgb: "FFFFFF" }, sz: 12 },
     fill: { fgColor: { rgb: "1D4ED8" } },
@@ -422,9 +512,12 @@ export async function generateFollowUpAnswerTemplate(
     const cellRef = utils.encode_cell({ r: 0, c: index });
     const commentLines: string[] = [];
     if (col.id === "submitterName") {
-      commentLines.push("Type: select");
+      commentLines.push("Type: select (Inspector Dropdown)");
+      if (resolvedTenantName) {
+        commentLines.push(`Tenant: ${resolvedTenantName}`);
+      }
       if (col.options && col.options.length > 0) {
-        commentLines.push("Available Inspectors (Copy name exactly):");
+        commentLines.push(`Available Inspectors for ${resolvedTenantName}:`);
         col.options.forEach((name) => {
           commentLines.push(`- ${name}`);
         });
@@ -533,6 +626,49 @@ export async function generateFollowUpAnswerTemplate(
       zip.file(vmlFileKey, vmlContent);
     }
 
+    // Inject native Excel Data Validation dropdown for Inspector list (scoped by tenant) and Chassis list
+    const userColIdx = columns.findIndex((c) => c.id === "submitterName");
+    const chassisColIdx = columns.findIndex((c) => c.id === "chassis_number");
+
+    const validations: Array<{ colIdx: number; definedName: string }> = [];
+    const definedNames: Array<{
+      name: string;
+      sheetName: string;
+      colLetter: string;
+      startRow: number;
+      endRow: number;
+    }> = [];
+
+    if (inspectorNames.length > 0 && userColIdx !== -1) {
+      definedNames.push({
+        name: "InspectorList",
+        sheetName: "Lookups",
+        colLetter: "B",
+        startRow: 2,
+        endRow: inspectorNames.length + 1,
+      });
+      validations.push({
+        colIdx: userColIdx,
+        definedName: "InspectorList",
+      });
+    }
+
+    if (chassisOptions.length > 0 && chassisColIdx !== -1) {
+      definedNames.push({
+        name: "ChassisList",
+        sheetName: "Lookups",
+        colLetter: "C",
+        startRow: 2,
+        endRow: chassisOptions.length + 1,
+      });
+      validations.push({
+        colIdx: chassisColIdx,
+        definedName: "ChassisList",
+      });
+    }
+
+    await injectDataValidationsIntoZip(zip, validations, definedNames);
+
     const finalBlob = await zip.generateAsync({ type: "blob" });
 
     const url = window.URL.createObjectURL(finalBlob);
@@ -554,14 +690,32 @@ export async function generateFollowUpAnswerTemplate(
   }
   return fileName;
 }
-export async function generateAnswerTemplate(form: Question, inspectors?: any[]) {
+export async function generateAnswerTemplate(
+  form: Question,
+  inspectors?: any[],
+  tenantName?: string
+) {
   console.log("🔄 Generating new row-based answer template...");
 
   const inspectorNames = inspectors
-    ? inspectors.map((i) =>
-      `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.username || i.email
-    )
+    ? Array.from(
+        new Set(
+          inspectors
+            .map((i) => {
+              if (typeof i === "string") return i.trim();
+              const full = `${i.firstName || ""} ${i.lastName || ""}`.trim();
+              return i.name || full || i.username || i.email || "";
+            })
+            .filter((n) => Boolean(n) && n !== "Excel Import" && n !== "Anonymous")
+        )
+      ).sort()
     : [];
+
+  const resolvedTenantName =
+    tenantName ||
+    (form as any).tenantId?.name ||
+    (form as any).tenantName ||
+    "Tenant";
 
   if (!form.sections || form.sections.length === 0) {
     throw new Error("Form has no sections or questions");
@@ -667,9 +821,10 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
     required: false,
   });
 
+  let chassisOptions: string[] = [];
   // Add Selected Chassis column if form has chassis numbers configured
   if (form.chassisNumbers && form.chassisNumbers.length > 0) {
-    const chassisOptions = form.chassisNumbers.map((cn: any) =>
+    chassisOptions = form.chassisNumbers.map((cn: any) =>
       typeof cn === "string" ? cn : cn.chassisNumber
     );
     columns.push({
@@ -722,6 +877,22 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
   const workbook = utils.book_new();
   utils.book_append_sheet(workbook, worksheet, "Bulk Responses");
 
+  // 3b. Create Lookups worksheet with Tenant info and dropdown source lists
+  const maxLookupRows = Math.max(1, inspectorNames.length, chassisOptions.length);
+  const lookupData: any[][] = [
+    ["Tenant", `Inspectors (${resolvedTenantName})`, "Chassis Numbers"]
+  ];
+  for (let i = 0; i < maxLookupRows; i++) {
+    lookupData.push([
+      i === 0 ? resolvedTenantName : "",
+      inspectorNames[i] || "",
+      chassisOptions[i] || ""
+    ]);
+  }
+  const lookupWs = utils.aoa_to_sheet(lookupData);
+  lookupWs["!cols"] = [{ wch: 25 }, { wch: 35 }, { wch: 25 }];
+  utils.book_append_sheet(workbook, lookupWs, "Lookups");
+
   // 4. Style the worksheet and add comments
   const headerStyle = {
     font: { bold: true, color: { rgb: "FFFFFF" }, sz: 12 },
@@ -758,9 +929,12 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
     const cellRef = utils.encode_cell({ r: 0, c: index });
     const commentLines: string[] = [];
     if (col.id === "submitterName") {
-      commentLines.push("Type: select");
+      commentLines.push("Type: select (Inspector Dropdown)");
+      if (resolvedTenantName) {
+        commentLines.push(`Tenant: ${resolvedTenantName}`);
+      }
       if (col.options && col.options.length > 0) {
-        commentLines.push("Available Inspectors (Copy name exactly):");
+        commentLines.push(`Available Inspectors for ${resolvedTenantName}:`);
         col.options.forEach((name) => {
           commentLines.push(`- ${name}`);
         });
@@ -865,6 +1039,49 @@ export async function generateAnswerTemplate(form: Question, inspectors?: any[])
 
       zip.file(vmlFileKey, vmlContent);
     }
+
+    // Inject native Excel Data Validation dropdown for Inspector list (scoped by tenant) and Chassis list
+    const userColIdx = columns.findIndex((c) => c.id === "submitterName");
+    const chassisColIdx = columns.findIndex((c) => c.id === "chassis_number");
+
+    const validations: Array<{ colIdx: number; definedName: string }> = [];
+    const definedNames: Array<{
+      name: string;
+      sheetName: string;
+      colLetter: string;
+      startRow: number;
+      endRow: number;
+    }> = [];
+
+    if (inspectorNames.length > 0 && userColIdx !== -1) {
+      definedNames.push({
+        name: "InspectorList",
+        sheetName: "Lookups",
+        colLetter: "B",
+        startRow: 2,
+        endRow: inspectorNames.length + 1,
+      });
+      validations.push({
+        colIdx: userColIdx,
+        definedName: "InspectorList",
+      });
+    }
+
+    if (chassisOptions.length > 0 && chassisColIdx !== -1) {
+      definedNames.push({
+        name: "ChassisList",
+        sheetName: "Lookups",
+        colLetter: "C",
+        startRow: 2,
+        endRow: chassisOptions.length + 1,
+      });
+      validations.push({
+        colIdx: chassisColIdx,
+        definedName: "ChassisList",
+      });
+    }
+
+    await injectDataValidationsIntoZip(zip, validations, definedNames);
 
     const finalBlob = await zip.generateAsync({ type: "blob" });
 
@@ -1355,7 +1572,14 @@ export async function parseAnswerWorkbook(
       if (!id) return;
 
       if (id === "submitterName") {
-        singleResponse.submittedBy = cellValue ? String(cellValue).trim() : "Excel Import";
+        let nameVal = cellValue ? String(cellValue).trim() : "Excel Import";
+        if (nameVal && nameVal !== "Excel Import") {
+          const match = nameVal.match(/^([^(]+?)\s*\([^)]+\)$/);
+          if (match && match[1]) {
+            nameVal = match[1].trim();
+          }
+        }
+        singleResponse.submittedBy = nameVal || "Excel Import";
       } else if (id === "submitterEmail") {
         singleResponse.submitterContact.email = cellValue ? String(cellValue).trim() : "";
       } else if (id === "submittedAt") {

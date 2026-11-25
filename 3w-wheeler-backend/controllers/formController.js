@@ -2413,6 +2413,133 @@ export const getChildForms = async (req, res) => {
   }
 };
 
+// @route   GET /api/forms/:id/inspectors
+// @desc    Get inspectors and users for a form based on its tenant and assignments
+// @access  Private (Authenticated users who can access the form)
+export const getFormInspectors = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const form = await findFormByIdentifier(id);
+    if (!form) {
+      return res.status(404).json({ success: false, message: 'Form not found' });
+    }
+
+    // Determine all relevant tenant IDs
+    const relevantTenantIds = new Set();
+    if (form.tenantId) {
+      relevantTenantIds.add(form.tenantId.toString());
+    }
+
+    // Shared tenants
+    if (Array.isArray(form.sharedWithTenants)) {
+      form.sharedWithTenants.forEach(t => {
+        if (t) relevantTenantIds.add((t._id || t).toString());
+      });
+    }
+
+    // Chassis assigned tenants
+    if (Array.isArray(form.chassisTenantAssignments)) {
+      form.chassisTenantAssignments.forEach(cta => {
+        if (Array.isArray(cta.assignedTenants)) {
+          cta.assignedTenants.forEach(t => {
+            if (t) relevantTenantIds.add((t._id || t).toString());
+          });
+        }
+      });
+    }
+
+    // If child form, also include parent's tenant
+    if (form.parentFormId) {
+      const parent = await findFormByIdentifier(form.parentFormId);
+      if (parent && parent.tenantId) {
+        relevantTenantIds.add(parent.tenantId.toString());
+      }
+    }
+
+    const tenantIdList = Array.from(relevantTenantIds).map(t => {
+      return mongoose.Types.ObjectId.isValid(t) ? new mongoose.Types.ObjectId(t) : t;
+    });
+
+    // Fetch primary tenant info
+    let tenantInfo = null;
+    if (form.tenantId) {
+      const tenantDoc = await Tenant.findById(form.tenantId).select('name slug');
+      if (tenantDoc) {
+        tenantInfo = { _id: tenantDoc._id, name: tenantDoc.name, slug: tenantDoc.slug };
+      }
+    }
+
+    // Query users in these tenants
+    const users = await User.find({
+      tenantId: { $in: tenantIdList },
+      isActive: { $ne: false }
+    })
+      .populate('tenantId', 'name slug')
+      .select('firstName lastName username email role tenantId')
+      .sort({ firstName: 1, lastName: 1 });
+
+    // Also get distinct submittedBy names from previous responses on this form
+    const fIds = [form.id, form._id?.toString()].filter(Boolean);
+    const formMatchIds = [];
+    fIds.forEach(fid => {
+      formMatchIds.push(fid);
+      if (mongoose.Types.ObjectId.isValid(fid)) formMatchIds.push(new mongoose.Types.ObjectId(fid));
+    });
+
+    const historicalSubmitters = await Response.distinct('submittedBy', {
+      $or: [{ questionId: { $in: formMatchIds } }, { formId: { $in: formMatchIds } }],
+      submittedBy: { $nin: [null, '', 'Excel Import', 'Anonymous', 'System', 'batch'] }
+    });
+
+    // Format inspector list
+    const seenNames = new Set();
+    const formattedInspectors = [];
+
+    // First add active users from the tenant(s)
+    users.forEach(u => {
+      const fullName = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username || u.email;
+      if (fullName && !seenNames.has(fullName.toLowerCase())) {
+        seenNames.add(fullName.toLowerCase());
+        formattedInspectors.push({
+          _id: u._id,
+          name: fullName,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          email: u.email,
+          role: u.role,
+          tenantId: u.tenantId?._id || u.tenantId,
+          tenantName: u.tenantId?.name || tenantInfo?.name || 'Default'
+        });
+      }
+    });
+
+    // Also append any historical submitters if not already in list
+    historicalSubmitters.forEach(subName => {
+      const trimmed = String(subName).trim();
+      if (trimmed && !seenNames.has(trimmed.toLowerCase())) {
+        seenNames.add(trimmed.toLowerCase());
+        formattedInspectors.push({
+          _id: null,
+          name: trimmed,
+          tenantName: tenantInfo?.name || 'Default'
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        tenant: tenantInfo,
+        inspectors: formattedInspectors,
+        tenantName: tenantInfo?.name || ''
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching form inspectors:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch form inspectors' });
+  }
+};
+
 // Reorder child forms
 export const reorderChildForms = async (req, res) => {
   try {

@@ -11,14 +11,32 @@ export const applyPermission = async (req, res) => {
     const inspectorId = req.user._id;
     const tenantId = req.user.tenantId;
 
+    if (!date || !startTime || !endTime) {
+      return res.status(400).json({ success: false, message: 'Date, start time, and end time are required' });
+    }
+
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid start time or end time' });
+    }
+
+    if (end <= start) {
+      return res.status(400).json({ success: false, message: 'End time must be after start time' });
+    }
+
+    const calculatedDuration = duration && duration > 0 
+      ? duration 
+      : ((end.getTime() - start.getTime()) / (1000 * 60 * 60));
+
     const permission = await HRPermission.create({
       inspector: inspectorId,
       tenantId,
       date: new Date(date),
       permissionType,
-      startTime: new Date(startTime),
-      endTime: new Date(endTime),
-      duration,
+      startTime: start,
+      endTime: end,
+      duration: calculatedDuration,
       reason
     });
 

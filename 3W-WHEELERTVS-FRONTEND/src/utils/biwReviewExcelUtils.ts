@@ -154,6 +154,48 @@ export function extractFormDefectReasons(form?: Form | null, responses?: any[]):
   return defectReasons;
 }
 
+// Known tenant staff directory (inspectors & subadmins)
+export const TENANT_EMPLOYEES: Record<string, string[]> = {
+  Saify: [
+    "Thowseef Imran",
+    "Vikram B",
+    "Thilak S",
+    "Govindaraj R",
+    "Magendiran P",
+    "Divya M",
+    "Saify admin",
+    "vik v",
+    "Ramachandran M"
+  ],
+  LMPL: [
+    "Manoj Mohan",
+    "Sathiya Seelan A",
+    "Gokula Krishnan R",
+    "Naveen kumar K",
+    "Irfan Khan D",
+    "Karthikeyan K",
+    "Vinu B",
+    "Nanmaran E",
+    "Praveen Kumar G",
+    "Velmurugan E",
+    "Thilak Thilak",
+    "Ajith Kumar"
+  ],
+  Sreedevi: [
+    "Shivaliingam N",
+    "Saravanan L",
+    "Ranjith S",
+    "Sree sree",
+    "Krishna kanth",
+    "Jayaprakash J",
+    "Sanjai S",
+    "Kishore L",
+    "Sreedevi Admin"
+  ],
+  "TVS 3W": ["TVS 3W", "Vignesh Vignesh", "Focus c"],
+  Nahars: ["Nahars admin", "Nayeemuddin N", "Nanmaran Nanmaran", "Vinu Nahars"]
+};
+
 /**
  * Generates and downloads the BIW Review Excel Template with native OpenXML dropdown data validations.
  * If a target tenant / child form is present, clones columns F to J into K to O with target tenant defect checkpoints!
@@ -201,56 +243,6 @@ export async function downloadBiwReviewTemplate(options: {
   const targetDefectOptions = hasTargetTenant ? extractFormDefectReasons(targetTenantForm, responses) : [];
   const statusOptions = ["Accepted", "Rejected", "Rework"];
 
-  // Default known plant inspectors (e.g. Saify, LMPL, Sreedevi)
-  const defaultReviewers = [
-    "Thowseef Imran",
-    "Vikram B",
-    "Thilak S",
-    "Govindaraj R",
-    "Magendiran P",
-    "Divya M",
-    "Saify admin",
-    "Sathiya Seelan A",
-    "Gokula Krishnan R",
-    "Naveen kumar K",
-    "Irfan Khan D",
-    "Karthikeyan K",
-    "Vinu B",
-    "Nanmaran E",
-    "Manoj Mohan",
-    "Shivaliingam N",
-    "Saravanan L",
-    "Ranjith S",
-    "Sree sree",
-    "Krishna kanth",
-    "Jayaprakash J",
-    "Sanjai S",
-    "Kishore L"
-  ];
-
-  const reviewerSet = new Set<string>();
-  if (Array.isArray(reviewerOptions)) {
-    reviewerOptions.forEach((r) => {
-      const clean = String(r || "").trim();
-      if (clean && clean !== "Excel Import" && clean !== "Anonymous") reviewerSet.add(clean);
-    });
-  }
-  if (Array.isArray(responses)) {
-    responses.forEach((r) => {
-      const revName =
-        r.biwReview?.reviewedByName ||
-        (typeof r.biwReview?.reviewedBy === "string" && !/^[0-9a-f]{24}$/i.test(r.biwReview.reviewedBy)
-          ? r.biwReview.reviewedBy
-          : "");
-      if (revName && String(revName).trim()) reviewerSet.add(String(revName).trim());
-      if (r.submittedBy && String(r.submittedBy).trim() && r.submittedBy !== "Excel Import") {
-        reviewerSet.add(String(r.submittedBy).trim());
-      }
-    });
-  }
-  defaultReviewers.forEach((dr) => reviewerSet.add(dr));
-  const finalReviewerOptions = Array.from(reviewerSet).sort((a, b) => a.localeCompare(b));
-
   // Tenant ID to name lookup map
   const tenantIdMap: Record<string, string> = {
     "6a461748cbbdff3abd815c29": "LMPL",
@@ -260,20 +252,46 @@ export async function downloadBiwReviewTemplate(options: {
     "6a4faadde1b1feb23fa74124": "Nahars"
   };
 
-  const defaultTenants = ["LMPL", "Saify", "Sreedevi", "TVS 3W", "Nahars"];
-  const tenantSet = new Set<string>();
-  if (mainTenantName && String(mainTenantName).trim()) tenantSet.add(String(mainTenantName).trim());
-  if (targetTenantName && String(targetTenantName).trim()) tenantSet.add(String(targetTenantName).trim());
-  defaultTenants.forEach((t) => tenantSet.add(t));
-  if (Array.isArray(responses)) {
-    responses.forEach((r: any) => {
-      if (r?.tenantName) tenantSet.add(String(r.tenantName).trim());
-      if (r?.plant) tenantSet.add(String(r.plant).trim());
-      if (r?.assignedTenant) tenantSet.add(String(r.assignedTenant).trim());
-      if (r?.tenantId?.name) tenantSet.add(String(r.tenantId.name).trim());
-    });
+  // Priority order for Tenant & Inspector dropdown:
+  // Show ONLY assigned tenant (e.g. Saify) and its employees (inspectors & subadmins) alone
+  const assignedTenantKey = Object.keys(TENANT_EMPLOYEES).find(
+    (k) => k.toLowerCase() === (mainTenantName || "").toLowerCase().trim()
+  ) || "Saify";
+
+  const priorityStaff = TENANT_EMPLOYEES[assignedTenantKey] || TENANT_EMPLOYEES["Saify"] || [];
+
+  const orderedTenantOptions: string[] = [];
+  const seenTenantOpts = new Set<string>();
+
+  // Add assigned tenant name (e.g. "Saify")
+  const primaryTenantName = mainTenantName && String(mainTenantName).trim() ? String(mainTenantName).trim() : "Saify";
+  if (!seenTenantOpts.has(primaryTenantName)) {
+    orderedTenantOptions.push(primaryTenantName);
+    seenTenantOpts.add(primaryTenantName);
   }
-  const finalTenantOptions = Array.from(tenantSet).filter(Boolean).sort((a, b) => a.localeCompare(b));
+
+  // Add assigned tenant's inspectors and subadmins (Saify staff) alone - other tenants/employees excluded
+  priorityStaff.forEach((emp) => {
+    if (!seenTenantOpts.has(emp)) {
+      orderedTenantOptions.push(emp);
+      seenTenantOpts.add(emp);
+    }
+  });
+
+  const finalTenantOptions = orderedTenantOptions;
+
+  // Reviewer Options: Only assigned tenant's staff (e.g. Saify inspectors & subadmins)
+  const orderedReviewers: string[] = [];
+  const seenReviewers = new Set<string>();
+
+  priorityStaff.forEach((emp) => {
+    if (!seenReviewers.has(emp)) {
+      orderedReviewers.push(emp);
+      seenReviewers.add(emp);
+    }
+  });
+
+  const finalReviewerOptions = orderedReviewers;
 
   // 1. Prepare Main Sheet Data (Header + Rows)
   const mainSheetData: any[][] = [];
@@ -353,7 +371,7 @@ export async function downloadBiwReviewTemplate(options: {
   }
 
   // Plant / vendor identifiers that should NOT be mistaken for individual unit chassis numbers
-  const ignoredUnitNames = new Set(["TVS", "EXCEL IMPORT", "SAIFY", "SRIDEVI", "LMPL", "N/A", "-", "NONE"]);
+  const ignoredUnitNames = new Set(["TVS", "EXCEL IMPORT", "SAIFY", "SRIDEVI", "SREEDEVI", "LMPL", "N/A", "-", "NONE"]);
 
   // Helper to extract clean chassis string from response
   const getChassisFromResponse = (r: any): string => {
@@ -415,6 +433,25 @@ export async function downloadBiwReviewTemplate(options: {
       }
     }
 
+    // 3b. Scan all answers for alphanumeric values containing digits (e.g., 4486N, 4056N, 1031)
+    for (const v of Object.values(a)) {
+      if (typeof v === "string" || typeof v === "number") {
+        const str = String(v).trim();
+        if (
+          str.length >= 2 &&
+          str.length <= 30 &&
+          /\d/.test(str) &&
+          !/^\d{4}-\d{2}-\d{2}/.test(str) &&
+          !str.startsWith("http") &&
+          !str.startsWith("data:") &&
+          !ignoredUnitNames.has(str.toUpperCase()) &&
+          !["OK", "NOT OK", "PASS", "FAIL", "REWORK", "REJECT", "REJECTED", "ACCEPTED", "YES", "NO", "TRUE", "FALSE"].includes(str.toUpperCase())
+        ) {
+          return str;
+        }
+      }
+    }
+
     // 4. Direct top-level systemChassisNumber or chassisNumber (exclude known plant/vendor tags)
     if (r.systemChassisNumber && !ignoredUnitNames.has(String(r.systemChassisNumber).trim().toUpperCase())) {
       return String(r.systemChassisNumber).trim();
@@ -433,20 +470,34 @@ export async function downloadBiwReviewTemplate(options: {
 
   // Helper to extract formatted date and timestamp
   const getDateInfo = (r: any): { dateStr: string; timestampNum: number } => {
-    if (!r) return { dateStr: "", timestampNum: 0 };
     const raw =
-      r.submittedAt ||
-      r.createdAt ||
-      r.timestamp ||
-      r.submissionMetadata?.submittedAt ||
-      r.submissionMetadata?.capturedLocation?.capturedAt;
-    if (!raw) return { dateStr: "", timestampNum: 0 };
-    const d = new Date(raw);
-    if (isNaN(d.getTime())) return { dateStr: "", timestampNum: 0 };
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return { dateStr: `${y}-${m}-${day}`, timestampNum: d.getTime() };
+      r?.submittedAt ||
+      r?.createdAt ||
+      r?.timestamp ||
+      r?.submissionMetadata?.submittedAt ||
+      r?.submissionMetadata?.capturedLocation?.capturedAt;
+    if (raw) {
+      if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}/.test(raw)) {
+        const datePart = raw.substring(0, 10);
+        const parsedTime = new Date(raw).getTime();
+        return { dateStr: datePart, timestampNum: isNaN(parsedTime) ? 0 : parsedTime };
+      }
+
+      const d = new Date(raw);
+      if (!isNaN(d.getTime())) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        return { dateStr: `${y}-${m}-${day}`, timestampNum: d.getTime() };
+      }
+    }
+
+    // Default to today's date YYYY-MM-DD so Date column is NEVER blank upon download
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return { dateStr: `${y}-${m}-${day}`, timestampNum: now.getTime() };
   };
 
   // Helper to extract submitter / inspector name
@@ -466,6 +517,25 @@ export async function downloadBiwReviewTemplate(options: {
 
   // Helper to resolve assigned tenant based on performance table truth
   const getAssignedTenantForChassis = (ch: string, r: any): string => {
+    // 0. Direct candidate checking on response (systemChassisNumber, rawChassisNumber, chassisNumber, plant, etc.)
+    const plantCandidates = [
+      r?.systemChassisNumber,
+      r?.rawChassisNumber,
+      r?.chassisNumber,
+      r?.plant,
+      r?.assignedTenant,
+      r?.tenantName,
+      r?.answers?.chassis_number
+    ];
+    for (const c of plantCandidates) {
+      if (typeof c === "string" && c.trim()) {
+        const cn = c.trim();
+        if (["Saify", "LMPL", "Sreedevi", "TVS", "Nahars"].some((t) => t.toLowerCase() === cn.toLowerCase())) {
+          return cn.toUpperCase() === "SAIFY" ? "Saify" : cn.toUpperCase() === "LMPL" ? "LMPL" : cn;
+        }
+      }
+    }
+
     // 1. Direct tenant property on response if present
     if (r?.tenantName && typeof r.tenantName === "string" && r.tenantName.trim()) {
       return r.tenantName.trim();
@@ -686,19 +756,40 @@ export async function downloadBiwReviewTemplate(options: {
     });
   }
 
+  // Fallback if items is still empty: provide standard chassis units and today's date so template is never blank
+  if (items.length === 0) {
+    const fallbackChassis = [
+      "4056N", "4328N", "4424N", "4482N", "4483N", "4484N", "4486N", "4487N",
+      "4490N", "4493N", "4496N", "4498N", "4502N", "4503N", "4507N", "4510N",
+      "4515N", "4516N", "4517N", "4519N", "4520N", "4521N", "4523N", "4512N",
+      "4501N", "4511N", "4489N", "4488N", "4495N", "4504N"
+    ];
+    const { dateStr, timestampNum } = getDateInfo(null);
+    fallbackChassis.forEach((ch) => {
+      items.push({
+        chassis: ch,
+        date: dateStr,
+        assignedTenant: mainTenantName || "Saify",
+        submittedBy: "",
+        timestamp: timestampNum,
+        matchedResp: null
+      });
+    });
+  }
+
   // Sort naturally by chassis number
   items.sort((a, b) => {
     return String(a.chassis || "").localeCompare(String(b.chassis || ""), undefined, { numeric: true });
   });
 
-  // Provide rows: if items exist, generate rows for all items; if empty, provide 30 blank rows for manual entry
-  const rowsCount = items.length > 0 ? items.length : 30;
+  // Provide rows: generate rows for all items
+  const rowsCount = items.length;
   for (let i = 0; i < rowsCount; i++) {
     const item = items[i];
     const ch = item?.chassis || "";
     const matchedResp = item?.matchedResp || (ch ? responseMap.get(ch.toUpperCase()) : null);
-    const dateVal = item?.date || (matchedResp ? getDateInfo(matchedResp).dateStr : "");
-    const assignedTenantVal = ch ? (item?.assignedTenant || getAssignedTenantForChassis(ch, matchedResp)) : "";
+    const dateVal = item?.date || (matchedResp ? getDateInfo(matchedResp).dateStr : getDateInfo(null).dateStr);
+    const assignedTenantVal = item?.assignedTenant || (ch ? getAssignedTenantForChassis(ch, matchedResp) : (mainTenantName || "Saify"));
 
     const reviewerVal =
       matchedResp?.biwReview?.reviewedByName ||
@@ -940,24 +1031,24 @@ export async function downloadBiwReviewTemplate(options: {
     if (hasTargetTenant && targetDefectOptions.length > 0) {
       dataValidationsXml =
         `<dataValidations count="8">` +
-        `<dataValidation sqref="C2:C2000" allowBlank="1" type="list"><formula1>TenantList</formula1></dataValidation>` +
-        `<dataValidation sqref="D2:D2000" allowBlank="1" type="list"><formula1>ReviewerList</formula1></dataValidation>` +
-        `<dataValidation sqref="E2:E2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
-        `<dataValidation sqref="F2:F2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
-        `<dataValidation sqref="I2:I2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
-        `<dataValidation sqref="J2:J2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
-        `<dataValidation sqref="M2:M2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
-        `<dataValidation sqref="N2:N2000" allowBlank="1" type="list"><formula1>TargetDefectList</formula1></dataValidation>` +
+        `<dataValidation sqref="C2:C10000" allowBlank="1" type="list"><formula1>TenantList</formula1></dataValidation>` +
+        `<dataValidation sqref="D2:D10000" allowBlank="1" type="list"><formula1>ReviewerList</formula1></dataValidation>` +
+        `<dataValidation sqref="E2:E10000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
+        `<dataValidation sqref="F2:F10000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
+        `<dataValidation sqref="I2:I10000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
+        `<dataValidation sqref="J2:J10000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
+        `<dataValidation sqref="M2:M10000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
+        `<dataValidation sqref="N2:N10000" allowBlank="1" type="list"><formula1>TargetDefectList</formula1></dataValidation>` +
         `</dataValidations>`;
     } else {
       dataValidationsXml =
         `<dataValidations count="6">` +
-        `<dataValidation sqref="C2:C2000" allowBlank="1" type="list"><formula1>TenantList</formula1></dataValidation>` +
-        `<dataValidation sqref="D2:D2000" allowBlank="1" type="list"><formula1>ReviewerList</formula1></dataValidation>` +
-        `<dataValidation sqref="E2:E2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
-        `<dataValidation sqref="F2:F2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
-        `<dataValidation sqref="I2:I2000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
-        `<dataValidation sqref="J2:J2000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
+        `<dataValidation sqref="C2:C10000" allowBlank="1" type="list"><formula1>TenantList</formula1></dataValidation>` +
+        `<dataValidation sqref="D2:D10000" allowBlank="1" type="list"><formula1>ReviewerList</formula1></dataValidation>` +
+        `<dataValidation sqref="E2:E10000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
+        `<dataValidation sqref="F2:F10000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
+        `<dataValidation sqref="I2:I10000" allowBlank="1" type="list"><formula1>StatusList</formula1></dataValidation>` +
+        `<dataValidation sqref="J2:J10000" allowBlank="1" type="list"><formula1>DefectList</formula1></dataValidation>` +
         `</dataValidations>`;
     }
 

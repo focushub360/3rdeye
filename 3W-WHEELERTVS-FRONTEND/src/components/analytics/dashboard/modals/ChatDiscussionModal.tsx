@@ -9,6 +9,8 @@ import {
   ChevronRight,
   Layers,
   FileText,
+  Filter,
+  Reply,
 } from "lucide-react";
 import { QuestionSuggestionRenderer } from "../components/QuestionSuggestionRenderer";
 import { renderMessageWithImages, formatChatAnswerValue } from "../utils/chatHelpers";

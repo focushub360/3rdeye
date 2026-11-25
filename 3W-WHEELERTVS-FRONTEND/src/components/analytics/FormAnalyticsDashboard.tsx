@@ -555,71 +555,196 @@ export default function FormAnalyticsDashboard({
   const handleDownloadBiwTemplate = async () => {
     try {
       let activeResponsesSource: any[] = [];
-      const hasExplicitSelection = selectedResponsesSectionIds && selectedResponsesSectionIds.length > 0;
+      const hasExplicitSelection =
+        (selectedResponseIds && selectedResponseIds.length > 0) ||
+        (selectedBiwIds && selectedBiwIds.length > 0);
+      const activeSelectionIds =
+        selectedResponseIds && selectedResponseIds.length > 0
+          ? selectedResponseIds
+          : selectedBiwIds || [];
 
       if (hasExplicitSelection) {
-        // User specifically selected checkboxes -> only include selected rows
+        // User specifically selected response checkboxes -> only include selected rows
         activeResponsesSource = (filteredResponses || responses || tableResponses || []).filter((r: any) =>
-          selectedResponsesSectionIds.includes(String(r._id || r.id))
+          activeSelectionIds.includes(String(r._id || r.id))
         );
       } else {
-        // Retrieve full dataset across all pages so template contains ALL chassis units (not just current page of 20)
-        try {
-          const exportData = await apiClient.getAllResponsesForExport(formId);
-          if (exportData && exportData.length > 0) {
-            activeResponsesSource = exportData;
-          }
-        } catch (_) {}
+        // ⚡ INSTANT IN-MEMORY EXPORT: If full dataset is already in memory, use it directly (0ms network latency!)
+        const targetFormId = String(id || (form as any)?._id || (form as any)?.id || propFormId || "");
 
-        // Fallback to in-memory responses if export call returns empty
+        if (responses && responses.length > 0) {
+          activeResponsesSource = responses;
+        } else if (filteredResponses && filteredResponses.length > 0) {
+          activeResponsesSource = filteredResponses;
+        } else if (tableResponses && tableResponses.length > 0) {
+          activeResponsesSource = tableResponses;
+        } else if (targetFormId) {
+          // Fallback to network only if no responses are loaded in memory yet
+          const exportParams: any = {};
+          if (dateFilter && dateFilter.type !== "all") {
+            if (dateFilter.startDate) exportParams.startDate = dateFilter.startDate;
+            if (dateFilter.endDate) exportParams.endDate = dateFilter.endDate;
+          }
+          try {
+            const exportData = await apiClient.getAllResponsesForExport(targetFormId, exportParams);
+            if (exportData && exportData.length > 0) {
+              activeResponsesSource = exportData;
+            } else {
+              const allExport = await apiClient.getAllResponsesForExport(targetFormId, {});
+              if (allExport && allExport.length > 0) {
+                activeResponsesSource = allExport;
+              }
+            }
+          } catch (e) {
+            console.warn("[handleDownloadBiwTemplate] Error fetching responses:", e);
+          }
+        }
+
+        // Fallback to table responses or in-memory responses if export call returns empty
         if (!activeResponsesSource || activeResponsesSource.length === 0) {
           activeResponsesSource =
-            responses && responses.length > 0
-              ? responses
+            tableResponses && tableResponses.length > 0
+              ? tableResponses
               : filteredResponses && filteredResponses.length > 0
                 ? filteredResponses
-                : tableResponses && tableResponses.length > 0
-                  ? tableResponses
+                : responses && responses.length > 0
+                  ? responses
                   : [];
+        }
+
+        // Strictly enforce active date range (e.g. 30-day filter) ONLY if it yields at least 1 record
+        if (dateFilter && dateFilter.type !== "all" && (dateFilter.startDate || dateFilter.endDate)) {
+          const inRange = activeResponsesSource.filter((r: any) => {
+            const raw = r.submittedAt || r.createdAt || r.timestamp;
+            if (!raw) return true;
+            let dStr = "";
+            if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}/.test(raw)) {
+              dStr = raw.substring(0, 10);
+            } else {
+              const d = new Date(raw);
+              if (!isNaN(d.getTime())) {
+                dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+              }
+            }
+            if (dateFilter.startDate && dStr && dStr < dateFilter.startDate) return false;
+            if (dateFilter.endDate && dStr && dStr > dateFilter.endDate) return false;
+            return true;
+          });
+          if (inRange.length > 0) {
+            activeResponsesSource = inRange;
+          }
         }
       }
 
-      const ignoredUnits = ["TVS", "EXCEL IMPORT", "SAIFY", "SRIDEVI", "LMPL"];
-      const targetChassis = (activeResponsesSource || [])
-        .map((r) => {
-          const ch = getChassisOrItemId(r);
-          if (ch && ch !== "-" && ch !== "N/A" && ch !== "None") {
-            const clean = ch.split("—")[0].trim();
-            if (clean && !ignoredUnits.includes(clean.toUpperCase())) {
-              return clean;
+      // Detect chassis question ID directly from form template if available
+      let detectedChassisQId: string | null = null;
+      if (form?.sections) {
+        for (const sec of form.sections) {
+          for (const q of (sec.questions || [])) {
+            if (
+              (q.trackResponseRank === true ||
+                q.trackResponseRank === "true" ||
+                q.trackResponseQuestion === true ||
+                q.trackResponseQuestion === "true" ||
+                q.isTrackingNumber === true ||
+                q.isChassisQuestion === true ||
+                q.type === "chassisNumber") &&
+              q.type !== "zone-in" &&
+              q.type !== "zone-out"
+            ) {
+              detectedChassisQId = q.id;
+              break;
             }
           }
+          if (detectedChassisQId) break;
+        }
+        if (!detectedChassisQId) {
+          for (const sec of form.sections) {
+            for (const q of (sec.questions || [])) {
+              const t = String(q.text || q.title || q.label || "").toLowerCase();
+              if (
+                (t.includes("chassis") || t.includes("vin") || t.includes("identification")) &&
+                q.type !== "zone-in" &&
+                q.type !== "zone-out"
+              ) {
+                detectedChassisQId = q.id;
+                break;
+              }
+            }
+            if (detectedChassisQId) break;
+          }
+        }
+      }
+
+      const ignoredUnits = ["TVS", "EXCEL IMPORT", "SAIFY", "SRIDEVI", "SREEDEVI", "LMPL"];
+      const targetChassis = (activeResponsesSource || [])
+        .map((r) => {
           const a = r.answers || {};
-          const tracked = chassisQuestionId ? a[chassisQuestionId] : null;
+          const qIdToCheck = detectedChassisQId;
+          const tracked = qIdToCheck ? a[qIdToCheck] : null;
           const trackedVal =
             typeof tracked === "object"
               ? tracked?.chassisNumber || tracked?.value || tracked?.label
               : tracked;
+          if (trackedVal && !ignoredUnits.includes(String(trackedVal).trim().toUpperCase())) {
+            return String(trackedVal).trim();
+          }
 
-          const val =
-            trackedVal ||
-            a["Identification no"] ||
-            a["identification no"] ||
-            a["Identification No"] ||
-            a["chassisNumber"] ||
-            a["chassis_number"] ||
-            a["Chassis Number"] ||
-            a["cha"] ||
-            a["che"] ||
+          // Candidate keys
+          const candidateKeys = [
+            "Identification no", "identification no", "Identification No",
+            "chassisNumber", "chassis_number", "Chassis Number", "CHASSIS NUMBER",
+            "Chassis / VIN", "VIN", "vin", "id_number", "idNumber", "ID Number",
+            "cha", "che"
+          ];
+          for (const k of candidateKeys) {
+            if (a[k]) {
+              const v = typeof a[k] === "object" ? a[k]?.chassisNumber || a[k]?.value || a[k]?.label : a[k];
+              const s = String(v || "").trim();
+              if (s && !ignoredUnits.includes(s.toUpperCase())) {
+                return s;
+              }
+            }
+          }
+
+          // Scan all answers for alphanumeric with digit
+          for (const v of Object.values(a)) {
+            if (typeof v === "string" || typeof v === "number") {
+              const s = String(v).trim();
+              if (
+                s.length >= 2 && s.length <= 30 &&
+                /\d/.test(s) &&
+                !/^\d{4}-\d{2}-\d{2}/.test(s) &&
+                !s.startsWith("http") &&
+                !s.startsWith("data:") &&
+                !ignoredUnits.includes(s.toUpperCase()) &&
+                !["OK", "NOT OK", "PASS", "FAIL", "REWORK", "REJECT", "REJECTED", "ACCEPTED", "YES", "NO"].includes(s.toUpperCase())
+              ) {
+                return s;
+              }
+            }
+          }
+
+          const fallback =
             (r.systemChassisNumber && !ignoredUnits.includes(String(r.systemChassisNumber).trim().toUpperCase())
               ? r.systemChassisNumber
               : "") ||
             (r.chassisNumber && !ignoredUnits.includes(String(r.chassisNumber).trim().toUpperCase())
               ? r.chassisNumber
               : "");
-          return String(val || "").trim();
+          return String(fallback || "").trim();
         })
         .filter((c) => Boolean(c) && !ignoredUnits.includes(c.toUpperCase()));
+
+      if (targetChassis.length === 0 && (form?.chassisNumbers || (mainDoc as any)?.chassisNumbers)) {
+        const rawChList = (form?.chassisNumbers || (mainDoc as any)?.chassisNumbers || []);
+        rawChList.forEach((c: any) => {
+          const val = typeof c === "string" ? c : c?.chassisNumber || c?.name;
+          if (val && !ignoredUnits.includes(String(val).trim().toUpperCase())) {
+            targetChassis.push(String(val).trim());
+          }
+        });
+      }
 
       const isChild = Boolean(
         (form as any)?.isFollowUpForm ||
@@ -651,8 +776,23 @@ export default function FormAnalyticsDashboard({
         }
       }
 
-      const mainTenantName = resolveDocTenantName(mainDoc);
+      let detectedTenant = "";
+      for (const r of activeResponsesSource) {
+        const candidate = r.systemChassisNumber || r.rawChassisNumber || r.chassisNumber || r.plant || r.tenantName || r.answers?.chassis_number;
+        if (typeof candidate === "string" && ["Saify", "LMPL", "Sreedevi", "TVS", "Nahars"].some(t => t.toLowerCase() === candidate.trim().toLowerCase())) {
+          detectedTenant = candidate.trim().toUpperCase() === "SAIFY" ? "Saify" : candidate.trim().toUpperCase() === "LMPL" ? "LMPL" : candidate.trim();
+          break;
+        }
+      }
+
       const targetTenantName = resolveDocTenantName(targetTenantDoc);
+      const isSaifyForm =
+        detectedTenant === "Saify" ||
+        targetTenantName === "Saify" ||
+        String(form?.title || "").toLowerCase().includes("saify") ||
+        String(targetTenantDoc?.title || "").toLowerCase().includes("saify");
+
+      const mainTenantName = isSaifyForm ? "Saify" : (detectedTenant || resolveDocTenantName(mainDoc) || "Saify");
 
       const mainTitle = isChild
         ? (mainDoc?.title || (form as any)?.parentFormTitle || "Main Form")
@@ -662,12 +802,53 @@ export default function FormAnalyticsDashboard({
         ? (form?.title || "Child Form")
         : (targetTenantDoc?.title || "");
 
-      const reviewerOptionsList = Array.from(
-        new Set([
-          ...Array.from(uniqueInspectors || []),
-          ...(allInspectors || []).map((i: any) => i.name || `${i.firstName || ''} ${i.lastName || ''}`.trim()).filter(Boolean)
-        ])
-      );
+      const tenantEmployeesMap: Record<string, string[]> = {
+        Saify: [
+          "Thowseef Imran",
+          "Vikram B",
+          "Thilak S",
+          "Govindaraj R",
+          "Magendiran P",
+          "Divya M",
+          "Saify admin",
+          "vik v",
+          "Ramachandran M"
+        ],
+        LMPL: [
+          "Manoj Mohan",
+          "Sathiya Seelan A",
+          "Gokula Krishnan R",
+          "Naveen kumar K",
+          "Irfan Khan D",
+          "Karthikeyan K",
+          "Vinu B",
+          "Nanmaran E",
+          "Praveen Kumar G",
+          "Velmurugan E",
+          "Thilak Thilak",
+          "Ajith Kumar"
+        ],
+        Sreedevi: [
+          "Shivaliingam N",
+          "Saravanan L",
+          "Ranjith S",
+          "Sree sree",
+          "Krishna kanth",
+          "Jayaprakash J",
+          "Sanjai S",
+          "Kishore L",
+          "Sreedevi Admin"
+        ],
+        "TVS 3W": ["TVS 3W", "Vignesh Vignesh", "Focus c"],
+        Nahars: ["Nahars admin", "Nayeemuddin N", "Nanmaran Nanmaran", "Vinu Nahars"]
+      };
+
+      const assignedTenantStaff =
+        tenantEmployeesMap[mainTenantName] ||
+        tenantEmployeesMap["Saify"] ||
+        [];
+
+      const reviewerOptionsList = Array.from(new Set(assignedTenantStaff));
 
       await downloadBiwReviewTemplate({
         form: mainDoc,
@@ -4024,6 +4205,15 @@ export default function FormAnalyticsDashboard({
     const rank = trackingQId ? r.responseRanks?.[trackingQId] : null;
     const rawStatus = (r.status || "").trim();
 
+    // 0. Dispatched units have been cleared and released:
+    // They cannot remain in an active Rework or Rejected state.
+    if (r.isDispatched) {
+      if (isRework || (rawStatus && rawStatus.startsWith("Rework"))) {
+        return "Rework Accepted";
+      }
+      return rawStatus === "Accepted" ? "Accepted" : "Direct Ok";
+    }
+
     // 1. Explicit response status check
     if (rawStatus === "Rejected") return "Rejected";
     if (rawStatus === "Rework Accepted" || rawStatus === "Rework Completed") return "Rework Accepted";
@@ -4173,6 +4363,16 @@ export default function FormAnalyticsDashboard({
             calculatedStatus = "Rework Accepted";
           } else {
             calculatedStatus = "Direct Ok";
+          }
+        }
+
+        // Dispatched units have been cleared and released:
+        // They cannot remain in an active Rework or Rejected state.
+        if (r.isDispatched) {
+          if (isRework || hasBeenReworked || (rawStatus && rawStatus.startsWith("Rework"))) {
+            calculatedStatus = "Rework Accepted";
+          } else {
+            calculatedStatus = rawStatus === "Accepted" ? "Accepted" : "Direct Ok";
           }
         }
 
@@ -9804,57 +10004,36 @@ export default function FormAnalyticsDashboard({
                                   );
                                 })()}
 
-                                {/* Bulk actions dropdown */}
+                                {/* BIW Review Filter dropdown */}
                                 <select
+                                  value={columnFilters["__biwReview"]?.[0] || "all"}
                                   onChange={(e) => {
                                     const val = e.target.value;
-                                    if (val) {
-                                      const status = val === "Clear" ? null : val as "Accepted" | "Rejected" | "Reworked";
-
-                                      console.log('[BIW] Bulk action:', status, 'for', selectedBiwIds.length, 'items');
-
-                                      if (selectedBiwIds.length === 0) {
-                                        showToast("Please select items using the BIW checkboxes first", "error");
-                                      } else {
-                                        const validResponseIds: string[] = [];
-                                        let selfSubmissionsCount = 0;
-                                        let reworkSkippedCount = 0;
-
-                                        selectedBiwIds.forEach((id) => {
-                                          const resp = responses.find((r) => r.id === id) || tableResponses.find((r) => r.id === id);
-                                          if (resp) {
-                                            if (!isBiwEligibleResponse(resp)) {
-                                              reworkSkippedCount++;
-                                              return;
-                                            }
-                                            if (status !== null && isSubmitterOfResponse(resp)) {
-                                              selfSubmissionsCount++;
-                                            } else {
-                                              validResponseIds.push(id);
-                                            }
-                                          }
-                                        });
-
-                                        if (validResponseIds.length === 0) {
-                                          showToast("No eligible items selected (rework items and self-submissions cannot receive BIW review).", "error");
+                                    startFilterTransition(() => {
+                                      setColumnFilters((prev) => {
+                                        const next = { ...prev };
+                                        if (!val || val === "all") {
+                                          delete next["__biwReview"];
                                         } else {
-                                          setBiwBulkUpdateStatus(status);
-                                          setBiwBulkUpdateTargetIds(validResponseIds);
-                                          setBiwBulkUpdateSkippedCount(selfSubmissionsCount);
-                                          setShowBiwBulkUpdateModal(true);
+                                          next["__biwReview"] = [val];
                                         }
-                                      }
-                                      e.target.value = "";
+                                        return next;
+                                      });
+                                    });
+                                    if (!val || val === "all") {
+                                      showToast("Showing all BIW reviews", "info");
+                                    } else {
+                                      showToast(`Filtered by BIW: ${val}`, "info");
                                     }
                                   }}
-                                  disabled={isBulkBiwUpdating || tableResponses.length === 0}
-                                  className="px-2 py-1 text-[10px] font-black border border-purple-200 dark:border-purple-700 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none normal-case tracking-normal cursor-pointer shadow-sm hover:border-purple-400 transition-colors w-full"
+                                  disabled={tableResponses.length === 0}
+                                  className="px-2 py-1 text-[11px] font-semibold border border-purple-200 dark:border-purple-700 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none normal-case tracking-normal cursor-pointer shadow-sm hover:border-purple-400 transition-colors w-full"
                                 >
-                                  <option value="">Apply to Selected...</option>
-                                  <option value="Accepted">✓ Accept Selected</option>
-                                  <option value="Rejected">✗ Reject Selected</option>
-                                  <option value="Reworked">⟳ Rework Selected</option>
-                                  <option value="Clear">✕ Clear Selected</option>
+                                  <option value="all">All Reviews</option>
+                                  <option value="Accepted">Accepted</option>
+                                  <option value="Reworked">Reworked</option>
+                                  <option value="Rejected">Rejected</option>
+                                  <option value="No review yet">Unreviewed</option>
                                 </select>
                               </div>
                             </th>
@@ -11039,26 +11218,100 @@ export default function FormAnalyticsDashboard({
                           ) : (
                             <tr>
                               <td
-                                colSpan={
-                                  ((isChildFollowUpForm && showParentMatchColumn) ? 10 : 9) +
-                                  (form?.sections?.reduce(
-                                    (acc: number, sec: Section) =>
-                                      selectedResponsesSectionIds.includes(
-                                        sec.id,
-                                      )
-                                        ? acc + (sec.questions?.length || 0)
-                                        : acc,
-                                    0,
-                                  ) || 0)
-                                }
-                                className="px-4 py-6 text-center text-gray-500 dark:text-gray-400"
-                              >
-                                No responses yet
-                              </td>
+                                colSpan={100}
+                                className="p-0 border-0"
+                              />
                             </tr>
                           )}
                         </tbody>
                       </table>
+
+                      {/* Prominent, Centered Sticky Empty State when 0 responses match active filters */}
+                      {!loadingTable && displayedTableResponses.length === 0 && (
+                        <div className="sticky left-0 w-full min-h-[320px] flex flex-col items-center justify-center py-16 px-4 text-center bg-gray-50/60 dark:bg-gray-900/40 border-t border-gray-200 dark:border-gray-700">
+                          {(() => {
+                            const biwFilter = columnFilters["__biwReview"]?.[0];
+                            const statusFilter = columnFilters["__status"]?.[0];
+                            const tvsFilter = columnFilters["__tvsReview"]?.[0] || columnFilters["__review"]?.[0];
+                            const dispatchFilter = columnFilters["__dispatch"]?.[0];
+
+                            let badge = "FILTER";
+                            let title = "None found matching filter";
+                            let description = "No inspection records match the current filter criteria.";
+                            let actionLabel: string | null = null;
+                            let actionFn: (() => void) | null = null;
+
+                            if (biwFilter) {
+                              badge = "BIW REVIEW";
+                              title = `None found for ${biwFilter}`;
+                              description = `0 inspection records are marked as "${biwFilter}" under BIW Review in this date range.`;
+                              actionLabel = `Clear "${biwFilter}" Filter`;
+                              actionFn = () => {
+                                startFilterTransition(() => {
+                                  setColumnFilters((prev) => {
+                                    const next = { ...prev };
+                                    delete next["__biwReview"];
+                                    return next;
+                                  });
+                                });
+                                showToast("Cleared BIW review filter", "info");
+                              };
+                            } else if (statusFilter) {
+                              badge = "STATUS";
+                              title = `None found for ${statusFilter}`;
+                              description = `0 inspection records match status "${statusFilter}".`;
+                              actionLabel = `Clear "${statusFilter}" Filter`;
+                              actionFn = () => {
+                                startFilterTransition(() => {
+                                  setColumnFilters((prev) => {
+                                    const next = { ...prev };
+                                    delete next["__status"];
+                                    return next;
+                                  });
+                                });
+                              };
+                            } else if (hasActiveFiltersOrSort) {
+                              badge = "FILTERS";
+                              title = "None found for current filters";
+                              description = "Try adjusting your date range or clearing active filters to see records.";
+                              actionLabel = "Clear All Filters";
+                              actionFn = () => {
+                                startFilterTransition(() => {
+                                  setColumnFilters({});
+                                  setAppliedFilters([]);
+                                });
+                              };
+                            }
+
+                            return (
+                              <div className="max-w-md mx-auto flex flex-col items-center justify-center text-center animate-in fade-in zoom-in-95 duration-200">
+                                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-purple-100 to-indigo-100 dark:from-purple-900/40 dark:to-indigo-900/40 text-purple-600 dark:text-purple-300 flex items-center justify-center mb-3.5 shadow-sm border border-purple-200/60 dark:border-purple-700/50">
+                                  <Filter className="w-6 h-6" />
+                                </div>
+                                <span className="inline-block px-2.5 py-0.5 mb-2 text-[10px] font-black uppercase tracking-wider text-purple-700 dark:text-purple-300 bg-purple-100/80 dark:bg-purple-900/50 rounded-full border border-purple-200 dark:border-purple-800">
+                                  {badge}
+                                </span>
+                                <h3 className="text-base font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-1.5">
+                                  {title}
+                                </h3>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mb-5 max-w-sm leading-relaxed">
+                                  {description}
+                                </p>
+                                {actionLabel && actionFn && (
+                                  <button
+                                    type="button"
+                                    onClick={actionFn}
+                                    className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white shadow-md hover:shadow-lg transition-all cursor-pointer active:scale-95"
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                    <span>{actionLabel}</span>
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
                     </div>
                   </>
                 ) : (

@@ -26,7 +26,7 @@ export default function EditResponseFormPage() {
         if (!responseId) return;
 
         const responseWrapper = await apiClient.getResponse(responseId);
-        const responseData = responseWrapper.response;
+        const responseData = (responseWrapper as any)?.response || (responseWrapper as any)?.data?.response || responseWrapper;
         setResponse(responseData as Response);
         setAnswers(responseData?.answers || {});
 
@@ -36,7 +36,8 @@ export default function EditResponseFormPage() {
         }
 
         const formData = await apiClient.getForm(formIdentifier);
-        setQuestion(formData?.form ?? formData);
+        const formObj = (formData as any)?.form ?? (formData as any)?.data?.form ?? formData;
+        setQuestion(formObj);
       } catch (err: any) {
         console.error("Failed to fetch data:", err);
         setError(err.message || "Failed to load response for editing.");
@@ -55,6 +56,52 @@ export default function EditResponseFormPage() {
     }
   }, [initialSectionId, question]);
 
+  const handleGoBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate(responseId ? `/responses/${responseId}` : "/responses/all");
+    }
+  };
+
+  const getQuestionValue = (qObj: any) => {
+    const primary = qObj?.id ?? qObj?._id;
+    const secondary = qObj?._id ?? qObj?.id;
+    if (primary && answers[primary] !== undefined) return answers[primary];
+    if (secondary && answers[secondary] !== undefined) return answers[secondary];
+    return undefined;
+  };
+
+  const getQuestionTrackingValue = (qObj: any) => {
+    const primary = qObj?.id ?? qObj?._id;
+    const secondary = qObj?._id ?? qObj?.id;
+    if (primary && answers[`${primary}_tracking`] !== undefined) return answers[`${primary}_tracking`];
+    if (secondary && answers[`${secondary}_tracking`] !== undefined) return answers[`${secondary}_tracking`];
+    return undefined;
+  };
+
+  const setQuestionValue = (qObj: any, value: any) => {
+    const primary = qObj?.id ?? qObj?._id;
+    const secondary = qObj?._id ?? qObj?.id;
+    setAnswers((prev) => {
+      const next = { ...prev };
+      if (primary) next[primary] = value;
+      if (secondary && secondary !== primary) next[secondary] = value;
+      return next;
+    });
+  };
+
+  const setQuestionTrackingValue = (qObj: any, value: any) => {
+    const primary = qObj?.id ?? qObj?._id;
+    const secondary = qObj?._id ?? qObj?.id;
+    setAnswers((prev) => {
+      const next = { ...prev };
+      if (primary) next[`${primary}_tracking`] = value;
+      if (secondary && secondary !== primary) next[`${secondary}_tracking`] = value;
+      return next;
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!responseId || !response) return;
@@ -72,10 +119,11 @@ export default function EditResponseFormPage() {
       }
 
       await apiClient.updateResponse(responseId, updatedResponse);
-      navigate(`/responses/${responseId}`);
-    } catch (err) {
+      apiClient.invalidateFormsCache();
+      handleGoBack();
+    } catch (err: any) {
       console.error("Failed to save response:", err);
-      alert("Failed to save response. Please try again.");
+      alert(err?.message || "Failed to save response. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -119,12 +167,10 @@ export default function EditResponseFormPage() {
               <div className="flex-1 min-w-0">
                 <QuestionRenderer
                   question={q}
-                  value={answers[q.id ?? q._id]}
-                  trackingValue={answers[`${q.id ?? q._id}_tracking`]}
-                  onChange={(value) => setAnswers(prev => ({ ...prev, [q.id ?? q._id]: value }))}
-                  onTrackingChange={(value) =>
-                    setAnswers(prev => ({ ...prev, [`${q.id ?? q._id}_tracking`]: value }))
-                  }
+                  value={getQuestionValue(q)}
+                  trackingValue={getQuestionTrackingValue(q)}
+                  onChange={(value) => setQuestionValue(q, value)}
+                  onTrackingChange={(value) => setQuestionTrackingValue(q, value)}
                   isFollowUp={false}
                 />
               </div>
@@ -148,12 +194,10 @@ export default function EditResponseFormPage() {
                       <div className="flex-1 min-w-0">
                         <QuestionRenderer
                           question={fq}
-                          value={answers[fqId]}
-                          trackingValue={answers[`${fqId}_tracking`]}
-                          onChange={(value) => setAnswers(prev => ({ ...prev, [fqId]: value }))}
-                          onTrackingChange={(value) =>
-                            setAnswers(prev => ({ ...prev, [`${fqId}_tracking`]: value }))
-                          }
+                          value={getQuestionValue(fq)}
+                          trackingValue={getQuestionTrackingValue(fq)}
+                          onChange={(value) => setQuestionValue(fq, value)}
+                          onTrackingChange={(value) => setQuestionTrackingValue(fq, value)}
                           isFollowUp={true}
                         />
                       </div>
@@ -174,12 +218,10 @@ export default function EditResponseFormPage() {
                                 <div className="flex-1 min-w-0">
                                   <QuestionRenderer
                                     question={nfq}
-                                    value={answers[nfqId]}
-                                    trackingValue={answers[`${nfqId}_tracking`]}
-                                    onChange={(value) => setAnswers(prev => ({ ...prev, [nfqId]: value }))}
-                                    onTrackingChange={(value) =>
-                                      setAnswers(prev => ({ ...prev, [`${nfqId}_tracking`]: value }))
-                                    }
+                                    value={getQuestionValue(nfq)}
+                                    trackingValue={getQuestionTrackingValue(nfq)}
+                                    onChange={(value) => setQuestionValue(nfq, value)}
+                                    onTrackingChange={(value) => setQuestionTrackingValue(nfq, value)}
                                     isFollowUp={true}
                                   />
                                 </div>
@@ -205,12 +247,10 @@ export default function EditResponseFormPage() {
               <div className="flex-1 min-w-0">
                 <QuestionRenderer
                   question={q}
-                  value={answers[q.id ?? q._id]}
-                  trackingValue={answers[`${q.id ?? q._id}_tracking`]}
-                  onChange={(value) => setAnswers(prev => ({ ...prev, [q.id ?? q._id]: value }))}
-                  onTrackingChange={(value) =>
-                    setAnswers(prev => ({ ...prev, [`${q.id ?? q._id}_tracking`]: value }))
-                  }
+                  value={getQuestionValue(q)}
+                  trackingValue={getQuestionTrackingValue(q)}
+                  onChange={(value) => setQuestionValue(q, value)}
+                  onTrackingChange={(value) => setQuestionTrackingValue(q, value)}
                   isFollowUp={false}
                 />
               </div>
@@ -294,7 +334,7 @@ export default function EditResponseFormPage() {
           </div>
           <div className="mt-6 text-center">
             <button
-              onClick={() => navigate(responseId ? `/responses/${responseId}` : "/responses/all")}
+              onClick={handleGoBack}
               className="px-5 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700 transition-colors"
             >
               Back to Responses
@@ -354,12 +394,10 @@ export default function EditResponseFormPage() {
                   <div className="flex-1 min-w-0">
                     <QuestionRenderer
                       question={q}
-                      value={answers[qId]}
-                      trackingValue={answers[`${qId}_tracking`]}
-                      onChange={(value) => setAnswers(prev => ({ ...prev, [qId]: value }))}
-                      onTrackingChange={(value) =>
-                        setAnswers(prev => ({ ...prev, [`${qId}_tracking`]: value }))
-                      }
+                      value={getQuestionValue(q)}
+                      trackingValue={getQuestionTrackingValue(q)}
+                      onChange={(value) => setQuestionValue(q, value)}
+                      onTrackingChange={(value) => setQuestionTrackingValue(q, value)}
                       isFollowUp={false}
                     />
                   </div>
@@ -389,7 +427,7 @@ export default function EditResponseFormPage() {
           <div className="flex items-center space-x-4">
             <button
               type="button"
-              onClick={() => navigate(`/responses/${responseId}`)}
+              onClick={handleGoBack}
               className="inline-flex items-center justify-center p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-700 transition-colors"
               aria-label="Go back"
             >
@@ -407,7 +445,7 @@ export default function EditResponseFormPage() {
           <div className="hidden sm:flex items-center space-x-3">
             <button
               type="button"
-              onClick={() => navigate(`/responses/${responseId}`)}
+              onClick={handleGoBack}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700 transition-colors"
             >
               Cancel
@@ -542,7 +580,7 @@ export default function EditResponseFormPage() {
               <div className="sm:hidden mt-6 flex gap-3">
                 <button
                   type="button"
-                  onClick={() => navigate(`/responses/${responseId}`)}
+                  onClick={handleGoBack}
                   className="flex-1 px-4 py-3 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700 transition-colors"
                 >
                   Cancel

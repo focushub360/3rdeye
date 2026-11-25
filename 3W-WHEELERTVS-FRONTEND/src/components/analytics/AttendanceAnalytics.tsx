@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+how rt React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Users, 
-  Clock, 
-  Calendar, 
-  BarChart3, 
-  Search, 
-  Download, 
-  ChevronRight, 
+import {
+  Users,
+  Clock,
+  Calendar,
+  BarChart3,
+  Search,
+  Download,
+  ChevronRight,
   Loader2,
   CheckCircle,
   XCircle,
@@ -96,7 +96,7 @@ export default function AttendanceAnalytics() {
   };
 
   const filteredShifts = useMemo(() => {
-    return shifts.filter(shift => 
+    return shifts.filter(shift =>
       shift.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       shift.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -243,7 +243,7 @@ export default function AttendanceAnalytics() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {filteredShifts.map((shift) => (
-            <div 
+            <div
               key={shift._id}
               className="card flex flex-col overflow-hidden hover:border-primary-300 transition-all duration-300 shadow-sm hover:shadow-md"
             >
@@ -297,14 +297,14 @@ export default function AttendanceAnalytics() {
               </div>
 
               <div className="px-5 py-4 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-800 flex gap-2">
-                <button 
+                <button
                   onClick={() => navigate(`/hr-attendance?shiftId=${shift._id}&date=${selectedDate}`)}
                   className="flex-1 btn-secondary text-xs py-2 bg-white dark:bg-gray-900"
                 >
                   View Details
                   <ArrowRight size={14} className="ml-1" />
                 </button>
-                <button 
+                <button
                   onClick={() => handleExport(shift._id)}
                   className="btn-secondary px-3 py-2 bg-white dark:bg-gray-900"
                   title="Export Shift Report"

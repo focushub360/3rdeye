@@ -79,7 +79,7 @@ export default function AnswerTemplateImport({
     if (!isOpen) return;
     const fetchInspectors = async () => {
       try {
-        const res = await apiClient.getUsersHierarchy({ role: "Inspector" });
+        const res = await apiClient.getUsersHierarchy({ role: "Inspector", forImport: true });
         if (res && res.users) {
           setAllInspectors(res.users);
         }
@@ -186,13 +186,48 @@ export default function AnswerTemplateImport({
     followUpFileInputRefs.current = {};
   };
 
+  const getInspectorsForTargetForm = async (targetForm: Question | null) => {
+    if (!targetForm) return { inspectors: allInspectors, tenantName: "" };
+    const formId = targetForm.id || (targetForm as any)._id;
+    let formInspectors = allInspectors;
+    let formTenantName = (targetForm as any).tenantId?.name || (targetForm as any).tenantName || "";
+
+    try {
+      const res = await apiClient.getFormInspectors(formId);
+      if (res && res.inspectors && res.inspectors.length > 0) {
+        formInspectors = res.inspectors;
+      }
+      if (res && res.tenantName) {
+        formTenantName = res.tenantName;
+      } else if (res && res.tenant?.name) {
+        formTenantName = res.tenant.name;
+      }
+    } catch (err) {
+      console.warn("Could not fetch form-specific inspectors, scoping from allInspectors:", err);
+      const targetTenantId = String(
+        (targetForm as any).tenantId?._id || (targetForm as any).tenantId || ""
+      );
+      if (targetTenantId) {
+        const tenantScoped = allInspectors.filter((u) => {
+          const uTenantId = String(u.tenantId?._id || u.tenantId || "");
+          return uTenantId === targetTenantId;
+        });
+        if (tenantScoped.length > 0) {
+          formInspectors = tenantScoped;
+        }
+      }
+    }
+    return { inspectors: formInspectors, tenantName: formTenantName };
+  };
+
   const handleDownloadTemplate = async () => {
     if (!selectedForm) {
       showError("Please select a form first", "Error");
       return;
     }
     try {
-      await generateAnswerTemplate(selectedForm, allInspectors);
+      const { inspectors, tenantName } = await getInspectorsForTargetForm(selectedForm);
+      await generateAnswerTemplate(selectedForm, inspectors, tenantName);
       showSuccess("Template downloaded successfully", "Success");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to download template";
@@ -202,7 +237,8 @@ export default function AnswerTemplateImport({
 
   const handleDownloadFollowUpTemplate = async (childForm: Question) => {
     try {
-      await generateAnswerTemplate(childForm, allInspectors);
+      const { inspectors, tenantName } = await getInspectorsForTargetForm(childForm);
+      await generateAnswerTemplate(childForm, inspectors, tenantName);
       showSuccess(`Follow-up template for "${childForm.title}" downloaded`, "Success");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to download follow-up template";
@@ -290,7 +326,8 @@ export default function AnswerTemplateImport({
       return;
     }
     try {
-      await generateFollowUpAnswerTemplate(selectedForm2, allInspectors);
+      const { inspectors, tenantName } = await getInspectorsForTargetForm(selectedForm2);
+      await generateFollowUpAnswerTemplate(selectedForm2, inspectors, tenantName);
       showSuccess("Follow-up Template 2 downloaded successfully", "Success");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to download template";

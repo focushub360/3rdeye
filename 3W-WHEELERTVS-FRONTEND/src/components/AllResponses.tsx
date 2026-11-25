@@ -31,6 +31,7 @@ import {
   Mail,
   MessageCircle,
   MessageSquare,
+  Filter,
 } from "lucide-react";
 import { Bar, Line, Pie, Radar } from "react-chartjs-2";
 import {
@@ -53,6 +54,7 @@ import { formatTimestamp } from "../utils/dateUtils";
 import { useNotification } from "../context/NotificationContext";
 import { useLogo } from "../context/LogoContext";
 import { useTheme } from "../context/ThemeContext";
+import { useAuth } from "../context/AuthContext";
 import {
   generateResponseExcelReport,
   generateResponseExcelBlob,
@@ -179,6 +181,13 @@ export default function AllResponses() {
   const navigate = useNavigate();
   const { showSuccess, showError, showConfirm } = useNotification();
   const { logo } = useLogo();
+  const { user } = useAuth();
+
+  const isInspector = user?.role === "inspector" || user?.role === "user" || user?.role === "subadmin";
+  const canDelete = !isInspector && Boolean(
+    user?.role === "superadmin" ||
+    user?.role === "admin"
+  );
   const getSimpleString = (value: any): string => {
     if (value === null || value === undefined) return "";
     if (typeof value === "string") return value;
@@ -287,9 +296,12 @@ const allResponsesMemoryCache = {
     return cachedResponses.responses.map((response: any) => {
       const form = formsMapObj[response.questionId];
       const dName = extractDealerName(response, form);
+      const respId = response._id || response.id;
 
       return {
         ...response,
+        id: respId,
+        _id: respId,
         formTitle: form?.title || "Unknown Form",
         dealerName: dName,
       };
@@ -443,17 +455,29 @@ const allResponsesMemoryCache = {
   };
 
   const handleDeleteResponse = (response: Response & { formTitle: string }) => {
+    const responseId = (response as any)._id || response.id;
+    if (!responseId) {
+      showError("Unable to delete request: missing ID.");
+      return;
+    }
+
     showConfirm(
       "Are you sure you want to delete this request? This action cannot be undone.",
       async () => {
-        setDeletingResponseId(response.id);
+        setDeletingResponseId(responseId);
         try {
-          await apiClient.deleteResponse(response.id);
-          setResponses((prev) => prev.filter((r) => r.id !== response.id));
-          if (selectedResponse && selectedResponse.id === response.id) {
+          await apiClient.deleteResponse(responseId);
+          setResponses((prev) => prev.filter((r) => ((r as any)._id || r.id) !== responseId));
+          if (selectedResponse && ((selectedResponse as any)._id || selectedResponse.id) === responseId) {
             setSelectedResponse(null);
             setSelectedForm(null);
           }
+          if (allResponsesMemoryCache.responses) {
+            allResponsesMemoryCache.responses = allResponsesMemoryCache.responses.filter(
+              (r) => ((r as any)._id || r.id) !== responseId
+            );
+          }
+          apiClient.invalidateFormsCache();
           showSuccess("Request deleted successfully.");
         } catch (err) {
           console.error("Failed to delete response:", err);
@@ -469,8 +493,13 @@ const allResponsesMemoryCache = {
   };
 
   const handleEditResponse = (response: Response & { formTitle: string }) => {
+    const responseId = (response as any)._id || response.id;
+    if (!responseId) {
+      showError("Unable to edit request: missing ID.");
+      return;
+    }
     // Navigate to the dedicated edit page
-    navigate(`/responses/${response.id}/edit-form`);
+    navigate(`/responses/${responseId}/edit-form`);
   };
 
   const handleExportExcel = (
@@ -950,9 +979,12 @@ const allResponsesMemoryCache = {
         (response: Response) => {
           const form = formsMap[response.questionId];
           const dealerInfo = extractDealerName(response, form);
+          const respId = (response as any)._id || response.id;
 
           return {
             ...response,
+            id: respId,
+            _id: respId,
             formTitle: form?.title || "Unknown Form",
             yesNoScore: form
               ? computeYesNoScore(response.answers, form)
@@ -3704,14 +3736,16 @@ const allResponsesMemoryCache = {
                         >
                           <Edit2 className="w-5 h-5" />
                         </button>
-                        <button
-                          onClick={() => handleDeleteResponse(response)}
-                          disabled={deletingResponseId === response.id}
-                          className="p-2 text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Delete response"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDeleteResponse(response)}
+                            disabled={deletingResponseId === ((response as any)._id || response.id)}
+                            className="p-2 text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Delete response"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -3794,24 +3828,26 @@ const allResponsesMemoryCache = {
                 </button>
 
                 {/* Delete Button */}
-                <button
-                  onClick={() => {
-                    if (selectedResponse) {
-                      handleDeleteResponse(selectedResponse);
-                    }
-                  }}
-                  disabled={deletingResponseId === selectedResponse?.id}
-                  className="flex items-center px-3 py-1.5 text-xs font-semibold text-white rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
-                  style={{ backgroundColor: "#dc2626" }}
-                  title="Delete response"
-                >
-                  <Trash2 className="w-3 h-3 sm:mr-1.5" />
-                  <span className="hidden sm:inline">
-                    {deletingResponseId === selectedResponse?.id
-                      ? "..."
-                      : "Delete"}
-                  </span>
-                </button>
+                {canDelete && (
+                  <button
+                    onClick={() => {
+                      if (selectedResponse) {
+                        handleDeleteResponse(selectedResponse);
+                      }
+                    }}
+                    disabled={deletingResponseId === ((selectedResponse as any)?._id || selectedResponse?.id)}
+                    className="flex items-center px-3 py-1.5 text-xs font-semibold text-white rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
+                    style={{ backgroundColor: "#dc2626" }}
+                    title="Delete response"
+                  >
+                    <Trash2 className="w-3 h-3 sm:mr-1.5" />
+                    <span className="hidden sm:inline">
+                      {deletingResponseId === ((selectedResponse as any)?._id || selectedResponse?.id)
+                        ? "..."
+                        : "Delete"}
+                    </span>
+                  </button>
+                )}
 
                 {viewMode === "dashboard" ? (
                   <div className="flex items-center download-container">

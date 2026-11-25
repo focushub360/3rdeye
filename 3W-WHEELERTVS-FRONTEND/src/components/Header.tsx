@@ -171,12 +171,6 @@ export default function Header() {
     );
   }, [user, permissionSet]);
 
-  const canViewInternalTracking = user?.role === "superadmin" || ["admin", "tenant_admin", "subadmin"].includes(user?.role || "") && (
-    tenant?.internalTrackingEnabled === true &&
-    Array.isArray(tenant?.allowedTenantIds) &&
-    tenant.allowedTenantIds.length > 0
-  );
-
   const isGuest = React.useMemo(() => {
     const searchParams = new URLSearchParams(location.search);
     return (
@@ -295,17 +289,6 @@ export default function Header() {
       description: "View customer service requests",
       permission: MODULE_PERMISSIONS.CUSTOMER_REQUESTS,
     },
-    ...(canViewInternalTracking
-      ? [
-        {
-          title: "Internal Tracking",
-          icon: Eye,
-          path: "/internal-tracking",
-          description: "View cross-tenant performance data",
-          roles: ["admin", "tenant_admin", "subadmin"] as string[],
-        },
-      ]
-      : []),
     {
       title: "Attendance",
       icon: UserCheck,
