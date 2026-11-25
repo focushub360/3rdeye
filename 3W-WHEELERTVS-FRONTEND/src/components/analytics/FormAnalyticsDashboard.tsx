@@ -636,6 +636,23 @@ export default function FormAnalyticsDashboard({
             activeResponsesSource = inRange;
           }
         }
+
+        // Exclude active rework statuses (e.g. "Rework 1", "Rework 2", "Rework") from BIW template download,
+        // while keeping "Rework Accepted", "Direct Ok", "Accepted", and dispatched units
+        const nonReworkResponses = activeResponsesSource.filter((r: any) => {
+          if (!r) return false;
+          if (r.isDispatched) return true;
+          const computed = String(
+            responseStatuses?.[r._id || r.id] ||
+            computeFastRowStatus(r, chassisQuestionId) ||
+            r.status ||
+            ""
+          ).toLowerCase().trim();
+          return !(computed.includes("rework") && !computed.includes("accept"));
+        });
+        if (nonReworkResponses.length > 0) {
+          activeResponsesSource = nonReworkResponses;
+        }
       }
 
       // Detect chassis question ID directly from form template if available
@@ -902,21 +919,21 @@ export default function FormAnalyticsDashboard({
       let resolvedMainResponses = activeResponsesSource;
       let resolvedChildResponses: Record<string, any> = { ...(relatedFormData.childResponses || {}) };
 
+      const currentId = String(id || (form as any)?._id || (form as any)?.id || "");
+      const mainId = String((mainDoc as any)?._id || (mainDoc as any)?.id || "");
+      const childId = String((targetTenantDoc as any)?._id || (targetTenantDoc as any)?.id || "");
+
       if (isChild) {
         // activeResponsesSource holds the child (2nd) form's responses
         resolvedChildResponses = {
           ...resolvedChildResponses,
           ...indexResponsesByChassis(activeResponsesSource)
         };
-        const mainId = String((mainDoc as any)?._id || (mainDoc as any)?.id || "");
-        const currentId = String(id || (form as any)?._id || (form as any)?.id || "");
         if (mainId && mainId !== currentId) {
           try {
             const parentExport = await apiClient.getAllResponsesForExport(mainId, dateRangeParams);
-            const parentList = Array.isArray(parentExport) && parentExport.length > 0
-              ? parentExport
-              : await apiClient.getAllResponsesForExport(mainId, {}).catch(() => []);
-            if (Array.isArray(parentList) && parentList.length > 0) {
+            const parentList = Array.isArray(parentExport) ? parentExport : [];
+            if (parentList.length > 0) {
               const parentByCh = indexResponsesByChassis(parentList);
               // Keep all chassis from activeResponsesSource (the user's current form & date range),
               // enriched with parent form's BIW & 1st TVS review data
@@ -927,7 +944,6 @@ export default function FormAnalyticsDashboard({
                 if (parentMatch) {
                   return {
                     ...parentMatch,
-                    // Preserve child's date if parent date is older or missing
                     submittedAt: childR.submittedAt || parentMatch.submittedAt,
                     createdAt: childR.createdAt || parentMatch.createdAt,
                     childResponse: childR,
@@ -936,7 +952,6 @@ export default function FormAnalyticsDashboard({
                 }
                 return {
                   ...childR,
-                  // Map parentReview -> review so 1st TVS Review column shows parent review if available
                   review: childR.parentReview || childR.followUpStatus?.parentReview || null,
                   biwReview: childR.parentBiwReview || childR.biwReview || null,
                   childResponse: childR,
@@ -946,23 +961,17 @@ export default function FormAnalyticsDashboard({
             }
           } catch (_) { }
         }
-      } else if (targetTenantDoc) {
-        const childId = String((targetTenantDoc as any)?._id || (targetTenantDoc as any)?.id || "");
-        const currentId = String(id || (form as any)?._id || (form as any)?.id || "");
-        if (childId && childId !== currentId) {
-          try {
-            const childExport = await apiClient.getAllResponsesForExport(childId, dateRangeParams);
-            const childList = Array.isArray(childExport) && childExport.length > 0
-              ? childExport
-              : await apiClient.getAllResponsesForExport(childId, {}).catch(() => []);
-            if (Array.isArray(childList) && childList.length > 0) {
-              resolvedChildResponses = {
-                ...resolvedChildResponses,
-                ...indexResponsesByChassis(childList)
-              };
-            }
-          } catch (_) { }
-        }
+      } else if (targetTenantDoc && childId && childId !== currentId) {
+        try {
+          const childExport = await apiClient.getAllResponsesForExport(childId, dateRangeParams);
+          const childList = Array.isArray(childExport) ? childExport : [];
+          if (childList.length > 0) {
+            resolvedChildResponses = {
+              ...resolvedChildResponses,
+              ...indexResponsesByChassis(childList)
+            };
+          }
+        } catch (_) { }
       }
 
       await downloadBiwReviewTemplate({
