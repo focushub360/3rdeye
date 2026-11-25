@@ -5510,8 +5510,178 @@ export const getResponsesByForm = async (req, res) => {
         query['biwReview.status'] = 'Rejected';
       } else if (bs === 'rework' || bs === 'reworked') {
         query['biwReview.status'] = { $in: ['Reworked', 'Rework', 'reworked', 'rework'] };
+      } else if (bs === 'reviewed') {
+        query['biwReview.status'] = { $in: ['Accepted', 'Rejected', 'Reworked', 'Rework', 'accepted', 'rejected', 'reworked', 'rework'] };
       } else if (bs === 'pending' || bs === 'pending review' || bs === 'no review yet') {
         query['biwReview.status'] = { $in: [null, '', undefined, 'no review yet', 'pending review', 'pending', '-'] };
+      }
+    }
+
+    // Helper to resolve user names to User ObjectIds + name regexes for exact submitter/reviewer drill-down
+    const resolveUserFilter = async (rawParam) => {
+      const names = String(rawParam).split(',').map(s => s.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+      if (names.length === 0) return { names: [], regexes: [], userIds: [] };
+      const escapeRx = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regexes = names.map(n => new RegExp(`^${escapeRx(n)}$`, 'i'));
+      const lowerSet = new Set(names.map(n => n.toLowerCase()));
+      let userIds = [];
+      try {
+        const UserModel = mongoose.models.User || mongoose.model('User');
+        const allUsers = await UserModel.find({}).select('_id firstName lastName email username').lean();
+        userIds = allUsers
+          .filter(u => {
+            const full = `${u.firstName || ''} ${u.lastName || ''}`.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+            return (full && lowerSet.has(full)) || (u.email && lowerSet.has(u.email.toLowerCase())) || (u.username && lowerSet.has(u.username.toLowerCase()));
+          })
+          .map(u => u._id);
+      } catch (uErr) {
+        console.warn('[getResponsesByForm] User lookup warning:', uErr?.message);
+      }
+      return { names, regexes, userIds };
+    };
+
+    // Add Submitter / Inspector filter if provided (e.g. submittedBy=Vikram B)
+    const submittedByParam = req.query.submittedBy || req.query.inspector;
+    if (submittedByParam) {
+      const { regexes, userIds } = await resolveUserFilter(submittedByParam);
+      if (regexes.length > 0 || userIds.length > 0) {
+        const orConds = [];
+        if (regexes.length > 0) orConds.push({ submittedBy: { $in: regexes } });
+        if (userIds.length > 0) {
+          orConds.push({ userId: { $in: userIds } });
+          orConds.push({ userId: { $in: userIds.map(id => id.toString()) } });
+        }
+        if (!query.$and) query.$and = [];
+        query.$and.push({ $or: orConds });
+      }
+    }
+
+    // Add BIW Reviewer filter if provided (e.g. biwReviewedBy=Focus c)
+    const biwReviewedByParam = req.query.biwReviewedBy;
+    if (biwReviewedByParam) {
+      const { regexes, userIds } = await resolveUserFilter(biwReviewedByParam);
+      if (regexes.length > 0 || userIds.length > 0) {
+        const orConds = [];
+        if (regexes.length > 0) orConds.push({ 'biwReview.reviewedByName': { $in: regexes } });
+        if (userIds.length > 0) {
+          orConds.push({ 'biwReview.reviewedBy': { $in: userIds } });
+          orConds.push({ 'biwReview.reviewedBy': { $in: userIds.map(id => id.toString()) } });
+        }
+        if (!query.$and) query.$and = [];
+        query.$and.push({ $or: orConds });
+      }
+    }
+
+    // Add Combined Reviewer Section filter if provided (reviewedCombined=reviewed|pending|accepted|rejected|rework)
+    const reviewedCombinedParam = req.query.reviewedCombined;
+    if (reviewedCombinedParam) {
+      const rc = String(reviewedCombinedParam).toLowerCase().trim();
+      const biwVals = ['Accepted', 'Rejected', 'Reworked', 'Rework', 'accepted', 'rejected', 'reworked', 'rework'];
+      const tvsVals = ['Accepted', 'Rejected', 'Rework', 'Reworked'];
+      if (rc === 'reviewed') {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $or: [
+            { 'biwReview.status': { $in: biwVals } },
+            { 'review.status': { $in: tvsVals } },
+            { 'review.reviewOption': { $in: tvsVals } }
+          ]
+        });
+      } else if (rc === 'accepted') {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $or: [
+            { 'biwReview.status': { $in: ['Accepted', 'accepted'] } },
+            { 'review.status': 'Accepted' },
+            { 'review.reviewOption': 'Accepted' }
+          ]
+        });
+      } else if (rc === 'rejected') {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $or: [
+            { 'biwReview.status': { $in: ['Rejected', 'rejected'] } },
+            { 'review.status': 'Rejected' },
+            { 'review.reviewOption': 'Rejected' }
+          ]
+        });
+      } else if (rc === 'rework') {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $or: [
+            { 'biwReview.status': { $in: ['Reworked', 'Rework', 'reworked', 'rework'] } },
+            { 'review.status': { $in: ['Rework', 'Reworked'] } },
+            { 'review.reviewOption': { $in: ['Rework', 'Reworked'] } }
+          ]
+        });
+      } else if (rc === 'pending') {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $and: [
+            { 'biwReview.status': { $nin: biwVals } },
+            { 'review.status': { $nin: tvsVals } },
+            { 'review.reviewOption': { $nin: tvsVals } }
+          ]
+        });
+      }
+    }
+
+    // Add Inspection Status filter if provided (status=accepted|direct ok|rework|rejected)
+    const statusFilterParam = req.query.status;
+    if (statusFilterParam && String(statusFilterParam).toLowerCase() !== 'all') {
+      const sf = String(statusFilterParam).toLowerCase().trim();
+      const answersStatusMatch = (regexPattern) => ({
+        $expr: {
+          $anyElementTrue: {
+            $map: {
+              input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+              as: 'ans',
+              in: {
+                $regexMatch: {
+                  input: {
+                    $toLower: {
+                      $ifNull: [
+                        '$$ans.v.status',
+                        { $cond: [{ $eq: [{ $type: '$$ans.v' }, 'string'] }, '$$ans.v', ''] }
+                      ]
+                    }
+                  },
+                  regex: regexPattern
+                }
+              }
+            }
+          }
+        }
+      });
+      if (sf === 'rejected') {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $or: [
+            { status: { $regex: 'reject', $options: 'i' } },
+            answersStatusMatch('^(rejected|no|fail)$')
+          ]
+        });
+      } else if (sf.includes('rework') && !sf.includes('accepted') && !sf.includes('completed')) {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $and: [
+            {
+              $or: [
+                { status: { $regex: 'rework', $options: 'i' } },
+                answersStatusMatch('^(rework|reworked|defect|not ok)$|re-rework')
+              ]
+            },
+            { status: { $not: { $regex: 'reject', $options: 'i' } } }
+          ]
+        });
+      } else if (sf === 'accepted' || sf === 'direct ok' || sf === 'rework accepted' || sf === 'rework completed') {
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          $and: [
+            { status: { $not: { $regex: 'rework|reject|fail', $options: 'i' } } },
+            { $not: answersStatusMatch('^(rework|reworked|defect|not ok|rejected|no|fail)$|re-rework') }
+          ]
+        });
       }
     }
 
@@ -7649,6 +7819,15 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
             activeResp.status = 'Rejected';
           } else if (biwStatus === 'Reworked' && activeResp.status !== 'Rejected') {
             activeResp.status = 'Rework 1';
+          } else if (biwStatus === 'Accepted') {
+            const wasRework = Boolean(activeResp.status && String(activeResp.status).toLowerCase().includes('rework')) ||
+              rawBiwFeedback.includes('rework') ||
+              Boolean(activeResp.biwReview && String(activeResp.biwReview.status).toLowerCase().includes('rework'));
+            if (wasRework) {
+              activeResp.status = 'Rework Accepted';
+            } else if (activeResp.status !== 'Direct Ok') {
+              activeResp.status = 'Accepted';
+            }
           }
           rowUpdated = true;
         }
@@ -7741,6 +7920,15 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
             targetMainResp.status = 'Rejected';
           } else if (tvsStatus === 'Rework' && targetMainResp.status !== 'Rejected') {
             targetMainResp.status = 'Rework 1';
+          } else if (tvsStatus === 'Accepted') {
+            const wasRework = Boolean(targetMainResp.status && String(targetMainResp.status).toLowerCase().includes('rework')) ||
+              rawTvsFeedback.includes('rework') ||
+              Boolean(targetMainResp.review && String(targetMainResp.review.reviewOption || targetMainResp.review.status).toLowerCase().includes('rework'));
+            if (wasRework) {
+              targetMainResp.status = 'Rework Accepted';
+            } else if (targetMainResp.status !== 'Direct Ok') {
+              targetMainResp.status = 'Accepted';
+            }
           }
 
           // Insert ChatMessage for discussion center
@@ -7818,6 +8006,15 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
             targetChildResp.status = 'Rejected';
           } else if (targetTvsStatus === 'Rework' && targetChildResp.status !== 'Rejected') {
             targetChildResp.status = 'Rework 1';
+          } else if (targetTvsStatus === 'Accepted') {
+            const wasRework = Boolean(targetChildResp.status && String(targetChildResp.status).toLowerCase().includes('rework')) ||
+              rawTargetTvsFeedback.includes('rework') ||
+              Boolean(targetChildResp.review && String(targetChildResp.review.reviewOption || targetChildResp.review.status).toLowerCase().includes('rework'));
+            if (wasRework) {
+              targetChildResp.status = 'Rework Accepted';
+            } else if (targetChildResp.status !== 'Direct Ok') {
+              targetChildResp.status = 'Accepted';
+            }
           }
 
           // Insert ChatMessage for discussion center

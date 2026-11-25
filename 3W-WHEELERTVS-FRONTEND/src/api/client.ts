@@ -1263,6 +1263,9 @@ class ApiClient {
       dispatch?: string;
       tvsStatus?: string;
       biwStatus?: string;
+      submittedBy?: string;
+      biwReviewedBy?: string;
+      reviewedCombined?: string;
       units?: string;
       identificationNumber?: string;
       chassisNumber?: string;
@@ -1281,6 +1284,9 @@ class ApiClient {
     if (options?.dispatch) query.set("dispatch", options.dispatch);
     if (options?.tvsStatus) query.set("tvsStatus", options.tvsStatus);
     if (options?.biwStatus) query.set("biwStatus", options.biwStatus);
+    if (options?.submittedBy) query.set("submittedBy", options.submittedBy);
+    if (options?.biwReviewedBy) query.set("biwReviewedBy", options.biwReviewedBy);
+    if (options?.reviewedCombined) query.set("reviewedCombined", options.reviewedCombined);
     if (options?.startDate) query.set("startDate", options.startDate);
     if (options?.endDate) query.set("endDate", options.endDate);
     if (options?.units) query.set("units", options.units);
@@ -1645,6 +1651,8 @@ class ApiClient {
     tenantId?: string;
     page?: number;
     limit?: number;
+    bypassCache?: boolean;
+    forceNetwork?: boolean;
   }) {
     let url = "/analytics/performance-table";
     if (params) {
@@ -1658,6 +1666,10 @@ class ApiClient {
         searchParams.append("formId", params.formId);
       }
       if (params.tenantId) searchParams.append("tenantId", params.tenantId);
+      if (params.bypassCache || params.forceNetwork) {
+        searchParams.append("bypassCache", "true");
+        searchParams.append("forceNetwork", "true");
+      }
       searchParams.append("page", String(params.page || 1));
       searchParams.append("limit", String(params.limit || 50));
       const query = searchParams.toString();
@@ -3742,6 +3754,11 @@ class ApiClient {
       batchId?: string;
       uploadOnly?: boolean;
       dispatch?: string;
+      tvsStatus?: string;
+      biwStatus?: string;
+      submittedBy?: string;
+      biwReviewedBy?: string;
+      reviewedCombined?: string;
       units?: string;
       identificationNumber?: string;
       chassisNumber?: string;
@@ -3782,6 +3799,9 @@ class ApiClient {
       dispatch: options?.dispatch,
       tvsStatus: options?.tvsStatus,
       biwStatus: options?.biwStatus,
+      submittedBy: options?.submittedBy,
+      biwReviewedBy: options?.biwReviewedBy,
+      reviewedCombined: options?.reviewedCombined,
       units: options?.units,
       identificationNumber: options?.identificationNumber,
       chassisNumber: options?.chassisNumber,
@@ -3804,8 +3824,8 @@ class ApiClient {
     });
 
     if (totalPages > 1) {
-      // Fetch remaining pages in small parallel batches of 2 for smooth sub-second streaming
-      const batchSize = 2;
+      // Fetch remaining pages in small parallel batches of 2 for smooth UI streaming, or larger batches (6) for fast exports
+      const batchSize = options?.onPage ? 2 : 6;
       const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
 
       for (let i = 0; i < remainingPages.length; i += batchSize) {
@@ -3826,6 +3846,9 @@ class ApiClient {
               dispatch: options?.dispatch,
               tvsStatus: options?.tvsStatus,
               biwStatus: options?.biwStatus,
+              submittedBy: options?.submittedBy,
+              biwReviewedBy: options?.biwReviewedBy,
+              reviewedCombined: options?.reviewedCombined,
             }).then((res) => ({ pageNumber: p, responses: res.responses || [] }))
           )
         );
@@ -3860,6 +3883,9 @@ class ApiClient {
                 dispatch: options?.dispatch,
                 tvsStatus: options?.tvsStatus,
                 biwStatus: options?.biwStatus,
+                submittedBy: options?.submittedBy,
+                biwReviewedBy: options?.biwReviewedBy,
+                reviewedCombined: options?.reviewedCombined,
               });
               const retryResponses = retryRes.responses || [];
               allResponses = allResponses.concat(retryResponses);

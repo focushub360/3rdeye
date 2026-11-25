@@ -565,6 +565,8 @@ export default function FormAnalyticsDashboard({
           ? selectedResponseIds
           : selectedBiwIds || [];
 
+      let preloadedRelatedExport: any[] | null = null;
+
       if (hasExplicitSelection) {
         // User specifically selected response checkboxes -> only include selected rows
         activeResponsesSource = (filteredResponses || responses || tableResponses || []).filter((r: any) =>
@@ -579,23 +581,65 @@ export default function FormAnalyticsDashboard({
         }
 
         const expectedTotal = totalResponsesCount || 0;
+
+        const isChildCheck = Boolean(
+          (form as any)?.isFollowUpForm ||
+          (form as any)?.parentFormId ||
+          form?.parentForm ||
+          relatedFormData.parentForm
+        );
+        const resolvedMainCheck = isChildCheck ? (form?.parentForm || relatedFormData.parentForm || form) : form;
+        const firstChildCandidate = (form?.childForms && form.childForms.length > 0)
+          ? form.childForms[0]
+          : (relatedFormData.childForms?.[0] || null);
+        const resolvedChildCheck = isChildCheck ? form : firstChildCandidate;
+        const resolvedMainIdCheck = String((resolvedMainCheck as any)?._id || (resolvedMainCheck as any)?.id || "");
+        const resolvedChildIdCheck = String(
+          (resolvedChildCheck as any)?.formId ||
+          (resolvedChildCheck as any)?._id ||
+          (resolvedChildCheck as any)?.id ||
+          ""
+        );
+
+        // Concurrently fetch parent or child export with a timeout so we don't wait or hang
+        let relatedExportPromise: Promise<any[]> | null = null;
+        if (isChildCheck && resolvedMainIdCheck && resolvedMainIdCheck !== targetFormId) {
+          relatedExportPromise = Promise.race([
+            apiClient.getAllResponsesForExport(resolvedMainIdCheck, exportParams),
+            new Promise<any[]>((r) => setTimeout(() => r([]), 8000))
+          ]).catch(() => []);
+        } else if (resolvedChildCheck && resolvedChildIdCheck && resolvedChildIdCheck !== targetFormId) {
+          relatedExportPromise = Promise.race([
+            apiClient.getAllResponsesForExport(resolvedChildIdCheck, exportParams),
+            new Promise<any[]>((r) => setTimeout(() => r([]), 8000))
+          ]).catch(() => []);
+        }
+
+        // If in-memory responses are already available, use them immediately for instant download
         const hasFullInMemory =
-          responses &&
-          responses.length > 20 &&
-          (expectedTotal === 0 || responses.length >= expectedTotal);
+          (responses && responses.length > 0 && !analyticsResponsesLoading) ||
+          (filteredResponses && filteredResponses.length > 0 && !analyticsResponsesLoading) ||
+          (responses && responses.length >= expectedTotal && expectedTotal > 0);
 
         if (hasFullInMemory) {
-          activeResponsesSource = responses;
+          activeResponsesSource = responses && responses.length > 0 ? responses : filteredResponses;
+          if (relatedExportPromise) {
+            try {
+              preloadedRelatedExport = await relatedExportPromise;
+            } catch (_) {}
+          }
         } else if (targetFormId) {
           try {
-            const exportData = await apiClient.getAllResponsesForExport(targetFormId, exportParams);
+            const [exportData, relatedData] = await Promise.all([
+              Promise.race([
+                apiClient.getAllResponsesForExport(targetFormId, exportParams),
+                new Promise<any[]>((r) => setTimeout(() => r([]), 10000))
+              ]),
+              relatedExportPromise ? relatedExportPromise : Promise.resolve([])
+            ]);
+            preloadedRelatedExport = relatedData;
             if (exportData && exportData.length > 0) {
               activeResponsesSource = exportData;
-            } else {
-              const allExport = await apiClient.getAllResponsesForExport(targetFormId, {});
-              if (allExport && allExport.length > 0) {
-                activeResponsesSource = allExport;
-              }
             }
           } catch (e) {
             console.warn("[handleDownloadBiwTemplate] Error fetching responses:", e);
@@ -931,7 +975,9 @@ export default function FormAnalyticsDashboard({
         };
         if (mainId && mainId !== currentId) {
           try {
-            const parentExport = await apiClient.getAllResponsesForExport(mainId, dateRangeParams);
+            const parentExport = (preloadedRelatedExport && preloadedRelatedExport.length > 0)
+              ? preloadedRelatedExport
+              : await apiClient.getAllResponsesForExport(mainId, dateRangeParams);
             const parentList = Array.isArray(parentExport) ? parentExport : [];
             if (parentList.length > 0) {
               const parentByCh = indexResponsesByChassis(parentList);
@@ -963,7 +1009,12 @@ export default function FormAnalyticsDashboard({
         }
       } else if (targetTenantDoc && childId && childId !== currentId) {
         try {
-          const childExport = await apiClient.getAllResponsesForExport(childId, dateRangeParams);
+          const childExport = (preloadedRelatedExport && preloadedRelatedExport.length > 0)
+            ? preloadedRelatedExport
+            : await Promise.race([
+                apiClient.getAllResponsesForExport(childId, dateRangeParams),
+                new Promise<any[]>((r) => setTimeout(() => r([]), 8000))
+              ]);
           const childList = Array.isArray(childExport) ? childExport : [];
           if (childList.length > 0) {
             resolvedChildResponses = {
@@ -973,6 +1024,8 @@ export default function FormAnalyticsDashboard({
           }
         } catch (_) { }
       }
+
+      showToast("Generating BIW Excel file...", "info");
 
       await downloadBiwReviewTemplate({
         form: mainDoc,
@@ -987,7 +1040,7 @@ export default function FormAnalyticsDashboard({
         childResponses: resolvedChildResponses,
         filename: `BIW Review Template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
       });
-      showToast("BIW Review template downloaded (with cloned TVS review columns for target tenant)!", "success");
+      showToast("BIW Review template downloaded successfully!", "success");
     } catch (err: any) {
       console.error("[handleDownloadBiwTemplate] Error:", err);
       showToast(`Failed to generate template: ${err.message || err}`, "error");
@@ -2085,6 +2138,7 @@ export default function FormAnalyticsDashboard({
           if (bs === "accepted") target = ["Accepted"];
           else if (bs === "rework" || bs === "reworked") target = ["Reworked"];
           else if (bs === "rejected") target = ["Rejected"];
+          else if (bs === "reviewed") target = ["Accepted", "Reworked", "Rejected"];
           else if (bs === "pending" || bs === "pending review" || bs === "no review yet") target = ["No review yet"];
           if (target && JSON.stringify(next.__biwReview) !== JSON.stringify(target)) {
             next.__biwReview = target;
@@ -2099,7 +2153,8 @@ export default function FormAnalyticsDashboard({
         if (statusParam) {
           const spLower = statusParam.toLowerCase().trim();
           let target: string[] | null = null;
-          if (spLower === "direct ok") target = ["Direct Ok"];
+          if (spLower === "accepted") target = ["Direct Ok", "Rework Accepted"];
+          else if (spLower === "direct ok") target = ["Direct Ok"];
           else if (spLower === "rework accepted" || spLower === "rework completed") target = ["Rework Accepted"];
           else if (spLower.includes("rework")) target = ["Rework"];
           else if (spLower === "rejected") target = ["Rejected"];
@@ -2226,6 +2281,16 @@ export default function FormAnalyticsDashboard({
     startDate: string;
     endDate: string;
   }>(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const uStart = sp.get("startDate") || sp.get("rangeStart");
+    const uEnd = sp.get("endDate") || sp.get("rangeEnd");
+    if (uStart || uEnd) {
+      return {
+        type: "range",
+        startDate: uStart || "",
+        endDate: uEnd || "",
+      };
+    }
     const d30 = getLast30DaysRange();
     return {
       type: "range",
@@ -3613,6 +3678,11 @@ export default function FormAnalyticsDashboard({
       const currentTvsStatus = searchParams.get("tvsStatus");
       const currentBiwStatus = searchParams.get("biwStatus");
       const currentStatus = searchParams.get("status");
+      const currentSubmittedBy = searchParams.get("submittedBy");
+      const currentBiwReviewedBy = searchParams.get("biwReviewedBy");
+      const currentReviewedCombined = searchParams.get("reviewedCombined");
+      const currentStartDate = searchParams.get("startDate");
+      const currentEndDate = searchParams.get("endDate");
       const responsesData = await apiClient.getAllFormResponses(id, {
         analytics: true,
         forceNetwork: true,
@@ -3622,6 +3692,11 @@ export default function FormAnalyticsDashboard({
         ...(currentTvsStatus ? { tvsStatus: currentTvsStatus } : {}),
         ...(currentBiwStatus ? { biwStatus: currentBiwStatus } : {}),
         ...(currentStatus ? { status: currentStatus } : {}),
+        ...(currentSubmittedBy ? { submittedBy: currentSubmittedBy } : {}),
+        ...(currentBiwReviewedBy ? { biwReviewedBy: currentBiwReviewedBy } : {}),
+        ...(currentReviewedCombined ? { reviewedCombined: currentReviewedCombined } : {}),
+        ...(currentStartDate ? { startDate: currentStartDate } : {}),
+        ...(currentEndDate ? { endDate: currentEndDate } : {}),
         onPage: ({ responses: pageResponses, pageNumber, totalPages, totalResponses, isLast }: {
           responses: any[];
           pageNumber: number;
@@ -3668,6 +3743,11 @@ export default function FormAnalyticsDashboard({
       const currentTvsStatus = searchParams.get("tvsStatus");
       const currentBiwStatus = searchParams.get("biwStatus");
       const currentStatus = searchParams.get("status");
+      const currentSubmittedBy = searchParams.get("submittedBy");
+      const currentBiwReviewedBy = searchParams.get("biwReviewedBy");
+      const currentReviewedCombined = searchParams.get("reviewedCombined");
+      const currentStartDate = searchParams.get("startDate");
+      const currentEndDate = searchParams.get("endDate");
       const data = await apiClient.getFormResponses(id, {
         page: page,
         limit: responsesPageSize,
@@ -3679,6 +3759,11 @@ export default function FormAnalyticsDashboard({
         ...(currentTvsStatus ? { tvsStatus: currentTvsStatus } : {}),
         ...(currentBiwStatus ? { biwStatus: currentBiwStatus } : {}),
         ...(currentStatus ? { status: currentStatus } : {}),
+        ...(currentSubmittedBy ? { submittedBy: currentSubmittedBy } : {}),
+        ...(currentBiwReviewedBy ? { biwReviewedBy: currentBiwReviewedBy } : {}),
+        ...(currentReviewedCombined ? { reviewedCombined: currentReviewedCombined } : {}),
+        ...(currentStartDate ? { startDate: currentStartDate } : {}),
+        ...(currentEndDate ? { endDate: currentEndDate } : {}),
       });
       setTableResponses(data.responses || []);
       setTotalResponsesCount(data.pagination?.totalResponses || 0);
@@ -3897,6 +3982,15 @@ export default function FormAnalyticsDashboard({
   const urlIdentification = searchParams.get("identification") || searchParams.get("identificationNumber");
   const urlChassis = searchParams.get("chassis") || searchParams.get("chassisNumber");
   const urlDispatch = searchParams.get("dispatch") || searchParams.get("dispatchStatus");
+  const urlSubmittedBy = searchParams.get("submittedBy");
+  const urlBiwReviewedBy = searchParams.get("biwReviewedBy");
+  const urlReviewedCombined = searchParams.get("reviewedCombined");
+  const urlBiwStatus = searchParams.get("biwStatus");
+  const urlTvsStatus = searchParams.get("tvsStatus");
+  const urlStatus = searchParams.get("status");
+  const urlStartDate = searchParams.get("startDate");
+  const urlEndDate = searchParams.get("endDate");
+  const urlMetricLabel = searchParams.get("metricLabel");
 
   const targetUnitsSet = useMemo(() => {
     const set = new Set<string>();
@@ -3921,7 +4015,8 @@ export default function FormAnalyticsDashboard({
 
   useEffect(() => {
     const unitsKey = `${urlUnitsParam || ""}_${urlRangeStart || ""}_${urlRangeEnd || ""}_${urlIdentification || ""}_${urlChassis || ""}`;
-    const batchKey = `${urlBatchId || ""}_${urlUploadOnly || ""}_${urlDispatch || ""}_${unitsKey}`;
+    const drillKey = `${urlSubmittedBy || ""}_${urlBiwReviewedBy || ""}_${urlReviewedCombined || ""}_${urlBiwStatus || ""}_${urlTvsStatus || ""}_${urlStatus || ""}_${urlStartDate || ""}_${urlEndDate || ""}`;
+    const batchKey = `${urlBatchId || ""}_${urlUploadOnly || ""}_${urlDispatch || ""}_${unitsKey}_${drillKey}`;
     if (activeTab === "responses" && id) {
       if (!loadedTabs.has("responses") || lastBatchParamRef.current !== batchKey) {
         lastBatchParamRef.current = batchKey;
@@ -3932,7 +4027,7 @@ export default function FormAnalyticsDashboard({
         setLoadedTabs((prev) => new Set(prev).add("responses"));
       }
     }
-  }, [activeTab, id, loadedTabs, urlBatchId, urlUploadOnly, urlDispatch, urlUnitsParam, urlRangeStart, urlRangeEnd, urlIdentification, urlChassis]);
+  }, [activeTab, id, loadedTabs, urlBatchId, urlUploadOnly, urlDispatch, urlUnitsParam, urlRangeStart, urlRangeEnd, urlIdentification, urlChassis, urlSubmittedBy, urlBiwReviewedBy, urlReviewedCombined, urlBiwStatus, urlTvsStatus, urlStatus, urlStartDate, urlEndDate]);
 
   // Page / page-size changes on an already-loaded Responses tab re-fetch
   // from the server instead of re-slicing an in-memory array.
@@ -8902,6 +8997,47 @@ export default function FormAnalyticsDashboard({
                       navigate(`/forms/${id}/analytics?${nextParams.toString()}`);
                     }}
                     className="shrink-0 px-3 py-1.5 text-xs font-semibold bg-white dark:bg-gray-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 rounded-lg shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer self-start sm:self-center"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Show All Form Responses</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Active Performance Table Drill-Down Banner */}
+              {(urlSubmittedBy || urlBiwReviewedBy || urlReviewedCombined || urlMetricLabel) && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-emerald-900 dark:text-emerald-200 shadow-sm animate-fadeIn">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-xl">📊</span>
+                    <div>
+                      <p className="text-xs sm:text-sm font-bold flex flex-wrap items-center gap-2">
+                        <span>Filtered from Performance Table:</span>
+                        {urlMetricLabel && (
+                          <span className="text-[11px] bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-800 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-700">
+                            {urlMetricLabel}
+                          </span>
+                        )}
+                        {(urlSubmittedBy || urlBiwReviewedBy) && (
+                          <span className="font-mono text-[11px] bg-white dark:bg-gray-800 px-2 py-0.5 rounded text-emerald-800 dark:text-emerald-300 font-semibold border border-emerald-200 dark:border-emerald-700">
+                            {urlBiwReviewedBy ? `BIW Reviewer: ${urlBiwReviewedBy}` : `Inspector: ${urlSubmittedBy}`}
+                          </span>
+                        )}
+                        <span className="text-xs text-emerald-700 dark:text-emerald-300 font-bold">
+                          ({totalResponsesCount} exact matching records)
+                        </span>
+                      </p>
+                      <p className="text-[11px] text-emerald-600 dark:text-emerald-400">
+                        Showing only responses contributing to this exact count{urlStartDate || urlEndDate ? ` (${urlStartDate || "..."} to ${urlEndDate || "..."})` : ""}.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const nextParams = new URLSearchParams(searchParams);
+                      ["submittedBy", "biwReviewedBy", "reviewedCombined", "biwStatus", "tvsStatus", "status", "dispatch", "startDate", "endDate", "metricLabel"].forEach((k) => nextParams.delete(k));
+                      navigate(`/forms/${id}/analytics?${nextParams.toString()}`);
+                    }}
+                    className="shrink-0 px-3 py-1.5 text-xs font-semibold bg-white dark:bg-gray-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 rounded-lg shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer self-start sm:self-center"
                   >
                     <X className="w-3.5 h-3.5" />
                     <span>Show All Form Responses</span>

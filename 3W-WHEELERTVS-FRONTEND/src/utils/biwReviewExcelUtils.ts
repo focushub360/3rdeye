@@ -844,7 +844,9 @@ export async function downloadBiwReviewTemplate(options: {
       "";
 
     let biwStatus = "";
-    if (matchedResp?.biwReview?.status) {
+    if (matchedResp?.status === "Rework Accepted" || matchedResp?.status === "Rework Completed") {
+      biwStatus = "Accepted";
+    } else if (matchedResp?.biwReview?.status) {
       const st = String(matchedResp.biwReview.status).toLowerCase();
       if (st.includes("accept")) biwStatus = "Accepted";
       else if (st.includes("reject")) biwStatus = "Rejected";
@@ -861,7 +863,9 @@ export async function downloadBiwReviewTemplate(options: {
     const tvsRev = matchedResp?.review || null;
     let tvsStatus = "";
     const rawTvsOpt = tvsRev?.reviewOption || tvsRev?.status || "";
-    if (rawTvsOpt) {
+    if (matchedResp?.status === "Rework Accepted" || matchedResp?.status === "Rework Completed") {
+      tvsStatus = rawTvsOpt && String(rawTvsOpt).toLowerCase().includes("reject") ? "Rejected" : "Accepted";
+    } else if (rawTvsOpt) {
       const st = String(rawTvsOpt).toLowerCase();
       if (st.includes("accept")) tvsStatus = "Accepted";
       else if (st.includes("reject")) tvsStatus = "Rejected";
@@ -1143,7 +1147,9 @@ export async function downloadBiwReviewTemplate(options: {
   // 5. Generate final Blob with dataValidations and trigger browser download
   const finalBlob = await zip.generateAsync({
     type: "blob",
-    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    compression: "DEFLATE",
+    compressionOptions: { level: 2 }
   });
 
   const url = URL.createObjectURL(finalBlob);
@@ -1152,8 +1158,12 @@ export async function downloadBiwReviewTemplate(options: {
   a.download = actualFilename;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(() => {
+    try {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (_) {}
+  }, 10000);
 }
 
 /**

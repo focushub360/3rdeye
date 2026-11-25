@@ -346,13 +346,17 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
 
     distinctResponses.forEach((r) => {
       const biwStatus = (r?.biwReview?.status || "").toLowerCase().trim();
-      if (biwStatus.includes("accept")) biwAccepted++;
-      else if (biwStatus.includes("rework") || biwStatus.includes("reworked")) biwRework++;
+      const isBiwAccept = biwStatus.includes("accept");
+      const isBiwRework = (biwStatus.includes("rework") || biwStatus.includes("reworked")) && !isBiwAccept;
+      if (isBiwAccept) biwAccepted++;
+      else if (isBiwRework) biwRework++;
       else if (biwStatus.includes("reject")) biwRejected++;
 
       const tvsOpt = (r?.review?.reviewOption || r?.review?.status || "").toLowerCase().trim();
-      if (tvsOpt.includes("accept")) tvsAccepted++;
-      else if (tvsOpt.includes("rework") || tvsOpt.includes("defect") || tvsOpt.includes("reworked")) tvsRework++;
+      const isTvsAccept = tvsOpt.includes("accept");
+      const isTvsRework = (tvsOpt.includes("rework") || tvsOpt.includes("defect") || tvsOpt.includes("reworked")) && !isTvsAccept;
+      if (isTvsAccept) tvsAccepted++;
+      else if (isTvsRework) tvsRework++;
       else if (tvsOpt.includes("reject")) tvsRejected++;
     });
 
@@ -479,8 +483,17 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
       const isNewlyEnteredOrModified = isBrandNew || isModified;
 
       // Defect impact:
-      const allFeedbackStr = `${biwFb} ${tvsFb} ${targetTvsFb}`.toLowerCase();
-      const isDefect = allFeedbackStr.includes("rework") || allFeedbackStr.includes("reject") || Boolean(biwRea || tvsRea || targetTvsRea);
+      const biwFbLower = biwFb.toLowerCase();
+      const tvsFbLower = tvsFb.toLowerCase();
+      const targetTvsFbLower = targetTvsFb.toLowerCase();
+      const allFeedbackStr = `${biwFbLower} ${tvsFbLower} ${targetTvsFbLower}`;
+
+      const hasActiveRework =
+        (biwFbLower.includes("rework") && !biwFbLower.includes("accept")) ||
+        (tvsFbLower.includes("rework") && !tvsFbLower.includes("accept")) ||
+        (targetTvsFbLower.includes("rework") && !targetTvsFbLower.includes("accept"));
+
+      const isDefect = hasActiveRework || allFeedbackStr.includes("reject") || Boolean(biwRea || tvsRea || targetTvsRea);
       const isAccepted = !isDefect && allFeedbackStr.includes("accept");
 
       return {
@@ -592,7 +605,8 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
 
       if (biwStatus.includes("accept")) {
         if (!prevBiw.includes("accept")) biwNewAccepted++;
-      } else if (biwStatus.includes("rework")) {
+        if (prevBiw.includes("rework")) biwNewRework--;
+      } else if (biwStatus.includes("rework") && !biwStatus.includes("accept")) {
         if (!prevBiw.includes("rework")) biwNewRework++;
       } else if (biwStatus.includes("reject")) {
         if (!prevBiw.includes("reject")) biwNewRejected++;
@@ -604,7 +618,8 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
 
       if (tvsStatus.includes("accept")) {
         if (!prevTvs.includes("accept")) tvsNewAccepted++;
-      } else if (tvsStatus.includes("rework") || tvsStatus.includes("defect")) {
+        if (prevTvs.includes("rework") || prevTvs.includes("defect")) tvsNewRework--;
+      } else if ((tvsStatus.includes("rework") || tvsStatus.includes("defect")) && !tvsStatus.includes("accept")) {
         if (!prevTvs.includes("rework") && !prevTvs.includes("defect")) tvsNewRework++;
       } else if (tvsStatus.includes("reject")) {
         if (!prevTvs.includes("reject")) tvsNewRejected++;
@@ -1273,62 +1288,6 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                     </div>
                   </div>
 
-                  {/* MISMATCH NEGOTIATION BANNER (IF MISMATCHES EXIST) */}
-                  {mismatchedRows.length > 0 && (
-                    <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300">
-                          <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-                        </div>
-                        <div>
-                          <div className="font-bold text-sm text-amber-900 dark:text-amber-200">
-                            Negotiate Mismatch Data: {mismatchedRows.length} Chassis units not found in this inspection form
-                          </div>
-                          <p className="text-amber-800 dark:text-amber-300/90 text-xs">
-                            Choose how to handle chassis in Excel that do not belong to the current template:
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSkipMismatches(true);
-                            setIsConfirmed(false);
-                          }}
-                          className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 text-xs ${skipMismatches
-                            ? "bg-amber-600 text-white shadow-xs"
-                            : "bg-white dark:bg-gray-800 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
-                            }`}
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          Skip Mismatches ({mismatchedRows.length}) [Recommended]
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSkipMismatches(false);
-                            setIsConfirmed(false);
-                          }}
-                          className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 text-xs ${!skipMismatches
-                            ? "bg-amber-700 text-white shadow-xs"
-                            : "bg-white dark:bg-gray-800 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
-                            }`}
-                        >
-                          Include Mismatches
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setFilterMode("mismatch")}
-                          className="px-2.5 py-1.5 rounded-lg font-semibold text-xs text-amber-700 dark:text-amber-300 hover:underline"
-                        >
-                          View Mismatches ↗
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
                   {/* FILTER CONTROLS & CONFIRMATION BAR */}
                   <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                     {/* View mode toggle pills */}
@@ -1501,7 +1460,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                         {displayedRows.map((r, i) => {
                           const biwStatus = r.biwFeedback?.toLowerCase() || "";
                           const isAccept = biwStatus.includes("accept");
-                          const isRework = biwStatus.includes("rework");
+                          const isRework = biwStatus.includes("rework") && !isAccept;
                           const isReject = biwStatus.includes("reject");
                           const chKey = (r.chassisNumber || "").trim().toUpperCase();
                           const isRowExcluded = excludedChassisKeys.has(chKey) || (r.isMismatch && skipMismatches);
