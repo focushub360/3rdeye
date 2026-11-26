@@ -90,6 +90,7 @@ import TableColumnFilter from "./TableColumnFilter";
 import ShareAnalyticsModal from "./ShareAnalyticsModal";
 import AutoSendModal from "../forms/AutoSendModal";
 import { BiwReviewExcelModal } from "./BiwReviewExcelModal";
+import { BiwImportHistoryModal } from "./BiwImportHistoryModal";
 import PerformanceGuideModal from "./PerformanceGuideModal";
 import { downloadBiwReviewTemplate } from "../../utils/biwReviewExcelUtils";
 
@@ -799,6 +800,15 @@ export default function FormAnalyticsDashboard({
         })
         .filter((c) => Boolean(c) && !ignoredUnits.includes(c.toUpperCase()));
 
+      const isChild = Boolean(
+        (form as any)?.isFollowUpForm ||
+        (form as any)?.parentFormId ||
+        form?.parentForm ||
+        relatedFormData.parentForm
+      );
+
+      let mainDoc = isChild ? (form?.parentForm || relatedFormData.parentForm || form) : form;
+
       if (targetChassis.length === 0 && (form?.chassisNumbers || (mainDoc as any)?.chassisNumbers)) {
         const rawChList = (form?.chassisNumbers || (mainDoc as any)?.chassisNumbers || []);
         rawChList.forEach((c: any) => {
@@ -809,14 +819,6 @@ export default function FormAnalyticsDashboard({
         });
       }
 
-      const isChild = Boolean(
-        (form as any)?.isFollowUpForm ||
-        (form as any)?.parentFormId ||
-        form?.parentForm ||
-        relatedFormData.parentForm
-      );
-
-      let mainDoc = isChild ? (form?.parentForm || relatedFormData.parentForm || form) : form;
       if (isChild && (!mainDoc || mainDoc === form || !mainDoc.sections?.length) && (form as any)?.parentFormId) {
         try {
           const parentRes = await apiClient.request<{ form: any }>(`/forms/${(form as any).parentFormId}`);
@@ -1079,7 +1081,7 @@ export default function FormAnalyticsDashboard({
         return saved === "true";
       }
     } catch (e) { }
-    return true;
+    return false;
   });
 
   const [tvsReviews, setTvsReviews] = useState<any[]>([]);
@@ -2275,6 +2277,7 @@ export default function FormAnalyticsDashboard({
   const [biwFilterStartDate, setBiwFilterStartDate] = useState<string>("");
   const [biwFilterEndDate, setBiwFilterEndDate] = useState<string>("");
   const [showPerformanceGuide, setShowPerformanceGuide] = useState(false);
+  const [isBiwHistoryModalOpen, setIsBiwHistoryModalOpen] = useState(false);
 
   const [dateFilter, setDateFilter] = useState<{
     type: "all" | "single" | "range";
@@ -5548,13 +5551,25 @@ export default function FormAnalyticsDashboard({
       }
 
       if (fs.status === "unmatched" || fs.isMatched === false || (isChildForm && fs.status === "standalone")) {
+        const unitCandidate = String(fs.matchedChassis || "").trim();
+        const hasValidUnit = Boolean(unitCandidate && unitCandidate !== "-" && !["TVS", "SAIFY", "LMPL", "SREEDEVI", "NAHARS"].includes(unitCandidate.toUpperCase()));
+        if (!hasValidUnit) {
+          return {
+            status: "none",
+            badgeText: "-",
+            badgeClasses: "text-gray-400 dark:text-gray-500",
+            icon: null,
+            subText: "",
+            tooltip: "Unable to determine chassis unit for parent lookup"
+          };
+        }
         return {
           status: "unmatched",
           badgeText: "⚠ No Parent Match",
           badgeClasses: "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100",
           icon: AlertTriangle,
           subText: "Standalone Follow-up",
-          tooltip: fs.details || `Chassis "${fs.matchedChassis || ""}" has not been inspected in the parent form yet`
+          tooltip: fs.details || `Chassis "${unitCandidate}" has not been inspected in the parent form yet`
         };
       }
 
@@ -5662,7 +5677,18 @@ export default function FormAnalyticsDashboard({
     }
 
     if (isChildForm) {
-      // Child form with no parent matched -> Always "⚠ No Parent Match" (never "Main Record")
+      const hasValidUnit = Boolean(chassisVal && chassisVal !== "-" && !["TVS", "SAIFY", "LMPL", "SREEDEVI", "NAHARS"].includes(chassisVal.trim().toUpperCase()));
+      if (!hasValidUnit) {
+        return {
+          status: "none",
+          badgeText: "-",
+          badgeClasses: "text-gray-400 dark:text-gray-500",
+          icon: null,
+          subText: "",
+          tooltip: "Unable to determine chassis unit for parent lookup"
+        };
+      }
+      // Child form with valid chassis but no parent matched -> "⚠ No Parent Match"
       return {
         status: "unmatched",
         badgeText: "⚠ No Parent Match",
@@ -5792,12 +5818,26 @@ export default function FormAnalyticsDashboard({
       const pmStatus = (pm.status || "").toLowerCase().trim();
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
-        if (pmBadge === avLower || pmBadge.includes(avLower) || avLower.includes(pmBadge)) return true;
-        if (avLower.includes("parent") && (pmBadge.includes("parent") || pmStatus === "matched")) return true;
-        if (avLower.includes("follow-up") && (pmBadge.includes("follow-up") || pmStatus === "pending")) return true;
-        if ((avLower.includes("orphan") || avLower.includes("no parent") || avLower.includes("mismatch") || avLower.includes("unmatched")) && (pmBadge.includes("no parent") || pmStatus === "unmatched")) return true;
-        if (avLower.includes("overdue") && (pmBadge.includes("overdue") || pmStatus === "overdue")) return true;
-        if (avLower.includes("main") && (pmBadge.includes("main") || pmStatus === "standalone")) return true;
+        if (pmBadge === avLower) return true;
+        if (pmBadge === "-" || pmStatus === "none") return avLower === "-";
+        if (avLower.includes("no parent") || avLower.includes("orphan") || avLower.includes("mismatch") || avLower.includes("unmatched")) {
+          return pmStatus === "unmatched" || pmBadge.includes("no parent");
+        }
+        if (avLower.includes("parent matched")) {
+          return pmBadge.includes("parent matched") || (pmStatus === "matched" && !pmBadge.includes("follow-up done"));
+        }
+        if (avLower.includes("follow-up done")) {
+          return pmBadge.includes("follow-up done");
+        }
+        if (avLower.includes("pending")) {
+          return pmStatus === "pending" || pmBadge.includes("pending");
+        }
+        if (avLower.includes("overdue")) {
+          return pmStatus === "overdue" || pmBadge.includes("overdue");
+        }
+        if (avLower.includes("main")) {
+          return pmStatus === "standalone" || pmBadge.includes("main");
+        }
         return false;
       });
     }
@@ -9262,12 +9302,17 @@ export default function FormAnalyticsDashboard({
                           <button
                             onClick={() => {
                               setIsBiwDropdownOpen(false);
-                              setIsBiwExcelModalOpen(true);
+                              setIsBiwHistoryModalOpen(true);
                             }}
-                            className="w-full px-4 py-2 text-left text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
+                            className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-700 dark:hover:text-amber-300 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
                           >
-                            <Mail className="w-4 h-4 text-gray-400 ml-1" />
-                            <span>Email Report Summary</span>
+                            <div className="p-2 bg-amber-100 dark:bg-amber-900/40 rounded-lg text-amber-600 dark:text-amber-300">
+                              <Clock className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div className="font-semibold text-gray-900 dark:text-white">Import History & Timeline</div>
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400">View changes & 15-min undo</div>
+                            </div>
                           </button>
                         </div>
                       )}
@@ -11919,17 +11964,17 @@ export default function FormAnalyticsDashboard({
         targetTenantForm={
           ((form as any)?.isFollowUpForm || (form as any)?.parentFormId || form?.parentForm || relatedFormData.parentForm)
             ? form
-            : (relatedFormData.childForms?.[0] || null)
+            : (relatedFormData.childForms?.[0] || form?.childForms?.[0] || null)
         }
         targetTenantTitle={
           ((form as any)?.isFollowUpForm || (form as any)?.parentFormId || form?.parentForm || relatedFormData.parentForm)
             ? form?.title
-            : (relatedFormData.childForms?.[0]?.title || "")
+            : (relatedFormData.childForms?.[0]?.title || (form?.childForms?.[0] as any)?.formTitle || (form?.childForms?.[0] as any)?.title || "")
         }
         targetTenantName={resolveDocTenantName(
           ((form as any)?.isFollowUpForm || (form as any)?.parentFormId || form?.parentForm || relatedFormData.parentForm)
             ? form
-            : (relatedFormData.childForms?.[0] || null)
+            : (relatedFormData.childForms?.[0] || form?.childForms?.[0] || null)
         )}
         currentChassisNumbers={Array.from(
           new Set(
@@ -11957,8 +12002,23 @@ export default function FormAnalyticsDashboard({
           )
         )}
         responses={responses.length > 0 ? responses : tableResponses}
+        startDate={dateFilter?.type !== "all" ? dateFilter?.startDate : undefined}
+        endDate={dateFilter?.type !== "all" ? dateFilter?.endDate : undefined}
         onImportSuccess={() => {
           showToast("BIW & TVS Reviews imported successfully!", "success");
+          fetchResponsesPage(responsesPage || 1);
+          refreshDashboardData();
+        }}
+      />
+
+      {/* BIW Import History Timeline & 15-Min Undo Modal */}
+      <BiwImportHistoryModal
+        isOpen={isBiwHistoryModalOpen}
+        onClose={() => setIsBiwHistoryModalOpen(false)}
+        formId={id || ""}
+        formTitle={form?.title || "Inspection Form"}
+        onUndoSuccess={() => {
+          showToast("Import undone successfully! Records restored.", "success");
           fetchResponsesPage(responsesPage || 1);
           refreshDashboardData();
         }}

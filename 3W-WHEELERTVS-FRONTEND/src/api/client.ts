@@ -1488,6 +1488,16 @@ class ApiClient {
     return this.request<any>(`/import-history/${id}/responses`);
   }
 
+  async undoImportHistory(id: string) {
+    return this.request<{
+      success: boolean;
+      message: string;
+      data?: { restoredCount: number; historyId: string; undoneAt: string };
+    }>(`/import-history/${id}/undo`, {
+      method: "POST",
+    });
+  }
+
   async deleteResponse(id: string) {
     return this.request<{ success: boolean; message: string }>(`/responses/${id}`, {
       method: "DELETE",

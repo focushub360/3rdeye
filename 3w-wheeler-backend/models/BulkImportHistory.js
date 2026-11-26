@@ -80,6 +80,25 @@ const bulkImportHistorySchema = new mongoose.Schema({
     enum: ['success', 'partial', 'failed'],
     default: 'success'
   },
+  isUndone: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  undoneAt: {
+    type: Date
+  },
+  undoneBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  undoneByName: {
+    type: String,
+    default: ''
+  },
+  undoSnapshots: [{
+    type: mongoose.Schema.Types.Mixed
+  }],
   createdAt: {
     type: Date,
     default: Date.now,

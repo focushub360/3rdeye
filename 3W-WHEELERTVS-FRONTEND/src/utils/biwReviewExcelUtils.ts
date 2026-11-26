@@ -1171,7 +1171,10 @@ export async function downloadBiwReviewTemplate(options: {
  * Uses index-based cell extraction to safely handle repeated header column names.
  * Supports both new format (Date, Submitted By, Chassis in Col C) and legacy (Chassis in Col A).
  */
-export async function parseBiwReviewWorkbook(file: File): Promise<BiwExcelRow[]> {
+export async function parseBiwReviewWorkbook(
+  file: File,
+  expectedFormTitles?: string[]
+): Promise<BiwExcelRow[]> {
   const buffer = await file.arrayBuffer();
   const wb = XLSX.read(buffer, { type: "array" });
 
@@ -1268,6 +1271,48 @@ export async function parseBiwReviewWorkbook(file: File): Promise<BiwExcelRow[]>
       targetTvsRemarkCol = c;
     } else if (targetTvsFeedbackCol !== -1 && targetTvsFileUrlCol === -1 && (txt.includes("file") || txt.includes("upload") || txt.includes("url"))) {
       targetTvsFileUrlCol = c;
+    }
+  }
+
+  // Validate required template columns (reject unrelated/invalid Excel files)
+  if (chassisCol === -1 || (biwFeedbackCol === -1 && tvsFeedbackCol === -1)) {
+    throw new Error(
+      "Invalid Excel file: Missing required BIW Review Template columns (Chassis Number and BIW/TVS Feedback). Please upload a valid BIW Review Excel template."
+    );
+  }
+
+  // Validate that the uploaded BIW template belongs to the current form (or its linked child/parent form)
+  if (expectedFormTitles && expectedFormTitles.length > 0) {
+    const normalizeTitle = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const expectedNorms = expectedFormTitles.map(normalizeTitle).filter(Boolean);
+    const detectedTitles: string[] = [];
+
+    [tvsFeedbackCol, targetTvsFeedbackCol].forEach((colIdx) => {
+      if (colIdx === -1) return;
+      const rawH = String(ws[XLSX.utils.encode_cell({ r: headerRowIndex, c: colIdx })]?.v || "").trim();
+      const parenMatch = rawH.match(/\(([^)]+)\)/);
+      if (parenMatch && parenMatch[1]) {
+        let inner = parenMatch[1].trim();
+        inner = inner.replace(/^(1st:|2nd:)\s*/i, "");
+        if (inner.includes("|")) {
+          inner = inner.split("|")[0].trim();
+        }
+        if (inner && !/^(accept|rework|reject|status)/i.test(inner)) {
+          detectedTitles.push(inner);
+        }
+      }
+    });
+
+    if (detectedTitles.length > 0 && expectedNorms.length > 0) {
+      const hasMatch = detectedTitles.some((dt) => {
+        const dtNorm = normalizeTitle(dt);
+        return expectedNorms.some((en) => en === dtNorm || en.includes(dtNorm) || dtNorm.includes(en));
+      });
+      if (!hasMatch) {
+        throw new Error(
+          `Invalid Excel template for this form: This Excel file was generated for "${detectedTitles[0]}", not "${expectedFormTitles[0]}". Please upload the BIW template downloaded for this form.`
+        );
+      }
     }
   }
 

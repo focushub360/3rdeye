@@ -5942,6 +5942,16 @@ export const getResponsesByForm = async (req, res) => {
     }
 
     // Helper to safely extract chassis from any response document
+    const IGNORED_CHASSIS_TOKENS = new Set([
+      '', '-', 'N/A', 'NONE', 'NULL', 'UNDEFINED',
+      'TVS', 'EXCEL IMPORT', 'SAIFY', 'SREEDEVI', 'SRIDEVI', 'LMPL', 'NAHARS', 'TVS 3W'
+    ]);
+    const isValidUnitToken = (s) => {
+      if (!s) return false;
+      const u = String(s).trim().toUpperCase();
+      return u.length > 0 && !IGNORED_CHASSIS_TOKENS.has(u);
+    };
+
     const getChassisFromDoc = (doc, targetForm = null) => {
       if (!doc) return null;
       const ans = doc.answers instanceof Map ? Object.fromEntries(doc.answers) : (doc.answers || {});
@@ -5950,7 +5960,7 @@ export const getResponsesByForm = async (req, res) => {
       for (const [k, v] of Object.entries(ans)) {
         if (k.endsWith('_tracking') && v !== undefined && v !== null) {
           const str = extractAnswerString(v).trim();
-          if (str && str !== '-' && str !== 'N/A' && str !== 'None') {
+          if (isValidUnitToken(str)) {
             return str;
           }
         }
@@ -5976,7 +5986,7 @@ export const getResponsesByForm = async (req, res) => {
           if (isCandidate) {
             const raw = ans[`${q.id}_tracking`] || ans[q.id] || ans[q.text];
             const str = extractAnswerString(raw).trim();
-            if (str && str !== '-' && str !== 'N/A' && str !== 'None') {
+            if (isValidUnitToken(str)) {
               return str;
             }
           }
@@ -5992,16 +6002,35 @@ export const getResponsesByForm = async (req, res) => {
       for (const k of candidateKeys) {
         if (ans[k] !== undefined && ans[k] !== null) {
           const str = extractAnswerString(ans[k]).trim();
-          if (str && str !== '-' && str !== 'N/A' && str !== 'None') {
+          if (isValidUnitToken(str)) {
             return str;
           }
         }
       }
 
-      // 4. Fallback to doc.chassisNumber
+      // 4. Scan answer values for an alphanumeric unit/chassis ID containing digits (e.g. "4451N")
+      for (const v of Object.values(ans)) {
+        if (typeof v === 'string' || typeof v === 'number') {
+          const str = String(v).trim();
+          if (
+            str.length >= 2 &&
+            str.length <= 30 &&
+            /\d/.test(str) &&
+            !/^\d{4}-\d{2}-\d{2}/.test(str) &&
+            !str.startsWith('http') &&
+            !str.startsWith('data:') &&
+            isValidUnitToken(str) &&
+            !['OK', 'NOT OK', 'PASS', 'FAIL', 'REWORK', 'REJECT', 'REJECTED', 'ACCEPTED', 'YES', 'NO'].includes(str.toUpperCase())
+          ) {
+            return str;
+          }
+        }
+      }
+
+      // 5. Fallback to doc.chassisNumber
       if (doc.chassisNumber) {
         const str = extractAnswerString(doc.chassisNumber).trim();
-        if (str && str !== '-' && str !== 'N/A' && str !== 'None') {
+        if (isValidUnitToken(str)) {
           return str;
         }
       }
@@ -7705,6 +7734,8 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
     let skippedCount = 0;
     let unmatchedCount = 0;
     const errors = [];
+    const undoSnapshots = [];
+    const changeItems = [];
 
     for (let i = 0; i < reviews.length; i++) {
       try {
@@ -7758,6 +7789,28 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
         }
 
         let rowUpdated = false;
+
+        // Capture pre-import snapshots for 15-minute Undo & Change Timeline
+        const cloneVal = (v) => (v !== undefined && v !== null ? JSON.parse(JSON.stringify(v)) : null);
+        const preMainSnap = mainResp ? {
+          target: 'main',
+          responseId: mainResp._id.toString(),
+          chassisNumber: chNum,
+          prevBiwReview: cloneVal(mainResp.biwReview),
+          prevReview: cloneVal(mainResp.review),
+          prevStatus: mainResp.status || null,
+          prevChildReview: cloneVal(mainResp.childReview),
+        } : null;
+        const preChildSnap = childResp ? {
+          target: 'child',
+          responseId: childResp._id.toString(),
+          chassisNumber: chNum,
+          prevBiwReview: cloneVal(childResp.biwReview),
+          prevReview: cloneVal(childResp.review),
+          prevStatus: childResp.status || null,
+          prevParentReview: cloneVal(childResp.parentReview),
+        } : null;
+        const rowChangeParts = [];
 
         // 1. Process BIW Feedback (Applies to the form being reviewed)
         const rawBiwFeedback = String(
@@ -8048,6 +8101,28 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
         }
 
         if (rowUpdated) {
+          if (preMainSnap) {
+            const pBiw = preMainSnap.prevBiwReview?.status || 'None';
+            const nBiw = mainResp?.biwReview?.status || 'None';
+            const pTvs = preMainSnap.prevReview?.reviewOption || preMainSnap.prevReview?.status || 'None';
+            const nTvs = mainResp?.review?.reviewOption || mainResp?.review?.status || 'None';
+            if (pBiw !== nBiw) rowChangeParts.push(`BIW: ${pBiw} → ${nBiw}`);
+            if (pTvs !== nTvs) rowChangeParts.push(`TVS: ${pTvs} → ${nTvs}`);
+          }
+          if (preChildSnap) {
+            const pChild = preChildSnap.prevReview?.reviewOption || preChildSnap.prevReview?.status || 'None';
+            const nChild = childResp?.review?.reviewOption || childResp?.review?.status || 'None';
+            if (pChild !== nChild) rowChangeParts.push(`2nd TVS: ${pChild} → ${nChild}`);
+          }
+          const summaryStr = rowChangeParts.join(' | ') || 'Updated review fields';
+          if (preMainSnap) {
+            undoSnapshots.push({ ...preMainSnap, changeSummary: summaryStr });
+          }
+          if (preChildSnap) {
+            undoSnapshots.push({ ...preChildSnap, changeSummary: summaryStr });
+          }
+          changeItems.push({ chassisNumber: chNum, changeSummary: summaryStr });
+
           if (mainResp) {
             const mainSet = {};
             if (mainResp.biwReview) mainSet.biwReview = mainResp.biwReview;
@@ -8091,7 +8166,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
     const reviewActionType = isTvsImport ? 'EXCEL_TVS_REVIEW_IMPORT' : 'EXCEL_BIW_REVIEW_IMPORT';
     const reviewActionTitle = isTvsImport ? 'TVS Review Excel Import' : 'BIW Review Excel Import';
 
-    recordImportHistory({
+    const savedHistory = await recordImportHistory({
       tenantId: req.user?.tenantId,
       userId: req.user?._id,
       userName: reviewerName,
@@ -8109,11 +8184,13 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
         failed: unmatchedCount + skippedCount
       },
       details: {
-        notes: `Excel Review Import: ${updatedCount} updated, ${unmatchedCount} unmatched, ${skippedCount} skipped.`,
-        sampleChassis: reviews.slice(0, 5).map(r => r.chassisNumber || r.chassisNo || r.che).filter(Boolean)
+        chassisNumbers: changeItems.map(c => c.chassisNumber),
+        sampleRecords: changeItems.slice(0, 50),
+        notes: `Excel Review Import: ${updatedCount} updated, ${unmatchedCount} unmatched, ${skippedCount} skipped.`
       },
+      undoSnapshots,
       status: updatedCount > 0 ? 'success' : 'failed'
-    }).catch(err => console.error('[IMPORT HISTORY LOG ERROR]', err));
+    }).catch(err => { console.error('[IMPORT HISTORY LOG ERROR]', err); return null; });
 
     return res.json({
       success: true,
@@ -8123,6 +8200,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
         updatedCount,
         unmatchedCount,
         skippedCount,
+        historyId: savedHistory?._id || null,
         errors: errors.slice(0, 20)
       }
     });

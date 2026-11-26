@@ -52,6 +52,8 @@ interface BiwReviewExcelModalProps {
   targetTenantName?: string;
   currentChassisNumbers?: string[];
   responses?: any[];
+  startDate?: string;
+  endDate?: string;
   onImportSuccess?: () => void;
 }
 
@@ -67,11 +69,14 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
   targetTenantName,
   currentChassisNumbers = [],
   responses = [],
+  startDate,
+  endDate,
   onImportSuccess
 }) => {
   const [activeTab, setActiveTab] = useState<"import" | "template" | "email">("import");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [parsedRows, setParsedRows] = useState<BiwExcelRow[]>([]);
+  const [invalidExcelError, setInvalidExcelError] = useState<string | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
 
@@ -101,6 +106,50 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
 
   // Self-fetch form responses so metadata (worker, previous status) is always available for all units
   const [internalResponses, setInternalResponses] = useState<any[]>([]);
+  // Self-fetch 2nd / target tenant (child) form responses so 2nd TVS diffs match real DB state
+  const [internalChildResponses, setInternalChildResponses] = useState<any[]>([]);
+  const childFetchPromiseRef = useRef<Promise<any[]> | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setInternalChildResponses([]);
+      childFetchPromiseRef.current = null;
+      return;
+    }
+    const targetId = String(
+      targetTenantForm?.formId ||
+      targetTenantForm?._id ||
+      targetTenantForm?.id ||
+      (form as any)?.childForms?.[0]?.formId ||
+      (form as any)?.childForms?.[0]?._id ||
+      (form as any)?.childForms?.[0]?.id ||
+      ""
+    );
+    if (!targetId) return;
+    if (targetId === formId) {
+      if (responses && responses.length > 0) {
+        setInternalChildResponses(responses);
+      }
+      return;
+    }
+    let isMounted = true;
+    const exportParams = (startDate || endDate) ? { startDate, endDate } : undefined;
+    const p = apiClient
+      .getAllResponsesForExport(targetId, exportParams)
+      .then((cList) => {
+        const arr = Array.isArray(cList) ? cList : [];
+        if (isMounted) {
+          setInternalChildResponses(arr);
+        }
+        return arr;
+      })
+      .catch((err) => {
+        console.warn("Could not fetch target tenant responses in modal:", err);
+        return [];
+      });
+    childFetchPromiseRef.current = p;
+    return () => { isMounted = false; };
+  }, [isOpen, targetTenantForm, form, formId, responses, startDate, endDate]);
 
   useEffect(() => {
     if (!isOpen || !formId) return;
@@ -223,7 +272,15 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         }
       }
 
-      // 3. Scan answers for chassis / vin / identification
+      // 3. Check root canonical fields BEFORE scanning arbitrary answer values
+      if (r.systemChassisNumber && !ignoredUnitNames.has(String(r.systemChassisNumber).trim().toUpperCase())) {
+        return String(r.systemChassisNumber).trim();
+      }
+      if (r.chassisNumber && !ignoredUnitNames.has(String(r.chassisNumber).trim().toUpperCase())) {
+        return String(r.chassisNumber).trim();
+      }
+
+      // 4. Scan answers for chassis / vin / identification
       for (const [k, v] of Object.entries(a)) {
         const lk = k.toLowerCase();
         if ((lk.includes("chassis") || lk.includes("vin") || lk.includes("identification")) && v) {
@@ -234,7 +291,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         }
       }
 
-      // 4. Scan alphanumeric string with digits
+      // 5. Scan alphanumeric string with digits as last resort
       for (const v of Object.values(a)) {
         if (typeof v === "string" || typeof v === "number") {
           const str = String(v).trim();
@@ -253,13 +310,6 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         }
       }
 
-      // 5. Fallback root fields (excluding plant/tenant names)
-      if (r.systemChassisNumber && !ignoredUnitNames.has(String(r.systemChassisNumber).trim().toUpperCase())) {
-        return String(r.systemChassisNumber).trim();
-      }
-      if (r.chassisNumber && !ignoredUnitNames.has(String(r.chassisNumber).trim().toUpperCase())) {
-        return String(r.chassisNumber).trim();
-      }
       return "";
     },
     [formChassisQuestionId, ignoredUnitNames]
@@ -331,6 +381,28 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
     });
     return map;
   }, [allAvailableResponses, getChassisFromResponse]);
+
+  const childResponseByChassisMap = useMemo(() => {
+    const map = new Map<string, any>();
+    (internalChildResponses || []).forEach((r) => {
+      const ch = getChassisFromResponse(r);
+      if (!ch) return;
+      const raw = ch.trim();
+      const norm = raw.toUpperCase();
+      const stripped = norm.replace(/\s+/g, "");
+      const existing = map.get(norm);
+      const hasTvs = Boolean(r.review && (r.review.reviewOption || r.review.status));
+      const existingHasTvs = Boolean(existing?.review && (existing.review.reviewOption || existing.review.status));
+      const curTime = new Date(r.updatedAt || r.createdAt || r.submittedAt || 0).getTime();
+      const exTime = new Date(existing?.updatedAt || existing?.createdAt || existing?.submittedAt || 0).getTime();
+      if (!existing || (hasTvs && !existingHasTvs) || (hasTvs === existingHasTvs && curTime > exTime)) {
+        map.set(norm, r);
+        map.set(stripped, r);
+        map.set(raw, r);
+      }
+    });
+    return map;
+  }, [internalChildResponses, getChassisFromResponse]);
 
   // Current Dashboard Statistics before import (calculated across distinct prioritized chassis responses)
   const currentDashboardStats = useMemo(() => {
@@ -429,27 +501,77 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         targetTvsFb || targetTvsRea || targetTvsRem || targetTvsFile
       );
 
-      // Check DB existing reviews
-      const dbBiwStatus = matchedResp?.biwReview?.status ? String(matchedResp.biwReview.status).toLowerCase().trim() : "";
-      const dbBiwReason = (matchedResp?.biwReview?.reason || matchedResp?.biwReview?.flaggedQuestions?.[0]?.questionText || "").trim().toLowerCase();
-      const dbBiwRemark = (matchedResp?.biwReview?.remark || "").trim();
+      // Check DB existing reviews (1st BIW, 1st TVS, and 2nd Child/Target TVS) — matching downloadBiwReviewTemplate 1:1
+      const formatFlaggedReason = (revObj: any) => {
+        if (!revObj) return "";
+        if (revObj.reason) return String(revObj.reason).trim().toLowerCase();
+        if (Array.isArray(revObj.flaggedQuestions) && revObj.flaggedQuestions.length > 0) {
+          return revObj.flaggedQuestions
+            .map((fq: any) => fq?.questionText || fq?.text)
+            .filter(Boolean)
+            .join(", ")
+            .trim()
+            .toLowerCase();
+        }
+        return "";
+      };
 
-      const dbTvsStatus = (matchedResp?.review?.reviewOption || matchedResp?.review?.status)
+      const dbBiwStatus = matchedResp?.biwReview?.status ? String(matchedResp.biwReview.status).toLowerCase().trim() : "";
+      const dbBiwReason = formatFlaggedReason(matchedResp?.biwReview);
+      const dbBiwRemark = (matchedResp?.biwReview?.remark || "").trim();
+      const dbBiwFile = (matchedResp?.biwReview?.evidenceUrl || "").trim();
+
+      const rawDbTvsOpt = (matchedResp?.review?.reviewOption || matchedResp?.review?.status)
         ? String(matchedResp.review.reviewOption || matchedResp.review.status).toLowerCase().trim()
         : "";
-      const dbTvsReason = (matchedResp?.review?.reason || "").trim().toLowerCase();
-      const dbTvsRemark = (matchedResp?.review?.remark || "").trim();
+      const dbTvsStatus =
+        (matchedResp?.status === "Rework Accepted" || matchedResp?.status === "Rework Completed")
+          ? (rawDbTvsOpt.includes("reject") ? "rejected" : "accepted")
+          : rawDbTvsOpt;
+      const dbTvsReason = formatFlaggedReason(matchedResp?.review);
+      const dbTvsRemark = (matchedResp?.review?.remark || matchedResp?.review?.message || "").trim();
+      const dbTvsFile = (matchedResp?.review?.evidenceUrl || "").trim();
+
+      const matchedChildResp =
+        childResponseByChassisMap.get(chKey) ||
+        childResponseByChassisMap.get(chKeyStripped) ||
+        childResponseByChassisMap.get(rawCh) ||
+        null;
+
+      const dbTargetTvsObj =
+        matchedChildResp?.review ||
+        matchedResp?.childResponse?.review ||
+        matchedResp?.childReview ||
+        matchedResp?.followUpStatus?.childReview ||
+        null;
+      const dbTargetTvsStatus = (dbTargetTvsObj?.reviewOption || dbTargetTvsObj?.status)
+        ? String(dbTargetTvsObj.reviewOption || dbTargetTvsObj.status).toLowerCase().trim()
+        : "";
+      const dbTargetTvsReason = formatFlaggedReason(dbTargetTvsObj);
+      const dbTargetTvsRemark = (dbTargetTvsObj?.remark || dbTargetTvsObj?.message || "").trim();
+      const dbTargetTvsFile = (dbTargetTvsObj?.evidenceUrl || "").trim();
 
       // Normalization
       const normBiwFb = normalizeStatus(biwFb);
       const normPrevBiw = normalizeStatus(dbBiwStatus);
       const normTvsFb = normalizeStatus(tvsFb);
       const normPrevTvs = normalizeStatus(dbTvsStatus);
+      const normTargetTvsFb = normalizeStatus(targetTvsFb);
+      const normPrevTargetTvs = normalizeStatus(dbTargetTvsStatus);
 
-      const isBiwChanged = Boolean(biwFb && (normBiwFb !== normPrevBiw || (biwRea && biwRea.toLowerCase() !== dbBiwReason)));
-      const isTvsChanged = Boolean(tvsFb && (normTvsFb !== normPrevTvs || (tvsRea && tvsRea.toLowerCase() !== dbTvsReason)));
-      const isTargetTvsChanged = Boolean(targetTvsFb || targetTvsRea);
-      const isRemarkChanged = Boolean((biwRem && biwRem !== dbBiwRemark) || (tvsRem && tvsRem !== dbTvsRemark) || targetTvsRem);
+      const isBiwChanged = Boolean(biwFb && (normBiwFb !== normPrevBiw || (biwRea && biwRea.toLowerCase() !== dbBiwReason))) || Boolean(biwRea && biwRea.toLowerCase() !== dbBiwReason);
+      const isTvsChanged = Boolean(tvsFb && (normTvsFb !== normPrevTvs || (tvsRea && tvsRea.toLowerCase() !== dbTvsReason))) || Boolean(tvsRea && tvsRea.toLowerCase() !== dbTvsReason);
+      const isTargetTvsChanged = Boolean(targetTvsFb && (normTargetTvsFb !== normPrevTargetTvs || (targetTvsRea && targetTvsRea.toLowerCase() !== dbTargetTvsReason))) || Boolean(targetTvsRea && targetTvsRea.toLowerCase() !== dbTargetTvsReason);
+      const isRemarkChanged = Boolean(
+        (biwRem && biwRem !== dbBiwRemark) ||
+        (tvsRem && tvsRem !== dbTvsRemark) ||
+        (targetTvsRem && targetTvsRem !== dbTargetTvsRemark)
+      );
+      const isFileChanged = Boolean(
+        (biwFile && biwFile !== dbBiwFile) ||
+        (tvsFile && tvsFile !== dbTvsFile) ||
+        (targetTvsFile && targetTvsFile !== dbTargetTvsFile)
+      );
 
       let changeType: "brand_new" | "modified" | "mismatch" | "unchanged" | "empty" = "empty";
       let changeLabel = "Unchanged";
@@ -459,18 +581,19 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         changeType = "mismatch";
         changeLabel = "Chassis Mismatch";
         changeDescription = "Chassis not found in form";
-      } else if (!normPrevBiw && !normPrevTvs && hasReviewData) {
+      } else if (!normPrevBiw && !normPrevTvs && !normPrevTargetTvs && hasReviewData) {
         changeType = "brand_new";
         changeLabel = "New Review";
-        changeDescription = `Initial review: ${biwFb || tvsFb || 'Entered'}`;
-      } else if (hasReviewData && (isBiwChanged || isTvsChanged || isTargetTvsChanged || isRemarkChanged || biwFile || tvsFile)) {
+        changeDescription = `Initial review: ${biwFb || tvsFb || targetTvsFb || 'Entered'}`;
+      } else if (hasReviewData && (isBiwChanged || isTvsChanged || isTargetTvsChanged || isRemarkChanged || isFileChanged)) {
         changeType = "modified";
         changeLabel = "Modified Data";
         const diffs: string[] = [];
         if (isBiwChanged) diffs.push(`BIW: ${matchedResp?.biwReview?.status || 'None'} ➔ ${biwFb}`);
         if (isTvsChanged) diffs.push(`TVS: ${matchedResp?.review?.reviewOption || matchedResp?.review?.status || 'None'} ➔ ${tvsFb}`);
-        if (isTargetTvsChanged) diffs.push(`2nd TVS: ${targetTvsFb}`);
+        if (isTargetTvsChanged) diffs.push(`2nd TVS: ${dbTargetTvsObj?.reviewOption || dbTargetTvsObj?.status || 'None'} ➔ ${targetTvsFb}`);
         if (isRemarkChanged) diffs.push("Remarks updated");
+        if (isFileChanged) diffs.push("File updated");
         changeDescription = diffs.join(" | ") || "Updated review";
       } else if (hasReviewData) {
         changeType = "unchanged";
@@ -517,7 +640,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         isAccepted
       };
     });
-  }, [parsedRows, responseByChassisMap]);
+  }, [parsedRows, responseByChassisMap, childResponseByChassisMap]);
 
   // Slices for tabs and metrics
   const mismatchedRows = useMemo(() => {
@@ -542,10 +665,11 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
     return enrichedParsedRows.filter((r) => r.hasReviewData);
   }, [enrichedParsedRows]);
 
-  // Reviews to actually import based on negotiation & row exclusions
+  // Reviews to actually import based on negotiation & row exclusions (ONLY Brand New or Modified rows)
   const rowsToImport = useMemo(() => {
     return enrichedParsedRows.filter((r) => {
       if (!r.hasReviewData) return false;
+      if (!r.isNewlyEnteredOrModified) return false;
       const chKey = (r.chassisNumber || "").trim().toUpperCase();
       if (excludedChassisKeys.has(chKey)) return false;
       if (r.isMismatch && skipMismatches) return false;
@@ -556,7 +680,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
   // Slices for table display
   const displayedRows = useMemo(() => {
     if (filterMode === "modified") {
-      return modifiedAndNewRows.length > 0 ? modifiedAndNewRows : allEnteredRows;
+      return modifiedAndNewRows;
     }
     if (filterMode === "mismatch") {
       return mismatchedRows;
@@ -721,11 +845,18 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
     setSelectedFile(file);
     setIsParsing(true);
     setImportResult(null);
+    setInvalidExcelError(null);
     setIsConfirmed(false);
     setExcludedChassisKeys(new Set());
 
     try {
-      const rows = await parseBiwReviewWorkbook(file);
+      const expectedTitles = [formTitle, targetTenantTitle || ""].filter(Boolean);
+      const [rows] = await Promise.all([
+        parseBiwReviewWorkbook(file, expectedTitles),
+        internalChildResponses.length === 0 && childFetchPromiseRef.current
+          ? Promise.race([childFetchPromiseRef.current, new Promise((r) => setTimeout(r, 8000))])
+          : Promise.resolve(),
+      ]);
       // Mark whether chassis matches current form data
       const chassisSet = new Set(uniqueChassisList.map((c) => c.toUpperCase()));
       const annotated = rows.map((r) => ({
@@ -736,7 +867,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
       // Default to showing modified & new data alone
       setFilterMode("modified");
     } catch (err: any) {
-      alert(`Error reading Excel file: ${err.message || String(err)}`);
+      setInvalidExcelError(err.message || "Invalid Excel file uploaded. Please upload a valid BIW Review Excel template for this form.");
       setParsedRows([]);
     } finally {
       setIsParsing(false);
@@ -894,8 +1025,8 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-5xl max-h-[92vh] flex flex-col bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative w-[96vw] sm:w-[74vw] max-w-[1440px] max-h-[92vh] flex flex-col bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white">
           <div className="flex items-center gap-3">
@@ -994,6 +1125,60 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                     : "Supports .xlsx with BIW Feedback, Defect Checkpoints, TVS Reviews & Remarks"}
                 </p>
               </div>
+
+              {/* Invalid Excel Upload Error Banner */}
+              {invalidExcelError && (
+                <div className="p-4 rounded-xl border bg-rose-50 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200 shadow-sm flex items-start gap-3">
+                  <XCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <div className="font-bold text-sm text-rose-800 dark:text-rose-200">
+                      Invalid Excel Upload
+                    </div>
+                    <p className="text-xs mt-0.5 text-rose-700 dark:text-rose-300">
+                      {invalidExcelError}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* File Modification Status Banner (Unmodified vs Modified) */}
+              {!invalidExcelError && parsedRows.length > 0 && (
+                modifiedAndNewRows.length === 0 ? (
+                  <div className="p-3.5 rounded-xl border bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 shadow-sm flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle2 className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <div>
+                        <div className="font-bold text-sm text-amber-900 dark:text-amber-100">
+                          Uploaded Template — No Changes Made
+                        </div>
+                        <p className="text-xs text-amber-700 dark:text-amber-300">
+                          All {allEnteredRows.length} entered review row{allEnteredRows.length === 1 ? "" : "s"} already match the current database records. No new updates to apply.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 shrink-0">
+                      Unmodified File
+                    </span>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl border bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 shadow-sm flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <Sparkles className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <div>
+                        <div className="font-bold text-sm text-emerald-900 dark:text-emerald-100">
+                          Modified File Detected — {modifiedAndNewRows.length} Change{modifiedAndNewRows.length === 1 ? "" : "s"} Ready
+                        </div>
+                        <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                          {brandNewRows.length} new review{brandNewRows.length === 1 ? "" : "s"} · {modifiedRows.length} modified record{modifiedRows.length === 1 ? "" : "s"}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 shrink-0">
+                      Modified File
+                    </span>
+                  </div>
+                )
+              )}
 
               {/* Import Results Banner */}
               {importResult && (

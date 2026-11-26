@@ -3,6 +3,7 @@ import BulkImportHistory from '../models/BulkImportHistory.js';
 import Form from '../models/Form.js';
 import User from '../models/User.js';
 import Response from '../models/Response.js';
+import { emitResponseUpdated } from '../socket/socketHandler.js';
 
 /**
  * Sync legacy Excel imports from Response collection into BulkImportHistory once
@@ -190,6 +191,7 @@ export const recordImportHistory = async (eventData) => {
         notes: eventData.details?.notes || ''
       },
       status: eventData.status || 'success',
+      undoSnapshots: Array.isArray(eventData.undoSnapshots) ? eventData.undoSnapshots : [],
       createdAt: eventData.createdAt || new Date()
     });
 
@@ -264,11 +266,24 @@ export const getImportHistory = async (req, res) => {
     }
 
     if (formId) {
-      query.formId = formId;
+      // Match either formId directly or alternate _id / id of the form
+      const formDoc = await Form.findOne({
+        $or: [
+          { id: formId },
+          ...(mongoose.Types.ObjectId.isValid(formId) ? [{ _id: formId }] : [])
+        ]
+      }).select('_id id').lean();
+      if (formDoc) {
+        const ids = [formId, formDoc.id, formDoc._id?.toString()].filter(Boolean);
+        query.formId = { $in: Array.from(new Set(ids)) };
+      } else {
+        query.formId = formId;
+      }
     }
 
     if (actionType && actionType !== 'ALL') {
-      query.actionType = actionType;
+      const types = String(actionType).split(',').map(s => s.trim()).filter(Boolean);
+      query.actionType = types.length > 1 ? { $in: types } : types[0];
     }
 
     if (search && search.trim()) {
@@ -305,10 +320,33 @@ export const getImportHistory = async (req, res) => {
       BulkImportHistory.countDocuments(query)
     ]);
 
+    const nowMs = Date.now();
+    const UNDO_WINDOW_MS = 15 * 60 * 1000;
+    const enrichedItems = items.map(item => {
+      const ageMs = nowMs - new Date(item.createdAt).getTime();
+      const hasSnapshots = Array.isArray(item.undoSnapshots) && item.undoSnapshots.length > 0;
+      const canUndo = Boolean(!item.isUndone && hasSnapshots && ageMs <= UNDO_WINDOW_MS);
+      const remainingUndoSeconds = canUndo ? Math.max(0, Math.floor((UNDO_WINDOW_MS - ageMs) / 1000)) : 0;
+      const changes = hasSnapshots
+        ? item.undoSnapshots.map(s => ({
+            chassisNumber: s.chassisNumber,
+            target: s.target,
+            changeSummary: s.changeSummary || ''
+          }))
+        : (item.details?.sampleRecords || []);
+      const { undoSnapshots, ...rest } = item;
+      return {
+        ...rest,
+        canUndo,
+        remainingUndoSeconds,
+        changes
+      };
+    });
+
     return res.json({
       success: true,
       data: {
-        items,
+        items: enrichedItems,
         pagination: {
           total,
           page: pageNum,
@@ -566,6 +604,107 @@ export const deleteImportHistory = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to delete history record'
+    });
+  }
+};
+
+/**
+ * POST /api/import-history/:id/undo
+ * Revert all response updates made by a bulk import within the last 15 minutes
+ */
+export const undoImportHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const history = await BulkImportHistory.findById(id);
+
+    if (!history) {
+      return res.status(404).json({ success: false, message: 'Import history record not found' });
+    }
+
+    if (history.isUndone) {
+      return res.status(400).json({ success: false, message: 'This import has already been undone.' });
+    }
+
+    const UNDO_WINDOW_MS = 15 * 60 * 1000;
+    const ageMs = Date.now() - new Date(history.createdAt).getTime();
+    if (ageMs > UNDO_WINDOW_MS) {
+      return res.status(400).json({
+        success: false,
+        message: 'Undo window expired. Only imports made within the last 15 minutes can be undone.'
+      });
+    }
+
+    const snapshots = Array.isArray(history.undoSnapshots) ? history.undoSnapshots : [];
+    if (snapshots.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No undo snapshot data is available for this import.'
+      });
+    }
+
+    let restoredCount = 0;
+    for (const snap of snapshots) {
+      if (!snap?.responseId) continue;
+      const setFields = {};
+      const unsetFields = {};
+
+      if (snap.prevBiwReview !== undefined) {
+        if (snap.prevBiwReview === null) unsetFields.biwReview = 1;
+        else setFields.biwReview = snap.prevBiwReview;
+      }
+      if (snap.prevReview !== undefined) {
+        if (snap.prevReview === null) unsetFields.review = 1;
+        else setFields.review = snap.prevReview;
+      }
+      if (snap.prevStatus !== undefined) {
+        if (snap.prevStatus === null) unsetFields.status = 1;
+        else setFields.status = snap.prevStatus;
+      }
+      if (snap.prevChildReview !== undefined) {
+        if (snap.prevChildReview === null) unsetFields.childReview = 1;
+        else setFields.childReview = snap.prevChildReview;
+      }
+      if (snap.prevParentReview !== undefined) {
+        if (snap.prevParentReview === null) unsetFields.parentReview = 1;
+        else setFields.parentReview = snap.prevParentReview;
+      }
+
+      const updateQuery = {};
+      if (Object.keys(setFields).length > 0) updateQuery.$set = setFields;
+      if (Object.keys(unsetFields).length > 0) updateQuery.$unset = unsetFields;
+
+      if (Object.keys(updateQuery).length > 0) {
+        await Response.updateOne({ _id: snap.responseId }, updateQuery);
+        restoredCount++;
+        try {
+          const updatedDoc = await Response.findById(snap.responseId).lean();
+          if (updatedDoc) {
+            emitResponseUpdated(String(updatedDoc.formId || updatedDoc.questionId || history.formId), updatedDoc);
+          }
+        } catch (_) {}
+      }
+    }
+
+    history.isUndone = true;
+    history.undoneAt = new Date();
+    history.undoneBy = req.user?._id;
+    history.undoneByName = req.user?.username || req.user?.name || req.user?.email || 'Admin';
+    await history.save();
+
+    return res.json({
+      success: true,
+      message: `Successfully undone import "${history.fileName || history.actionTitle}". Restored ${restoredCount} record(s).`,
+      data: {
+        restoredCount,
+        historyId: history._id,
+        undoneAt: history.undoneAt
+      }
+    });
+  } catch (error) {
+    console.error('[IMPORT HISTORY] Error undoing import:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to undo import: ' + (error.message || 'Unknown error')
     });
   }
 };
