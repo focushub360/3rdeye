@@ -79,6 +79,13 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
   const [invalidExcelError, setInvalidExcelError] = useState<string | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<{
+    current: number;
+    total: number;
+    percent: number;
+    batchIndex: number;
+    totalBatches: number;
+  } | null>(null);
 
   // Filter modes: Modified & New data | Mismatches | All entered | All template rows
   const [filterMode, setFilterMode] = useState<"modified" | "mismatch" | "all_entered" | "all">("modified");
@@ -982,27 +989,88 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
     setIsImporting(true);
     setImportResult(null);
 
+    const totalRows = rowsToImport.length;
+    if (totalRows === 0) {
+      setIsImporting(false);
+      return;
+    }
+
+    // Dynamic batch size so user experiences animated progress steps
+    const batchSize = totalRows > 120 ? 50 : totalRows > 40 ? 20 : totalRows > 10 ? 8 : totalRows;
+    const totalBatches = Math.ceil(totalRows / batchSize);
+
+    setImportProgress({
+      current: 0,
+      total: totalRows,
+      percent: 0,
+      batchIndex: 0,
+      totalBatches,
+    });
+
+    const aggregatedResult = {
+      total: totalRows,
+      updatedCount: 0,
+      unmatchedCount: 0,
+      skippedCount: 0,
+      errors: [] as Array<{ row: number; chassis: string; error: string }>,
+    };
+
     try {
-      const res = await apiClient.importBiwReviews(
-        formId,
-        rowsToImport,
-        selectedFile?.name || "BIW_Review_Import.xlsx"
-      );
+      for (let b = 0; b < totalBatches; b++) {
+        const start = b * batchSize;
+        const end = Math.min(start + batchSize, totalRows);
+        const batchRows = rowsToImport.slice(start, end);
 
-      const resultData = (res && (res as any).data) ? (res as any).data : res;
+        const res = await apiClient.importBiwReviews(
+          formId,
+          batchRows,
+          selectedFile?.name || "BIW_Review_Import.xlsx"
+        );
 
-      if (resultData && typeof resultData.updatedCount === "number") {
-        setImportResult(resultData);
-        if (onImportSuccess && resultData.updatedCount > 0) {
-          onImportSuccess();
+        const resultData = (res && (res as any).data) ? (res as any).data : res;
+
+        if (resultData) {
+          aggregatedResult.updatedCount += (resultData.updatedCount || 0);
+          aggregatedResult.unmatchedCount += (resultData.unmatchedCount || 0);
+          aggregatedResult.skippedCount += (resultData.skippedCount || 0);
+          if (Array.isArray(resultData.errors)) {
+            aggregatedResult.errors.push(...resultData.errors);
+          }
         }
-      } else {
-        throw new Error((res as any)?.message || "Import failed");
+
+        const processed = end;
+        const percent = Math.min(99, Math.round((processed / totalRows) * 100));
+
+        setImportProgress({
+          current: processed,
+          total: totalRows,
+          percent,
+          batchIndex: b + 1,
+          totalBatches,
+        });
+      }
+
+      // Finish at 100%
+      setImportProgress({
+        current: totalRows,
+        total: totalRows,
+        percent: 100,
+        batchIndex: totalBatches,
+        totalBatches,
+      });
+
+      // Brief delay so the user visualizes the completed 100% circle
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      setImportResult(aggregatedResult);
+      if (onImportSuccess && aggregatedResult.updatedCount > 0) {
+        onImportSuccess();
       }
     } catch (err: any) {
       alert(`Failed to import reviews: ${err.message || String(err)}`);
     } finally {
       setIsImporting(false);
+      setImportProgress(null);
     }
   };
 
@@ -1027,6 +1095,93 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="relative w-[96vw] sm:w-[74vw] max-w-[1440px] max-h-[92vh] flex flex-col bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+        {/* Animated Circular Progress Overlay */}
+        {isImporting && (
+          <div className="absolute inset-0 z-50 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 sm:p-10 shadow-2xl border border-indigo-100 dark:border-slate-700 flex flex-col items-center max-w-md w-full text-center relative overflow-hidden">
+              {/* Background ambient glow */}
+              <div className="absolute -top-16 -right-16 w-40 h-40 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
+              <div className="absolute -bottom-16 -left-16 w-40 h-40 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+
+              {/* Animated SVG Circle */}
+              <div className="relative w-40 h-40 flex items-center justify-center mb-6">
+                <svg className="w-full h-full -rotate-90 transform drop-shadow-sm" viewBox="0 0 120 120">
+                  {/* Track Circle */}
+                  <circle
+                    cx="60"
+                    cy="60"
+                    r="50"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="9"
+                    className="text-gray-100 dark:text-slate-700/80"
+                  />
+                  {/* Animated Progress Circle */}
+                  <circle
+                    cx="60"
+                    cy="60"
+                    r="50"
+                    fill="none"
+                    stroke="url(#circularImportGradient)"
+                    strokeWidth="9"
+                    strokeDasharray={2 * Math.PI * 50}
+                    strokeDashoffset={2 * Math.PI * 50 * (1 - (importProgress?.percent ?? 0) / 100)}
+                    strokeLinecap="round"
+                    className="transition-all duration-300 ease-out"
+                  />
+                  <defs>
+                    <linearGradient id="circularImportGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#3b82f6" />
+                      <stop offset="50%" stopColor="#6366f1" />
+                      <stop offset="100%" stopColor="#10b981" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+
+                {/* Center Percentage Display */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-3xl sm:text-4xl font-black text-slate-800 dark:text-white tracking-tight">
+                    {importProgress?.percent ?? 0}%
+                  </span>
+                  <span className="text-[10px] font-black tracking-widest uppercase text-indigo-600 dark:text-indigo-400 mt-0.5">
+                    {importProgress?.percent === 100 ? "COMPLETED" : "IMPORTING"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Title & "How done out of how much" */}
+              <h3 className="text-lg font-bold text-slate-800 dark:text-white tracking-tight">
+                Importing BIW Reviews
+              </h3>
+              
+              <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/60 dark:border-indigo-800/60">
+                <span className="text-sm font-extrabold text-indigo-700 dark:text-indigo-300">
+                  {importProgress?.current ?? 0}
+                </span>
+                <span className="text-xs text-indigo-500 dark:text-indigo-400 font-medium">out of</span>
+                <span className="text-sm font-extrabold text-indigo-700 dark:text-indigo-300">
+                  {importProgress?.total ?? 0} rows done
+                </span>
+              </div>
+
+              {/* Linear Progress Bar */}
+              <div className="w-full bg-gray-100 dark:bg-slate-700/60 h-2.5 rounded-full overflow-hidden mt-5 shadow-inner">
+                <div
+                  className="bg-gradient-to-r from-blue-500 via-indigo-600 to-emerald-500 h-full rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${importProgress?.percent ?? 0}%` }}
+                />
+              </div>
+
+              {/* Sub-status label */}
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-3 font-medium">
+                {importProgress && importProgress.totalBatches > 1
+                  ? `Batch ${importProgress.batchIndex} of ${importProgress.totalBatches} • Syncing records with database...`
+                  : "Applying quality reviews to inspection records..."}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white">
           <div className="flex items-center gap-3">
@@ -1585,10 +1740,38 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                         title={!isConfirmed ? "Please check confirmation box to unlock Apply button" : "Click to apply verified reviews"}
                       >
                         {isImporting ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin text-white" />
-                            Importing Reviews...
-                          </>
+                          <div className="flex items-center gap-2">
+                            <div className="relative flex items-center justify-center w-4 h-4 flex-shrink-0">
+                              <svg className="w-4 h-4 -rotate-90 transform" viewBox="0 0 36 36">
+                                <circle
+                                  cx="18"
+                                  cy="18"
+                                  r="14"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                  className="text-white/30"
+                                />
+                                <circle
+                                  cx="18"
+                                  cy="18"
+                                  r="14"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                  strokeDasharray={2 * Math.PI * 14}
+                                  strokeDashoffset={2 * Math.PI * 14 * (1 - (importProgress?.percent ?? 0) / 100)}
+                                  strokeLinecap="round"
+                                  className="text-white transition-all duration-300 ease-out"
+                                />
+                              </svg>
+                            </div>
+                            <span>
+                              {importProgress
+                                ? `Importing ${importProgress.current}/${importProgress.total} (${importProgress.percent}%)`
+                                : "Importing Reviews..."}
+                            </span>
+                          </div>
                         ) : isConfirmed ? (
                           <>
                             <Check className="w-4 h-4 text-emerald-300" />
