@@ -12,6 +12,7 @@ import User from '../models/User.js';
 import FormSession from '../models/FormSession.js';
 import Review from '../models/Review.js';
 import ChatMessage from '../models/ChatMessage.js';
+import BulkImportHistory from '../models/BulkImportHistory.js';
 import { recordImportHistory } from './importHistoryController.js';
 
 // ─── Shared/Linked-Tenant Response Access Helper ─────────────────────────────
@@ -5777,12 +5778,12 @@ export const getResponsesByForm = async (req, res) => {
     let responsesQuery = Response.find(query);
     if (isAnalytics) {
       responsesQuery = responsesQuery.select(
-        '_id id questionId formId status answers submissionMetadata responseRanks chassisNumber batchId notes score parentResponseId submitterContact inviteId createdAt timestamp submittedBy createdBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt review'
+        '_id id questionId formId status answers submissionMetadata responseRanks chassisNumber batchId notes score parentResponseId submitterContact inviteId createdAt timestamp submittedBy createdBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt review childReview parentReview childFormTitle'
       );
     } else {
       responsesQuery = responsesQuery
         .select(
-          '_id id questionId formId status answers submissionMetadata responseRanks chassisNumber batchId notes score parentResponseId submitterContact inviteId createdAt timestamp submittedBy createdBy assignedTo verifiedBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt review'
+          '_id id questionId formId status answers submissionMetadata responseRanks chassisNumber batchId notes score parentResponseId submitterContact inviteId createdAt timestamp submittedBy createdBy assignedTo verifiedBy isDispatched dispatchedAt dispatchedBy dispatchedByName biwReview submittedAt tenantId timeSpent totalTimeSpent startedAt completedAt review childReview parentReview childFormTitle'
         )
         .populate('assignedTo', 'username firstName lastName email')
         .populate('verifiedBy', 'username firstName lastName email')
@@ -6697,7 +6698,7 @@ export const getResponsesByForm = async (req, res) => {
         parentFormId: followUpStatus?.parentFormId || parentFormIdStr,
         parentResponseId: followUpStatus?.parentResponseId,
         childAnswers: followUpStatus?.childAnswers,
-        childFormTitle: followUpStatus?.childFormTitle,
+        childFormTitle: responseObj.childFormTitle || followUpStatus?.childFormTitle,
         childFormId: followUpStatus?.childFormId,
         childResponseId: followUpStatus?.followUpResponseId,
         followUpStatus,
@@ -7696,29 +7697,90 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
       return map;
     };
 
-    // Preload candidate responses for Main Form
     const mainFormIds = [mainFormId, mainForm?.id, mainForm?._id?.toString()].filter(Boolean);
-    const mainCandidateResponses = mainFormIds.length > 0 ? await Response.find({
-      $or: [
-        { questionId: { $in: mainFormIds } },
-        { formId: { $in: mainFormIds } },
-        ...(mongoose.Types.ObjectId.isValid(mainFormId) ? [{ formId: new mongoose.Types.ObjectId(mainFormId) }] : [])
-      ]
-    }).lean() : [];
-
-    // Preload candidate responses for Child Form
     const childFormIds = [childFormId, childForm?.id, childForm?._id?.toString()].filter(Boolean);
-    const childCandidateResponses = childFormIds.length > 0 ? await Response.find({
-      $or: [
-        { questionId: { $in: childFormIds } },
-        { formId: { $in: childFormIds } },
-        ...(mongoose.Types.ObjectId.isValid(childFormId) ? [{ formId: new mongoose.Types.ObjectId(childFormId) }] : [])
-      ]
-    }).lean() : [];
+
+    // Fast path: if frontend already resolved mainResponseId/childResponseId for rows,
+    // fetch ONLY those exact _ids (~100ms instead of 25s full form scan)
+    const directObjectIds = [];
+    const directStringIds = [];
+    const addDirectId = (val) => {
+      if (!val) return;
+      if (mongoose.Types.ObjectId.isValid(val)) directObjectIds.push(new mongoose.Types.ObjectId(val));
+      else directStringIds.push(String(val));
+    };
+    let allRowsHaveDirectIds = reviews.length > 0;
+    for (const row of reviews) {
+      const mIds = Array.isArray(row.mainResponseIds) ? row.mainResponseIds : (row.mainResponseId ? [row.mainResponseId] : []);
+      const cIds = Array.isArray(row.childResponseIds) ? row.childResponseIds : (row.childResponseId ? [row.childResponseId] : []);
+      if (mIds.length === 0 && cIds.length === 0) {
+        allRowsHaveDirectIds = false;
+      }
+      mIds.forEach(addDirectId);
+      cIds.forEach(addDirectId);
+    }
+
+    const selectFields = '_id id questionId formId chassisNumber systemChassisNumber status submittedBy submitterContact createdBy tenantId biwReview review childReview parentReview parentResponseId createdAt answers';
+
+    let mainCandidateResponses = [];
+    let childCandidateResponses = [];
+    const responseByIdMap = new Map();
+    let allDbUsers = [];
+
+    if (allRowsHaveDirectIds && (directObjectIds.length > 0 || directStringIds.length > 0)) {
+      const directOr = [];
+      if (directObjectIds.length > 0) directOr.push({ _id: { $in: directObjectIds } });
+      if (directStringIds.length > 0) directOr.push({ id: { $in: directStringIds } });
+
+      const [directDocs, usersList] = await Promise.all([
+        Response.find({ $or: directOr }).select(selectFields).lean(),
+        User.find({}).select('_id firstName lastName username email tenantId').lean()
+      ]);
+      allDbUsers = usersList;
+      directDocs.forEach(d => {
+        if (d._id) responseByIdMap.set(d._id.toString(), d);
+        if (d.id) responseByIdMap.set(String(d.id), d);
+      });
+    } else {
+      // Fallback: indexed parallel preload by questionId (exclude partial section-submit drafts)
+      const [mDocs, cDocs, usersList] = await Promise.all([
+        mainFormIds.length > 0
+          ? Response.find({ questionId: { $in: mainFormIds }, isSectionSubmit: { $ne: true } }).select(selectFields).lean()
+          : Promise.resolve([]),
+        childFormIds.length > 0
+          ? Response.find({ questionId: { $in: childFormIds }, isSectionSubmit: { $ne: true } }).select(selectFields).lean()
+          : Promise.resolve([]),
+        User.find({}).select('_id firstName lastName username email tenantId').lean()
+      ]);
+      mainCandidateResponses = mDocs;
+      childCandidateResponses = cDocs;
+      allDbUsers = usersList;
+    }
 
     const mainResponsesByChassis = indexResponsesByChassis(mainCandidateResponses);
     const childResponsesByChassis = indexResponsesByChassis(childCandidateResponses);
-    const allDbUsers = await User.find({}).select('_id firstName lastName username email tenantId').lean();
+
+    const hasAnyReworkHistory = (resp, prevReviewObj, prevBiwObj) => {
+      if (!resp) return false;
+      if (resp.status && String(resp.status).toLowerCase().includes('rework')) return true;
+      if (prevBiwObj?.status && String(prevBiwObj.status).toLowerCase().includes('rework')) return true;
+      const prevOpt = prevReviewObj?.reviewOption || prevReviewObj?.status;
+      if (prevOpt && String(prevOpt).toLowerCase().includes('rework')) return true;
+      if (resp.answers) {
+        const ansObj = typeof resp.answers.toJSON === 'function'
+          ? resp.answers.toJSON()
+          : (resp.answers instanceof Map ? Object.fromEntries(resp.answers) : resp.answers);
+        if (ansObj && typeof ansObj === 'object') {
+          for (const ans of Object.values(ansObj)) {
+            const s = (typeof ans === 'object' && ans !== null && ans.status)
+              ? String(ans.status).toLowerCase().trim()
+              : (typeof ans === 'string' ? ans.toLowerCase().trim() : '');
+            if (s === 'rework' || s === 'reworked' || s.includes('re-rework')) return true;
+          }
+        }
+      }
+      return false;
+    };
 
     let updatedCount = 0;
     let skippedCount = 0;
@@ -7726,6 +7788,9 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
     const errors = [];
     const undoSnapshots = [];
     const changeItems = [];
+    const responseBulkOps = [];
+    const reviewBulkOps = [];
+    const chatMessagesToInsert = [];
 
     for (let i = 0; i < reviews.length; i++) {
       try {
@@ -7739,13 +7804,17 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           continue;
         }
 
+        const chNum = rawChassis;
+
         const normalizedChassis = rawChassis.toUpperCase();
         const strippedChassis = normalizedChassis.replace(/\s+/g, '');
         const matchedMain = mainResponsesByChassis.get(normalizedChassis) || mainResponsesByChassis.get(strippedChassis);
         const matchedChild = childResponsesByChassis.get(normalizedChassis) || childResponsesByChassis.get(strippedChassis);
 
-        const mainResp = matchedMain ? matchedMain.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] : null;
-        const childResp = matchedChild ? matchedChild.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] : null;
+        const mainResp = (row.mainResponseId && responseByIdMap.get(String(row.mainResponseId))) ||
+          (matchedMain ? matchedMain.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] : null);
+        const childResp = (row.childResponseId && responseByIdMap.get(String(row.childResponseId))) ||
+          (matchedChild ? matchedChild.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] : null);
 
         if (!mainResp && !childResp) {
           unmatchedCount++;
@@ -7847,6 +7916,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
             }
           }
 
+          const prevBiwSnapshot = activeResp.biwReview;
           activeResp.biwReview = {
             status: biwStatus,
             reviewedBy: effectiveReviewerId || req.user?._id || new mongoose.Types.ObjectId(),
@@ -7863,9 +7933,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           } else if (biwStatus === 'Reworked' && activeResp.status !== 'Rejected') {
             activeResp.status = 'Rework 1';
           } else if (biwStatus === 'Accepted') {
-            const wasRework = Boolean(activeResp.status && String(activeResp.status).toLowerCase().includes('rework')) ||
-              rawBiwFeedback.includes('rework') ||
-              Boolean(activeResp.biwReview && String(activeResp.biwReview.status).toLowerCase().includes('rework'));
+            const wasRework = rawBiwFeedback.includes('rework') || hasAnyReworkHistory(activeResp, activeResp.review, prevBiwSnapshot);
             if (wasRework) {
               activeResp.status = 'Rework Accepted';
             } else if (activeResp.status !== 'Direct Ok') {
@@ -7922,27 +7990,28 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
               ? new mongoose.Types.ObjectId(req.user.tenantId)
               : (mainForm?.tenantId || null));
 
-          try {
-            await Review.findOneAndUpdate(
-              { responseId: mainRespIdStr, reviewerId: req.user?._id || new mongoose.Types.ObjectId() },
-              {
-                responseId: mainRespIdStr,
-                reviewerId: req.user?._id || new mongoose.Types.ObjectId(),
-                reviewerName: reviewerName,
-                reviewerEmail: reviewerEmail,
-                submitterId: targetMainResp.submittedBy || targetMainResp.createdBy?.toString() || 'System',
-                reviewOption: tvsStatus,
-                status: tvsStatus,
-                reason: tvsReason || tvsRejectReason,
-                scoreChange: 0,
-                tenantId: mainTenantObjId
+          reviewBulkOps.push({
+            updateOne: {
+              filter: { responseId: mainRespIdStr, reviewerId: req.user?._id || new mongoose.Types.ObjectId() },
+              update: {
+                $set: {
+                  responseId: mainRespIdStr,
+                  reviewerId: req.user?._id || new mongoose.Types.ObjectId(),
+                  reviewerName: reviewerName,
+                  reviewerEmail: reviewerEmail,
+                  submitterId: targetMainResp.submittedBy || targetMainResp.createdBy?.toString() || 'System',
+                  reviewOption: tvsStatus,
+                  status: tvsStatus,
+                  reason: tvsReason || tvsRejectReason,
+                  scoreChange: 0,
+                  tenantId: mainTenantObjId
+                }
               },
-              { upsert: true, new: true, setDefaultsOnInsert: true }
-            );
-          } catch (revErr) {
-            console.warn('[BIW EXCEL IMPORT] Main review upsert warning:', revErr.message);
-          }
+              upsert: true
+            }
+          });
 
+          const prevMainReviewSnapshot = targetMainResp.review;
           targetMainResp.review = {
             reviewOption: tvsStatus,
             status: tvsStatus,
@@ -7964,9 +8033,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           } else if (tvsStatus === 'Rework' && targetMainResp.status !== 'Rejected') {
             targetMainResp.status = 'Rework 1';
           } else if (tvsStatus === 'Accepted') {
-            const wasRework = Boolean(targetMainResp.status && String(targetMainResp.status).toLowerCase().includes('rework')) ||
-              rawTvsFeedback.includes('rework') ||
-              Boolean(targetMainResp.review && String(targetMainResp.review.reviewOption || targetMainResp.review.status).toLowerCase().includes('rework'));
+            const wasRework = rawTvsFeedback.includes('rework') || hasAnyReworkHistory(targetMainResp, prevMainReviewSnapshot, targetMainResp.biwReview);
             if (wasRework) {
               targetMainResp.status = 'Rework Accepted';
             } else if (targetMainResp.status !== 'Direct Ok') {
@@ -7974,22 +8041,18 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
             }
           }
 
-          // Insert ChatMessage for discussion center
-          try {
-            const toEmail = targetMainResp.submitterContact?.email || (typeof targetMainResp.submittedBy === 'string' && targetMainResp.submittedBy.includes('@') ? targetMainResp.submittedBy : 'inspector@factory.internal');
-            const chatText = tvsRemark || `TVS Review (1st: ${mainFormTitle}): ${tvsStatus}${tvsReason ? ` - ${tvsReason}` : ''}`;
-            await ChatMessage.create({
-              from: req.user?._id || new mongoose.Types.ObjectId(),
-              toEmail: toEmail,
-              message: chatText,
-              responseId: mainRespIdStr,
-              formId: String(targetMainResp.formId || targetMainResp.questionId || mainFormId),
-              questionTitles: (tvsReason || tvsRejectReason) ? [tvsReason || tvsRejectReason] : [],
-              tenantId: mainTenantObjId
-            });
-          } catch (msgErr) {
-            console.warn('[BIW EXCEL IMPORT] ChatMessage creation failed for mainResp:', msgErr.message);
-          }
+          // Queue ChatMessage for discussion center
+          const toEmail = targetMainResp.submitterContact?.email || (typeof targetMainResp.submittedBy === 'string' && targetMainResp.submittedBy.includes('@') ? targetMainResp.submittedBy : 'inspector@factory.internal');
+          const chatText = tvsRemark || `TVS Review (1st: ${mainFormTitle}): ${tvsStatus}${tvsReason ? ` - ${tvsReason}` : ''}`;
+          chatMessagesToInsert.push({
+            from: req.user?._id || new mongoose.Types.ObjectId(),
+            toEmail: toEmail,
+            message: chatText,
+            responseId: mainRespIdStr,
+            formId: String(targetMainResp.formId || targetMainResp.questionId || mainFormId),
+            questionTitles: (tvsReason || tvsRejectReason) ? [tvsReason || tvsRejectReason] : [],
+            tenantId: mainTenantObjId
+          });
 
           rowUpdated = true;
         }
@@ -8008,27 +8071,28 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
               ? new mongoose.Types.ObjectId(req.user.tenantId)
               : (childForm?.tenantId || null));
 
-          try {
-            await Review.findOneAndUpdate(
-              { responseId: childRespIdStr, reviewerId: req.user?._id || new mongoose.Types.ObjectId() },
-              {
-                responseId: childRespIdStr,
-                reviewerId: req.user?._id || new mongoose.Types.ObjectId(),
-                reviewerName: reviewerName,
-                reviewerEmail: reviewerEmail,
-                submitterId: targetChildResp.submittedBy || targetChildResp.createdBy?.toString() || 'System',
-                reviewOption: targetTvsStatus,
-                status: targetTvsStatus,
-                reason: targetTvsReason || targetTvsRejectReason,
-                scoreChange: 0,
-                tenantId: childTenantObjId
+          reviewBulkOps.push({
+            updateOne: {
+              filter: { responseId: childRespIdStr, reviewerId: req.user?._id || new mongoose.Types.ObjectId() },
+              update: {
+                $set: {
+                  responseId: childRespIdStr,
+                  reviewerId: req.user?._id || new mongoose.Types.ObjectId(),
+                  reviewerName: reviewerName,
+                  reviewerEmail: reviewerEmail,
+                  submitterId: targetChildResp.submittedBy || targetChildResp.createdBy?.toString() || 'System',
+                  reviewOption: targetTvsStatus,
+                  status: targetTvsStatus,
+                  reason: targetTvsReason || targetTvsRejectReason,
+                  scoreChange: 0,
+                  tenantId: childTenantObjId
+                }
               },
-              { upsert: true, new: true, setDefaultsOnInsert: true }
-            );
-          } catch (revErr) {
-            console.warn('[BIW EXCEL IMPORT] Child review upsert warning:', revErr.message);
-          }
+              upsert: true
+            }
+          });
 
+          const prevChildReviewSnapshot = targetChildResp.review;
           targetChildResp.review = {
             reviewOption: targetTvsStatus,
             status: targetTvsStatus,
@@ -8050,9 +8114,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           } else if (targetTvsStatus === 'Rework' && targetChildResp.status !== 'Rejected') {
             targetChildResp.status = 'Rework 1';
           } else if (targetTvsStatus === 'Accepted') {
-            const wasRework = Boolean(targetChildResp.status && String(targetChildResp.status).toLowerCase().includes('rework')) ||
-              rawTargetTvsFeedback.includes('rework') ||
-              Boolean(targetChildResp.review && String(targetChildResp.review.reviewOption || targetChildResp.review.status).toLowerCase().includes('rework'));
+            const wasRework = rawTargetTvsFeedback.includes('rework') || hasAnyReworkHistory(targetChildResp, prevChildReviewSnapshot, targetChildResp.biwReview);
             if (wasRework) {
               targetChildResp.status = 'Rework Accepted';
             } else if (targetChildResp.status !== 'Direct Ok') {
@@ -8060,23 +8122,42 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
             }
           }
 
-          // Insert ChatMessage for discussion center
-          try {
-            const toEmail = targetChildResp.submitterContact?.email || (typeof targetChildResp.submittedBy === 'string' && targetChildResp.submittedBy.includes('@') ? targetChildResp.submittedBy : 'inspector@factory.internal');
-            const chatText = targetTvsRemark || `TVS Review (2nd: ${childFormTitle}): ${targetTvsStatus}${targetTvsReason ? ` - ${targetTvsReason}` : ''}`;
-            await ChatMessage.create({
-              from: req.user?._id || new mongoose.Types.ObjectId(),
-              toEmail: toEmail,
-              message: chatText,
-              responseId: childRespIdStr,
-              formId: String(targetChildResp.formId || targetChildResp.questionId || childFormId),
-              questionTitles: (targetTvsReason || targetTvsRejectReason) ? [targetTvsReason || targetTvsRejectReason] : [],
-              tenantId: childTenantObjId
-            });
-          } catch (msgErr) {
-            console.warn('[BIW EXCEL IMPORT] ChatMessage creation failed for childResp:', msgErr.message);
-          }
+          // Queue ChatMessage for discussion center
+          const toEmail = targetChildResp.submitterContact?.email || (typeof targetChildResp.submittedBy === 'string' && targetChildResp.submittedBy.includes('@') ? targetChildResp.submittedBy : 'inspector@factory.internal');
+          const chatText = targetTvsRemark || `TVS Review (2nd: ${childFormTitle}): ${targetTvsStatus}${targetTvsReason ? ` - ${targetTvsReason}` : ''}`;
+          chatMessagesToInsert.push({
+            from: req.user?._id || new mongoose.Types.ObjectId(),
+            toEmail: toEmail,
+            message: chatText,
+            responseId: childRespIdStr,
+            formId: String(targetChildResp.formId || targetChildResp.questionId || childFormId),
+            questionTitles: (targetTvsReason || targetTvsRejectReason) ? [targetTvsReason || targetTvsRejectReason] : [],
+            tenantId: childTenantObjId
+          });
 
+          rowUpdated = true;
+        } else if (targetTvsStatus && mainResp && !childResp) {
+          const targetTvsReason = String(row.targetTvsReason || row.targetTvsReworkReason || '').trim();
+          const targetTvsRejectReason = String(row.targetTvsRejectReason || '').trim();
+          const targetTvsRemark = String(row.targetTvsRemark || '').trim();
+          const targetTvsFileUrl = String(row.targetTvsFileUrl || '').trim();
+
+          mainResp.childReview = {
+            reviewOption: targetTvsStatus,
+            status: targetTvsStatus,
+            reviewerId: req.user?._id || new mongoose.Types.ObjectId(),
+            reviewerName: reviewerName,
+            createdAt: new Date(),
+            remark: targetTvsRemark,
+            reason: targetTvsReason || targetTvsRejectReason,
+            evidenceUrl: targetTvsFileUrl,
+            flaggedQuestions: (targetTvsReason || targetTvsRejectReason) ? [{
+              questionId: 'target-tvs-excel',
+              questionText: targetTvsReason || targetTvsRejectReason,
+              reason: targetTvsReason || targetTvsRejectReason
+            }] : []
+          };
+          mainResp.childFormTitle = childFormTitle;
           rowUpdated = true;
         }
 
@@ -8087,6 +8168,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           }
           if (childResp.review) {
             mainResp.childReview = childResp.review;
+            mainResp.childFormTitle = childFormTitle;
           }
         }
 
@@ -8119,11 +8201,65 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
             if (mainResp.review) mainSet.review = mainResp.review;
             if (mainResp.status) mainSet.status = mainResp.status;
             if (mainResp.childReview) mainSet.childReview = mainResp.childReview;
+            if (mainResp.childFormTitle) mainSet.childFormTitle = mainResp.childFormTitle;
             if (Object.keys(mainSet).length > 0) {
-              await Response.updateOne({ _id: mainResp._id }, { $set: mainSet });
-              try {
-                emitResponseUpdated(String(mainResp.formId || mainResp.questionId || mainFormId), { ...(mainResp.toObject?.() || mainResp), ...mainSet });
-              } catch (sockErr) { }
+              responseBulkOps.push({
+                updateOne: {
+                  filter: { _id: mainResp._id },
+                  update: { $set: mainSet }
+                }
+              });
+
+              // Also sync imported reviews to any sibling submissions for the same chassis in this form
+              const siblingMainPool = [];
+              if (Array.isArray(row.mainResponseIds)) {
+                row.mainResponseIds.forEach(sid => {
+                  const doc = responseByIdMap.get(String(sid));
+                  if (doc) siblingMainPool.push(doc);
+                });
+              } else if (Array.isArray(matchedMain)) {
+                siblingMainPool.push(...matchedMain);
+              }
+              const seenSibIds = new Set([mainResp._id.toString()]);
+              for (const sib of siblingMainPool) {
+                const sibId = sib?._id?.toString();
+                if (!sibId || seenSibIds.has(sibId)) continue;
+                seenSibIds.add(sibId);
+
+                undoSnapshots.push({
+                  target: 'main',
+                  responseId: sibId,
+                  chassisNumber: chNum,
+                  prevBiwReview: cloneVal(sib.biwReview),
+                  prevReview: cloneVal(sib.review),
+                  prevStatus: sib.status || null,
+                  prevChildReview: cloneVal(sib.childReview),
+                  changeSummary: `${summaryStr} (sibling)`
+                });
+
+                const sibSet = {};
+                if (mainResp.biwReview) sibSet.biwReview = mainResp.biwReview;
+                if (mainResp.review) sibSet.review = mainResp.review;
+                if (mainResp.childReview) sibSet.childReview = mainResp.childReview;
+                if (mainResp.childFormTitle) sibSet.childFormTitle = mainResp.childFormTitle;
+                if (mainResp.status) {
+                  if (mainResp.status === 'Accepted' || mainResp.status === 'Rework Accepted') {
+                    sibSet.status = hasAnyReworkHistory(sib, sib.review, sib.biwReview)
+                      ? 'Rework Accepted'
+                      : (sib.status === 'Direct Ok' ? 'Direct Ok' : 'Accepted');
+                  } else {
+                    sibSet.status = mainResp.status;
+                  }
+                }
+                if (Object.keys(sibSet).length > 0) {
+                  responseBulkOps.push({
+                    updateOne: {
+                      filter: { _id: sib._id },
+                      update: { $set: sibSet }
+                    }
+                  });
+                }
+              }
             }
           }
           if (childResp) {
@@ -8134,10 +8270,12 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
             if (childResp.parentReview) childSet.parentReview = childResp.parentReview;
             if (childResp.parentResponseId) childSet.parentResponseId = childResp.parentResponseId;
             if (Object.keys(childSet).length > 0) {
-              await Response.updateOne({ _id: childResp._id }, { $set: childSet });
-              try {
-                emitResponseUpdated(String(childResp.formId || childResp.questionId || childFormId), { ...(childResp.toObject?.() || childResp), ...childSet });
-              } catch (sockErr) { }
+              responseBulkOps.push({
+                updateOne: {
+                  filter: { _id: childResp._id },
+                  update: { $set: childSet }
+                }
+              });
             }
           }
           updatedCount++;
@@ -8151,36 +8289,83 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
       }
     }
 
+    // Execute all queued writes in deterministic order so zero updates are lost or reordered
+    if (responseBulkOps.length > 0) {
+      await Response.bulkWrite(responseBulkOps, { ordered: true });
+    }
+    if (reviewBulkOps.length > 0) {
+      await Review.bulkWrite(reviewBulkOps, { ordered: false }).catch(err => console.warn('[BIW EXCEL IMPORT] Review bulkWrite note:', err.message));
+    }
+    if (chatMessagesToInsert.length > 0) {
+      await ChatMessage.insertMany(chatMessagesToInsert, { ordered: false }).catch(err => console.warn('[BIW EXCEL IMPORT] ChatMessage insertMany note:', err.message));
+    }
+
+    try {
+      if (typeof emitBatchImported === 'function') {
+        emitBatchImported(mainFormId, { formId: mainFormId, batchId: req.body.batchId, count: updatedCount });
+      }
+    } catch (_) {}
+
     // Record in history log
     const isTvsImport = reviews.some(r => r.tvsFeedback || r['TVS Feed back'] || r['TVS Feedback']);
     const reviewActionType = isTvsImport ? 'EXCEL_TVS_REVIEW_IMPORT' : 'EXCEL_BIW_REVIEW_IMPORT';
     const reviewActionTitle = isTvsImport ? 'TVS Review Excel Import' : 'BIW Review Excel Import';
 
-    const savedHistory = await recordImportHistory({
-      tenantId: req.user?.tenantId,
-      userId: req.user?._id,
-      userName: reviewerName,
-      userEmail: reviewerEmail,
-      userRole: req.user?.role || 'admin',
-      actionType: reviewActionType,
-      actionTitle: reviewActionTitle,
-      formId: formKey,
-      formTitle: form.title || (isTvsImport ? 'TVS Review' : 'BIW Review'),
-      fileName: fileName || (isTvsImport ? 'TVS_Review_Import.xlsx' : 'BIW_Review_Import.xlsx'),
-      batchId: `${isTvsImport ? 'tvs' : 'biw'}-review-${Date.now()}`,
-      dataCount: {
-        total: reviews.length,
-        success: updatedCount,
-        failed: unmatchedCount + skippedCount
-      },
-      details: {
-        chassisNumbers: changeItems.map(c => c.chassisNumber),
-        sampleRecords: changeItems.slice(0, 50),
-        notes: `Excel Review Import: ${updatedCount} updated, ${unmatchedCount} unmatched, ${skippedCount} skipped.`
-      },
-      undoSnapshots,
-      status: updatedCount > 0 ? 'success' : 'failed'
-    }).catch(err => { console.error('[IMPORT HISTORY LOG ERROR]', err); return null; });
+    const incomingBatchId = req.body.batchId;
+    let savedHistory = null;
+
+    if (incomingBatchId) {
+      try {
+        const existingHistory = await BulkImportHistory.findOne({ batchId: incomingBatchId });
+        if (existingHistory) {
+          existingHistory.dataCount.total += reviews.length;
+          existingHistory.dataCount.success += updatedCount;
+          existingHistory.dataCount.failed += (unmatchedCount + skippedCount);
+          if (undoSnapshots.length > 0) {
+            existingHistory.undoSnapshots = [...(existingHistory.undoSnapshots || []), ...undoSnapshots];
+          }
+          if (changeItems.length > 0) {
+            const chs = changeItems.map(c => c.chassisNumber);
+            existingHistory.details.chassisNumbers = Array.from(new Set([...(existingHistory.details?.chassisNumbers || []), ...chs]));
+            existingHistory.details.sampleRecords = [...(existingHistory.details?.sampleRecords || []), ...changeItems].slice(0, 50);
+          }
+          existingHistory.status = existingHistory.dataCount.success > 0 ? 'success' : 'failed';
+          existingHistory.details.notes = `Excel Review Import: ${existingHistory.dataCount.success} updated, ${existingHistory.dataCount.failed} skipped/unmatched.`;
+          await existingHistory.save();
+          savedHistory = existingHistory;
+        }
+      } catch (histUpdateErr) {
+        console.error('[IMPORT HISTORY UPDATE ERROR]', histUpdateErr);
+      }
+    }
+
+    if (!savedHistory) {
+      savedHistory = await recordImportHistory({
+        tenantId: req.user?.tenantId,
+        userId: req.user?._id,
+        userName: reviewerName,
+        userEmail: reviewerEmail,
+        userRole: req.user?.role || 'admin',
+        actionType: reviewActionType,
+        actionTitle: reviewActionTitle,
+        formId: formKey,
+        formTitle: form.title || (isTvsImport ? 'TVS Review' : 'BIW Review'),
+        fileName: fileName || (isTvsImport ? 'TVS_Review_Import.xlsx' : 'BIW_Review_Import.xlsx'),
+        batchId: incomingBatchId || `${isTvsImport ? 'tvs' : 'biw'}-review-${Date.now()}`,
+        dataCount: {
+          total: reviews.length,
+          success: updatedCount,
+          failed: unmatchedCount + skippedCount
+        },
+        details: {
+          chassisNumbers: changeItems.map(c => c.chassisNumber),
+          sampleRecords: changeItems.slice(0, 50),
+          notes: `Excel Review Import: ${updatedCount} updated, ${unmatchedCount} unmatched, ${skippedCount} skipped.`
+        },
+        undoSnapshots,
+        status: updatedCount > 0 ? 'success' : 'failed'
+      }).catch(err => { console.error('[IMPORT HISTORY LOG ERROR]', err); return null; });
+    }
 
     return res.json({
       success: true,
@@ -8191,7 +8376,7 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
         unmatchedCount,
         skippedCount,
         historyId: savedHistory?._id || null,
-        errors: errors.slice(0, 20)
+        errors: errors.slice(0, 100)
       }
     });
 

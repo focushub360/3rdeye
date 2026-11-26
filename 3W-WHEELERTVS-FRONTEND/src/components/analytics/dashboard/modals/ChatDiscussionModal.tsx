@@ -243,14 +243,22 @@ export const ChatDiscussionModal: React.FC<ChatDiscussionModalProps> = ({
 
                     return (
                       <div className="flex items-center gap-2">
-                        <div
-                          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-lg border ${badgeClass}`}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (reviewCheck.canReview) {
+                              handleReviewSubmit(chatResponse.id, "Clear");
+                            }
+                          }}
+                          disabled={!reviewCheck.canReview}
+                          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${badgeClass} ${reviewCheck.canReview ? "hover:opacity-85 cursor-pointer" : ""}`}
+                          title={reviewCheck.canReview ? "Click to undo this TVS Review" : undefined}
                         >
                           <span>
                             <span className="font-bold">TVS Review:</span> {emoji}{" "}
                             {reviewOption} by {reviewerName}
                           </span>
-                        </div>
+                        </button>
                         {reviewCheck.canReview && (
                           <div className="flex items-center gap-1 ml-1">
                             {["Accepted", "Rejected", "Rework"]
@@ -266,12 +274,20 @@ export const ChatDiscussionModal: React.FC<ChatDiscussionModalProps> = ({
                                       setPendingReviewOption(opt);
                                     }
                                   }}
-                                  className="px-2 py-0.5 text-[10px] font-bold rounded bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all"
+                                  className="px-2 py-0.5 text-[10px] font-bold rounded bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all cursor-pointer"
                                   title={`Change TVS review to ${opt}`}
                                 >
                                   {opt === "Accepted" ? "✅ Accept" : opt === "Rejected" ? "❌ Reject" : "🔄 Rework"}
                                 </button>
                               ))}
+                            <button
+                              type="button"
+                              onClick={() => handleReviewSubmit(chatResponse.id, "Clear")}
+                              className="px-2 py-0.5 text-[10px] font-bold rounded bg-amber-500/25 hover:bg-amber-500/40 text-amber-100 border border-amber-400/40 transition-all cursor-pointer"
+                              title="Undo TVS Review"
+                            >
+                              ↺ Undo
+                            </button>
                           </div>
                         )}
                       </div>

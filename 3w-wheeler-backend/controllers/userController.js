@@ -929,14 +929,16 @@ export const submitReview = async (req, res) => {
       });
     }
 
-    // Validate review option
-    if (!['Accepted', 'Rejected', 'Rework'].includes(reviewOption)) {
+    // Validate review option (allow 'Clear' / 'Undo' to revert an existing TVS review)
+    if (!['Accepted', 'Rejected', 'Rework', 'Clear', 'Undo'].includes(reviewOption)) {
       console.log('[submitReview] Invalid review option:', reviewOption);
       return res.status(400).json({
         success: false,
         message: 'Invalid review option'
       });
     }
+
+    const isClearReview = reviewOption === 'Clear' || reviewOption === 'Undo';
 
     // Reason is mandatory when rejecting
     if (reviewOption === 'Rejected' && !finalReason) {
@@ -1076,6 +1078,65 @@ export const submitReview = async (req, res) => {
       } else {
         console.log('[submitReview] Could not resolve submitter ID, keeping as:', submitterId);
       }
+    }
+
+    if (isClearReview) {
+      const isReviewerAdmin = ['admin', 'superadmin'].includes(String(req.user?.role || '').toLowerCase());
+      await Review.deleteMany(isReviewerAdmin ? { responseId } : { responseId, reviewerId });
+
+      let clearedRespDoc = null;
+      try {
+        const Response = mongoose.models.Response || mongoose.model('Response');
+        const respQuery = mongoose.Types.ObjectId.isValid(responseId)
+          ? { $or: [{ _id: responseId }, { id: responseId }] }
+          : { id: responseId };
+        const existingResp = await Response.findOne(respQuery).lean();
+        const isAlreadyDispatched = existingResp?.isDispatched || false;
+
+        const updateOp = { $unset: { review: '' } };
+        if (!isAlreadyDispatched && existingResp) {
+          let hasAnsRework = false;
+          if (existingResp.answers && typeof existingResp.answers === 'object') {
+            for (const ans of Object.values(existingResp.answers)) {
+              const s = (typeof ans === 'object' && ans !== null && ans.status)
+                ? String(ans.status).toLowerCase().trim()
+                : (typeof ans === 'string' ? ans.toLowerCase().trim() : '');
+              if (s === 'rework' || s === 'reworked' || s.includes('re-rework')) {
+                hasAnsRework = true;
+                break;
+              }
+            }
+          }
+          updateOp.$set = { status: hasAnsRework ? 'Rework 1' : 'Direct Ok' };
+        }
+        clearedRespDoc = await Response.findOneAndUpdate(respQuery, updateOp, { new: true });
+        if (clearedRespDoc) {
+          const formTargetId = String(clearedRespDoc.formId || clearedRespDoc.questionId || '');
+          if (formTargetId) {
+            try {
+              emitResponseUpdated(formTargetId, clearedRespDoc.toObject());
+            } catch (_) {}
+          }
+        }
+      } catch (clearErr) {
+        console.warn('[submitReview] Clear review Response sync error:', clearErr.message);
+      }
+
+      clearFormCache();
+      try {
+        appCache.keys().forEach(k => {
+          if (k.startsWith('quality_summary') || k.startsWith('performance_table') || k.includes('analytics')) {
+            appCache.del(k);
+          }
+        });
+      } catch (_) {}
+
+      return res.json({
+        success: true,
+        cleared: true,
+        message: 'TVS Review undone successfully',
+        data: clearedRespDoc
+      });
     }
 
     // Check if review already exists - if so, update it

@@ -1569,8 +1569,8 @@ class ApiClient {
     });
   }
 
-  async importBiwReviews(formId: string, reviews: any[], fileName?: string) {
-    console.log("API Client: Importing BIW reviews via Excel", { formId, count: reviews.length, fileName });
+  async importBiwReviews(formId: string, reviews: any[], fileName?: string, batchId?: string) {
+    console.log("API Client: Importing BIW reviews via Excel", { formId, count: reviews.length, fileName, batchId });
     return this.request<{
       success: boolean;
       message: string;
@@ -1583,7 +1583,8 @@ class ApiClient {
       };
     }>(`/responses/biw-reviews/import`, {
       method: "POST",
-      body: JSON.stringify({ formId, reviews, fileName }),
+      body: JSON.stringify({ formId, reviews, fileName, batchId }),
+      timeout: 180000,
     });
   }
 

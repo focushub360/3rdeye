@@ -61,7 +61,7 @@ export const BiwImportHistoryModal: React.FC<BiwImportHistoryModalProps> = ({
     fetchHistory();
   }, [isOpen, fetchHistory]);
 
-  // 1-second timer for live 15-minute undo countdown
+  // 1-second timer for live 5-hour undo countdown
   useEffect(() => {
     if (!isOpen) return;
     const timer = setInterval(() => setNowTick(Date.now()), 1000);
@@ -102,8 +102,12 @@ export const BiwImportHistoryModal: React.FC<BiwImportHistoryModalProps> = ({
   };
 
   const formatCountdown = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
     const s = seconds % 60;
+    if (h > 0) {
+      return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`;
+    }
     return `${m}m ${String(s).padStart(2, "0")}s`;
   };
 
@@ -136,7 +140,7 @@ export const BiwImportHistoryModal: React.FC<BiwImportHistoryModalProps> = ({
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-bold tracking-tight text-white">Import History & Undo Timeline</h3>
                 <span className="px-2 py-0.5 text-[11px] font-semibold bg-amber-500/20 text-amber-200 border border-amber-400/30 rounded-full">
-                  15-Min Undo Enabled
+                  5-Hr Undo Enabled
                 </span>
               </div>
               <p className="text-xs text-indigo-200/80">
@@ -197,7 +201,7 @@ export const BiwImportHistoryModal: React.FC<BiwImportHistoryModalProps> = ({
             <div className="relative pl-6 space-y-4 before:content-[''] before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-indigo-200 dark:before:bg-indigo-900/60">
               {items.map((item) => {
                 const ageMs = nowTick - new Date(item.createdAt).getTime();
-                const UNDO_WINDOW_MS = 15 * 60 * 1000;
+                const UNDO_WINDOW_MS = 5 * 60 * 60 * 1000;
                 const liveRemainingSec = Math.max(0, Math.floor((UNDO_WINDOW_MS - ageMs) / 1000));
                 const canUndoNow = Boolean(item.canUndo && !item.isUndone && liveRemainingSec > 0);
                 const isExpanded = expandedIds.has(item._id);
@@ -266,7 +270,7 @@ export const BiwImportHistoryModal: React.FC<BiwImportHistoryModalProps> = ({
                           </div>
                         </div>
 
-                        {/* Actions: View Changes & 15-Min Undo */}
+                        {/* Actions: View Changes & 5-Hr Undo */}
                         <div className="flex flex-wrap items-center gap-2 shrink-0">
                           {changes.length > 0 && (
                             <button
@@ -308,7 +312,7 @@ export const BiwImportHistoryModal: React.FC<BiwImportHistoryModalProps> = ({
                                 type="button"
                                 onClick={() => setConfirmUndoId(item._id)}
                                 className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
-                                title="Revert all changes from this import (available for 15 minutes)"
+                                title="Revert all changes from this import (available for 5 hours)"
                               >
                                 <RotateCcw className="w-3.5 h-3.5" />
                                 <span>Undo ({formatCountdown(liveRemainingSec)})</span>
@@ -347,7 +351,7 @@ export const BiwImportHistoryModal: React.FC<BiwImportHistoryModalProps> = ({
 
         {/* Footer */}
         <div className="px-6 py-3.5 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-          <span>Only imports made within the last 15 minutes can be undone to protect historical audit integrity.</span>
+          <span>Only imports made within the last 5 hours can be undone to protect historical audit integrity.</span>
           <button
             type="button"
             onClick={onClose}

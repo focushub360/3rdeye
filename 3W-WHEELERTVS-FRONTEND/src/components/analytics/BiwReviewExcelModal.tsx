@@ -29,7 +29,11 @@ import {
   RefreshCw,
   AlertCircle,
   Layers,
-  HelpCircle
+  HelpCircle,
+  Eye,
+  EyeOff,
+  Maximize2,
+  Minimize2
 } from "lucide-react";
 import {
   downloadBiwReviewTemplate,
@@ -85,7 +89,11 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
     percent: number;
     batchIndex: number;
     totalBatches: number;
+    isCompleted?: boolean;
   } | null>(null);
+  const [importedChassisKeys, setImportedChassisKeys] = useState<Set<string>>(new Set());
+  const [recentImportedChassis, setRecentImportedChassis] = useState<string>("");
+  const [isProgressMinimized, setIsProgressMinimized] = useState<boolean>(false);
 
   // Filter modes: Modified & New data | Mismatches | All entered | All template rows
   const [filterMode, setFilterMode] = useState<"modified" | "mismatch" | "all_entered" | "all">("modified");
@@ -160,10 +168,8 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
 
   useEffect(() => {
     if (!isOpen || !formId) return;
-    // ⚡ INSTANT IN-MEMORY: If parent component already supplied responses, use them directly without blocking network calls
-    if (responses && responses.length > 0) {
-      return;
-    }
+    // Always fetch the full unfiltered form dataset in the background so no valid chassis
+    // outside the current table page/date range is falsely marked as Mismatched.
     let isMounted = true;
     const fetchResponses = async () => {
       try {
@@ -411,6 +417,43 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
     return map;
   }, [internalChildResponses, getChassisFromResponse]);
 
+  // All matching response IDs per chassis (handles duplicate/multiple submissions for the same chassis)
+  const allMainResponsesByChassis = useMemo(() => {
+    const map = new Map<string, any[]>();
+    allAvailableResponses.forEach((r) => {
+      const ch = getChassisFromResponse(r);
+      if (!ch) return;
+      const raw = ch.trim();
+      const norm = raw.toUpperCase();
+      const stripped = norm.replace(/\s+/g, "");
+      [norm, stripped, raw].forEach((k) => {
+        if (!k) return;
+        const arr = map.get(k) || [];
+        if (!arr.includes(r)) arr.push(r);
+        map.set(k, arr);
+      });
+    });
+    return map;
+  }, [allAvailableResponses, getChassisFromResponse]);
+
+  const allChildResponsesByChassis = useMemo(() => {
+    const map = new Map<string, any[]>();
+    (internalChildResponses || []).forEach((r) => {
+      const ch = getChassisFromResponse(r);
+      if (!ch) return;
+      const raw = ch.trim();
+      const norm = raw.toUpperCase();
+      const stripped = norm.replace(/\s+/g, "");
+      [norm, stripped, raw].forEach((k) => {
+        if (!k) return;
+        const arr = map.get(k) || [];
+        if (!arr.includes(r)) arr.push(r);
+        map.set(k, arr);
+      });
+    });
+    return map;
+  }, [internalChildResponses, getChassisFromResponse]);
+
   // Current Dashboard Statistics before import (calculated across distinct prioritized chassis responses)
   const currentDashboardStats = useMemo(() => {
     let biwAccepted = 0;
@@ -580,6 +623,28 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         (targetTvsFile && targetTvsFile !== dbTargetTvsFile)
       );
 
+      const matchedMainList =
+        allMainResponsesByChassis.get(chKey) ||
+        allMainResponsesByChassis.get(chKeyStripped) ||
+        allMainResponsesByChassis.get(rawCh) ||
+        (matchedResp ? [matchedResp] : []);
+      const matchedChildList =
+        allChildResponsesByChassis.get(chKey) ||
+        allChildResponsesByChassis.get(chKeyStripped) ||
+        allChildResponsesByChassis.get(rawCh) ||
+        (matchedChildResp ? [matchedChildResp] : []);
+
+      const hasSiblingMissingReview = matchedMainList.some((sib: any) => {
+        const sibBiw = normalizeStatus(sib?.biwReview?.status ? String(sib.biwReview.status) : "");
+        const sibTvs = normalizeStatus((sib?.review?.reviewOption || sib?.review?.status) ? String(sib.review.reviewOption || sib.review.status) : "");
+        const sibTargetTvs = normalizeStatus((sib?.childReview?.reviewOption || sib?.childReview?.status) ? String(sib.childReview.reviewOption || sib.childReview.status) : "");
+        return Boolean(
+          (biwFb && normBiwFb !== sibBiw) ||
+          (tvsFb && normTvsFb !== sibTvs) ||
+          (targetTvsFb && normTargetTvsFb !== sibTargetTvs)
+        );
+      });
+
       let changeType: "brand_new" | "modified" | "mismatch" | "unchanged" | "empty" = "empty";
       let changeLabel = "Unchanged";
       let changeDescription = "No changes";
@@ -592,7 +657,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         changeType = "brand_new";
         changeLabel = "New Review";
         changeDescription = `Initial review: ${biwFb || tvsFb || targetTvsFb || 'Entered'}`;
-      } else if (hasReviewData && (isBiwChanged || isTvsChanged || isTargetTvsChanged || isRemarkChanged || isFileChanged)) {
+      } else if (hasReviewData && (isBiwChanged || isTvsChanged || isTargetTvsChanged || isRemarkChanged || isFileChanged || hasSiblingMissingReview)) {
         changeType = "modified";
         changeLabel = "Modified Data";
         const diffs: string[] = [];
@@ -601,6 +666,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         if (isTargetTvsChanged) diffs.push(`2nd TVS: ${dbTargetTvsObj?.reviewOption || dbTargetTvsObj?.status || 'None'} ➔ ${targetTvsFb}`);
         if (isRemarkChanged) diffs.push("Remarks updated");
         if (isFileChanged) diffs.push("File updated");
+        if (diffs.length === 0 && hasSiblingMissingReview) diffs.push("Syncing to additional submission(s)");
         changeDescription = diffs.join(" | ") || "Updated review";
       } else if (hasReviewData) {
         changeType = "unchanged";
@@ -628,6 +694,10 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
 
       return {
         ...r,
+        mainResponseId: matchedResp?._id || matchedResp?.id || null,
+        childResponseId: matchedChildResp?._id || matchedChildResp?.id || null,
+        mainResponseIds: matchedMainList.map((m: any) => String(m._id || m.id)).filter(Boolean),
+        childResponseIds: matchedChildList.map((c: any) => String(c._id || c.id)).filter(Boolean),
         workerName,
         currentStatus,
         hasReviewData,
@@ -647,7 +717,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         isAccepted
       };
     });
-  }, [parsedRows, responseByChassisMap, childResponseByChassisMap]);
+  }, [parsedRows, responseByChassisMap, childResponseByChassisMap, allMainResponsesByChassis, allChildResponsesByChassis]);
 
   // Slices for tabs and metrics
   const mismatchedRows = useMemo(() => {
@@ -951,11 +1021,20 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         )
       );
 
+      const freshChassisSet = new Set<string>(uniqueChassisList);
+      responsesToUse.forEach((r: any) => {
+        const ch = getChassisFromResponse(r);
+        if (ch && !ignoredUnitNames.has(ch.toUpperCase())) {
+          freshChassisSet.add(ch);
+        }
+      });
+      const finalChassisList = Array.from(freshChassisSet);
+
       await downloadBiwReviewTemplate({
         form,
         formTitle,
         mainTenantName: finalMainTenant,
-        chassisNumbers: prefillChassis ? uniqueChassisList : [],
+        chassisNumbers: prefillChassis ? finalChassisList : [],
         responses: responsesToUse,
         childResponses: childResponsesMap,
         reviewerOptions: reviewerOptionsList,
@@ -988,6 +1067,8 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
     setShowOkConfirmModal(false);
     setIsImporting(true);
     setImportResult(null);
+    setImportedChassisKeys(new Set());
+    setRecentImportedChassis("");
 
     const totalRows = rowsToImport.length;
     if (totalRows === 0) {
@@ -995,8 +1076,8 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
       return;
     }
 
-    // Dynamic batch size so user experiences animated progress steps
-    const batchSize = totalRows > 120 ? 50 : totalRows > 40 ? 20 : totalRows > 10 ? 8 : totalRows;
+    // Dynamic batch size: 100 rows per chunk balances fast bulkWrite with live progress feedback
+    const batchSize = totalRows > 120 ? 100 : totalRows > 40 ? 40 : totalRows > 10 ? 15 : totalRows;
     const totalBatches = Math.ceil(totalRows / batchSize);
 
     setImportProgress({
@@ -1015,27 +1096,74 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
       errors: [] as Array<{ row: number; chassis: string; error: string }>,
     };
 
+    const sessionBatchId = `review-batch-${Date.now()}`;
+
     try {
       for (let b = 0; b < totalBatches; b++) {
         const start = b * batchSize;
         const end = Math.min(start + batchSize, totalRows);
         const batchRows = rowsToImport.slice(start, end);
 
-        const res = await apiClient.importBiwReviews(
-          formId,
-          batchRows,
-          selectedFile?.name || "BIW_Review_Import.xlsx"
-        );
+        let res: any = null;
+        let lastErr: any = null;
+        const maxAttempts = 3;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            res = await apiClient.importBiwReviews(
+              formId,
+              batchRows,
+              selectedFile?.name || "BIW_Review_Import.xlsx",
+              sessionBatchId
+            );
+            if (res && (res as any).success === false) {
+              throw new Error((res as any).message || `Batch ${b + 1} failed`);
+            }
+            lastErr = null;
+            break;
+          } catch (attemptErr: any) {
+            lastErr = attemptErr;
+            const status = attemptErr?.status;
+            // Don't retry auth/validation 4xx errors
+            if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+              break;
+            }
+            if (attempt < maxAttempts) {
+              await new Promise((resolve) => setTimeout(resolve, attempt * 1500));
+            }
+          }
+        }
+        if (lastErr) {
+          throw new Error(`Batch ${b + 1} of ${totalBatches} failed after retries: ${lastErr.message || String(lastErr)}`);
+        }
 
         const resultData = (res && (res as any).data) ? (res as any).data : res;
 
-        if (resultData) {
-          aggregatedResult.updatedCount += (resultData.updatedCount || 0);
-          aggregatedResult.unmatchedCount += (resultData.unmatchedCount || 0);
-          aggregatedResult.skippedCount += (resultData.skippedCount || 0);
-          if (Array.isArray(resultData.errors)) {
-            aggregatedResult.errors.push(...resultData.errors);
-          }
+        if (!resultData || typeof resultData.updatedCount !== "number") {
+          throw new Error(`Batch ${b + 1} returned an invalid response from server.`);
+        }
+
+        aggregatedResult.updatedCount += (resultData.updatedCount || 0);
+        aggregatedResult.unmatchedCount += (resultData.unmatchedCount || 0);
+        aggregatedResult.skippedCount += (resultData.skippedCount || 0);
+        if (Array.isArray(resultData.errors)) {
+          aggregatedResult.errors.push(...resultData.errors);
+        }
+
+        // Live reflect imported rows in the background table
+        const batchKeys = batchRows
+          .map((r) => (r.chassisNumber || "").trim().toUpperCase())
+          .filter(Boolean);
+
+        setImportedChassisKeys((prev) => {
+          const next = new Set(prev);
+          batchKeys.forEach((k) => next.add(k));
+          return next;
+        });
+
+        if (batchKeys.length > 0) {
+          setRecentImportedChassis(
+            batchKeys.slice(0, 3).join(", ") + (batchKeys.length > 3 ? ` +${batchKeys.length - 3} more` : "")
+          );
         }
 
         const processed = end;
@@ -1050,21 +1178,30 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         });
       }
 
-      // Finish at 100%
+      // Finish at 100% and notify user
       setImportProgress({
         current: totalRows,
         total: totalRows,
         percent: 100,
         batchIndex: totalBatches,
         totalBatches,
+        isCompleted: true,
       });
-
-      // Brief delay so the user visualizes the completed 100% circle
-      await new Promise((resolve) => setTimeout(resolve, 500));
 
       setImportResult(aggregatedResult);
       if (onImportSuccess && aggregatedResult.updatedCount > 0) {
         onImportSuccess();
+      }
+
+      const hasMissedRows =
+        aggregatedResult.unmatchedCount > 0 ||
+        aggregatedResult.skippedCount > 0 ||
+        aggregatedResult.errors.length > 0;
+
+      if (!hasMissedRows) {
+        // Display "Imported!" success celebration for 1.3s then auto-disappear modal to check table responses
+        await new Promise((resolve) => setTimeout(resolve, 1300));
+        onClose();
       }
     } catch (err: any) {
       alert(`Failed to import reviews: ${err.message || String(err)}`);
@@ -1095,91 +1232,183 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="relative w-[96vw] sm:w-[74vw] max-w-[1440px] max-h-[92vh] flex flex-col bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
-        {/* Animated Circular Progress Overlay */}
+        {/* Animated Circular Progress Overlay - Translucent Glass so Background Data Remains Visible */}
         {isImporting && (
-          <div className="absolute inset-0 z-50 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 sm:p-10 shadow-2xl border border-indigo-100 dark:border-slate-700 flex flex-col items-center max-w-md w-full text-center relative overflow-hidden">
-              {/* Background ambient glow */}
-              <div className="absolute -top-16 -right-16 w-40 h-40 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
-              <div className="absolute -bottom-16 -left-16 w-40 h-40 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
-
-              {/* Animated SVG Circle */}
-              <div className="relative w-40 h-40 flex items-center justify-center mb-6">
-                <svg className="w-full h-full -rotate-90 transform drop-shadow-sm" viewBox="0 0 120 120">
-                  {/* Track Circle */}
+          isProgressMinimized ? (
+            /* Minimized Floating HUD Docked to Bottom-Right */
+            <div className="fixed bottom-6 right-8 z-50 bg-white/95 dark:bg-slate-900/95 rounded-2xl p-3 px-4 shadow-2xl border border-indigo-300 dark:border-indigo-700 flex items-center gap-3.5 backdrop-blur-md ring-2 ring-indigo-500/30 animate-in slide-in-from-bottom-3 duration-200">
+              <div className="relative w-10 h-10 flex items-center justify-center flex-shrink-0">
+                <svg className="w-10 h-10 -rotate-90 transform" viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" strokeWidth="3.5" className="text-gray-200 dark:text-slate-700" />
                   <circle
-                    cx="60"
-                    cy="60"
-                    r="50"
+                    cx="18"
+                    cy="18"
+                    r="14"
                     fill="none"
-                    stroke="currentColor"
-                    strokeWidth="9"
-                    className="text-gray-100 dark:text-slate-700/80"
-                  />
-                  {/* Animated Progress Circle */}
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="50"
-                    fill="none"
-                    stroke="url(#circularImportGradient)"
-                    strokeWidth="9"
-                    strokeDasharray={2 * Math.PI * 50}
-                    strokeDashoffset={2 * Math.PI * 50 * (1 - (importProgress?.percent ?? 0) / 100)}
+                    stroke="#6366f1"
+                    strokeWidth="3.5"
+                    strokeDasharray={2 * Math.PI * 14}
+                    strokeDashoffset={2 * Math.PI * 14 * (1 - (importProgress?.percent ?? 0) / 100)}
                     strokeLinecap="round"
-                    className="transition-all duration-300 ease-out"
+                    className="transition-all duration-300"
                   />
-                  <defs>
-                    <linearGradient id="circularImportGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#3b82f6" />
-                      <stop offset="50%" stopColor="#6366f1" />
-                      <stop offset="100%" stopColor="#10b981" />
-                    </linearGradient>
-                  </defs>
                 </svg>
-
-                {/* Center Percentage Display */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-3xl sm:text-4xl font-black text-slate-800 dark:text-white tracking-tight">
-                    {importProgress?.percent ?? 0}%
-                  </span>
-                  <span className="text-[10px] font-black tracking-widest uppercase text-indigo-600 dark:text-indigo-400 mt-0.5">
-                    {importProgress?.percent === 100 ? "COMPLETED" : "IMPORTING"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Title & "How done out of how much" */}
-              <h3 className="text-lg font-bold text-slate-800 dark:text-white tracking-tight">
-                Importing BIW Reviews
-              </h3>
-              
-              <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/60 dark:border-indigo-800/60">
-                <span className="text-sm font-extrabold text-indigo-700 dark:text-indigo-300">
-                  {importProgress?.current ?? 0}
-                </span>
-                <span className="text-xs text-indigo-500 dark:text-indigo-400 font-medium">out of</span>
-                <span className="text-sm font-extrabold text-indigo-700 dark:text-indigo-300">
-                  {importProgress?.total ?? 0} rows done
+                <span className="absolute inset-0 flex items-center justify-center text-[10px] font-black text-indigo-600 dark:text-indigo-400">
+                  {importProgress?.percent ?? 0}%
                 </span>
               </div>
-
-              {/* Linear Progress Bar */}
-              <div className="w-full bg-gray-100 dark:bg-slate-700/60 h-2.5 rounded-full overflow-hidden mt-5 shadow-inner">
-                <div
-                  className="bg-gradient-to-r from-blue-500 via-indigo-600 to-emerald-500 h-full rounded-full transition-all duration-300 ease-out"
-                  style={{ width: `${importProgress?.percent ?? 0}%` }}
-                />
+              <div className="flex flex-col">
+                <span className="text-xs font-bold text-slate-800 dark:text-white">
+                  {importProgress?.isCompleted ? "✓ All Reviews Imported!" : "Importing Reviews"}
+                </span>
+                <span className={`text-[11px] font-semibold ${importProgress?.isCompleted ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-indigo-600 dark:text-indigo-400"}`}>
+                  {importProgress?.isCompleted ? "Closing screen to check table..." : `${importProgress?.current ?? 0} / ${importProgress?.total ?? 0} rows done`}
+                </span>
               </div>
-
-              {/* Sub-status label */}
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-3 font-medium">
-                {importProgress && importProgress.totalBatches > 1
-                  ? `Batch ${importProgress.batchIndex} of ${importProgress.totalBatches} • Syncing records with database...`
-                  : "Applying quality reviews to inspection records..."}
-              </p>
+              <button
+                type="button"
+                onClick={() => setIsProgressMinimized(false)}
+                className="p-1.5 ml-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                title="Expand progress card"
+              >
+                <Maximize2 className="w-4 h-4" />
+              </button>
             </div>
-          </div>
+          ) : (
+            /* Translucent Overlay - Leaves Background Table and Changed Data 100% Visible Behind */
+            <div className="absolute inset-0 z-50 bg-slate-900/20 dark:bg-black/35 backdrop-blur-[0.5px] flex flex-col items-center justify-center p-4 animate-in fade-in duration-200 pointer-events-none">
+              <div className="pointer-events-auto bg-white/95 dark:bg-slate-900/95 rounded-2xl p-5 sm:p-6 shadow-2xl border border-indigo-200/90 dark:border-slate-700 flex flex-col items-center max-w-sm w-full text-center relative overflow-hidden backdrop-blur-md ring-1 ring-black/10 animate-in zoom-in-95 duration-200">
+                {/* Background ambient glow */}
+                <div className="absolute -top-12 -right-12 w-32 h-32 bg-indigo-500/10 rounded-full blur-xl pointer-events-none" />
+                <div className="absolute -bottom-12 -left-12 w-32 h-32 bg-emerald-500/10 rounded-full blur-xl pointer-events-none" />
+
+                {/* Eye / Minimize Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setIsProgressMinimized(true)}
+                  className="absolute top-3 right-3 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1 text-[11px] font-semibold"
+                  title="Minimize card to bottom corner to inspect background table"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span className="text-[10px]">View Table</span>
+                </button>
+
+                {/* Animated SVG Circle */}
+                <div className="relative w-32 h-32 flex items-center justify-center mb-4 mt-1">
+                  <svg className="w-full h-full -rotate-90 transform drop-shadow-sm" viewBox="0 0 100 100">
+                    {/* Track Circle */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="42"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="8"
+                      className="text-gray-100 dark:text-slate-700/80"
+                    />
+                    {/* Animated Progress Circle */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="42"
+                      fill="none"
+                      stroke="url(#circularImportGradient)"
+                      strokeWidth="8"
+                      strokeDasharray={2 * Math.PI * 42}
+                      strokeDashoffset={2 * Math.PI * 42 * (1 - (importProgress?.percent ?? 0) / 100)}
+                      strokeLinecap="round"
+                      className="transition-all duration-300 ease-out"
+                    />
+                    <defs>
+                      <linearGradient id="circularImportGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#3b82f6" />
+                        <stop offset="50%" stopColor="#6366f1" />
+                        <stop offset="100%" stopColor="#10b981" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+
+                  {/* Center Percentage Display */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    {importProgress?.isCompleted ? (
+                      <>
+                        <CheckCircle2 className="w-12 h-12 text-emerald-500 animate-in zoom-in-75 duration-300" />
+                        <span className="text-[10px] font-black tracking-widest uppercase text-emerald-600 dark:text-emerald-400 mt-1">
+                          IMPORTED!
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">
+                          {importProgress?.percent ?? 0}%
+                        </span>
+                        <span className="text-[9px] font-black tracking-widest uppercase text-indigo-600 dark:text-indigo-400 mt-0.5">
+                          {importProgress?.percent === 100 ? "COMPLETED" : "IMPORTING"}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Title & "How done out of how much" */}
+                <h3 className={`text-base font-bold tracking-tight ${importProgress?.isCompleted ? "text-emerald-700 dark:text-emerald-300 flex items-center justify-center gap-1.5" : "text-slate-800 dark:text-white"}`}>
+                  {importProgress?.isCompleted ? (
+                    <>
+                      <Check className="w-5 h-5 text-emerald-600 stroke-[3]" /> All Reviews Imported!
+                    </>
+                  ) : (
+                    "Importing BIW Reviews"
+                  )}
+                </h3>
+
+                <div className={`mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full border ${importProgress?.isCompleted ? "bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-700" : "bg-indigo-50 dark:bg-indigo-950/50 border-indigo-200/60 dark:border-indigo-800/60"}`}>
+                  <span className={`text-sm font-extrabold ${importProgress?.isCompleted ? "text-emerald-700 dark:text-emerald-300" : "text-indigo-700 dark:text-indigo-300"}`}>
+                    {importProgress?.current ?? 0}
+                  </span>
+                  <span className={`text-xs font-medium ${importProgress?.isCompleted ? "text-emerald-600 dark:text-emerald-400" : "text-indigo-500 dark:text-indigo-400"}`}>
+                    {importProgress?.isCompleted ? "rows successfully imported" : "out of"}
+                  </span>
+                  {!importProgress?.isCompleted && (
+                    <span className="text-sm font-extrabold text-indigo-700 dark:text-indigo-300">
+                      {importProgress?.total ?? 0} rows done
+                    </span>
+                  )}
+                </div>
+
+                {importProgress?.isCompleted && (
+                  <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mt-2.5 flex items-center justify-center gap-1.5 animate-pulse">
+                    <Check className="w-3.5 h-3.5 stroke-[3]" /> Closing screen to check table responses...
+                  </p>
+                )}
+
+                {/* Linear Progress Bar */}
+                <div className="w-full bg-gray-100 dark:bg-slate-700/60 h-2 rounded-full overflow-hidden mt-4 shadow-inner">
+                  <div
+                    className="bg-gradient-to-r from-blue-500 via-indigo-600 to-emerald-500 h-full rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${importProgress?.percent ?? 0}%` }}
+                  />
+                </div>
+
+                {/* Live Changed Chassis Badge */}
+                {recentImportedChassis && (
+                  <div className="mt-3 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/80 w-full text-left">
+                    <span className="text-[10px] uppercase font-black tracking-wider text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+                      <Check className="w-3 h-3 text-emerald-600 stroke-[3]" /> Live Applied Behind:
+                    </span>
+                    <div className="text-xs font-mono font-bold text-emerald-800 dark:text-emerald-200 truncate mt-0.5">
+                      {recentImportedChassis}
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-2 font-medium">
+                  {importProgress && importProgress.totalBatches > 1
+                    ? `Batch ${importProgress.batchIndex} of ${importProgress.totalBatches} • Syncing records with DB...`
+                    : "Applying quality reviews to inspection records..."}
+                </p>
+              </div>
+            </div>
+          )
         )}
 
         {/* Header */}
@@ -1767,7 +1996,9 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                               </svg>
                             </div>
                             <span>
-                              {importProgress
+                              {importProgress?.isCompleted
+                                ? `✓ Imported (${importProgress.current} Rows)!`
+                                : importProgress
                                 ? `Importing ${importProgress.current}/${importProgress.total} (${importProgress.percent}%)`
                                 : "Importing Reviews..."}
                             </span>
@@ -1832,15 +2063,18 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                           const isReject = biwStatus.includes("reject");
                           const chKey = (r.chassisNumber || "").trim().toUpperCase();
                           const isRowExcluded = excludedChassisKeys.has(chKey) || (r.isMismatch && skipMismatches);
+                          const isRowImported = importedChassisKeys.has(chKey);
 
                           return (
                             <tr
                               key={i}
-                              className={`transition-colors ${isRowExcluded
-                                ? "opacity-50 bg-gray-50/40 dark:bg-gray-900/40"
-                                : r.isNewlyEnteredOrModified
-                                  ? "bg-indigo-50/40 dark:bg-indigo-950/20 hover:bg-indigo-50/80 dark:hover:bg-indigo-950/40"
-                                  : "hover:bg-gray-50/80 dark:hover:bg-gray-800/40"
+                              className={`transition-all duration-300 ${isRowImported
+                                ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-100 font-medium border-l-4 border-l-emerald-500 shadow-xs ring-1 ring-emerald-500/20"
+                                : isRowExcluded
+                                  ? "opacity-50 bg-gray-50/40 dark:bg-gray-900/40"
+                                  : r.isNewlyEnteredOrModified
+                                    ? "bg-indigo-50/40 dark:bg-indigo-950/20 hover:bg-indigo-50/80 dark:hover:bg-indigo-950/40"
+                                    : "hover:bg-gray-50/80 dark:hover:bg-gray-800/40"
                                 }`}
                             >
                               <td className="p-2.5">
@@ -1855,7 +2089,11 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                               <td className="p-2.5 text-gray-400">{r.rowIndex || i + 1}</td>
                               <td className="p-2.5 font-bold flex items-center gap-1.5">
                                 {r.chassisNumber}
-                                {r.isMatched ? (
+                                {isRowImported ? (
+                                  <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-700 dark:text-emerald-300 font-extrabold ml-1 px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/60 border border-emerald-300 dark:border-emerald-700 animate-in fade-in duration-200">
+                                    <Check className="w-2.5 h-2.5 stroke-[3]" /> Saved
+                                  </span>
+                                ) : r.isMatched ? (
                                   <span className="w-2 h-2 rounded-full bg-green-500" title="Found in current form" />
                                 ) : (
                                   <span className="w-2 h-2 rounded-full bg-amber-400" title="Chassis mismatch: not found in form" />
@@ -1863,7 +2101,12 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                               </td>
                               {/* Change Impact / Diff column */}
                               <td className="p-2.5">
-                                {r.isMismatch ? (
+                                {isRowImported ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-emerald-600 text-white shadow-xs animate-in zoom-in-95 duration-200">
+                                    <Check className="w-3 h-3 text-white stroke-[3]" />
+                                    <span>Applied & Saved</span>
+                                  </span>
+                                ) : r.isMismatch ? (
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
                                     <AlertTriangle className="w-3 h-3 text-amber-600 flex-shrink-0" />
                                     <span>Mismatch</span>

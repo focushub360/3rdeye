@@ -604,28 +604,23 @@ export default function FormAnalyticsDashboard({
           ""
         );
 
-        // Concurrently fetch parent or child export with a timeout so we don't wait or hang
+        // Concurrently fetch parent or child export cleanly without truncating mid-stream
         let relatedExportPromise: Promise<any[]> | null = null;
         if (isChildCheck && resolvedMainIdCheck && resolvedMainIdCheck !== targetFormId) {
-          relatedExportPromise = Promise.race([
-            apiClient.getAllResponsesForExport(resolvedMainIdCheck, exportParams),
-            new Promise<any[]>((r) => setTimeout(() => r([]), 8000))
-          ]).catch(() => []);
+          relatedExportPromise = apiClient.getAllResponsesForExport(resolvedMainIdCheck, exportParams).catch(() => []);
         } else if (resolvedChildCheck && resolvedChildIdCheck && resolvedChildIdCheck !== targetFormId) {
-          relatedExportPromise = Promise.race([
-            apiClient.getAllResponsesForExport(resolvedChildIdCheck, exportParams),
-            new Promise<any[]>((r) => setTimeout(() => r([]), 8000))
-          ]).catch(() => []);
+          relatedExportPromise = apiClient.getAllResponsesForExport(resolvedChildIdCheck, exportParams).catch(() => []);
         }
 
-        // If in-memory responses are already available, use them immediately for instant download
+        // Only use in-memory responses when the full dataset is confirmed loaded; otherwise fetch all pages
         const hasFullInMemory =
-          (responses && responses.length > 0 && !analyticsResponsesLoading) ||
-          (filteredResponses && filteredResponses.length > 0 && !analyticsResponsesLoading) ||
-          (responses && responses.length >= expectedTotal && expectedTotal > 0);
+          expectedTotal > 0 &&
+          responses &&
+          responses.length >= expectedTotal &&
+          !analyticsResponsesLoading;
 
         if (hasFullInMemory) {
-          activeResponsesSource = responses && responses.length > 0 ? responses : filteredResponses;
+          activeResponsesSource = responses;
           if (relatedExportPromise) {
             try {
               preloadedRelatedExport = await relatedExportPromise;
@@ -634,10 +629,7 @@ export default function FormAnalyticsDashboard({
         } else if (targetFormId) {
           try {
             const [exportData, relatedData] = await Promise.all([
-              Promise.race([
-                apiClient.getAllResponsesForExport(targetFormId, exportParams),
-                new Promise<any[]>((r) => setTimeout(() => r([]), 10000))
-              ]),
+              apiClient.getAllResponsesForExport(targetFormId, exportParams),
               relatedExportPromise ? relatedExportPromise : Promise.resolve([])
             ]);
             preloadedRelatedExport = relatedData;
@@ -3172,7 +3164,44 @@ export default function FormAnalyticsDashboard({
 
       // ✅ Check if successful
       if (result && result.success) {
-        console.log("✅ Review submitted successfully!");
+        const isClearAction = reviewOption === "Clear" || reviewOption === "Undo";
+        console.log(isClearAction ? "✅ Review undone successfully!" : "✅ Review submitted successfully!");
+
+        if (isClearAction) {
+          const clearReviewFn = (r: any) => {
+            if (r.id === responseId || (r as any)._id === responseId) {
+              const nextR = { ...r };
+              delete nextR.review;
+              return nextR;
+            }
+            return r;
+          };
+          setTableResponses((prev) => prev.map(clearReviewFn));
+          setResponses((prev) => prev.map(clearReviewFn));
+          setChatResponse((prev) => (prev ? clearReviewFn(prev) : prev));
+          setTvsReviews((prev) => prev.filter((rv) => String(rv.responseId || rv.response_id || "") !== String(responseId)));
+          setSelectedReviewOptions((prev) => ({ ...prev, [responseId]: "" }));
+          setReviewedBy((prev) => ({ ...prev, [responseId]: null }));
+          setChatFilters((prev) => ({ ...prev, questions: [] }));
+
+          try {
+            for (let i = sessionStorage.length - 1; i >= 0; i--) {
+              const k = sessionStorage.key(i);
+              if (k && k.includes('quality_summary')) sessionStorage.removeItem(k);
+            }
+            for (let i = localStorage.length - 1; i >= 0; i--) {
+              const k = localStorage.key(i);
+              if (k && k.includes('quality_summary')) localStorage.removeItem(k);
+            }
+          } catch (_) { }
+
+          fetchSummary();
+          fetchPerformanceTable();
+          await fetchChatHistory(responseId);
+          setForceUpdate((prev) => prev + 1);
+          showToast(result.message || "TVS Review undone", "success");
+          return;
+        }
 
         const reviewerDisplayName = user?.name || user?.username || user?.email || "Reviewer";
         const newStatus = reviewOption === "Rejected"
@@ -3205,6 +3234,7 @@ export default function FormAnalyticsDashboard({
         };
         setTableResponses((prev) => prev.map(updateReviewFn));
         setResponses((prev) => prev.map(updateReviewFn));
+        setChatResponse((prev) => (prev ? updateReviewFn(prev) : prev));
         setChatFilters((prev) => ({ ...prev, questions: [] }));
 
         // Invalidate browser-level cached summary items
@@ -3968,6 +3998,15 @@ export default function FormAnalyticsDashboard({
       socket.emit("join-form-analytics", id);
     });
 
+    let debounceTimer: any = null;
+    const debouncedRefreshMetrics = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        fetchSummary();
+        fetchPerformanceTable();
+      }, 800);
+    };
+
     socket.on("response-created", (data: any) => {
       if (!data || !data.response) return;
       const newResp = data.response;
@@ -3994,8 +4033,7 @@ export default function FormAnalyticsDashboard({
       });
 
       setTotalResponsesCount((prev) => prev + 1);
-      fetchSummary();
-      fetchPerformanceTable();
+      debouncedRefreshMetrics();
     });
 
     socket.on("response-updated", (data: any) => {
@@ -4031,8 +4069,7 @@ export default function FormAnalyticsDashboard({
         )
       );
 
-      fetchSummary();
-      fetchPerformanceTable();
+      debouncedRefreshMetrics();
     });
 
     socket.on("response-deleted", (data: any) => {
@@ -4047,8 +4084,7 @@ export default function FormAnalyticsDashboard({
       setTableResponses((prev) => prev.filter((r) => r.id !== deletedId && (r as any)._id !== deletedId));
       setTotalResponsesCount((prev) => Math.max(0, prev - 1));
 
-      fetchSummary();
-      fetchPerformanceTable();
+      debouncedRefreshMetrics();
     });
 
     socket.on("batch-imported", (data: any) => {
@@ -4057,14 +4093,14 @@ export default function FormAnalyticsDashboard({
 
       console.log("🔔 [FormAnalytics] Real-time batch-imported received");
       fetchFullAnalyticsResponses();
-      fetchSummary();
-      fetchPerformanceTable();
+      debouncedRefreshMetrics();
       if (activeTabRef.current === "responses") {
         fetchResponsesPage(responsesPageRef.current);
       }
     });
 
     return () => {
+      clearTimeout(debounceTimer);
       console.log(`⚠️ [FormAnalytics] Leaving socket room form-analytics-${id}`);
       socket.emit("leave-form-analytics", id);
       socket.disconnect();
@@ -5000,32 +5036,14 @@ export default function FormAnalyticsDashboard({
 
   // Filter options for TVS Review (Chat) column
   const tvsReviewFilterOptions = useMemo(() => {
-    const opts = new Set<string>();
-    opts.add("Reviewed");
-    opts.add("Accepted");
-    opts.add("Rework");
-    opts.add("Rejected");
-    opts.add("No review yet");
-
-    const pool = responses.length > 0 ? responses : tableResponses;
-    pool.forEach((r) => {
-      const serverRev = (r as any).review;
-      const tvsRev = tvsReviews.find((tr) => String(tr.responseId || tr.response_id || "") === String(r.id));
-      const localRev = reviewedBy[r.id];
-      const reviewer =
-        (typeof serverRev?.reviewer === "object" ? serverRev?.reviewer?.name || serverRev?.reviewer?.email : serverRev?.reviewerName || serverRev?.reviewer) ||
-        localRev?.name ||
-        localRev?.reviewer ||
-        tvsRev?.reviewer?.name ||
-        tvsRev?.reviewer;
-
-      if (reviewer && reviewer !== "Reviewer") {
-        opts.add(reviewer);
-      }
-    });
-
-    return Array.from(opts);
-  }, [responses, tableResponses, tvsReviews, reviewedBy]);
+    return [
+      "Accepted",
+      "Rework",
+      "Rejected",
+      "Reviewed",
+      "No review yet"
+    ];
+  }, []);
   const reviewFilterOptions = tvsReviewFilterOptions;
 
   // Filter options for Dispatch
@@ -5966,13 +5984,15 @@ export default function FormAnalyticsDashboard({
     // 6b. __tvsReview / __review (Chat & Discussion Review filter)
     if (columnId === "__tvsReview" || columnId === "__review") {
       const serverRev = (response as any).review;
+      const parentRev = (response as any).parentReview || (response as any).followUpStatus?.parentReview;
+      const childRev = (response as any).childReview || (response as any).followUpStatus?.childReview;
       const tvsRev = tvsReviews.find((tr) =>
         String(tr.responseId || tr.response_id || "") === String(response.id) ||
         String(tr.responseId || tr.response_id || "") === String(response._id)
       );
       const localReview = reviewedBy[response.id];
 
-      const revStatus = String(
+      const selfStatus = String(
         serverRev?.status ||
         serverRev?.reviewOption ||
         localReview?.option ||
@@ -5981,6 +6001,12 @@ export default function FormAnalyticsDashboard({
         tvsRev?.reviewOption ||
         ""
       ).toLowerCase().trim();
+      const parentStatus = String(parentRev?.status || parentRev?.reviewOption || "").toLowerCase().trim();
+      const childStatus = String(childRev?.status || childRev?.reviewOption || "").toLowerCase().trim();
+
+      const activeStatuses = [selfStatus, parentStatus, childStatus].filter(
+        (st) => Boolean(st && st !== "pending" && st !== "no review yet" && st !== "-")
+      );
 
       const revReviewer = String(
         (typeof serverRev?.reviewer === "object" ? serverRev?.reviewer?.name || serverRev?.reviewer?.email : serverRev?.reviewerName || serverRev?.reviewer) ||
@@ -5994,19 +6020,19 @@ export default function FormAnalyticsDashboard({
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
         if (avLower === "no review yet" || avLower === "pending review" || avLower === "unreviewed" || avLower === "pending" || avLower === "-") {
-          return !revStatus || revStatus === "pending" || revStatus === "no review yet" || revStatus === "-";
+          return activeStatuses.length === 0;
         }
         if (avLower === "reviewed") {
-          return Boolean(revStatus && revStatus !== "no review yet" && revStatus !== "pending" && revStatus !== "-");
+          return activeStatuses.length > 0;
         }
         if (avLower === "accepted") {
-          return revStatus === "accepted";
+          return activeStatuses.some((st) => st.includes("accept"));
         }
         if (avLower === "rejected") {
-          return revStatus === "rejected";
+          return activeStatuses.some((st) => st.includes("reject"));
         }
         if (avLower === "reworked" || avLower === "rework" || avLower === "defects") {
-          return revStatus === "reworked" || revStatus === "rework" || revStatus === "rejected";
+          return activeStatuses.some((st) => st.includes("rework"));
         }
         if (revReviewer && (revReviewer === avLower || revReviewer.includes(avLower))) {
           return true;
@@ -9353,7 +9379,7 @@ export default function FormAnalyticsDashboard({
                             </div>
                             <div>
                               <div className="font-semibold text-gray-900 dark:text-white">Import History & Timeline</div>
-                              <div className="text-[10px] text-gray-500 dark:text-gray-400">View changes & 15-min undo</div>
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400">View changes & 5-hr undo</div>
                             </div>
                           </button>
                         </div>
@@ -10745,7 +10771,7 @@ export default function FormAnalyticsDashboard({
                                       const childRevDataFinal = isChildFollowUpForm ? selfRevData : childRevData;
                                       const childTitle = isChildFollowUpForm
                                         ? (form?.title || "2nd: Child Form")
-                                        : ((response as any).childFormTitle || (response as any).followUpStatus?.childFormTitle || "2nd: Child Form");
+                                        : ((response as any).childFormTitle || (response as any).followUpStatus?.childFormTitle || relatedFormData?.childForms?.[0]?.title || "2nd: Child Form");
 
                                       // If neither review exists
                                       if (!mainRevData && !childRevDataFinal) {
@@ -12053,7 +12079,7 @@ export default function FormAnalyticsDashboard({
         }}
       />
 
-      {/* BIW Import History Timeline & 15-Min Undo Modal */}
+      {/* BIW Import History Timeline & 5-Hr Undo Modal */}
       <BiwImportHistoryModal
         isOpen={isBiwHistoryModalOpen}
         onClose={() => setIsBiwHistoryModalOpen(false)}

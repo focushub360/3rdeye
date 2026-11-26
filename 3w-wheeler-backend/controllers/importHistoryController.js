@@ -321,7 +321,7 @@ export const getImportHistory = async (req, res) => {
     ]);
 
     const nowMs = Date.now();
-    const UNDO_WINDOW_MS = 15 * 60 * 1000;
+    const UNDO_WINDOW_MS = 5 * 60 * 60 * 1000;
     const enrichedItems = items.map(item => {
       const ageMs = nowMs - new Date(item.createdAt).getTime();
       const hasSnapshots = Array.isArray(item.undoSnapshots) && item.undoSnapshots.length > 0;
@@ -610,7 +610,7 @@ export const deleteImportHistory = async (req, res) => {
 
 /**
  * POST /api/import-history/:id/undo
- * Revert all response updates made by a bulk import within the last 15 minutes
+ * Revert all response updates made by a bulk import within the last 5 hours
  */
 export const undoImportHistory = async (req, res) => {
   try {
@@ -625,12 +625,12 @@ export const undoImportHistory = async (req, res) => {
       return res.status(400).json({ success: false, message: 'This import has already been undone.' });
     }
 
-    const UNDO_WINDOW_MS = 15 * 60 * 1000;
+    const UNDO_WINDOW_MS = 5 * 60 * 60 * 1000;
     const ageMs = Date.now() - new Date(history.createdAt).getTime();
     if (ageMs > UNDO_WINDOW_MS) {
       return res.status(400).json({
         success: false,
-        message: 'Undo window expired. Only imports made within the last 15 minutes can be undone.'
+        message: 'Undo window expired. Only imports made within the last 5 hours can be undone.'
       });
     }
 

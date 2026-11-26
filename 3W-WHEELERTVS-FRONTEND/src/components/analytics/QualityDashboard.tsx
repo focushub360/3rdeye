@@ -254,7 +254,7 @@ export const QualityDashboard: React.FC = () => {
     try {
       const sortedFormKey = [...initialFormIds].sort().join(',');
       const cacheKey = `v22_${sortedFormKey}__`;
-      const cached = getClientCachedData(cacheKey);
+      const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
       return cached ? cached.data : null;
     } catch (_) {
       return null;
@@ -1239,7 +1239,7 @@ export const QualityDashboard: React.FC = () => {
     const requestId = ++currentRequestIdRef.current;
     const sortedFormKey = [...selectedFormIds].sort().join(',');
     const cacheKey = `v22_${sortedFormKey}_${startDate || ''}_${endDate || ''}`;
-    const cached = getClientCachedData(cacheKey);
+    const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
 
     // ─── 0ms SWR Instant Loading: Render immediately from cache ONLY IF VALID ────
     if (cached && isValidSummaryData(cached) && !forceNetwork) {

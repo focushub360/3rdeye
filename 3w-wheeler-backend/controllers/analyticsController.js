@@ -5257,7 +5257,6 @@ export const getQualitySummary = async (req, res) => {
 
     const seqReworkPipeline = [
       { $match: responseFilter },
-      { $sort: { createdAt: 1, _id: 1 } },
       {
         $project: {
           questionId: 1,
@@ -5269,18 +5268,26 @@ export const getQualitySummary = async (req, res) => {
           'biwReview.status': 1,
           'review.status': 1,
           'review.reviewOption': 1,
-          'submissionMetadata.chassisNumber': 1
+          'submissionMetadata.chassisNumber': 1,
+          createdAt: 1
         }
       }
     ];
 
+    const tAggStart = Date.now();
+    let tPipe = 0;
+    let tSeq = 0;
     const [aggResult, seqDocs] = await Promise.all([
-      Response.aggregate(pipeline).option({ maxTimeMS: 90000, allowDiskUse: true }),
-      Response.aggregate(seqReworkPipeline).option({ maxTimeMS: 30000, allowDiskUse: true }).catch((e) => {
+      Response.aggregate(pipeline).option({ maxTimeMS: 90000, allowDiskUse: true }).then(r => { tPipe = Date.now() - tAggStart; return r; }),
+      Response.aggregate(seqReworkPipeline).option({ maxTimeMS: 30000, allowDiskUse: true }).then(r => { tSeq = Date.now() - tAggStart; return r; }).catch((e) => {
         console.warn('[Quality Summary] seqReworkPipeline error:', e.message);
         return [];
       })
     ]);
+    if (Array.isArray(seqDocs) && seqDocs.length > 1) {
+      seqDocs.sort((a, b) => (new Date(a.createdAt || 0).getTime()) - (new Date(b.createdAt || 0).getTime()));
+    }
+    console.log(`[Quality Summary Profiling] main pipeline: ${tPipe}ms | seqReworkPipeline: ${tSeq}ms (total: ${Date.now() - tAggStart}ms, seqDocs: ${seqDocs?.length})`);
     const agg = aggResult[0] || {};
 
     // Compute exact computeFastRowStatus + sequential chassis parity (overall and per formId)
