@@ -88,12 +88,7 @@ export function useApi<T>(
 
 // Specific hooks for common operations
 export function useForms(enabled: boolean = true) {
-  return useApi(
-    () => apiClient.getForms({ forceNetwork: true, limit: 1000 }),
-    true,
-    0,
-    enabled
-  );
+  return useApi(apiClient.getForms.bind(apiClient), true, 0, enabled, "/forms");
 }
 
 export function useResponses() {
