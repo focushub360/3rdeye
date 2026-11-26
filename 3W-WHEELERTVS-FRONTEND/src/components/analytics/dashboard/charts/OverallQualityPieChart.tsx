@@ -134,11 +134,12 @@ export const OverallQualityPieChart: React.FC<OverallQualityPieChartProps> = ({
           <>
             {(() => {
               const totalCount = totalPieChartData.counts.total || 0;
-              const tvsRevCount = tvsReviews.length;
-              const tvsAccCount = tvsReviews.filter((r) => (r.reviewOption || r.option || r.status) === "Accepted").length;
-              const tvsRejCount = tvsReviews.filter((r) => (r.reviewOption || r.option || r.status) === "Rejected").length;
-              const tvsRwCount = tvsReviews.filter((r) => String(r.reviewOption || r.option || r.status || "").toLowerCase().includes("rework")).length;
-              const tvsDefCount = tvsRejCount + tvsRwCount;
+              const tvsRevCount = inspectionStats.tvsReviewed ?? tvsReviews.length;
+              const tvsAccCount = inspectionStats.tvsAccepted ?? tvsReviews.filter((r) => (r.reviewOption || r.option || r.status) === "Accepted").length;
+              const tvsDefCount = inspectionStats.tvsDefects ?? (
+                tvsReviews.filter((r) => (r.reviewOption || r.option || r.status) === "Rejected").length +
+                tvsReviews.filter((r) => String(r.reviewOption || r.option || r.status || "").toLowerCase().includes("rework")).length
+              );
               // TVS Pending = Dispatched - Total TVS Review
               const pendingTvsCount = Math.max(0, (totalPieChartData.counts.dispatched ?? inspectionStats.dispatched) - tvsRevCount);
               const tvsRevPct = totalCount > 0 ? ((tvsRevCount / totalCount) * 100).toFixed(1) : "0";

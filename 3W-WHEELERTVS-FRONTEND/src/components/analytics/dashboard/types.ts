@@ -209,4 +209,10 @@ export interface FormAnalyticsDashboardProps {
   formId?: string;
   embedded?: boolean;
   initialTab?: "responses" | "dashboard";
+  externalDateRange?: {
+    type: "all" | "range";
+    startDate: string;
+    endDate: string;
+  };
+  externalStatusSlice?: string;
 }

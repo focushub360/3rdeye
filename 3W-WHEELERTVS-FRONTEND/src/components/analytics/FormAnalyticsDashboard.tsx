@@ -187,6 +187,8 @@ export default function FormAnalyticsDashboard({
   formId: propFormId,
   embedded = false,
   initialTab,
+  externalDateRange,
+  externalStatusSlice,
 }: FormAnalyticsDashboardProps = {}) {
   const [selectedForm, setSelectedForm] = useState<Form | null>(null);
 
@@ -2284,6 +2286,13 @@ export default function FormAnalyticsDashboard({
     startDate: string;
     endDate: string;
   }>(() => {
+    if (externalDateRange) {
+      return {
+        type: externalDateRange.type,
+        startDate: externalDateRange.startDate || "",
+        endDate: externalDateRange.endDate || "",
+      };
+    }
     const sp = new URLSearchParams(window.location.search);
     const uStart = sp.get("startDate") || sp.get("rangeStart");
     const uEnd = sp.get("endDate") || sp.get("rangeEnd");
@@ -2301,6 +2310,89 @@ export default function FormAnalyticsDashboard({
       endDate: d30.endDate,
     };
   });
+
+  // Sync upper QualityDashboard date range filter down into FormAnalyticsDashboard
+  useEffect(() => {
+    if (!externalDateRange) return;
+    setDateFilter((prev) => {
+      if (
+        prev.type === externalDateRange.type &&
+        prev.startDate === (externalDateRange.startDate || "") &&
+        prev.endDate === (externalDateRange.endDate || "")
+      ) {
+        return prev;
+      }
+      return {
+        type: externalDateRange.type,
+        startDate: externalDateRange.startDate || "",
+        endDate: externalDateRange.endDate || "",
+      };
+    });
+  }, [externalDateRange?.type, externalDateRange?.startDate, externalDateRange?.endDate]);
+
+  // Sync upper QualityDashboard selected status slice down into FormAnalyticsDashboard columnFilters
+  const prevExternalSliceRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (externalStatusSlice === undefined) return;
+    if (prevExternalSliceRef.current === undefined && externalStatusSlice === "all") {
+      prevExternalSliceRef.current = externalStatusSlice;
+      return;
+    }
+    prevExternalSliceRef.current = externalStatusSlice;
+
+    setColumnFilters((prev) => {
+      const next: Record<string, string[] | null> = { ...prev };
+      delete next.__status;
+      delete next.__dispatch;
+      delete next.__biwReview;
+      delete next.__tvsReview;
+
+      switch (externalStatusSlice) {
+        case "accepted":
+          next.__status = ["Direct Ok", "Rework Accepted", "Accepted"];
+          break;
+        case "rework":
+          next.__status = ["Rework 1", "Rework 2", "Rework"];
+          break;
+        case "rejected":
+          next.__status = ["Rejected"];
+          break;
+        case "dispatched":
+          next.__dispatch = ["Dispatched"];
+          break;
+        case "pendingDispatch":
+          next.__dispatch = ["Pending Dispatch"];
+          break;
+        case "biwReviewed":
+          next.__biwReview = ["Accepted", "Reworked", "Rejected"];
+          break;
+        case "pendingData":
+          next.__biwReview = ["No review yet"];
+          break;
+        case "biwAccepted":
+          next.__biwReview = ["Accepted"];
+          break;
+        case "biwDefects":
+          next.__biwReview = ["Reworked", "Rejected"];
+          break;
+        case "tvsReviewed":
+          next.__tvsReview = ["Accepted", "Rejected", "Rework"];
+          break;
+        case "pendingTvs":
+          next.__tvsReview = ["No review yet"];
+          break;
+        case "tvsAccepted":
+          next.__tvsReview = ["Accepted"];
+          break;
+        case "tvsDefects":
+          next.__tvsReview = ["Rejected", "Rework"];
+          break;
+        default:
+          break;
+      }
+      return next;
+    });
+  }, [externalStatusSlice]);
 
   // BIW Review Table data — computed client-side from the full `responses`
   // dataset (not the server-paginated `tableResponses`), grouped by
@@ -3637,19 +3729,21 @@ export default function FormAnalyticsDashboard({
         timestamp: Date.now(),
       };
       formAnalyticsMemoryCache.set(id, payload);
-      try {
-        const compactPayload = {
-          form,
-          responses: responses.slice(0, 300),
-          tableResponses: tableResponses.slice(0, 100),
-          timestamp: Date.now(),
-        };
-        const json = JSON.stringify(compactPayload);
-        sessionStorage.setItem(`form_analytics_cache_${id}`, json);
-        localStorage.setItem(`form_analytics_cache_${id}`, json);
-      } catch (_) { }
+      if (!analyticsResponsesLoading && responses.length > 0) {
+        try {
+          const compactPayload = {
+            form,
+            responses: responses.slice(0, 300),
+            tableResponses: tableResponses.slice(0, 100),
+            timestamp: Date.now(),
+          };
+          const json = JSON.stringify(compactPayload);
+          sessionStorage.setItem(`form_analytics_cache_${id}`, json);
+          localStorage.setItem(`form_analytics_cache_${id}`, json);
+        } catch (_) { }
+      }
     }
-  }, [id, form, responses, tableResponses]);
+  }, [id, form, responses, tableResponses, analyticsResponsesLoading]);
 
   // ── Lazy loading by tab ──────────────────────────────────────────────
   // Fetches the FULL analytics response set (used by Dashboard/Question/
@@ -3669,23 +3763,27 @@ export default function FormAnalyticsDashboard({
   // false. This is still strictly better than the old all-or-nothing
   // wait, and most forms will have all of an item's responses within the
   // same page anyway since pages are sorted by createdAt.
-  const fetchFullAnalyticsResponses = async () => {
+  const loadedDateKeyRef = useRef<string | null>(null);
+
+  const fetchFullAnalyticsResponses = async (overrideDateFilter?: { type: "all" | "single" | "range"; startDate: string; endDate: string }) => {
     if (!id) return;
     setAnalyticsResponsesLoading(true);
     let accumulator: any[] = [];
     try {
+      const df = overrideDateFilter || dateFilter;
       const currentBatchId = searchParams.get("batchId");
       const isUploadOnly = searchParams.get("uploadOnly") === "true";
-      const currentUnits = searchParams.get("units") || searchParams.get("identificationNumber") || searchParams.get("chassisNumber");
       const currentDispatch = searchParams.get("dispatch") || searchParams.get("dispatchStatus");
       const currentTvsStatus = searchParams.get("tvsStatus");
       const currentBiwStatus = searchParams.get("biwStatus");
       const currentStatus = searchParams.get("status");
+      const isDerivedStatus = ["rework accepted", "rework completed", "direct ok"].includes((currentStatus || "").toLowerCase().trim());
       const currentSubmittedBy = searchParams.get("submittedBy");
       const currentBiwReviewedBy = searchParams.get("biwReviewedBy");
       const currentReviewedCombined = searchParams.get("reviewedCombined");
-      const currentStartDate = searchParams.get("startDate");
-      const currentEndDate = searchParams.get("endDate");
+      const currentStartDate = searchParams.get("startDate") || (df.type !== "all" ? df.startDate : "");
+      const currentEndDate = searchParams.get("endDate") || (df.type !== "all" ? df.endDate : "");
+      loadedDateKeyRef.current = `${id}|${df.type}|${currentStartDate}|${currentEndDate}`;
       const responsesData = await apiClient.getAllFormResponses(id, {
         analytics: true,
         forceNetwork: true,
@@ -3694,7 +3792,7 @@ export default function FormAnalyticsDashboard({
         ...(currentDispatch ? { dispatch: currentDispatch } : {}),
         ...(currentTvsStatus ? { tvsStatus: currentTvsStatus } : {}),
         ...(currentBiwStatus ? { biwStatus: currentBiwStatus } : {}),
-        ...(currentStatus ? { status: currentStatus } : {}),
+        ...(currentStatus && !isDerivedStatus ? { status: currentStatus } : {}),
         ...(currentSubmittedBy ? { submittedBy: currentSubmittedBy } : {}),
         ...(currentBiwReviewedBy ? { biwReviewedBy: currentBiwReviewedBy } : {}),
         ...(currentReviewedCombined ? { reviewedCombined: currentReviewedCombined } : {}),
@@ -3746,6 +3844,7 @@ export default function FormAnalyticsDashboard({
       const currentTvsStatus = searchParams.get("tvsStatus");
       const currentBiwStatus = searchParams.get("biwStatus");
       const currentStatus = searchParams.get("status");
+      const isDerivedStatus = ["rework accepted", "rework completed", "direct ok"].includes((currentStatus || "").toLowerCase().trim());
       const currentSubmittedBy = searchParams.get("submittedBy");
       const currentBiwReviewedBy = searchParams.get("biwReviewedBy");
       const currentReviewedCombined = searchParams.get("reviewedCombined");
@@ -3761,7 +3860,7 @@ export default function FormAnalyticsDashboard({
         ...(currentDispatch ? { dispatch: currentDispatch } : {}),
         ...(currentTvsStatus ? { tvsStatus: currentTvsStatus } : {}),
         ...(currentBiwStatus ? { biwStatus: currentBiwStatus } : {}),
-        ...(currentStatus ? { status: currentStatus } : {}),
+        ...(currentStatus && !isDerivedStatus ? { status: currentStatus } : {}),
         ...(currentSubmittedBy ? { submittedBy: currentSubmittedBy } : {}),
         ...(currentBiwReviewedBy ? { biwReviewedBy: currentBiwReviewedBy } : {}),
         ...(currentReviewedCombined ? { reviewedCombined: currentReviewedCombined } : {}),
@@ -3824,12 +3923,15 @@ export default function FormAnalyticsDashboard({
     if (activeTab === "dashboard" && id) {
       fetchSummary();
       fetchPerformanceTable();
-      if (!loadedTabs.has("dashboard")) {
+      const dfStart = searchParams.get("startDate") || (dateFilter.type !== "all" ? dateFilter.startDate : "");
+      const dfEnd = searchParams.get("endDate") || (dateFilter.type !== "all" ? dateFilter.endDate : "");
+      const nextDateKey = `${id}|${dateFilter.type}|${dfStart}|${dfEnd}`;
+      if (!loadedTabs.has("dashboard") || (loadedDateKeyRef.current && loadedDateKeyRef.current !== nextDateKey)) {
         fetchFullAnalyticsResponses();
         setLoadedTabs((prev) => new Set(prev).add("dashboard"));
       }
     }
-  }, [activeTab, id]);
+  }, [activeTab, id, dateFilter.type, dateFilter.startDate, dateFilter.endDate]);
 
   // ── Real-time Socket.IO Connection ───────────────────────────────────────────
   // Subscribes to the form's analytics room ('form-analytics-${id}') to receive
@@ -4271,25 +4373,35 @@ export default function FormAnalyticsDashboard({
   const getChassisOrItemId = useCallback((r: any, trackingQId: string | null): string => {
     if (!r) return "unknown";
 
+    const IGNORED_UNIT_TOKENS = new Set([
+      "TVS", "SAIFY", "LMPL", "SREEDEVI", "NAHARS",
+      "OK", "NO", "YES", "NA", "N/A", "NONE", "-", "UNKNOWN",
+      "NO RESPONSE", "PASS", "FAIL", "REWORK", "ACCEPTED", "REJECTED"
+    ]);
+
+    const extractValidUnit = (raw: any): string | null => {
+      if (raw === undefined || raw === null || raw === "") return null;
+      const candidate = typeof raw === "object"
+        ? (raw.chassisNumber || raw.value || raw.label || raw.text)
+        : raw;
+      if (candidate === undefined || candidate === null || candidate === "") return null;
+      const val = String(candidate).trim();
+      if (!val || val.length < 3 || val.length > 40) return null;
+      if (val.startsWith("data:image") || val.startsWith("{")) return null;
+      if (IGNORED_UNIT_TOKENS.has(val.toUpperCase())) return null;
+      if (!/\d/.test(val)) return null;
+      return val.toLowerCase();
+    };
+
     // 1. Explicit tracking question answer
-    if (trackingQId && r.answers && r.answers[trackingQId] !== undefined && r.answers[trackingQId] !== null && r.answers[trackingQId] !== "") {
-      const ans = r.answers[trackingQId];
-      if (typeof ans === "object") {
-        const candidate = ans.chassisNumber || ans.value || ans.label;
-        if (candidate) {
-          const val = String(candidate).trim();
-          if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) return val.toLowerCase();
-        }
-      } else {
-        const val = String(ans).trim();
-        if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image") && !val.startsWith("{")) return val.toLowerCase();
-      }
+    if (trackingQId && r.answers && r.answers[trackingQId] !== undefined) {
+      const valid = extractValidUnit(r.answers[trackingQId]);
+      if (valid) return valid;
     }
 
     // 2. Direct chassis/id properties
-    if (r.chassisNumber && typeof r.chassisNumber === "string" && r.chassisNumber.trim() !== "" && r.chassisNumber !== "-" && r.chassisNumber !== "N/A") {
-      return r.chassisNumber.trim().toLowerCase();
-    }
+    const directChassis = extractValidUnit(r.chassisNumber);
+    if (directChassis) return directChassis;
 
     // 3. Known answers key variants
     if (r.answers) {
@@ -4300,18 +4412,9 @@ export default function FormAnalyticsDashboard({
         "Chassis / VIN", "Chassis Number", "VIN", "vin", "Serial Number", "serialNumber"
       ];
       for (const k of directKeys) {
-        if (r.answers[k] !== undefined && r.answers[k] !== null && r.answers[k] !== "") {
-          const v = r.answers[k];
-          if (typeof v === "object") {
-            const candidate = v.chassisNumber || v.value || v.label;
-            if (candidate) {
-              const val = String(candidate).trim();
-              if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) return val.toLowerCase();
-            }
-          } else {
-            const val = String(v).trim();
-            if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image") && !val.startsWith("{")) return val.toLowerCase();
-          }
+        if (r.answers[k] !== undefined) {
+          const valid = extractValidUnit(r.answers[k]);
+          if (valid) return valid;
         }
       }
     }
@@ -4328,27 +4431,24 @@ export default function FormAnalyticsDashboard({
               q.type === "chassis" || q.type === "chassisWithZone" || q.type === "chassisWithoutZone" || q.type === "range" ||
               t.includes("chassis") || t.includes("identification") || t.includes("id number") || t.includes("id_number") || t.includes("id no") || t.includes("vin") || t.includes("serial");
 
-            if (isTrackOrId && r.answers[q.id] !== undefined && r.answers[q.id] !== null && r.answers[q.id] !== "") {
-              const ans = r.answers[q.id];
-              if (typeof ans === "object") {
-                const candidate = ans.chassisNumber || ans.value || ans.label;
-                if (candidate) {
-                  const val = String(candidate).trim();
-                  if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image")) return val.toLowerCase();
-                }
-              } else {
-                const val = String(ans).trim();
-                if (val && val !== "No response" && val !== "-" && !val.startsWith("data:image") && !val.startsWith("{")) {
-                  return val.toLowerCase();
-                }
-              }
+            if (isTrackOrId && r.answers[q.id] !== undefined) {
+              const valid = extractValidUnit(r.answers[q.id]);
+              if (valid) return valid;
             }
           }
         }
       }
     }
 
-    // 5. Scan any answer whose key name suggests an ID or chassis
+    // 5. Fallback scan over short answer values for a real alphanumeric unit ID
+    if (r.answers) {
+      for (const ans of Object.values(r.answers)) {
+        const valid = extractValidUnit(ans);
+        if (valid) return valid;
+      }
+    }
+
+    // 5b. Scan any answer whose key name suggests an ID or chassis
     if (r.answers) {
       for (const [key, val] of Object.entries(r.answers)) {
         if (!val || typeof val === "object" || (typeof val !== "string" && typeof val !== "number")) continue;
@@ -6007,7 +6107,11 @@ export default function FormAnalyticsDashboard({
     });
   };
 
-  const filteredResponses = useMemo(() => {
+  // Scope-filtered responses: applies date, inspector, and location filters (overall form scope),
+  // but explicitly EXCLUDES table-level column filters (__status, __dispatch) and quick search.
+  // This guarantees that top KPI cards and overall inspection charts never collapse to 0 when
+  // the user filters the responses table by a specific status.
+  const scopeFilteredResponses = useMemo(() => {
     let result = baseFilteredResponses;
 
     // 0. Filter by target identification / chassis units if specified in URL
@@ -6073,6 +6177,12 @@ export default function FormAnalyticsDashboard({
       );
     }
 
+    return result;
+  }, [baseFilteredResponses, targetUnitsSet, dateFilter, selectedInspectorForTrend]);
+
+  const filteredResponses = useMemo(() => {
+    let result = scopeFilteredResponses;
+
     // 3. Overall search term filter — uses deferredSearchTerm so the input
     //    remains responsive while React batches the expensive filter pass.
     if (deferredSearchTerm.trim() !== "") {
@@ -6131,7 +6241,7 @@ export default function FormAnalyticsDashboard({
     }
 
     return result;
-  }, [baseFilteredResponses, dateFilter, selectedInspectorForTrend, deferredSearchTerm, responseStatuses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet, targetUnitsSet]);
+  }, [scopeFilteredResponses, deferredSearchTerm, responseStatuses, columnFilters, chassisAttemptRanks, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet, targetUnitsSet]);
 
   useEffect(() => {
     setResponsesPage(1);
@@ -6493,18 +6603,18 @@ export default function FormAnalyticsDashboard({
   }, [totalResponsesCount]);
 
   const analytics = useMemo(() => {
-    const total = filteredResponses.length;
-    const pending = filteredResponses.filter(
+    const total = scopeFilteredResponses.length;
+    const pending = scopeFilteredResponses.filter(
       (r) => r.status === "pending" || !r.status,
     ).length;
-    const verified = filteredResponses.filter(
+    const verified = scopeFilteredResponses.filter(
       (r) => r.status === "verified",
     ).length;
-    const rejected = filteredResponses.filter(
+    const rejected = scopeFilteredResponses.filter(
       (r) => r.status === "rejected",
     ).length;
 
-    const recentResponses = filteredResponses
+    const recentResponses = scopeFilteredResponses
       .filter((r) => getResponseTimestamp(r))
       .sort((a, b) => {
         const timestampA = getResponseTimestamp(a);
@@ -6518,8 +6628,8 @@ export default function FormAnalyticsDashboard({
       })
       .slice(0, 5);
 
-    // 🔥 FIX: Use filtered responses date range, not today's date
-    const responseTrend = filteredResponses.reduce(
+    // 🔥 FIX: Use scope-filtered responses date range, not today's date
+    const responseTrend = scopeFilteredResponses.reduce(
       (acc: Record<string, number>, response) => {
         const timestamp = getResponseTimestamp(response);
         if (timestamp) {
@@ -6575,7 +6685,7 @@ export default function FormAnalyticsDashboard({
       dateRange, // ← Use this instead of last30Days
       percentageData,
     };
-  }, [filteredResponses, dateFilter.startDate, dateFilter.endDate, dateFilter.type]);
+  }, [scopeFilteredResponses, dateFilter.startDate, dateFilter.endDate, dateFilter.type]);
 
   const responseTrendSummary = useMemo(() => {
     const dates = analytics?.dateRange || [];
@@ -6609,34 +6719,11 @@ export default function FormAnalyticsDashboard({
     };
   }, [analytics.dateRange, analytics.responseTrend]);
 
-  // qualityChartResponses and sectionChartResponses used to be computed
-  // separately, but they apply the exact same date-filter logic to the same
-  // source array, making them identical. They were then each fed into a
-  // separate (expensive, O(sections * questions * responses)) call to
-  // computeSectionPerformanceStats, tripling that work for no reason. Now
-  // computed once and shared.
+  // qualityChartResponses and sectionChartResponses use scopeFilteredResponses
+  // (scoped to date range, location, and inspector), unaffected by table column filters.
   const dateFilteredResponses = useMemo(() => {
-    let result = [...filteredResponses];
-    if (dateFilter.startDate || dateFilter.endDate) {
-      result = result.filter((response) => {
-        const timestamp = getResponseTimestamp(response);
-        if (!timestamp) return false;
-        const responseDate = toLocalDateString(timestamp);
-        if (dateFilter.startDate && dateFilter.endDate) {
-          return (
-            responseDate >= dateFilter.startDate &&
-            responseDate <= dateFilter.endDate
-          );
-        } else if (dateFilter.startDate) {
-          return responseDate >= dateFilter.startDate;
-        } else if (dateFilter.endDate) {
-          return responseDate <= dateFilter.endDate;
-        }
-        return true;
-      });
-    }
-    return result;
-  }, [filteredResponses, dateFilter.startDate, dateFilter.endDate]);
+    return scopeFilteredResponses;
+  }, [scopeFilteredResponses]);
 
   const qualityChartResponses = dateFilteredResponses;
   const sectionChartResponses = dateFilteredResponses;
@@ -7521,7 +7608,16 @@ export default function FormAnalyticsDashboard({
     let rawBiwReviewed = 0;
     let rawBiwAccepted = 0;
     let rawBiwDefects = 0;
+    let tvsReviewed = 0;
+    let tvsAccepted = 0;
+    let tvsDefects = 0;
     let nonDispatched = 0;
+
+    const tvsReviewMap = new Map<string, any>();
+    tvsReviews.forEach((tr: any) => {
+      const rid = String(tr.responseId || tr.response_id || tr.id || tr._id || "");
+      if (rid) tvsReviewMap.set(rid, tr);
+    });
 
     // Track active rework per chassis so no pending rework unit is missed
     const activeReworkChassis = new Set<string>();
@@ -7531,8 +7627,11 @@ export default function FormAnalyticsDashboard({
     const allUnitChassis = new Set<string>();
     let nonChassisBiwReviewed = 0;
 
-    // If full responses dataset is still streaming, compute stats from available table responses
-    const statsSource = responses.length > 0 ? filteredResponses : tableResponses;
+    // If full responses dataset is still streaming, compute stats from available table responses.
+    // Use scopeFilteredResponses (scoped to date range, location, and inspector) so that
+    // table-level column filters (__status, __dispatch) do not collapse the top KPI cards or
+    // overall inspection charts to 0.
+    const statsSource = responses.length > 0 ? scopeFilteredResponses : tableResponses;
 
     statsSource.forEach((response) => {
       const respId = response.id || (response as any)._id;
@@ -7596,12 +7695,11 @@ export default function FormAnalyticsDashboard({
         pending++;
       }
 
-      // Check if response has completed BIW review
+      // Check if response has completed BIW review (strictly BIW review, never TVS review)
       const biwStatus = String(
         response.biwReview?.status ||
         reviewedBy[response.id]?.status ||
         reviewedBy[response.id]?.option ||
-        (response as any).review?.status ||
         ""
       ).trim().toLowerCase();
 
@@ -7619,6 +7717,34 @@ export default function FormAnalyticsDashboard({
           rawBiwAccepted++;
         } else if (biwStatus === "rework" || biwStatus === "reworked" || biwStatus === "rejected") {
           rawBiwDefects++;
+        }
+      }
+
+      // Check if response has completed TVS review (from embedded response.review or bulk tvsReviews)
+      const trEntry = respId ? tvsReviewMap.get(String(respId)) : null;
+      const tvsStatus = String(
+        (response as any).review?.reviewOption ||
+        (response as any).review?.status ||
+        trEntry?.reviewOption ||
+        trEntry?.option ||
+        trEntry?.status ||
+        ""
+      ).trim().toLowerCase();
+
+      const hasTvsReview =
+        Boolean(tvsStatus) &&
+        tvsStatus !== "pending review" &&
+        tvsStatus !== "no review yet" &&
+        tvsStatus !== "pending" &&
+        tvsStatus !== "none" &&
+        tvsStatus !== "-";
+
+      if (hasTvsReview) {
+        tvsReviewed++;
+        if (tvsStatus === "accepted") {
+          tvsAccepted++;
+        } else if (tvsStatus === "rejected" || tvsStatus.includes("rework")) {
+          tvsDefects++;
         }
       }
 
@@ -7665,12 +7791,8 @@ export default function FormAnalyticsDashboard({
       }
     });
 
-    // If chassis tracking is present, active rework equals distinct chassis still waiting for acceptance.
-    // If no chassis tracking or chassis-less responses, calculate net active rework (raw - completed).
-    const reworked =
-      activeReworkChassis.size > 0
-        ? activeReworkChassis.size
-        : Math.max(0, rawReworked - reworkCompleted);
+    // Keep submission-level rework count so Direct Ok + Rework Accepted + Rework + Rejected = Total Submissions
+    const reworked = rawReworked;
 
     // If chassis tracking is present (we identified units with valid chassis),
     // distinct BIW reviewed equals reviewed distinct chassis + non-chassis reviewed responses.
@@ -7696,8 +7818,11 @@ export default function FormAnalyticsDashboard({
       rawBiwReviewed,
       biwAccepted: rawBiwAccepted,
       biwDefects: rawBiwDefects,
+      tvsReviewed,
+      tvsAccepted,
+      tvsDefects,
     };
-  }, [filteredResponses, responseStatuses, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet, getChassisOrItemId, reviewedBy]);
+  }, [scopeFilteredResponses, responseStatuses, tableDisplayStatuses, chassisQuestionId, resolvedReworkChassisSet, getChassisOrItemId, reviewedBy, tvsReviews]);
 
   const totalPieChartData = useMemo(() => {
     const directOk = inspectionStats.accepted;
@@ -7797,68 +7922,18 @@ export default function FormAnalyticsDashboard({
       return [];
     }
 
-    console.log("=== defectChartResponses DEBUG ===");
-    console.log("filteredResponses count:", filteredResponses.length);
-
-    // Check how many responses have BIW reviews
-    const withBiw = filteredResponses.filter(r => r.biwReview?.flaggedQuestions?.length > 0);
-    console.log("Responses with BIW in filteredResponses:", withBiw.length);
-
-    let result = [...filteredResponses];
-
-    if (dateFilter.startDate || dateFilter.endDate) {
-      result = result.filter((response) => {
-        const timestamp = getResponseTimestamp(response);
-        if (!timestamp) return false;
-        const responseDate = toLocalDateString(timestamp);
-
-        if (dateFilter.startDate && dateFilter.endDate) {
-          return (
-            responseDate >= dateFilter.startDate &&
-            responseDate <= dateFilter.endDate
-          );
-        } else if (dateFilter.startDate) {
-          return responseDate >= dateFilter.startDate;
-        } else if (dateFilter.endDate) {
-          return responseDate <= dateFilter.endDate;
-        }
-        return true;
-      });
-    }
-
+    let result = [...scopeFilteredResponses];
     result.sort((a, b) => {
       const dateA = new Date(getResponseTimestamp(a) || 0).getTime();
       const dateB = new Date(getResponseTimestamp(b) || 0).getTime();
       return dateB - dateA;
     });
 
-    // REMOVE the slice - use ALL responses
-    console.log("Final result count:", result.length);
-    return result;  // Return ALL responses
-  }, [filteredResponses, dateFilter.startDate, dateFilter.endDate]);
+    return result;
+  }, [scopeFilteredResponses, analyticsView]);
+
   const trendChartResponses = useMemo(() => {
-    let result = [...filteredResponses];
-
-    if (dateFilter.startDate || dateFilter.endDate) {
-      result = result.filter((response) => {
-        const timestamp = getResponseTimestamp(response);
-        if (!timestamp) return false;
-        const responseDate = toLocalDateString(timestamp);
-
-        if (dateFilter.startDate && dateFilter.endDate) {
-          return (
-            responseDate >= dateFilter.startDate &&
-            responseDate <= dateFilter.endDate
-          );
-        } else if (dateFilter.startDate) {
-          return responseDate >= dateFilter.startDate;
-        } else if (dateFilter.endDate) {
-          return responseDate <= dateFilter.endDate;
-        }
-        return true;
-      });
-    }
-
+    let result = [...scopeFilteredResponses];
     result.sort((a, b) => {
       const dateA = new Date(getResponseTimestamp(a) || 0).getTime();
       const dateB = new Date(getResponseTimestamp(b) || 0).getTime();
@@ -7866,7 +7941,7 @@ export default function FormAnalyticsDashboard({
     });
 
     return result;
-  }, [filteredResponses, dateFilter.startDate, dateFilter.endDate]);
+  }, [scopeFilteredResponses]);
 
   const chartQuestionPerformanceStats = useMemo(() => {
     if (analyticsView !== "dashboard" && analyticsView !== "overall") {
@@ -7877,99 +7952,37 @@ export default function FormAnalyticsDashboard({
 
 
 
-  const OverallQualityPieChart = () => (
-    <OverallQualityPieChartComponent
-      totalPieChartData={totalPieChartData}
-      selectedInspectorForTrend={selectedInspectorForTrend}
-      tvsReviews={tvsReviews}
-      inspectionStats={inspectionStats}
-      onNavigateToResponses={(filterType?: string, filterValue?: string) => {
-        setAnalyticsView("responses");
-        setActiveTab("responses");
-        if (filterType === "biw" && filterValue) {
-          startFilterTransition(() => {
-            if (filterValue === "all") {
-              setColumnFilters((prev) => ({
-                ...prev,
-                __biwReview: ["Accepted", "Reworked", "Rejected"],
-              }));
-            } else if (filterValue === "pending") {
-              setColumnFilters((prev) => ({
-                ...prev,
-                __biwReview: ["No review yet"],
-              }));
-            } else {
-              setColumnFilters((prev) => ({
-                ...prev,
-                __biwReview: [filterValue],
-              }));
-            }
-          });
-        } else if (filterType) {
-          startFilterTransition(() => {
-            setColumnFilters((prev) => ({
-              ...prev,
-              __dispatch: [filterType],
-            }));
-          });
+  const handleNavigateToResponsesFromPie = useCallback((filterType?: string, filterValue?: string) => {
+    setAnalyticsView("responses");
+    setActiveTab("responses");
+    if (filterType === "biw" && filterValue) {
+      startFilterTransition(() => {
+        if (filterValue === "all") {
+          setColumnFilters((prev) => ({
+            ...prev,
+            __biwReview: ["Accepted", "Reworked", "Rejected"],
+          }));
+        } else if (filterValue === "pending") {
+          setColumnFilters((prev) => ({
+            ...prev,
+            __biwReview: ["No review yet"],
+          }));
+        } else {
+          setColumnFilters((prev) => ({
+            ...prev,
+            __biwReview: [filterValue],
+          }));
         }
-      }}
-    />
-  );
-
-  const QuestionStatusDistributionChart = () => (
-    <QuestionStatusDistributionChartComponent
-      chartQuestionPerformanceStats={chartQuestionPerformanceStats}
-      chartSortOrder={chartSortOrder}
-      setChartSortOrder={setChartSortOrder}
-      chartOrientation={chartOrientation}
-      setChartOrientation={setChartOrientation}
-      complianceLabels={complianceLabels}
-      commonDateRangeLabel={commonDateRangeLabel}
-    />
-  );
-
-  const BiwDefectDistributionChart = () => (
-    <BiwDefectDistributionChartComponent
-      defectChartResponses={defectChartResponses}
-      responses={responses}
-      tableResponses={tableResponses}
-      form={form}
-      chartSortOrder={chartSortOrder}
-      setChartSortOrder={setChartSortOrder}
-      chartOrientation={chartOrientation}
-      setChartOrientation={setChartOrientation}
-      dateFilter={dateFilter}
-      commonDateRangeLabel={commonDateRangeLabel}
-    />
-  );
-
-  const TvsDefectDistributionChart = () => (
-    <TvsDefectDistributionChartComponent
-      form={form}
-      tvsReviews={tvsReviews}
-      defectChartResponses={defectChartResponses}
-      responses={responses}
-      tableResponses={tableResponses}
-      chartSortOrder={chartSortOrder}
-      setChartSortOrder={setChartSortOrder}
-      chartOrientation={chartOrientation}
-      setChartOrientation={setChartOrientation}
-      dateFilter={dateFilter}
-      commonDateRangeLabel={commonDateRangeLabel}
-    />
-  );
-
-  const TimeBasedPerformanceGraph = () => (
-    <TimeBasedPerformanceGraphComponent
-      timeSeriesView={timeSeriesView}
-      setTimeSeriesView={setTimeSeriesView}
-      trendChartResponses={trendChartResponses}
-      responseStatuses={responseStatuses}
-      dateFilter={dateFilter}
-      darkMode={darkMode}
-    />
-  );
+      });
+    } else if (filterType) {
+      startFilterTransition(() => {
+        setColumnFilters((prev) => ({
+          ...prev,
+          __dispatch: [filterType],
+        }));
+      });
+    }
+  }, []);
 
   const InspectorPerformanceChart = () => {
     const currentUserScore = performanceScores[user?._id || ""] || 100;
@@ -7985,24 +7998,6 @@ export default function FormAnalyticsDashboard({
       </div>
     );
   };
-
-  const DirectAcceptedPerformanceGraph = () => (
-    <DirectAcceptedPerformanceGraphComponent
-      dateFilteredResponses={dateFilteredResponses}
-      responseStatuses={responseStatuses}
-      dateFilter={dateFilter}
-      darkMode={darkMode}
-    />
-  );
-
-  const InspectionStatusLineChart = () => (
-    <InspectionStatusLineChartComponent
-      form={form}
-      dateFilteredResponses={dateFilteredResponses}
-      dateFilter={dateFilter}
-      darkMode={darkMode}
-    />
-  );
 
   const getSectionAnalyticsData = (): SectionAnalyticsData[] => {
     if (!form?.sections || !form.sections.length) {
@@ -8351,19 +8346,6 @@ export default function FormAnalyticsDashboard({
       setIsDeleting(false);
     }
   };
-  const PerformanceTableBarChart = () => (
-    <PerformanceTableBarChartComponent
-      performanceTableData={performanceTableData}
-      darkMode={darkMode}
-    />
-  );
-
-  const BiwReviewTableBarChart = () => (
-    <BiwReviewTableBarChartComponent
-      biwReviewTableData={biwReviewTableData}
-      darkMode={darkMode}
-    />
-  );
 
   const handleBulkDeleteResponses = async () => {
     if (selectedResponseIds.length === 0) return;
@@ -8448,7 +8430,7 @@ export default function FormAnalyticsDashboard({
     />
   );
 
-  if (loading && !form) {
+  if ((loading && !form) || (analyticsView === "dashboard" && analyticsResponsesLoading && responses.length === 0)) {
     return (
       <div className="min-h-screen bg-gray-50/50 dark:bg-gray-900 p-4 sm:p-6 md:p-8 space-y-6 animate-pulse">
         {/* Header Skeleton */}
@@ -8651,7 +8633,7 @@ export default function FormAnalyticsDashboard({
                   </span>
                 ) : (
                   <>
-                    Showing <strong className="text-gray-900 dark:text-white font-bold">{filteredResponses.length}</strong> of {responses.length} inspections
+                    Showing <strong className="text-gray-900 dark:text-white font-bold">{scopeFilteredResponses.length}</strong> of {responses.length} inspections
                   </>
                 )}
               </span>
@@ -8930,7 +8912,13 @@ export default function FormAnalyticsDashboard({
                   </div>
 
                   {/* Pie Chart - COMPACT */}
-                  <OverallQualityPieChart />
+                  <OverallQualityPieChartComponent
+                    totalPieChartData={totalPieChartData}
+                    selectedInspectorForTrend={selectedInspectorForTrend}
+                    tvsReviews={tvsReviews}
+                    inspectionStats={inspectionStats}
+                    onNavigateToResponses={handleNavigateToResponsesFromPie}
+                  />
                 </div>
               </div>
 
@@ -8940,21 +8928,75 @@ export default function FormAnalyticsDashboard({
                 trendChartResponses.length > 0) && (
                   <div className="w-full" id="question-distribution-card">
                     <div className="w-full space-y-6">
-                      <InspectionStatusLineChart />
-                      <QuestionStatusDistributionChart />
-                      <BiwDefectDistributionChart />
-                      <TvsDefectDistributionChart />
-                      <TimeBasedPerformanceGraph />
-                      <DirectAcceptedPerformanceGraph />
+                      <InspectionStatusLineChartComponent
+                        form={form}
+                        dateFilteredResponses={dateFilteredResponses}
+                        dateFilter={dateFilter}
+                        darkMode={darkMode}
+                      />
+                      <QuestionStatusDistributionChartComponent
+                        chartQuestionPerformanceStats={chartQuestionPerformanceStats}
+                        chartSortOrder={chartSortOrder}
+                        setChartSortOrder={setChartSortOrder}
+                        chartOrientation={chartOrientation}
+                        setChartOrientation={setChartOrientation}
+                        complianceLabels={complianceLabels}
+                        commonDateRangeLabel={commonDateRangeLabel}
+                      />
+                      <BiwDefectDistributionChartComponent
+                        defectChartResponses={defectChartResponses}
+                        responses={responses}
+                        tableResponses={tableResponses}
+                        form={form}
+                        chartSortOrder={chartSortOrder}
+                        setChartSortOrder={setChartSortOrder}
+                        chartOrientation={chartOrientation}
+                        setChartOrientation={setChartOrientation}
+                        dateFilter={dateFilter}
+                        commonDateRangeLabel={commonDateRangeLabel}
+                      />
+                      <TvsDefectDistributionChartComponent
+                        form={form}
+                        tvsReviews={tvsReviews}
+                        defectChartResponses={defectChartResponses}
+                        responses={responses}
+                        tableResponses={tableResponses}
+                        chartSortOrder={chartSortOrder}
+                        setChartSortOrder={setChartSortOrder}
+                        chartOrientation={chartOrientation}
+                        setChartOrientation={setChartOrientation}
+                        dateFilter={dateFilter}
+                        commonDateRangeLabel={commonDateRangeLabel}
+                      />
+                      <TimeBasedPerformanceGraphComponent
+                        timeSeriesView={timeSeriesView}
+                        setTimeSeriesView={setTimeSeriesView}
+                        trendChartResponses={trendChartResponses}
+                        responseStatuses={responseStatuses}
+                        dateFilter={dateFilter}
+                        darkMode={darkMode}
+                      />
+                      <DirectAcceptedPerformanceGraphComponent
+                        dateFilteredResponses={dateFilteredResponses}
+                        responseStatuses={responseStatuses}
+                        dateFilter={dateFilter}
+                        darkMode={darkMode}
+                      />
                       {renderSummaryTable()}
                       {renderPerformanceTable()}
                       {renderBiwReviewTable()}
                       <InspectorPerformanceChart />
 
-                      <PerformanceTableBarChart />
+                      <PerformanceTableBarChartComponent
+                        performanceTableData={performanceTableData}
+                        darkMode={darkMode}
+                      />
 
                       {/* ✅ NEW: BIW Review Table Bar Chart */}
-                      <BiwReviewTableBarChart />
+                      <BiwReviewTableBarChartComponent
+                        biwReviewTableData={biwReviewTableData}
+                        darkMode={darkMode}
+                      />
                     </div>
                   </div>
                 )}
@@ -9747,7 +9789,7 @@ export default function FormAnalyticsDashboard({
                           title="Click to filter by Accepted / Direct OK"
                         >
                           <span className="text-[10px] text-green-700 dark:text-green-400 font-bold uppercase truncate" title="Accepted / Direct OK">
-                            {complianceLabels.yes || "Direct Ok"}
+                            Direct Ok
                           </span>
                           <div className="flex items-baseline justify-between mt-0.5">
                             <span className="text-lg font-black text-green-600 dark:text-green-400">

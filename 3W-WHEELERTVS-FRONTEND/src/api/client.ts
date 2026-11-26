@@ -678,16 +678,9 @@ class ApiClient {
     this.setToken(data.token);
     
     // Idea A: Instantly inject backend prefetched data into memory cache!
-    // Dashboard components reading `apiClient.getCachedData()` will get 0ms renders.
+    // Note: Do NOT cache initialData.forms under /forms because initialData.forms lacks aggregated response counts (responseCount)
     if (data.initialData) {
       const now = Date.now();
-      if (data.initialData.forms && data.tenant?.id) {
-        // Cache the specific forms request Dashboard uses
-        this.memoryCache.set(`api_cache:/forms?tenantId=${data.tenant.id}&limit=100`, { timestamp: now, data: { forms: data.initialData.forms } });
-        // And the general one
-        this.memoryCache.set(`api_cache:/forms?limit=100`, { timestamp: now, data: { forms: data.initialData.forms } });
-        this.memoryCache.set(`api_cache:/forms`, { timestamp: now, data: { forms: data.initialData.forms } });
-      }
       if (data.initialData.myReviewStats) {
         this.memoryCache.set(`api_cache:/analytics/my-review-stats`, { timestamp: now, data: data.initialData.myReviewStats });
       }
@@ -3834,8 +3827,8 @@ class ApiClient {
     });
 
     if (totalPages > 1) {
-      // Fetch remaining pages in small parallel batches of 2 for smooth UI streaming, or larger batches (6) for fast exports
-      const batchSize = options?.onPage ? 2 : 6;
+      // Fetch remaining pages in parallel batches of 5 for fast streaming, or 6 for exports
+      const batchSize = options?.onPage ? 5 : 6;
       const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
 
       for (let i = 0; i < remainingPages.length; i += batchSize) {

@@ -4276,7 +4276,7 @@ export const getAllResponses = async (req, res) => {
           if (fDoc.id && !qIds.includes(fDoc.id)) qIds.push(fDoc.id);
           if (fDoc._id && !qIds.includes(fDoc._id.toString())) qIds.push(fDoc._id.toString());
         }
-      } catch (_) {}
+      } catch (_) { }
       query.questionId = qIds.length === 1 ? qIds[0] : { $in: qIds };
     }
 
@@ -5679,7 +5679,7 @@ export const getResponsesByForm = async (req, res) => {
         query.$and.push({
           $and: [
             { status: { $not: { $regex: 'rework|reject|fail', $options: 'i' } } },
-            { $not: answersStatusMatch('^(rework|reworked|defect|not ok|rejected|no|fail)$|re-rework') }
+            { $nor: [answersStatusMatch('^(rework|reworked|defect|not ok|rejected|no|fail)$|re-rework')] }
           ]
         });
       }
@@ -5708,13 +5708,8 @@ export const getResponsesByForm = async (req, res) => {
         const eDateBuffer = new Date(eDate.getTime() + 12 * 3600 * 1000);
         dateFilterQuery.$lte = eDateBuffer;
       }
-      if (!query.$and) query.$and = [];
-      query.$and.push({
-        $or: [
-          { createdAt: dateFilterQuery },
-          { submittedAt: dateFilterQuery }
-        ]
-      });
+      // Filter directly on indexed createdAt so MongoDB uses { questionId, createdAt } index
+      query.createdAt = dateFilterQuery;
     }
 
     // Apply granular chassis filtering for chassis-shared users BEFORE querying MongoDB
@@ -6987,13 +6982,8 @@ export const exportResponses = async (req, res) => {
         const eDateBuffer = new Date(eDate.getTime() + 12 * 3600 * 1000);
         dateFilterQuery.$lte = eDateBuffer;
       }
-      if (!query.$and) query.$and = [];
-      query.$and.push({
-        $or: [
-          { createdAt: dateFilterQuery },
-          { submittedAt: dateFilterQuery }
-        ]
-      });
+      // Filter directly on indexed createdAt so MongoDB uses { questionId, createdAt } index
+      query.createdAt = dateFilterQuery;
     }
 
     let responses = await Response.find(query)
@@ -7929,8 +7919,8 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           const mainTenantObjId = (targetMainResp.tenantId && mongoose.Types.ObjectId.isValid(targetMainResp.tenantId))
             ? new mongoose.Types.ObjectId(targetMainResp.tenantId)
             : (req.user?.tenantId && mongoose.Types.ObjectId.isValid(req.user.tenantId)
-                ? new mongoose.Types.ObjectId(req.user.tenantId)
-                : (mainForm?.tenantId || null));
+              ? new mongoose.Types.ObjectId(req.user.tenantId)
+              : (mainForm?.tenantId || null));
 
           try {
             await Review.findOneAndUpdate(
@@ -8015,8 +8005,8 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
           const childTenantObjId = (targetChildResp.tenantId && mongoose.Types.ObjectId.isValid(targetChildResp.tenantId))
             ? new mongoose.Types.ObjectId(targetChildResp.tenantId)
             : (req.user?.tenantId && mongoose.Types.ObjectId.isValid(req.user.tenantId)
-                ? new mongoose.Types.ObjectId(req.user.tenantId)
-                : (childForm?.tenantId || null));
+              ? new mongoose.Types.ObjectId(req.user.tenantId)
+              : (childForm?.tenantId || null));
 
           try {
             await Review.findOneAndUpdate(

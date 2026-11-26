@@ -4420,37 +4420,43 @@ export const getQualitySummary = async (req, res) => {
                   $sum: {
                     $cond: [
                       {
-                        $or: [
-                          { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
-                          { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
-                          { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
-                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } },
+                        $and: [
+                          { $ne: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } }] },
                           {
-                            $anyElementTrue: {
-                              $map: {
-                                input: { $objectToArray: { $ifNull: ['$answers', {}] } },
-                                as: 'ans',
-                                in: {
-                                  $regexMatch: {
-                                    input: {
-                                      $toLower: {
-                                        $ifNull: [
-                                          '$$ans.v.status',
-                                          {
-                                            $cond: [
-                                              { $eq: [{ $type: '$$ans.v' }, 'string'] },
-                                              '$$ans.v',
-                                              ''
+                            $or: [
+                              { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                              { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
+                              { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } },
+                              {
+                                $anyElementTrue: {
+                                  $map: {
+                                    input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                                    as: 'ans',
+                                    in: {
+                                      $regexMatch: {
+                                        input: {
+                                          $toLower: {
+                                            $ifNull: [
+                                              '$$ans.v.status',
+                                              {
+                                                $cond: [
+                                                  { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                                  '$$ans.v',
+                                                  ''
+                                                ]
+                                              }
                                             ]
                                           }
-                                        ]
+                                        },
+                                        regex: 'rework|rejected|defect|fail|not ok'
                                       }
-                                    },
-                                    regex: 'rework|rejected|defect|fail|not ok'
+                                    }
                                   }
                                 }
                               }
-                            }
+                            ]
                           }
                         ]
                       },
@@ -4463,11 +4469,17 @@ export const getQualitySummary = async (req, res) => {
                   $sum: {
                     $cond: [
                       {
-                        $or: [
-                          { $eq: ['$biwReview.status', 'Reworked'] },
-                          { $in: ['$review.status', ['Rework', 'Reworked']] },
-                          { $in: ['$review.reviewOption', ['Rework', 'Reworked']] },
-                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
+                        $and: [
+                          { $ne: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } }] },
+                          {
+                            $or: [
+                              { $eq: ['$biwReview.status', 'Reworked'] },
+                              { $in: ['$review.status', ['Rework', 'Reworked']] },
+                              { $in: ['$review.reviewOption', ['Rework', 'Reworked']] },
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
+                            ]
+                          }
                         ]
                       },
                       1,
@@ -4478,7 +4490,49 @@ export const getQualitySummary = async (req, res) => {
                 reworkAcceptedCount: {
                   $sum: {
                     $cond: [
-                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                      {
+                        $or: [
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                          {
+                            $and: [
+                              { $eq: ['$isDispatched', true] },
+                              {
+                                $or: [
+                                  { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject|defect|fail' } },
+                                  { $in: ['$biwReview.status', ['Reworked', 'Rejected']] },
+                                  {
+                                    $anyElementTrue: {
+                                      $map: {
+                                        input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                                        as: 'ans',
+                                        in: {
+                                          $regexMatch: {
+                                            input: {
+                                              $toLower: {
+                                                $ifNull: [
+                                                  '$$ans.v.status',
+                                                  {
+                                                    $cond: [
+                                                      { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                                      '$$ans.v',
+                                                      ''
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            regex: 'rework|rejected|defect|fail|not ok'
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -4488,11 +4542,17 @@ export const getQualitySummary = async (req, res) => {
                   $sum: {
                     $cond: [
                       {
-                        $or: [
-                          { $eq: ['$biwReview.status', 'Rejected'] },
-                          { $eq: ['$review.status', 'Rejected'] },
-                          { $eq: ['$review.reviewOption', 'Rejected'] },
-                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'reject' } }
+                        $and: [
+                          { $ne: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } }] },
+                          {
+                            $or: [
+                              { $eq: ['$biwReview.status', 'Rejected'] },
+                              { $eq: ['$review.status', 'Rejected'] },
+                              { $eq: ['$review.reviewOption', 'Rejected'] },
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'reject' } }
+                            ]
+                          }
                         ]
                       },
                       1,
@@ -4644,37 +4704,43 @@ export const getQualitySummary = async (req, res) => {
                   $sum: {
                     $cond: [
                       {
-                        $or: [
-                          { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
-                          { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
-                          { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
-                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } },
+                        $and: [
+                          { $ne: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } }] },
                           {
-                            $anyElementTrue: {
-                              $map: {
-                                input: { $objectToArray: { $ifNull: ['$answers', {}] } },
-                                as: 'ans',
-                                in: {
-                                  $regexMatch: {
-                                    input: {
-                                      $toLower: {
-                                        $ifNull: [
-                                          '$$ans.v.status',
-                                          {
-                                            $cond: [
-                                              { $eq: [{ $type: '$$ans.v' }, 'string'] },
-                                              '$$ans.v',
-                                              ''
+                            $or: [
+                              { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                              { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
+                              { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } },
+                              {
+                                $anyElementTrue: {
+                                  $map: {
+                                    input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                                    as: 'ans',
+                                    in: {
+                                      $regexMatch: {
+                                        input: {
+                                          $toLower: {
+                                            $ifNull: [
+                                              '$$ans.v.status',
+                                              {
+                                                $cond: [
+                                                  { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                                  '$$ans.v',
+                                                  ''
+                                                ]
+                                              }
                                             ]
                                           }
-                                        ]
+                                        },
+                                        regex: 'rework|rejected|defect|fail|not ok'
                                       }
-                                    },
-                                    regex: 'rework|rejected|defect|fail|not ok'
+                                    }
                                   }
                                 }
                               }
-                            }
+                            ]
                           }
                         ]
                       },
@@ -4687,11 +4753,17 @@ export const getQualitySummary = async (req, res) => {
                   $sum: {
                     $cond: [
                       {
-                        $or: [
-                          { $eq: ['$biwReview.status', 'Reworked'] },
-                          { $in: ['$review.status', ['Rework', 'Reworked']] },
-                          { $in: ['$review.reviewOption', ['Rework', 'Reworked']] },
-                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
+                        $and: [
+                          { $ne: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } }] },
+                          {
+                            $or: [
+                              { $eq: ['$biwReview.status', 'Reworked'] },
+                              { $in: ['$review.status', ['Rework', 'Reworked']] },
+                              { $in: ['$review.reviewOption', ['Rework', 'Reworked']] },
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
+                            ]
+                          }
                         ]
                       },
                       1,
@@ -4702,7 +4774,49 @@ export const getQualitySummary = async (req, res) => {
                 reworkAcceptedCount: {
                   $sum: {
                     $cond: [
-                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                      {
+                        $or: [
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                          {
+                            $and: [
+                              { $eq: ['$isDispatched', true] },
+                              {
+                                $or: [
+                                  { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject|defect|fail' } },
+                                  { $in: ['$biwReview.status', ['Reworked', 'Rejected']] },
+                                  {
+                                    $anyElementTrue: {
+                                      $map: {
+                                        input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                                        as: 'ans',
+                                        in: {
+                                          $regexMatch: {
+                                            input: {
+                                              $toLower: {
+                                                $ifNull: [
+                                                  '$$ans.v.status',
+                                                  {
+                                                    $cond: [
+                                                      { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                                      '$$ans.v',
+                                                      ''
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            regex: 'rework|rejected|defect|fail|not ok'
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -4712,11 +4826,17 @@ export const getQualitySummary = async (req, res) => {
                   $sum: {
                     $cond: [
                       {
-                        $or: [
-                          { $eq: ['$biwReview.status', 'Rejected'] },
-                          { $eq: ['$review.status', 'Rejected'] },
-                          { $eq: ['$review.reviewOption', 'Rejected'] },
-                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'reject' } }
+                        $and: [
+                          { $ne: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } }] },
+                          {
+                            $or: [
+                              { $eq: ['$biwReview.status', 'Rejected'] },
+                              { $eq: ['$review.status', 'Rejected'] },
+                              { $eq: ['$review.reviewOption', 'Rejected'] },
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'reject' } }
+                            ]
+                          }
                         ]
                       },
                       1,
@@ -4803,37 +4923,43 @@ export const getQualitySummary = async (req, res) => {
                   $sum: {
                     $cond: [
                       {
-                        $or: [
-                          { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
-                          { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
-                          { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
-                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } },
+                        $and: [
+                          { $ne: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } }] },
                           {
-                            $anyElementTrue: {
-                              $map: {
-                                input: { $objectToArray: { $ifNull: ['$answers', {}] } },
-                                as: 'ans',
-                                in: {
-                                  $regexMatch: {
-                                    input: {
-                                      $toLower: {
-                                        $ifNull: [
-                                          '$$ans.v.status',
-                                          {
-                                            $cond: [
-                                              { $eq: [{ $type: '$$ans.v' }, 'string'] },
-                                              '$$ans.v',
-                                              ''
+                            $or: [
+                              { $in: ['$biwReview.status', ['Rejected', 'Reworked']] },
+                              { $in: ['$review.status', ['Rejected', 'Rework', 'Reworked']] },
+                              { $in: ['$review.reviewOption', ['Rejected', 'Rework', 'Reworked']] },
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|rejected|defect|fail' } },
+                              {
+                                $anyElementTrue: {
+                                  $map: {
+                                    input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                                    as: 'ans',
+                                    in: {
+                                      $regexMatch: {
+                                        input: {
+                                          $toLower: {
+                                            $ifNull: [
+                                              '$$ans.v.status',
+                                              {
+                                                $cond: [
+                                                  { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                                  '$$ans.v',
+                                                  ''
+                                                ]
+                                              }
                                             ]
                                           }
-                                        ]
+                                        },
+                                        regex: 'rework|rejected|defect|fail|not ok'
                                       }
-                                    },
-                                    regex: 'rework|rejected|defect|fail|not ok'
+                                    }
                                   }
                                 }
                               }
-                            }
+                            ]
                           }
                         ]
                       },
@@ -4846,11 +4972,17 @@ export const getQualitySummary = async (req, res) => {
                   $sum: {
                     $cond: [
                       {
-                        $or: [
-                          { $eq: ['$biwReview.status', 'Reworked'] },
-                          { $in: ['$review.status', ['Rework', 'Reworked']] },
-                          { $in: ['$review.reviewOption', ['Rework', 'Reworked']] },
-                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
+                        $and: [
+                          { $ne: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } }] },
+                          {
+                            $or: [
+                              { $eq: ['$biwReview.status', 'Reworked'] },
+                              { $in: ['$review.status', ['Rework', 'Reworked']] },
+                              { $in: ['$review.reviewOption', ['Rework', 'Reworked']] },
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework' } }
+                            ]
+                          }
                         ]
                       },
                       1,
@@ -4861,7 +4993,49 @@ export const getQualitySummary = async (req, res) => {
                 reworkAcceptedCount: {
                   $sum: {
                     $cond: [
-                      { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                      {
+                        $or: [
+                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                          {
+                            $and: [
+                              { $eq: ['$isDispatched', true] },
+                              {
+                                $or: [
+                                  { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject|defect|fail' } },
+                                  { $in: ['$biwReview.status', ['Reworked', 'Rejected']] },
+                                  {
+                                    $anyElementTrue: {
+                                      $map: {
+                                        input: { $objectToArray: { $ifNull: ['$answers', {}] } },
+                                        as: 'ans',
+                                        in: {
+                                          $regexMatch: {
+                                            input: {
+                                              $toLower: {
+                                                $ifNull: [
+                                                  '$$ans.v.status',
+                                                  {
+                                                    $cond: [
+                                                      { $eq: [{ $type: '$$ans.v' }, 'string'] },
+                                                      '$$ans.v',
+                                                      ''
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            regex: 'rework|rejected|defect|fail|not ok'
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -4871,11 +5045,17 @@ export const getQualitySummary = async (req, res) => {
                   $sum: {
                     $cond: [
                       {
-                        $or: [
-                          { $eq: ['$biwReview.status', 'Rejected'] },
-                          { $eq: ['$review.status', 'Rejected'] },
-                          { $eq: ['$review.reviewOption', 'Rejected'] },
-                          { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'reject' } }
+                        $and: [
+                          { $ne: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } }] },
+                          {
+                            $or: [
+                              { $eq: ['$biwReview.status', 'Rejected'] },
+                              { $eq: ['$review.status', 'Rejected'] },
+                              { $eq: ['$review.reviewOption', 'Rejected'] },
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'reject' } }
+                            ]
+                          }
                         ]
                       },
                       1,
@@ -5062,19 +5242,182 @@ export const getQualitySummary = async (req, res) => {
       }
     ];
 
-    const aggResult = await Response.aggregate(pipeline).option({ maxTimeMS: 90000, allowDiskUse: true });
+    // Lightweight sequential chassis rework-accepted projection (runs in parallel with main pipeline)
+    const chassisFieldIds = Array.from(
+      new Set(
+        Object.values(formChassisQuestionMap)
+          .map(m => m?.primaryChassisQId)
+          .filter(Boolean)
+      )
+    );
+    const chassisAnswerProj = {};
+    chassisFieldIds.forEach(fid => {
+      chassisAnswerProj[`answers.${fid}`] = 1;
+    });
+
+    const seqReworkPipeline = [
+      { $match: responseFilter },
+      { $sort: { createdAt: 1, _id: 1 } },
+      {
+        $project: {
+          questionId: 1,
+          formId: 1,
+          chassisNumber: 1,
+          status: 1,
+          isDispatched: 1,
+          answers: 1,
+          'biwReview.status': 1,
+          'review.status': 1,
+          'review.reviewOption': 1,
+          'submissionMetadata.chassisNumber': 1
+        }
+      }
+    ];
+
+    const [aggResult, seqDocs] = await Promise.all([
+      Response.aggregate(pipeline).option({ maxTimeMS: 90000, allowDiskUse: true }),
+      Response.aggregate(seqReworkPipeline).option({ maxTimeMS: 30000, allowDiskUse: true }).catch((e) => {
+        console.warn('[Quality Summary] seqReworkPipeline error:', e.message);
+        return [];
+      })
+    ]);
     const agg = aggResult[0] || {};
+
+    // Compute exact computeFastRowStatus + sequential chassis parity (overall and per formId)
+    let seqDirectOkTotal = 0;
+    let seqReworkAcceptedTotal = 0;
+    let seqReworkTotal = 0;
+    let seqRejectedTotal = 0;
+    const seqDirectOkByForm = {};
+    const seqReworkAcceptedByForm = {};
+    const seqReworkByForm = {};
+    const seqRejectedByForm = {};
+    const IGNORED_UNIT_TOKENS = new Set([
+      'TVS', 'SAIFY', 'LMPL', 'SREEDEVI', 'NAHARS',
+      'OK', 'NO', 'YES', 'NA', 'N/A', 'NONE', '-', 'UNKNOWN',
+      'PASS', 'FAIL', 'REWORK', 'ACCEPTED', 'REJECTED'
+    ]);
+    const normalizeRealUnit = (raw) => {
+      const s = String(raw || '').trim();
+      if (!s || s.length < 3 || s.length > 40) return '';
+      const up = s.toUpperCase();
+      if (IGNORED_UNIT_TOKENS.has(up)) return '';
+      if (!/\d/.test(s)) return '';
+      return s.toLowerCase();
+    };
+
+    function extractUnit(d) {
+      let chVal = d.chassisNumber || d.submissionMetadata?.chassisNumber || '';
+      if (!normalizeRealUnit(chVal) && d.answers) {
+        for (const [k, v] of Object.entries(d.answers)) {
+          const str = typeof v === 'object' && v !== null ? (v.chassisNumber || v.value || v.text || '') : String(v || '');
+          if (str && normalizeRealUnit(str)) {
+            chVal = str;
+            break;
+          }
+        }
+      }
+      const norm = normalizeRealUnit(chVal);
+      const fKey = d.questionId ? d.questionId.toString() : (d.formId ? d.formId.toString() : '');
+      return norm ? `${fKey}::${norm}` : `untracked::${d.id || d._id}`;
+    }
+
+    if (Array.isArray(seqDocs) && seqDocs.length > 0) {
+      const itemGroups = {};
+      seqDocs.forEach(d => {
+        const u = extractUnit(d);
+        if (!itemGroups[u]) itemGroups[u] = [];
+        itemGroups[u].push(d);
+      });
+
+      Object.entries(itemGroups).forEach(([groupId, group]) => {
+        let hasBeenReworked = false;
+        group.forEach(d => {
+          let isRework = false;
+          let isAccepted = false;
+          let isRejected = false;
+
+          if (d.answers) {
+            Object.values(d.answers).forEach(ans => {
+              const s = (typeof ans === 'object' && ans !== null && ans.status) ? String(ans.status).toLowerCase().trim() : (typeof ans === 'string' ? ans.toLowerCase().trim() : '');
+              if (s === 'rework' || s === 'reworked' || s.includes('re-rework')) isRework = true;
+              else if (s === 'accepted' || s === 'rework completed' || s === 'verified' || s === 'yes' || s === 'y') isAccepted = true;
+              else if (s === 'rejected' || s === 'no' || s === 'n') isRejected = true;
+            });
+          }
+
+          const rawStatus = (d.status || '').trim();
+          let calculatedStatus = hasBeenReworked ? 'Rework Accepted' : 'Direct Ok';
+
+          if (rawStatus === 'Rejected') {
+            calculatedStatus = 'Rejected';
+          } else if (rawStatus === 'Rework Accepted' || rawStatus === 'Rework Completed') {
+            calculatedStatus = 'Rework Accepted';
+          } else if (rawStatus === 'Direct Ok') {
+            calculatedStatus = 'Direct Ok';
+          } else if (rawStatus === 'Accepted') {
+            if (isRework) {
+              hasBeenReworked = true;
+              calculatedStatus = 'Rework';
+            } else if (hasBeenReworked) {
+              calculatedStatus = 'Rework Accepted';
+            } else {
+              calculatedStatus = 'Direct Ok';
+            }
+          } else if (rawStatus.startsWith('Rework')) {
+            hasBeenReworked = true;
+            calculatedStatus = 'Rework';
+          } else if (isRejected) {
+            calculatedStatus = 'Rejected';
+          } else if (isRework) {
+            hasBeenReworked = true;
+            calculatedStatus = 'Rework';
+          } else if (isAccepted) {
+            if (hasBeenReworked) {
+              calculatedStatus = 'Rework Accepted';
+            } else {
+              calculatedStatus = 'Direct Ok';
+            }
+          }
+
+          if (d.isDispatched) {
+            if (isRework || hasBeenReworked || (rawStatus && rawStatus.startsWith('Rework'))) {
+              calculatedStatus = 'Rework Accepted';
+            } else {
+              calculatedStatus = rawStatus === 'Accepted' ? 'Accepted' : 'Direct Ok';
+            }
+          }
+
+          const fKey = d.questionId ? d.questionId.toString() : (d.formId ? d.formId.toString() : '');
+          const normSt = calculatedStatus === 'Accepted' ? 'Direct Ok' : calculatedStatus;
+          if (normSt === 'Direct Ok') {
+            seqDirectOkTotal++;
+            seqDirectOkByForm[fKey] = (seqDirectOkByForm[fKey] || 0) + 1;
+          } else if (normSt === 'Rework Accepted') {
+            seqReworkAcceptedTotal++;
+            seqReworkAcceptedByForm[fKey] = (seqReworkAcceptedByForm[fKey] || 0) + 1;
+          } else if (normSt === 'Rework') {
+            seqReworkTotal++;
+            seqReworkByForm[fKey] = (seqReworkByForm[fKey] || 0) + 1;
+          } else if (normSt === 'Rejected') {
+            seqRejectedTotal++;
+            seqRejectedByForm[fKey] = (seqRejectedByForm[fKey] || 0) + 1;
+          }
+        });
+      });
+    }
 
     const summary = agg.summary?.[0] || { totalChecked: 0, defectCount: 0, rework1Count: 0 };
     const totalChecked = summary.totalChecked || 0;
-    let totalDefects = summary.defectCount || 0;
+    const hasSeqParity = Array.isArray(seqDocs) && seqDocs.length > 0;
+    let totalDefects = hasSeqParity ? (seqReworkTotal + seqRejectedTotal) : (summary.defectCount || 0);
     let totalAccepted = Math.max(0, totalChecked - totalDefects);
-    const totalRework1 = summary.rework1Count || 0;
+    const totalRework1 = hasSeqParity ? seqReworkTotal : (summary.rework1Count || 0);
     let overallAcceptRate = totalChecked > 0 ? Math.round((totalAccepted / totalChecked) * 10000) / 100 : 0;
     let overallDefectRate = Math.max(0, Math.round((100 - overallAcceptRate) * 100) / 100);
 
-    const reworkAcceptedCount = summary.reworkAcceptedCount || 0;
-    const rejectedCount = summary.rejectedCount !== undefined ? summary.rejectedCount : Math.max(0, totalDefects - totalRework1);
+    const reworkAcceptedCount = hasSeqParity ? seqReworkAcceptedTotal : Math.max(summary.reworkAcceptedCount || 0, seqReworkAcceptedTotal);
+    const rejectedCount = hasSeqParity ? seqRejectedTotal : (summary.rejectedCount !== undefined ? summary.rejectedCount : Math.max(0, totalDefects - totalRework1));
     const directOkCount = Math.max(0, totalAccepted - reworkAcceptedCount);
 
     const totalDispatched = summary.dispatchedCount || 0;
@@ -5112,32 +5455,42 @@ export const getQualitySummary = async (req, res) => {
     // Fast-path: Only check separate Review collection if not already captured from responses
     if (tvsReviewedCount === 0) {
       try {
-        const reviewFilter = {
-          ...(req.user?.tenantId ? {
-            $or: [
-              { tenantId: req.user.tenantId.toString() },
-              { tenantId: new mongoose.Types.ObjectId(req.user.tenantId) }
-            ]
-          } : {}),
-          ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : {})
-        };
-        const collReviews = await Review.aggregate([
-          { $match: reviewFilter },
-          { $group: { _id: '$reviewOption', count: { $sum: 1 } } }
-        ]).option({ maxTimeMS: 5000 });
-        if (collReviews && collReviews.length > 0) {
-          let collAccept = 0, collReject = 0, collRework = 0;
-          collReviews.forEach(r => {
-            if (r._id === 'Accepted') collAccept += r.count;
-            else if (r._id === 'Rejected') collReject += r.count;
-            else if (r._id === 'Rework' || r._id === 'Reworked') collRework += r.count;
-          });
-          const collTotal = collAccept + collReject + collRework;
-          if (collTotal > tvsReviewedCount) {
-            tvsReviewedCount = collTotal;
-            tvsAcceptCount = collAccept;
-            tvsRejectCount = collReject;
-            tvsReworkCount = collRework;
+        let scopedResponseIds = null;
+        if (selectedFormIdList.length > 0) {
+          const matchingIds = await Response.find(responseFilter).select('_id id').lean().maxTimeMS(5000);
+          scopedResponseIds = matchingIds.flatMap(r => [r._id?.toString(), r.id]).filter(Boolean);
+        }
+        if (scopedResponseIds !== null && scopedResponseIds.length === 0) {
+          // No matching responses in selected form(s), skip Review collection scan
+        } else {
+          const reviewFilter = {
+            ...(req.user?.tenantId ? {
+              $or: [
+                { tenantId: req.user.tenantId.toString() },
+                { tenantId: new mongoose.Types.ObjectId(req.user.tenantId) }
+              ]
+            } : {}),
+            ...(scopedResponseIds ? { responseId: { $in: scopedResponseIds } } : {}),
+            ...(startObj || endObj ? { createdAt: { ...(startObj ? { $gte: startObj } : {}), ...(endObj ? { $lte: endObj } : {}) } } : {})
+          };
+          const collReviews = await Review.aggregate([
+            { $match: reviewFilter },
+            { $group: { _id: '$reviewOption', count: { $sum: 1 } } }
+          ]).option({ maxTimeMS: 5000 });
+          if (collReviews && collReviews.length > 0) {
+            let collAccept = 0, collReject = 0, collRework = 0;
+            collReviews.forEach(r => {
+              if (r._id === 'Accepted') collAccept += r.count;
+              else if (r._id === 'Rejected') collReject += r.count;
+              else if (r._id === 'Rework' || r._id === 'Reworked') collRework += r.count;
+            });
+            const collTotal = collAccept + collReject + collRework;
+            if (collTotal > tvsReviewedCount) {
+              tvsReviewedCount = collTotal;
+              tvsAcceptCount = collAccept;
+              tvsRejectCount = collReject;
+              tvsReworkCount = collRework;
+            }
           }
         }
       } catch (e) {
@@ -5402,10 +5755,19 @@ export const getQualitySummary = async (req, res) => {
         const m = formMetricMap[k];
         if (m) {
           tChecked += m.totalChecked || 0;
-          dCount += m.defectCount || 0;
-          r1Count += m.rework1Count || 0;
-          rwAccepted += m.reworkAcceptedCount || 0;
-          rejCount += m.rejectedCount || 0;
+          if (hasSeqParity) {
+            const fRw = seqReworkByForm[k] || 0;
+            const fRej = seqRejectedByForm[k] || 0;
+            dCount += fRw + fRej;
+            r1Count += fRw;
+            rejCount += fRej;
+            rwAccepted += seqReworkAcceptedByForm[k] || 0;
+          } else {
+            dCount += m.defectCount || 0;
+            r1Count += m.rework1Count || 0;
+            rwAccepted += Math.max(m.reworkAcceptedCount || 0, seqReworkAcceptedByForm[k] || 0);
+            rejCount += m.rejectedCount || 0;
+          }
           bAccept += m.biwAcceptCount || 0;
           bReject += m.biwRejectCount || 0;
           bDefect += m.biwDefectCount || 0;

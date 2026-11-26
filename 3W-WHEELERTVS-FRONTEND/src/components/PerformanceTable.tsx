@@ -10,7 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { apiClient } from "../api/client";
 import { io } from "socket.io-client";
-import { Users, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Loader2, Info, Search, X, ArrowUp, ArrowDown, ArrowUpDown, Calendar, Building2, FileText, CheckCircle2, AlertTriangle, Layers, ExternalLink } from "lucide-react";
+import { Users, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Loader2, Info, Search, X, ArrowUp, ArrowDown, ArrowUpDown, Calendar, Building2, FileText, CheckCircle2, AlertTriangle, Layers, ExternalLink, Eye, EyeOff } from "lucide-react";
 import PerformanceGuideModal from "./analytics/PerformanceGuideModal";
 
 const PerformanceTable = ({
@@ -699,6 +699,7 @@ const PerformanceTable = ({
   );
 
   const [showPerformanceTable, setShowPerformanceTable] = useState(true);
+  const [showReviewerSection, setShowReviewerSection] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   // Group by Plant / Tenant states (Excel Pivot style)
@@ -1898,6 +1899,29 @@ const PerformanceTable = ({
             </button>
           )}
 
+          <button
+            type="button"
+            onClick={() => setShowReviewerSection((prev) => !prev)}
+            className={`px-3 py-2 text-xs font-bold rounded-2xl border transition-colors shadow-sm cursor-pointer whitespace-nowrap inline-flex items-center gap-1.5 ${
+              showReviewerSection
+                ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/50"
+                : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
+            }`}
+            title={showReviewerSection ? "Hide Reviewed Section columns" : "Show Reviewed Section columns"}
+          >
+            {showReviewerSection ? (
+              <>
+                <EyeOff className="w-3.5 h-3.5" />
+                <span>Hide Reviewed Section</span>
+              </>
+            ) : (
+              <>
+                <Eye className="w-3.5 h-3.5" />
+                <span>Show Reviewed Section</span>
+              </>
+            )}
+          </button>
+
           {/* Inspector / User Search */}
           <div className="flex items-center bg-white dark:bg-gray-800 rounded-2xl px-3.5 py-1.5 border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-2 focus-within:ring-purple-500/20 transition-all min-w-[200px] sm:min-w-[240px]">
             <Search className="w-3.5 h-3.5 text-gray-400 mr-2 shrink-0" />
@@ -2028,12 +2052,14 @@ const PerformanceTable = ({
                   >
                     ✦ TVS Review Section ✦
                   </th>
-                  <th
-                    colSpan={5}
-                    className="px-3 py-1.5 bg-emerald-100/80 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200 text-center tracking-widest uppercase border-x-2 border-emerald-300 dark:border-emerald-600 shadow-sm"
-                  >
-                    ✦ Reviewer Section ✦
-                  </th>
+                  {showReviewerSection && (
+                    <th
+                      colSpan={5}
+                      className="px-3 py-1.5 bg-emerald-100/80 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200 text-center tracking-widest uppercase border-x-2 border-emerald-300 dark:border-emerald-600 shadow-sm"
+                    >
+                      ✦ Reviewer Section ✦
+                    </th>
+                  )}
                   <th
                     colSpan={3}
                     className="px-3 py-1.5 bg-gray-100/70 dark:bg-gray-800/70 text-gray-500 dark:text-gray-400 text-center tracking-widest uppercase border-l border-gray-200 dark:border-gray-700"
@@ -2215,56 +2241,60 @@ const PerformanceTable = ({
                     </div>
                   </th>
                   {/* Reviewed Section Columns */}
-                  <th
-                    onClick={() => handleSort("reviewedTotal")}
-                    className={`px-2 py-2 border-b border-l border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-950/30 whitespace-nowrap text-center text-emerald-800 dark:text-emerald-200 cursor-pointer hover:bg-emerald-100/80 dark:hover:bg-emerald-900/50 select-none group ${isSliceActive("reviewedTotal") ? "bg-emerald-200 dark:bg-emerald-900/80 ring-2 ring-inset ring-emerald-600 font-black" : ""}`}
-                    title="Click to sort by Reviewed"
-                  >
-                    <div className="inline-flex items-center gap-1 justify-center">
-                      <span>Reviewed</span>
-                      {renderSortIcon("reviewedTotal")}
-                    </div>
-                  </th>
-                  <th
-                    onClick={() => handleSort("reviewedPending")}
-                    className={`px-2 py-2 border-b bg-emerald-50/60 dark:bg-emerald-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 cursor-pointer hover:bg-emerald-100/80 dark:hover:bg-emerald-900/50 select-none group ${isSliceActive("reviewedPending") ? "bg-amber-100 dark:bg-amber-900/80 ring-2 ring-inset ring-amber-500 font-black" : ""}`}
-                    title="Click to sort by Review Pending"
-                  >
-                    <div className="inline-flex items-center gap-1 justify-center">
-                      <span>Pending</span>
-                      {renderSortIcon("reviewedPending")}
-                    </div>
-                  </th>
-                  <th
-                    onClick={() => handleSort("reviewedAccepted")}
-                    className={`px-2 py-2 border-b bg-emerald-50/60 dark:bg-emerald-950/30 whitespace-nowrap text-center text-emerald-600 dark:text-emerald-400 font-extrabold cursor-pointer hover:bg-emerald-100/80 dark:hover:bg-emerald-900/50 select-none group ${isSliceActive("reviewedAccepted") ? "bg-emerald-100 dark:bg-emerald-900/80 ring-2 ring-inset ring-emerald-600 font-black" : ""}`}
-                    title="Click to sort by Accepted"
-                  >
-                    <div className="inline-flex items-center gap-1 justify-center">
-                      <span>Accepted</span>
-                      {renderSortIcon("reviewedAccepted")}
-                    </div>
-                  </th>
-                  <th
-                    onClick={() => handleSort("reviewedRejected")}
-                    className={`px-2 py-2 border-b bg-emerald-50/60 dark:bg-emerald-950/30 whitespace-nowrap text-center text-rose-600 dark:text-rose-400 font-extrabold cursor-pointer hover:bg-emerald-100/80 dark:hover:bg-emerald-900/50 select-none group ${isSliceActive("reviewedRejected") ? "bg-rose-100 dark:bg-rose-900/80 ring-2 ring-inset ring-rose-600 font-black" : ""}`}
-                    title="Click to sort by Rejected"
-                  >
-                    <div className="inline-flex items-center gap-1 justify-center">
-                      <span>Rejected</span>
-                      {renderSortIcon("reviewedRejected")}
-                    </div>
-                  </th>
-                  <th
-                    onClick={() => handleSort("reviewedRework")}
-                    className={`px-2 py-2 border-b border-r border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 font-extrabold cursor-pointer hover:bg-emerald-100/80 dark:hover:bg-emerald-900/50 select-none group ${isSliceActive("reviewedRework") ? "bg-amber-100 dark:bg-amber-900/80 ring-2 ring-inset ring-amber-500 font-black" : ""}`}
-                    title="Click to sort by Rework"
-                  >
-                    <div className="inline-flex items-center gap-1 justify-center">
-                      <span>Rework</span>
-                      {renderSortIcon("reviewedRework")}
-                    </div>
-                  </th>
+                  {showReviewerSection && (
+                    <>
+                      <th
+                        onClick={() => handleSort("reviewedTotal")}
+                        className={`px-2 py-2 border-b border-l border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-950/30 whitespace-nowrap text-center text-emerald-800 dark:text-emerald-200 cursor-pointer hover:bg-emerald-100/80 dark:hover:bg-emerald-900/50 select-none group ${isSliceActive("reviewedTotal") ? "bg-emerald-200 dark:bg-emerald-900/80 ring-2 ring-inset ring-emerald-600 font-black" : ""}`}
+                        title="Click to sort by Reviewed"
+                      >
+                        <div className="inline-flex items-center gap-1 justify-center">
+                          <span>Reviewed</span>
+                          {renderSortIcon("reviewedTotal")}
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort("reviewedPending")}
+                        className={`px-2 py-2 border-b bg-emerald-50/60 dark:bg-emerald-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 cursor-pointer hover:bg-emerald-100/80 dark:hover:bg-emerald-900/50 select-none group ${isSliceActive("reviewedPending") ? "bg-amber-100 dark:bg-amber-900/80 ring-2 ring-inset ring-amber-500 font-black" : ""}`}
+                        title="Click to sort by Review Pending"
+                      >
+                        <div className="inline-flex items-center gap-1 justify-center">
+                          <span>Pending</span>
+                          {renderSortIcon("reviewedPending")}
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort("reviewedAccepted")}
+                        className={`px-2 py-2 border-b bg-emerald-50/60 dark:bg-emerald-950/30 whitespace-nowrap text-center text-emerald-600 dark:text-emerald-400 font-extrabold cursor-pointer hover:bg-emerald-100/80 dark:hover:bg-emerald-900/50 select-none group ${isSliceActive("reviewedAccepted") ? "bg-emerald-100 dark:bg-emerald-900/80 ring-2 ring-inset ring-emerald-600 font-black" : ""}`}
+                        title="Click to sort by Accepted"
+                      >
+                        <div className="inline-flex items-center gap-1 justify-center">
+                          <span>Accepted</span>
+                          {renderSortIcon("reviewedAccepted")}
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort("reviewedRejected")}
+                        className={`px-2 py-2 border-b bg-emerald-50/60 dark:bg-emerald-950/30 whitespace-nowrap text-center text-rose-600 dark:text-rose-400 font-extrabold cursor-pointer hover:bg-emerald-100/80 dark:hover:bg-emerald-900/50 select-none group ${isSliceActive("reviewedRejected") ? "bg-rose-100 dark:bg-rose-900/80 ring-2 ring-inset ring-rose-600 font-black" : ""}`}
+                        title="Click to sort by Rejected"
+                      >
+                        <div className="inline-flex items-center gap-1 justify-center">
+                          <span>Rejected</span>
+                          {renderSortIcon("reviewedRejected")}
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort("reviewedRework")}
+                        className={`px-2 py-2 border-b border-r border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-950/30 whitespace-nowrap text-center text-amber-600 dark:text-amber-400 font-extrabold cursor-pointer hover:bg-emerald-100/80 dark:hover:bg-emerald-900/50 select-none group ${isSliceActive("reviewedRework") ? "bg-amber-100 dark:bg-amber-900/80 ring-2 ring-inset ring-amber-500 font-black" : ""}`}
+                        title="Click to sort by Rework"
+                      >
+                        <div className="inline-flex items-center gap-1 justify-center">
+                          <span>Rework</span>
+                          {renderSortIcon("reviewedRework")}
+                        </div>
+                      </th>
+                    </>
+                  )}
                   <th
                     onClick={() => handleSort("performanceScore")}
                     className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap text-center cursor-pointer hover:bg-gray-100/80 dark:hover:bg-gray-800/80 select-none group"
@@ -2498,166 +2528,170 @@ const PerformanceTable = ({
                             {group.totals.tvsRework}
                           </td>
                           {/* Reviewed Section Subtotals */}
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums border-l border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-900 dark:text-emerald-200 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
-                            onMouseEnter={(e) => handleReviewCellHover(e, "Reviewed", {
-                              name: `${group.tenantName} (Plant Total)`,
-                              totalSubmitted: group.totals.totalSubmitted,
-                              biwTotalReviewed: group.totals.biwReviewed,
-                              tvsTotalReviewed: group.totals.tvsReviewed,
-                              biwAccepted: group.totals.biwAccepted,
-                              tvsAccepted: group.totals.tvsAccepted,
-                              biwRejected: group.totals.biwRejected,
-                              tvsRejected: group.totals.tvsRejected,
-                              biwReworked: group.totals.biwReworked,
-                              tvsReworked: group.totals.tvsRework,
-                              formBreakdown: group.formBreakdown,
-                            })}
-                                onClick={(e) => handleCellClick(e, "Reviewed", {
-                              name: `${group.tenantName} (Plant Total)`,
-                              totalSubmitted: group.totals.totalSubmitted,
-                              biwTotalReviewed: group.totals.biwReviewed,
-                              tvsTotalReviewed: group.totals.tvsReviewed,
-                              biwAccepted: group.totals.biwAccepted,
-                              tvsAccepted: group.totals.tvsAccepted,
-                              biwRejected: group.totals.biwRejected,
-                              tvsRejected: group.totals.tvsRejected,
-                              biwReworked: group.totals.biwReworked,
-                              tvsReworked: group.totals.tvsRework,
-                              formBreakdown: group.formBreakdown,
-                            }, group.rows.map((r: any) => r.name))}
-                                onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.reviewedTotal}
-                          </td>
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums bg-emerald-50/50 dark:bg-emerald-950/20 text-amber-700 dark:text-amber-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
-                            onMouseEnter={(e) => handleReviewCellHover(e, "Pending", {
-                              name: `${group.tenantName} (Plant Total)`,
-                              totalSubmitted: group.totals.totalSubmitted,
-                              biwTotalReviewed: group.totals.biwReviewed,
-                              tvsTotalReviewed: group.totals.tvsReviewed,
-                              biwAccepted: group.totals.biwAccepted,
-                              tvsAccepted: group.totals.tvsAccepted,
-                              biwRejected: group.totals.biwRejected,
-                              tvsRejected: group.totals.tvsRejected,
-                              biwReworked: group.totals.biwReworked,
-                              tvsReworked: group.totals.tvsRework,
-                              formBreakdown: group.formBreakdown,
-                            })}
-                                onClick={(e) => handleCellClick(e, "Pending", {
-                              name: `${group.tenantName} (Plant Total)`,
-                              totalSubmitted: group.totals.totalSubmitted,
-                              biwTotalReviewed: group.totals.biwReviewed,
-                              tvsTotalReviewed: group.totals.tvsReviewed,
-                              biwAccepted: group.totals.biwAccepted,
-                              tvsAccepted: group.totals.tvsAccepted,
-                              biwRejected: group.totals.biwRejected,
-                              tvsRejected: group.totals.tvsRejected,
-                              biwReworked: group.totals.biwReworked,
-                              tvsReworked: group.totals.tvsRework,
-                              formBreakdown: group.formBreakdown,
-                            }, group.rows.map((r: any) => r.name))}
-                                onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.reviewedPending}
-                          </td>
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
-                            onMouseEnter={(e) => handleReviewCellHover(e, "Accepted", {
-                              name: `${group.tenantName} (Plant Total)`,
-                              totalSubmitted: group.totals.totalSubmitted,
-                              biwTotalReviewed: group.totals.biwReviewed,
-                              tvsTotalReviewed: group.totals.tvsReviewed,
-                              biwAccepted: group.totals.biwAccepted,
-                              tvsAccepted: group.totals.tvsAccepted,
-                              biwRejected: group.totals.biwRejected,
-                              tvsRejected: group.totals.tvsRejected,
-                              biwReworked: group.totals.biwReworked,
-                              tvsReworked: group.totals.tvsRework,
-                              formBreakdown: group.formBreakdown,
-                            })}
-                                onClick={(e) => handleCellClick(e, "AcceptedReviewer", {
-                              name: `${group.tenantName} (Plant Total)`,
-                              totalSubmitted: group.totals.totalSubmitted,
-                              biwTotalReviewed: group.totals.biwReviewed,
-                              tvsTotalReviewed: group.totals.tvsReviewed,
-                              biwAccepted: group.totals.biwAccepted,
-                              tvsAccepted: group.totals.tvsAccepted,
-                              biwRejected: group.totals.biwRejected,
-                              tvsRejected: group.totals.tvsRejected,
-                              biwReworked: group.totals.biwReworked,
-                              tvsReworked: group.totals.tvsRework,
-                              formBreakdown: group.formBreakdown,
-                            }, group.rows.map((r: any) => r.name))}
-                                onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.reviewedAccepted}
-                          </td>
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums bg-emerald-50/50 dark:bg-emerald-950/20 text-rose-700 dark:text-rose-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
-                            onMouseEnter={(e) => handleReviewCellHover(e, "Rejected", {
-                              name: `${group.tenantName} (Plant Total)`,
-                              totalSubmitted: group.totals.totalSubmitted,
-                              biwTotalReviewed: group.totals.biwReviewed,
-                              tvsTotalReviewed: group.totals.tvsReviewed,
-                              biwAccepted: group.totals.biwAccepted,
-                              tvsAccepted: group.totals.tvsAccepted,
-                              biwRejected: group.totals.biwRejected,
-                              tvsRejected: group.totals.tvsRejected,
-                              biwReworked: group.totals.biwReworked,
-                              tvsReworked: group.totals.tvsRework,
-                              formBreakdown: group.formBreakdown,
-                            })}
-                                onClick={(e) => handleCellClick(e, "RejectedReviewer", {
-                              name: `${group.tenantName} (Plant Total)`,
-                              totalSubmitted: group.totals.totalSubmitted,
-                              biwTotalReviewed: group.totals.biwReviewed,
-                              tvsTotalReviewed: group.totals.tvsReviewed,
-                              biwAccepted: group.totals.biwAccepted,
-                              tvsAccepted: group.totals.tvsAccepted,
-                              biwRejected: group.totals.biwRejected,
-                              tvsRejected: group.totals.tvsRejected,
-                              biwReworked: group.totals.biwReworked,
-                              tvsReworked: group.totals.tvsRework,
-                              formBreakdown: group.formBreakdown,
-                            }, group.rows.map((r: any) => r.name))}
-                                onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.reviewedRejected}
-                          </td>
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums border-r border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 text-amber-700 dark:text-amber-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
-                            onMouseEnter={(e) => handleReviewCellHover(e, "Rework", {
-                              name: `${group.tenantName} (Plant Total)`,
-                              totalSubmitted: group.totals.totalSubmitted,
-                              biwTotalReviewed: group.totals.biwReviewed,
-                              tvsTotalReviewed: group.totals.tvsReviewed,
-                              biwAccepted: group.totals.biwAccepted,
-                              tvsAccepted: group.totals.tvsAccepted,
-                              biwRejected: group.totals.biwRejected,
-                              tvsRejected: group.totals.tvsRejected,
-                              biwReworked: group.totals.biwReworked,
-                              tvsReworked: group.totals.tvsRework,
-                              formBreakdown: group.formBreakdown,
-                            })}
-                                onClick={(e) => handleCellClick(e, "ReworkReviewer", {
-                              name: `${group.tenantName} (Plant Total)`,
-                              totalSubmitted: group.totals.totalSubmitted,
-                              biwTotalReviewed: group.totals.biwReviewed,
-                              tvsTotalReviewed: group.totals.tvsReviewed,
-                              biwAccepted: group.totals.biwAccepted,
-                              tvsAccepted: group.totals.tvsAccepted,
-                              biwRejected: group.totals.biwRejected,
-                              tvsRejected: group.totals.tvsRejected,
-                              biwReworked: group.totals.biwReworked,
-                              tvsReworked: group.totals.tvsRework,
-                              formBreakdown: group.formBreakdown,
-                            }, group.rows.map((r: any) => r.name))}
-                                onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.reviewedRework}
-                          </td>
+                          {showReviewerSection && (
+                            <>
+                              <td
+                                className="px-2 py-2 font-black text-center tabular-nums border-l border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-900 dark:text-emerald-200 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
+                                onMouseEnter={(e) => handleReviewCellHover(e, "Reviewed", {
+                                  name: `${group.tenantName} (Plant Total)`,
+                                  totalSubmitted: group.totals.totalSubmitted,
+                                  biwTotalReviewed: group.totals.biwReviewed,
+                                  tvsTotalReviewed: group.totals.tvsReviewed,
+                                  biwAccepted: group.totals.biwAccepted,
+                                  tvsAccepted: group.totals.tvsAccepted,
+                                  biwRejected: group.totals.biwRejected,
+                                  tvsRejected: group.totals.tvsRejected,
+                                  biwReworked: group.totals.biwReworked,
+                                  tvsReworked: group.totals.tvsRework,
+                                  formBreakdown: group.formBreakdown,
+                                })}
+                                    onClick={(e) => handleCellClick(e, "Reviewed", {
+                                  name: `${group.tenantName} (Plant Total)`,
+                                  totalSubmitted: group.totals.totalSubmitted,
+                                  biwTotalReviewed: group.totals.biwReviewed,
+                                  tvsTotalReviewed: group.totals.tvsReviewed,
+                                  biwAccepted: group.totals.biwAccepted,
+                                  tvsAccepted: group.totals.tvsAccepted,
+                                  biwRejected: group.totals.biwRejected,
+                                  tvsRejected: group.totals.tvsRejected,
+                                  biwReworked: group.totals.biwReworked,
+                                  tvsReworked: group.totals.tvsRework,
+                                  formBreakdown: group.formBreakdown,
+                                }, group.rows.map((r: any) => r.name))}
+                                    onMouseLeave={() => setReviewTooltip(null)}
+                              >
+                                {group.totals.reviewedTotal}
+                              </td>
+                              <td
+                                className="px-2 py-2 font-black text-center tabular-nums bg-emerald-50/50 dark:bg-emerald-950/20 text-amber-700 dark:text-amber-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
+                                onMouseEnter={(e) => handleReviewCellHover(e, "Pending", {
+                                  name: `${group.tenantName} (Plant Total)`,
+                                  totalSubmitted: group.totals.totalSubmitted,
+                                  biwTotalReviewed: group.totals.biwReviewed,
+                                  tvsTotalReviewed: group.totals.tvsReviewed,
+                                  biwAccepted: group.totals.biwAccepted,
+                                  tvsAccepted: group.totals.tvsAccepted,
+                                  biwRejected: group.totals.biwRejected,
+                                  tvsRejected: group.totals.tvsRejected,
+                                  biwReworked: group.totals.biwReworked,
+                                  tvsReworked: group.totals.tvsRework,
+                                  formBreakdown: group.formBreakdown,
+                                })}
+                                    onClick={(e) => handleCellClick(e, "Pending", {
+                                  name: `${group.tenantName} (Plant Total)`,
+                                  totalSubmitted: group.totals.totalSubmitted,
+                                  biwTotalReviewed: group.totals.biwReviewed,
+                                  tvsTotalReviewed: group.totals.tvsReviewed,
+                                  biwAccepted: group.totals.biwAccepted,
+                                  tvsAccepted: group.totals.tvsAccepted,
+                                  biwRejected: group.totals.biwRejected,
+                                  tvsRejected: group.totals.tvsRejected,
+                                  biwReworked: group.totals.biwReworked,
+                                  tvsReworked: group.totals.tvsRework,
+                                  formBreakdown: group.formBreakdown,
+                                }, group.rows.map((r: any) => r.name))}
+                                    onMouseLeave={() => setReviewTooltip(null)}
+                              >
+                                {group.totals.reviewedPending}
+                              </td>
+                              <td
+                                className="px-2 py-2 font-black text-center tabular-nums bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
+                                onMouseEnter={(e) => handleReviewCellHover(e, "Accepted", {
+                                  name: `${group.tenantName} (Plant Total)`,
+                                  totalSubmitted: group.totals.totalSubmitted,
+                                  biwTotalReviewed: group.totals.biwReviewed,
+                                  tvsTotalReviewed: group.totals.tvsReviewed,
+                                  biwAccepted: group.totals.biwAccepted,
+                                  tvsAccepted: group.totals.tvsAccepted,
+                                  biwRejected: group.totals.biwRejected,
+                                  tvsRejected: group.totals.tvsRejected,
+                                  biwReworked: group.totals.biwReworked,
+                                  tvsReworked: group.totals.tvsRework,
+                                  formBreakdown: group.formBreakdown,
+                                })}
+                                    onClick={(e) => handleCellClick(e, "AcceptedReviewer", {
+                                  name: `${group.tenantName} (Plant Total)`,
+                                  totalSubmitted: group.totals.totalSubmitted,
+                                  biwTotalReviewed: group.totals.biwReviewed,
+                                  tvsTotalReviewed: group.totals.tvsReviewed,
+                                  biwAccepted: group.totals.biwAccepted,
+                                  tvsAccepted: group.totals.tvsAccepted,
+                                  biwRejected: group.totals.biwRejected,
+                                  tvsRejected: group.totals.tvsRejected,
+                                  biwReworked: group.totals.biwReworked,
+                                  tvsReworked: group.totals.tvsRework,
+                                  formBreakdown: group.formBreakdown,
+                                }, group.rows.map((r: any) => r.name))}
+                                    onMouseLeave={() => setReviewTooltip(null)}
+                              >
+                                {group.totals.reviewedAccepted}
+                              </td>
+                              <td
+                                className="px-2 py-2 font-black text-center tabular-nums bg-emerald-50/50 dark:bg-emerald-950/20 text-rose-700 dark:text-rose-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
+                                onMouseEnter={(e) => handleReviewCellHover(e, "Rejected", {
+                                  name: `${group.tenantName} (Plant Total)`,
+                                  totalSubmitted: group.totals.totalSubmitted,
+                                  biwTotalReviewed: group.totals.biwReviewed,
+                                  tvsTotalReviewed: group.totals.tvsReviewed,
+                                  biwAccepted: group.totals.biwAccepted,
+                                  tvsAccepted: group.totals.tvsAccepted,
+                                  biwRejected: group.totals.biwRejected,
+                                  tvsRejected: group.totals.tvsRejected,
+                                  biwReworked: group.totals.biwReworked,
+                                  tvsReworked: group.totals.tvsRework,
+                                  formBreakdown: group.formBreakdown,
+                                })}
+                                    onClick={(e) => handleCellClick(e, "RejectedReviewer", {
+                                  name: `${group.tenantName} (Plant Total)`,
+                                  totalSubmitted: group.totals.totalSubmitted,
+                                  biwTotalReviewed: group.totals.biwReviewed,
+                                  tvsTotalReviewed: group.totals.tvsReviewed,
+                                  biwAccepted: group.totals.biwAccepted,
+                                  tvsAccepted: group.totals.tvsAccepted,
+                                  biwRejected: group.totals.biwRejected,
+                                  tvsRejected: group.totals.tvsRejected,
+                                  biwReworked: group.totals.biwReworked,
+                                  tvsReworked: group.totals.tvsRework,
+                                  formBreakdown: group.formBreakdown,
+                                }, group.rows.map((r: any) => r.name))}
+                                    onMouseLeave={() => setReviewTooltip(null)}
+                              >
+                                {group.totals.reviewedRejected}
+                              </td>
+                              <td
+                                className="px-2 py-2 font-black text-center tabular-nums border-r border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 text-amber-700 dark:text-amber-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
+                                onMouseEnter={(e) => handleReviewCellHover(e, "Rework", {
+                                  name: `${group.tenantName} (Plant Total)`,
+                                  totalSubmitted: group.totals.totalSubmitted,
+                                  biwTotalReviewed: group.totals.biwReviewed,
+                                  tvsTotalReviewed: group.totals.tvsReviewed,
+                                  biwAccepted: group.totals.biwAccepted,
+                                  tvsAccepted: group.totals.tvsAccepted,
+                                  biwRejected: group.totals.biwRejected,
+                                  tvsRejected: group.totals.tvsRejected,
+                                  biwReworked: group.totals.biwReworked,
+                                  tvsReworked: group.totals.tvsRework,
+                                  formBreakdown: group.formBreakdown,
+                                })}
+                                    onClick={(e) => handleCellClick(e, "ReworkReviewer", {
+                                  name: `${group.tenantName} (Plant Total)`,
+                                  totalSubmitted: group.totals.totalSubmitted,
+                                  biwTotalReviewed: group.totals.biwReviewed,
+                                  tvsTotalReviewed: group.totals.tvsReviewed,
+                                  biwAccepted: group.totals.biwAccepted,
+                                  tvsAccepted: group.totals.tvsAccepted,
+                                  biwRejected: group.totals.biwRejected,
+                                  tvsRejected: group.totals.tvsRejected,
+                                  biwReworked: group.totals.biwReworked,
+                                  tvsReworked: group.totals.tvsRework,
+                                  formBreakdown: group.formBreakdown,
+                                }, group.rows.map((r: any) => r.name))}
+                                    onMouseLeave={() => setReviewTooltip(null)}
+                              >
+                                {group.totals.reviewedRework}
+                              </td>
+                            </>
+                          )}
                           {/* Performance Score */}
                           <td
                             className="px-2 py-2 text-center cursor-pointer hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40"
@@ -2892,7 +2926,7 @@ const PerformanceTable = ({
                                 {row.tvsReworked ?? 0}
                               </td>
                               {/* Reviewed Section Data Cells */}
-                              {(() => {
+                              {showReviewerSection && (() => {
                                 const rowRev = (row.biwTotalReviewed || row.totalReviewed || 0) + (row.tvsTotalReviewed || 0);
                                 const rowPend = Math.max(0, (row.totalSubmitted || 0) - rowRev);
                                 const rowAcc = (row.biwAccepted ?? row.accepted ?? 0) + (row.tvsAccepted || 0);
@@ -3328,7 +3362,7 @@ const PerformanceTable = ({
                         {row.tvsReworked ?? 0}
                       </td>
                       {/* Reviewed Section Data Cells */}
-                      {(() => {
+                      {showReviewerSection && (() => {
                         const rowRev = (row.biwTotalReviewed || row.totalReviewed || 0) + (row.tvsTotalReviewed || 0);
                         const rowPend = Math.max(0, (row.totalSubmitted || 0) - rowRev);
                         const rowAcc = (row.biwAccepted ?? row.accepted ?? 0) + (row.tvsAccepted || 0);
@@ -3523,11 +3557,15 @@ const PerformanceTable = ({
                             <td className="px-2 py-1.5 font-extrabold text-center text-emerald-600 dark:text-emerald-400 tabular-nums bg-blue-100/40 dark:bg-blue-900/20">—</td>
                             <td className="px-2 py-1.5 font-extrabold text-center text-rose-600 dark:text-rose-400 tabular-nums bg-blue-100/40 dark:bg-blue-900/20">—</td>
                             <td className="px-2 py-1.5 font-extrabold text-center text-amber-600 dark:text-amber-400 tabular-nums border-r border-blue-200 dark:border-blue-800 bg-blue-100/40 dark:bg-blue-900/20">—</td>
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-emerald-100/40 dark:bg-emerald-900/20 border-l border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200">—</td>
-                            <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-emerald-100/40 dark:bg-emerald-900/20 text-amber-600 dark:text-amber-400">—</td>
-                            <td className="px-2 py-1.5 font-extrabold text-center text-emerald-600 dark:text-emerald-400 tabular-nums bg-emerald-100/40 dark:bg-emerald-900/20">—</td>
-                            <td className="px-2 py-1.5 font-extrabold text-center text-rose-600 dark:text-rose-400 tabular-nums bg-emerald-100/40 dark:bg-emerald-900/20">—</td>
-                            <td className="px-2 py-1.5 font-extrabold text-center text-amber-600 dark:text-amber-400 tabular-nums border-r border-emerald-200 dark:border-emerald-800 bg-emerald-100/40 dark:bg-emerald-900/20">—</td>
+                            {showReviewerSection && (
+                              <>
+                                <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-emerald-100/40 dark:bg-emerald-900/20 border-l border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200">—</td>
+                                <td className="px-2 py-1.5 font-bold text-center tabular-nums bg-emerald-100/40 dark:bg-emerald-900/20 text-amber-600 dark:text-amber-400">—</td>
+                                <td className="px-2 py-1.5 font-extrabold text-center text-emerald-600 dark:text-emerald-400 tabular-nums bg-emerald-100/40 dark:bg-emerald-900/20">—</td>
+                                <td className="px-2 py-1.5 font-extrabold text-center text-rose-600 dark:text-rose-400 tabular-nums bg-emerald-100/40 dark:bg-emerald-900/20">—</td>
+                                <td className="px-2 py-1.5 font-extrabold text-center text-amber-600 dark:text-amber-400 tabular-nums border-r border-emerald-200 dark:border-emerald-800 bg-emerald-100/40 dark:bg-emerald-900/20">—</td>
+                              </>
+                            )}
                             <td className="px-2 py-1.5"></td>
                             <td className="px-2 py-1.5"></td>
                             <td className="px-2 py-1.5"></td>
@@ -3707,46 +3745,50 @@ const PerformanceTable = ({
                         {totalTvsRework}
                       </td>
                       {/* Reviewed Section Total Cells */}
-                      <td
-                        className="px-2 py-1.5 text-center tabular-nums font-black border-l border-emerald-300 dark:border-emerald-700 bg-emerald-100/70 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200 cursor-help transition-colors hover:bg-emerald-200/80 dark:hover:bg-emerald-800/80"
-                        onMouseEnter={(e) => handleReviewCellHover(e, "Reviewed", grandTotalEntity)}
-                                onClick={(e) => handleCellClick(e, "Reviewed", grandTotalEntity)}
-                        onMouseLeave={() => setReviewTooltip(null)}
-                      >
-                        {totalOverallReviewed}
-                      </td>
-                      <td
-                        className="px-2 py-1.5 text-center tabular-nums font-black text-amber-700 dark:text-amber-300 bg-emerald-100/70 dark:bg-emerald-900/40 cursor-help transition-colors hover:bg-emerald-200/80 dark:hover:bg-emerald-800/80"
-                        onMouseEnter={(e) => handleReviewCellHover(e, "Pending", grandTotalEntity)}
-                                onClick={(e) => handleCellClick(e, "Pending", grandTotalEntity)}
-                        onMouseLeave={() => setReviewTooltip(null)}
-                      >
-                        {totalOverallReviewPending}
-                      </td>
-                      <td
-                        className="px-2 py-1.5 text-center tabular-nums font-black text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-900/40 cursor-help transition-colors hover:bg-emerald-200/80 dark:hover:bg-emerald-800/80"
-                        onMouseEnter={(e) => handleReviewCellHover(e, "Accepted", grandTotalEntity)}
-                                onClick={(e) => handleCellClick(e, "AcceptedReviewer", grandTotalEntity)}
-                        onMouseLeave={() => setReviewTooltip(null)}
-                      >
-                        {totalOverallAccepted}
-                      </td>
-                      <td
-                        className="px-2 py-1.5 text-center tabular-nums font-black text-rose-700 dark:text-rose-300 bg-emerald-100/70 dark:bg-emerald-900/40 cursor-help transition-colors hover:bg-emerald-200/80 dark:hover:bg-emerald-800/80"
-                        onMouseEnter={(e) => handleReviewCellHover(e, "Rejected", grandTotalEntity)}
-                                onClick={(e) => handleCellClick(e, "RejectedReviewer", grandTotalEntity)}
-                        onMouseLeave={() => setReviewTooltip(null)}
-                      >
-                        {totalOverallRejected}
-                      </td>
-                      <td
-                        className="px-2 py-1.5 text-center tabular-nums font-black text-amber-700 dark:text-amber-300 border-r border-emerald-300 dark:border-emerald-700 bg-emerald-100/70 dark:bg-emerald-900/40 cursor-help transition-colors hover:bg-emerald-200/80 dark:hover:bg-emerald-800/80"
-                        onMouseEnter={(e) => handleReviewCellHover(e, "Rework", grandTotalEntity)}
-                                onClick={(e) => handleCellClick(e, "ReworkReviewer", grandTotalEntity)}
-                        onMouseLeave={() => setReviewTooltip(null)}
-                      >
-                        {totalOverallRework}
-                      </td>
+                      {showReviewerSection && (
+                        <>
+                          <td
+                            className="px-2 py-1.5 text-center tabular-nums font-black border-l border-emerald-300 dark:border-emerald-700 bg-emerald-100/70 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200 cursor-help transition-colors hover:bg-emerald-200/80 dark:hover:bg-emerald-800/80"
+                            onMouseEnter={(e) => handleReviewCellHover(e, "Reviewed", grandTotalEntity)}
+                                    onClick={(e) => handleCellClick(e, "Reviewed", grandTotalEntity)}
+                            onMouseLeave={() => setReviewTooltip(null)}
+                          >
+                            {totalOverallReviewed}
+                          </td>
+                          <td
+                            className="px-2 py-1.5 text-center tabular-nums font-black text-amber-700 dark:text-amber-300 bg-emerald-100/70 dark:bg-emerald-900/40 cursor-help transition-colors hover:bg-emerald-200/80 dark:hover:bg-emerald-800/80"
+                            onMouseEnter={(e) => handleReviewCellHover(e, "Pending", grandTotalEntity)}
+                                    onClick={(e) => handleCellClick(e, "Pending", grandTotalEntity)}
+                            onMouseLeave={() => setReviewTooltip(null)}
+                          >
+                            {totalOverallReviewPending}
+                          </td>
+                          <td
+                            className="px-2 py-1.5 text-center tabular-nums font-black text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-900/40 cursor-help transition-colors hover:bg-emerald-200/80 dark:hover:bg-emerald-800/80"
+                            onMouseEnter={(e) => handleReviewCellHover(e, "Accepted", grandTotalEntity)}
+                                    onClick={(e) => handleCellClick(e, "AcceptedReviewer", grandTotalEntity)}
+                            onMouseLeave={() => setReviewTooltip(null)}
+                          >
+                            {totalOverallAccepted}
+                          </td>
+                          <td
+                            className="px-2 py-1.5 text-center tabular-nums font-black text-rose-700 dark:text-rose-300 bg-emerald-100/70 dark:bg-emerald-900/40 cursor-help transition-colors hover:bg-emerald-200/80 dark:hover:bg-emerald-800/80"
+                            onMouseEnter={(e) => handleReviewCellHover(e, "Rejected", grandTotalEntity)}
+                                    onClick={(e) => handleCellClick(e, "RejectedReviewer", grandTotalEntity)}
+                            onMouseLeave={() => setReviewTooltip(null)}
+                          >
+                            {totalOverallRejected}
+                          </td>
+                          <td
+                            className="px-2 py-1.5 text-center tabular-nums font-black text-amber-700 dark:text-amber-300 border-r border-emerald-300 dark:border-emerald-700 bg-emerald-100/70 dark:bg-emerald-900/40 cursor-help transition-colors hover:bg-emerald-200/80 dark:hover:bg-emerald-800/80"
+                            onMouseEnter={(e) => handleReviewCellHover(e, "Rework", grandTotalEntity)}
+                                    onClick={(e) => handleCellClick(e, "ReworkReviewer", grandTotalEntity)}
+                            onMouseLeave={() => setReviewTooltip(null)}
+                          >
+                            {totalOverallRework}
+                          </td>
+                        </>
+                      )}
                       <td
                         className="px-2 py-1.5 text-center cursor-help"
                         onMouseEnter={(e) => handleCellHover(e, "PerformanceScore", grandTotalEntity)}

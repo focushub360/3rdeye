@@ -3488,6 +3488,12 @@ export const QualityDashboard: React.FC = () => {
                     formId={selectedSingleFormId}
                     embedded={true}
                     initialTab="dashboard"
+                    externalDateRange={{
+                      type: dateRange === 'all' ? 'all' : 'range',
+                      startDate: startDate || '',
+                      endDate: endDate || '',
+                    }}
+                    externalStatusSlice={selectedSlice}
                   />
                 </div>
               )}
@@ -3500,6 +3506,12 @@ export const QualityDashboard: React.FC = () => {
                     formId={selectedSingleFormId}
                     embedded={true}
                     initialTab="responses"
+                    externalDateRange={{
+                      type: dateRange === 'all' ? 'all' : 'range',
+                      startDate: startDate || '',
+                      endDate: endDate || '',
+                    }}
+                    externalStatusSlice={selectedSlice}
                   />
                 </div>
               )}
