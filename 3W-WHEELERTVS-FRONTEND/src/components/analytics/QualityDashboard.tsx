@@ -218,7 +218,19 @@ export const QualityDashboard: React.FC = () => {
     if (initialFormIds.length > 1) return 'combined-dashboard';
     return 'data';
   });
-  const [dateRange, setDateRange] = useState<string>('30d');
+  const [dateRange, setDateRange] = useState<string>(() => {
+    try {
+      const param = searchParams.get('dateRange') || searchParams.get('range') || searchParams.get('days');
+      if (param && ['all', 'today', '7d', '30d', '60d', '90d', 'this_month', 'last_month', 'custom'].includes(param)) {
+        return param;
+      }
+      const stored = sessionStorage.getItem('quality_dashboard_date_range');
+      if (stored && ['all', 'today', '7d', '30d', '60d', '90d', 'this_month', 'last_month', 'custom'].includes(stored)) {
+        return stored;
+      }
+    } catch (_) { }
+    return '30d';
+  });
   const [selectedFormIds, setSelectedFormIds] = useState<string[]>(initialFormIds);
   const [isFormDropdownOpen, setIsFormDropdownOpen] = useState<boolean>(false);
   const [formSearchQuery, setFormSearchQuery] = useState<string>('');
@@ -236,8 +248,20 @@ export const QualityDashboard: React.FC = () => {
     } catch (_) { }
     return [];
   });
-  const [customStartDate, setCustomStartDate] = useState<string>('');
-  const [customEndDate, setCustomEndDate] = useState<string>('');
+  const [customStartDate, setCustomStartDate] = useState<string>(() => {
+    try {
+      return searchParams.get('startDate') || sessionStorage.getItem('quality_dashboard_custom_start') || '';
+    } catch (_) {
+      return '';
+    }
+  });
+  const [customEndDate, setCustomEndDate] = useState<string>(() => {
+    try {
+      return searchParams.get('endDate') || sessionStorage.getItem('quality_dashboard_custom_end') || '';
+    } catch (_) {
+      return '';
+    }
+  });
   const [searchInspector, setSearchInspector] = useState<string>('');
   const [dataPage, setDataPage] = useState<number>(1);
   const dataItemsPerPage = 100;
@@ -306,6 +330,44 @@ export const QualityDashboard: React.FC = () => {
     return baseList;
   }, [data?.formsSummary]);
 
+  // Handle date range change and persist across sessions and route transitions
+  const handleDateRangeChange = (val: string) => {
+    setDateRange(val);
+    try {
+      sessionStorage.setItem('quality_dashboard_date_range', val);
+    } catch (_) { }
+
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (val !== '30d') {
+        next.set('dateRange', val);
+      } else {
+        next.delete('dateRange');
+      }
+      if (val !== 'custom') {
+        next.delete('startDate');
+        next.delete('endDate');
+      }
+      return next;
+    }, { replace: true });
+
+    if (val === 'custom' && (!customStartDate || !customEndDate)) {
+      const today = new Date();
+      const end = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const past = new Date(today);
+      past.setDate(past.getDate() - 30);
+      const start = `${past.getFullYear()}-${String(past.getMonth() + 1).padStart(2, '0')}-${String(past.getDate()).padStart(2, '0')}`;
+      if (!customStartDate) {
+        setCustomStartDate(start);
+        try { sessionStorage.setItem('quality_dashboard_custom_start', start); } catch (_) { }
+      }
+      if (!customEndDate) {
+        setCustomEndDate(end);
+        try { sessionStorage.setItem('quality_dashboard_custom_end', end); } catch (_) { }
+      }
+    }
+  };
+
   // Synchronize selected forms with URL search params
   const updateSelectedForms = (newIds: string[]) => {
     setSelectedFormIds(newIds);
@@ -317,11 +379,14 @@ export const QualityDashboard: React.FC = () => {
         next.delete('formIds');
         next.delete('formId');
       }
+      if (dateRange && dateRange !== '30d') {
+        next.set('dateRange', dateRange);
+      }
       return next;
     }, { replace: true });
   };
 
-  // Sync selectedFormIds whenever URL search parameters change externally
+  // Sync selectedFormIds and dateRange whenever URL search parameters change externally
   useEffect(() => {
     const raw = searchParams.get('formIds') || searchParams.get('formId');
     if (raw && raw !== 'all') {
@@ -332,6 +397,12 @@ export const QualityDashboard: React.FC = () => {
       });
     } else if (!raw || raw === 'all') {
       setSelectedFormIds(prev => prev.length === 0 ? prev : []);
+    }
+
+    const rawRange = searchParams.get('dateRange') || searchParams.get('range') || searchParams.get('days');
+    if (rawRange && rawRange !== dateRange && ['all', 'today', '7d', '30d', '60d', '90d', 'this_month', 'last_month', 'custom'].includes(rawRange)) {
+      setDateRange(rawRange);
+      try { sessionStorage.setItem('quality_dashboard_date_range', rawRange); } catch (_) { }
     }
   }, [searchParams]);
 
@@ -1891,19 +1962,7 @@ export const QualityDashboard: React.FC = () => {
             <Calendar className="w-4 h-4 text-blue-600 flex-shrink-0" />
             <select
               value={dateRange}
-              onChange={(e) => {
-                const val = e.target.value;
-                setDateRange(val);
-                if (val === 'custom' && (!customStartDate || !customEndDate)) {
-                  const today = new Date();
-                  const end = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-                  const past = new Date(today);
-                  past.setDate(past.getDate() - 30);
-                  const start = `${past.getFullYear()}-${String(past.getMonth() + 1).padStart(2, '0')}-${String(past.getDate()).padStart(2, '0')}`;
-                  if (!customStartDate) setCustomStartDate(start);
-                  if (!customEndDate) setCustomEndDate(end);
-                }
-              }}
+              onChange={(e) => handleDateRangeChange(e.target.value)}
               className="text-sm font-medium border-0 bg-transparent text-gray-700 outline-none cursor-pointer pr-2"
             >
               <option value="all">All Time</option>
@@ -1926,9 +1985,19 @@ export const QualityDashboard: React.FC = () => {
                   onChange={(e) => {
                     const newStart = e.target.value;
                     setCustomStartDate(newStart);
+                    try { sessionStorage.setItem('quality_dashboard_custom_start', newStart); } catch (_) { }
+                    let nextEnd = customEndDate;
                     if (customEndDate && newStart > customEndDate) {
                       setCustomEndDate(newStart);
+                      nextEnd = newStart;
+                      try { sessionStorage.setItem('quality_dashboard_custom_end', newStart); } catch (_) { }
                     }
+                    setSearchParams(prev => {
+                      const next = new URLSearchParams(prev);
+                      next.set('startDate', newStart);
+                      if (nextEnd) next.set('endDate', nextEnd);
+                      return next;
+                    }, { replace: true });
                   }}
                   className="text-xs border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50"
                   title="From Date (Past)"
@@ -1942,9 +2011,19 @@ export const QualityDashboard: React.FC = () => {
                   onChange={(e) => {
                     const newEnd = e.target.value;
                     setCustomEndDate(newEnd);
+                    try { sessionStorage.setItem('quality_dashboard_custom_end', newEnd); } catch (_) { }
+                    let nextStart = customStartDate;
                     if (customStartDate && newEnd < customStartDate) {
                       setCustomStartDate(newEnd);
+                      nextStart = newEnd;
+                      try { sessionStorage.setItem('quality_dashboard_custom_start', newEnd); } catch (_) { }
                     }
+                    setSearchParams(prev => {
+                      const next = new URLSearchParams(prev);
+                      if (nextStart) next.set('startDate', nextStart);
+                      next.set('endDate', newEnd);
+                      return next;
+                    }, { replace: true });
                   }}
                   className="text-xs border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50"
                   title="To Date (Present)"
@@ -1954,8 +2033,18 @@ export const QualityDashboard: React.FC = () => {
                     onClick={() => {
                       setCustomStartDate('');
                       setCustomEndDate('');
+                      try {
+                        sessionStorage.removeItem('quality_dashboard_custom_start');
+                        sessionStorage.removeItem('quality_dashboard_custom_end');
+                      } catch (_) { }
+                      setSearchParams(prev => {
+                        const next = new URLSearchParams(prev);
+                        next.delete('startDate');
+                        next.delete('endDate');
+                        return next;
+                      }, { replace: true });
                     }}
-                    className="p-0.5 text-gray-400 hover:text-red-500 rounded"
+                    className="p-0.5 text-gray-400 hover:text-red-500 rounded cursor-pointer"
                     title="Clear custom dates"
                   >
                     <X className="w-3.5 h-3.5" />
