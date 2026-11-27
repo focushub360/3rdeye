@@ -1026,18 +1026,24 @@ export default function FormAnalyticsDashboard({
       };
 
       let resolvedMainResponses = activeResponsesSource;
-      let resolvedChildResponses: Record<string, any> = { ...(relatedFormData.childResponses || {}) };
+      let resolvedChildResponses: Record<string, any> = isFilteredMode
+        ? {}
+        : { ...(relatedFormData.childResponses || {}) };
 
       const currentId = String(id || (form as any)?._id || (form as any)?.id || "");
       const mainId = String((mainDoc as any)?._id || (mainDoc as any)?.id || "");
       const childId = String((targetTenantDoc as any)?._id || (targetTenantDoc as any)?.id || "");
 
       if (isChild) {
-        // activeResponsesSource holds the child (2nd) form's responses
-        resolvedChildResponses = {
-          ...resolvedChildResponses,
-          ...indexResponsesByChassis(activeResponsesSource)
-        };
+        // activeResponsesSource holds the child (2nd) form's responses.
+        // In filtered mode, strictly reflect the filtered child rows so blank/pending TVS reviews
+        // are not overwritten by stale or other submissions in relatedFormData.childResponses.
+        resolvedChildResponses = isFilteredMode
+          ? indexResponsesByChassis(activeResponsesSource)
+          : {
+              ...resolvedChildResponses,
+              ...indexResponsesByChassis(activeResponsesSource)
+            };
         if (mainId && mainId !== currentId) {
           try {
             const parentExport = (preloadedRelatedExport && preloadedRelatedExport.length > 0)
@@ -1058,7 +1064,7 @@ export default function FormAnalyticsDashboard({
                     submittedAt: childR.submittedAt || parentMatch.submittedAt,
                     createdAt: childR.createdAt || parentMatch.createdAt,
                     childResponse: childR,
-                    childReview: childR.review || parentMatch.childReview
+                    childReview: childR.review || (isFilteredMode ? null : parentMatch.childReview)
                   };
                 }
                 return {

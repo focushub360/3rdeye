@@ -2346,30 +2346,19 @@ export const getMyReviewStats = async (req, res) => {
   }
 };
 
-// ─── Simple in-memory cache for the performance table (5 min TTL) ───────────
-// Keyed by every input that changes the result. Cleared automatically once
-// stale entries are read (lazy eviction) so this never needs a background
-// timer. This is process-local, so it resets on redeploy/restart - that's
-// fine for a "nice to have" speed boost, not a correctness requirement.
-const PERFORMANCE_TABLE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const performanceTableCache = new Map();
+// ─── Shared appCache for the performance table (5 min TTL, auto-invalidated on mutations) ───
+const PERFORMANCE_TABLE_CACHE_TTL_SEC = 300; // 5 minutes
 
 const buildPerformanceTableCacheKey = ({
   tenantKey, startDate, endDate, formId, queryTenantId, page, limit
-}) => JSON.stringify({ v: 'v29', tenantKey, startDate, endDate, formId, queryTenantId, page, limit });
+}) => `performance_table_v29_${JSON.stringify({ tenantKey, startDate, endDate, formId, queryTenantId, page, limit })}`;
 
 const getCachedPerformanceTable = (key) => {
-  const entry = performanceTableCache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.cachedAt > PERFORMANCE_TABLE_CACHE_TTL_MS) {
-    performanceTableCache.delete(key);
-    return null;
-  }
-  return entry.payload;
+  return appCache.get(key) || null;
 };
 
 const setCachedPerformanceTable = (key, payload) => {
-  performanceTableCache.set(key, { payload, cachedAt: Date.now() });
+  appCache.set(key, payload, PERFORMANCE_TABLE_CACHE_TTL_SEC);
 };
 
 export const getPerformanceTable = async (req, res) => {
@@ -2444,10 +2433,17 @@ export const getPerformanceTable = async (req, res) => {
       limit
     });
 
-    const cached = getCachedPerformanceTable(cacheKey);
-    if (cached) {
-      console.log('[Performance Table] Cache hit', cacheKey);
-      return res.json(cached);
+    const shouldBypassPerfCache =
+      req.query.forceNetwork === 'true' ||
+      req.query.bypassCache === 'true' ||
+      req.headers?.['cache-control'] === 'no-cache';
+
+    if (!shouldBypassPerfCache) {
+      const cached = getCachedPerformanceTable(cacheKey);
+      if (cached) {
+        console.log('[Performance Table] Cache hit', cacheKey);
+        return res.json(cached);
+      }
     }
 
     // Determine which users to show
@@ -3573,10 +3569,10 @@ export const getPerformanceTable = async (req, res) => {
         stats.biwAccepted = stats.biwAccepted !== undefined ? stats.biwAccepted : (matchAgg.biwAccepted || 0);
         stats.biwRejected = stats.biwRejected !== undefined ? stats.biwRejected : (matchAgg.biwRejected || 0);
         stats.biwReworked = stats.biwReworked !== undefined ? stats.biwReworked : (matchAgg.biwReworked || 0);
-        stats.tvsTotalReviewed = matchAgg.tvsTotalReviewed !== undefined ? matchAgg.tvsTotalReviewed : (stats.tvsTotalReviewed || 0);
-        stats.tvsAccepted = matchAgg.tvsAccepted !== undefined ? matchAgg.tvsAccepted : (stats.tvsAccepted || 0);
-        stats.tvsRejected = matchAgg.tvsRejected !== undefined ? matchAgg.tvsRejected : (stats.tvsRejected || 0);
-        stats.tvsReworked = matchAgg.tvsReworked !== undefined ? matchAgg.tvsReworked : (stats.tvsReworked || 0);
+        stats.tvsTotalReviewed = Math.max(stats.tvsTotalReviewed || 0, matchAgg.tvsTotalReviewed || 0);
+        stats.tvsAccepted = Math.max(stats.tvsAccepted || 0, matchAgg.tvsAccepted || 0);
+        stats.tvsRejected = Math.max(stats.tvsRejected || 0, matchAgg.tvsRejected || 0);
+        stats.tvsReworked = Math.max(stats.tvsReworked || 0, matchAgg.tvsReworked || 0);
       } else {
         stats.dispatchPending = Math.max(0, stats.directOk + stats.reworkQcCompleted - stats.dispatched);
       }

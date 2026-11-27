@@ -10,7 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { apiClient } from "../api/client";
 import { io } from "socket.io-client";
-import { Users, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Loader2, Info, Search, X, ArrowUp, ArrowDown, ArrowUpDown, Calendar, Building2, FileText, CheckCircle2, AlertTriangle, Layers, ExternalLink, Eye, EyeOff } from "lucide-react";
+import { Users, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Loader2, Info, Search, X, ArrowUp, ArrowDown, ArrowUpDown, Calendar, Building2, FileText, CheckCircle2, AlertTriangle, Layers, ExternalLink, Eye, EyeOff, RefreshCw } from "lucide-react";
 import PerformanceGuideModal from "./analytics/PerformanceGuideModal";
 
 const PerformanceTable = ({
@@ -770,6 +770,10 @@ const PerformanceTable = ({
               setPerfInspectorSummary(parsed.inspectorSummary || []);
               setActiveUserNames(new Set(parsed.activeUserNames || []));
               setPerformanceTableLoading(false);
+              // Always revalidate in background if cache is older than 3s so updates appear time-to-time
+              if (cacheAge > 3000) {
+                loadPerformanceData(true, true);
+              }
               return;
             }
           }
@@ -915,6 +919,27 @@ const PerformanceTable = ({
       }
     }, 4000);
 
+    // 1b. Instant sync on tab focus / visibility / cross-tab analytics_data_updated
+    const handleVisibilityOrFocus = () => {
+      if (typeof document === "undefined" || !document.hidden) {
+        try {
+          sessionStorage.removeItem(getCacheKey());
+        } catch (_) {}
+        loadPerformanceData(true, true);
+      }
+    };
+    const handleStorageUpdate = (e: StorageEvent) => {
+      if (e.key === "analytics_data_updated") {
+        try {
+          sessionStorage.removeItem(getCacheKey());
+        } catch (_) {}
+        loadPerformanceData(true, true);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    window.addEventListener("storage", handleStorageUpdate);
+
     // 2. Real-time WebSocket connection to receive instant dispatch/response changes
     const getSocketUrl = () => {
       if (typeof window !== "undefined") {
@@ -961,6 +986,9 @@ const PerformanceTable = ({
 
     return () => {
       clearInterval(pollInterval);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      window.removeEventListener("storage", handleStorageUpdate);
       if (socket) {
         try {
           if (formId) socket.emit("leave-form-analytics", formId);
@@ -1920,6 +1948,22 @@ const PerformanceTable = ({
                 <span>Show Reviewed Section</span>
               </>
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                sessionStorage.removeItem(getCacheKey());
+              } catch (_) {}
+              loadPerformanceData(true, false);
+            }}
+            disabled={performanceTableLoading}
+            className="px-3 py-2 text-xs font-bold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 rounded-2xl border border-purple-200 dark:border-purple-700 transition-colors shadow-sm cursor-pointer whitespace-nowrap inline-flex items-center gap-1.5 disabled:opacity-60"
+            title="Refresh Performance Table data"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${performanceTableLoading ? "animate-spin" : ""}`} />
+            <span>Refresh</span>
           </button>
 
           {/* Inspector / User Search */}
