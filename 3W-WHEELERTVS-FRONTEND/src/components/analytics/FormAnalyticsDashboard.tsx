@@ -21,6 +21,7 @@ import {
   Layers,
   Link2,
   Clock,
+  Lock,
   XCircle,
   BarChart3,
   Calendar,
@@ -1683,21 +1684,12 @@ export default function FormAnalyticsDashboard({
   };
 
   const isOwnTenantResponse = (response: Response) => {
-    // Only superadmins, direct form creators, or users belonging to the form's creator tenant can dispatch responses
+    // Only superadmins or users belonging to the form's owning creator tenant can dispatch responses
     if (user?.role === "superadmin") {
       return true;
     }
 
     if (!user) return false;
-
-    // Direct creator of the form
-    const formCreatedById = form?.createdBy
-      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
-      : null;
-    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
-    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
-      return true;
-    }
 
     const userTenantId = user?.tenantId;
     if (!userTenantId) {
@@ -1716,6 +1708,15 @@ export default function FormAnalyticsDashboard({
     // If the form has an owning creator tenant, user's tenant MUST match the creator tenant
     if (formTenantStr) {
       return userTenantStr === formTenantStr;
+    }
+
+    // Direct creator of the form fallback if no form tenant
+    const formCreatedById = form?.createdBy
+      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
+      : null;
+    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
+    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
+      return true;
     }
 
     // Legacy form with no tenant: only match if response tenant matches user's tenant
@@ -2906,14 +2907,6 @@ export default function FormAnalyticsDashboard({
     if (user?.role === "superadmin") return true;
     if (!user) return false;
 
-    const formCreatedById = form?.createdBy
-      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
-      : null;
-    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
-    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
-      return true;
-    }
-
     const formTenantId = form?.tenantId
       ? (typeof form.tenantId === "object" ? String((form.tenantId as any)._id || (form.tenantId as any).id) : String(form.tenantId))
       : null;
@@ -2921,8 +2914,12 @@ export default function FormAnalyticsDashboard({
       ? (typeof user.tenantId === "object" ? String((user.tenantId as any)._id || (user.tenantId as any).id) : String(user.tenantId))
       : null;
 
-    // If the form has no tenant, only allow direct creator user or superadmin
+    // If the form has no tenant, fall back to direct creator user
     if (!formTenantId) {
+      const formCreatedById = form?.createdBy
+        ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
+        : null;
+      const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
       return Boolean(formCreatedById && currentUserId && formCreatedById === currentUserId);
     }
     return Boolean(userTenantId && formTenantId === userTenantId);
