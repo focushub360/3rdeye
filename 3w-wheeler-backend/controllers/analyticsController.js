@@ -4657,7 +4657,7 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
                           { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] }
                         ]
                       },
@@ -4672,7 +4672,7 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
                           { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] }
                         ]
                       },
@@ -4687,7 +4687,7 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
                           { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] }
                         ]
                       },
@@ -4702,7 +4702,7 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
                           { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] }
                         ]
                       },
@@ -4873,7 +4873,7 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
                           { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] }
                         ]
                       },
@@ -4888,7 +4888,7 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
                           { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] }
                         ]
                       },
@@ -4903,7 +4903,7 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
                           { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] }
                         ]
                       },
@@ -4918,7 +4918,7 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
                           { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] }
                         ]
                       },
@@ -5064,7 +5064,7 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
                           { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] }
                         ]
                       },
@@ -5079,7 +5079,7 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
                           { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] }
                         ]
                       },
@@ -5094,7 +5094,7 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
                           { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] }
                         ]
                       },
@@ -5109,7 +5109,7 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
                           { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] }
                         ]
                       },

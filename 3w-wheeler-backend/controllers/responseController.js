@@ -5457,10 +5457,10 @@ export const getResponsesByForm = async (req, res) => {
     const tvsStatusParam = req.query.tvsStatus;
     if (tvsStatusParam) {
       query.isDispatched = true;
-      if (!query.status) {
+      const ts = String(tvsStatusParam).toLowerCase().trim();
+      if (!query.status || ts === 'rework' || ts === 'defects' || ts === 'rejected' || ts === 'pending') {
         query.status = { $nin: ['Rework', 'Rework 1', 'Rework 2', 'Rejected', 'rework', 'rework 1', 'rework 2', 'rejected'] };
       }
-      const ts = String(tvsStatusParam).toLowerCase().trim();
       if (ts === 'reviewed') {
         const reviewDocIds = await Review.distinct('responseId', {
           $or: [

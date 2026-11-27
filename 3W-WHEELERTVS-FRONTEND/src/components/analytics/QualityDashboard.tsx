@@ -351,20 +351,27 @@ export const QualityDashboard: React.FC = () => {
       return next;
     }, { replace: true });
 
-    if (val === 'custom' && (!customStartDate || !customEndDate)) {
+    if (val === 'custom') {
       const today = new Date();
       const end = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
       const past = new Date(today);
       past.setDate(past.getDate() - 30);
       const start = `${past.getFullYear()}-${String(past.getMonth() + 1).padStart(2, '0')}-${String(past.getDate()).padStart(2, '0')}`;
-      if (!customStartDate) {
-        setCustomStartDate(start);
-        try { sessionStorage.setItem('quality_dashboard_custom_start', start); } catch (_) { }
-      }
-      if (!customEndDate) {
-        setCustomEndDate(end);
-        try { sessionStorage.setItem('quality_dashboard_custom_end', end); } catch (_) { }
-      }
+      const effectiveStart = (!customStartDate || customStartDate === end) ? start : customStartDate;
+      const effectiveEnd = !customEndDate ? end : customEndDate;
+      setCustomStartDate(effectiveStart);
+      setCustomEndDate(effectiveEnd);
+      try {
+        sessionStorage.setItem('quality_dashboard_custom_start', effectiveStart);
+        sessionStorage.setItem('quality_dashboard_custom_end', effectiveEnd);
+      } catch (_) { }
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.set('dateRange', 'custom');
+        next.set('startDate', effectiveStart);
+        next.set('endDate', effectiveEnd);
+        return next;
+      }, { replace: true });
     }
   };
 
@@ -767,15 +774,15 @@ export const QualityDashboard: React.FC = () => {
       ? activeSummary.tvsReworkCount
       : formsList.reduce((s, f) => s + (f.tvsReworkCount || 0), 0);
     const tvsDefectsCount = tvsRejectCount + tvsReworkCount;
-    // TVS Pending = Total Submissions - Total TVS Reviewed (matches Performance Table exactly)
+    // TVS Pending = Dispatched Units - Total TVS Reviewed (matches Performance Table and Rule 5E exactly)
     const pendingTvsCount = activeSummary.pendingTvsReview !== undefined
       ? activeSummary.pendingTvsReview
-      : Math.max(0, total - tvsReviewedCount);
+      : Math.max(0, totalDispatched - tvsReviewedCount);
 
-    const tvsReviewedPercent = total > 0 ? (tvsReviewedCount / total) * 100 : 0;
-    const pendingTvsPercent = total > 0 ? (pendingTvsCount / total) * 100 : 0;
-    const tvsAcceptPercent = total > 0 ? (tvsAcceptCount / total) * 100 : 0;
-    const tvsDefectsPercent = total > 0 ? (tvsDefectsCount / total) * 100 : 0;
+    const tvsReviewedPercent = totalDispatched > 0 ? (tvsReviewedCount / totalDispatched) * 100 : (total > 0 ? (tvsReviewedCount / total) * 100 : 0);
+    const pendingTvsPercent = totalDispatched > 0 ? (pendingTvsCount / totalDispatched) * 100 : 0;
+    const tvsAcceptPercent = totalDispatched > 0 ? (tvsAcceptCount / totalDispatched) * 100 : (total > 0 ? (tvsAcceptCount / total) * 100 : 0);
+    const tvsDefectsPercent = totalDispatched > 0 ? (tvsDefectsCount / totalDispatched) * 100 : (total > 0 ? (tvsDefectsCount / total) * 100 : 0);
 
     return {
       directOk: Number(directOkPercent.toFixed(1)),
@@ -3169,7 +3176,7 @@ export const QualityDashboard: React.FC = () => {
                     const formPendingData = Math.max(0, formDispatched - formBiwReviewed);
                     const formPendingTvs = form.pendingTvsCount !== undefined
                       ? form.pendingTvsCount
-                      : Math.max(0, total - formTvsReviewed);
+                      : Math.max(0, formDispatched - formTvsReviewed);
 
                     let displayCount = total;
                     let displayPct = '100';
@@ -3227,8 +3234,8 @@ export const QualityDashboard: React.FC = () => {
                       activeLabel = 'Pending BIW Data';
                     } else if (hoveredSlice === 'pendingTvs') {
                       displayCount = formPendingTvs;
-                      displayPct = total > 0
-                        ? ((formPendingTvs / total) * 100).toFixed(1)
+                      displayPct = formDispatched > 0
+                        ? ((formPendingTvs / formDispatched) * 100).toFixed(1)
                         : '0';
                       tagColor = 'text-amber-700 bg-amber-50 border-amber-300';
                       activeLabel = 'Pending TVS';
@@ -3361,7 +3368,7 @@ export const QualityDashboard: React.FC = () => {
                           <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden flex">
                             <div style={{ width: `${(formTvsAccepted / (formDispatched || 1)) * 100}%` }} className="bg-emerald-500 h-full" title={`TVS Accepted: ${formTvsAccepted}`} />
                             <div style={{ width: `${(formTvsDefects / (formDispatched || 1)) * 100}%` }} className="bg-rose-500 h-full" title={`TVS Defects: ${formTvsDefects}`} />
-                            <div style={{ width: `${(formPendingTvs / (total || 1)) * 100}%` }} className="bg-amber-400 h-full" title={`Pending TVS: ${formPendingTvs}`} />
+                            <div style={{ width: `${(formPendingTvs / (formDispatched || 1)) * 100}%` }} className="bg-amber-400 h-full" title={`Pending TVS: ${formPendingTvs}`} />
                           </div>
                         ) : (
                           <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden flex">
