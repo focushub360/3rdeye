@@ -1,4 +1,5 @@
 import { Server } from 'socket.io';
+import { clearAnalyticsCache } from '../utils/cache.js';
 
 let io;
 
@@ -117,6 +118,7 @@ export const getIO = () => {
 
 // Emit events for real-time updates
 export const emitResponseCreated = (formId, response) => {
+  clearAnalyticsCache();
   if (io) {
     // Emit to specific form analytics room
     io.to(`form-analytics-${formId}`).emit('response-created', {
@@ -137,6 +139,7 @@ export const emitResponseCreated = (formId, response) => {
 };
 
 export const emitResponseUpdated = (formId, response) => {
+  clearAnalyticsCache();
   if (io) {
     // Emit to specific form analytics room
     io.to(`form-analytics-${formId}`).emit('response-updated', {
@@ -157,6 +160,7 @@ export const emitResponseUpdated = (formId, response) => {
 };
 
 export const emitResponseDeleted = (formId, responseId) => {
+  clearAnalyticsCache();
   if (io) {
     // Emit to specific form analytics room
     io.to(`form-analytics-${formId}`).emit('response-deleted', {
@@ -177,6 +181,7 @@ export const emitResponseDeleted = (formId, responseId) => {
 };
 
 export const emitBatchImported = (formId, data = {}) => {
+  clearAnalyticsCache();
   if (io) {
     const fId = String(formId);
     // Emit to specific form analytics room

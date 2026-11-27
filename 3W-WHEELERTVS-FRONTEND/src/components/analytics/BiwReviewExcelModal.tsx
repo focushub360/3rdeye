@@ -148,9 +148,8 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
       return;
     }
     let isMounted = true;
-    const exportParams = (startDate || endDate) ? { startDate, endDate } : undefined;
     const p = apiClient
-      .getAllResponsesForExport(targetId, exportParams)
+      .getAllResponsesForExport(targetId)
       .then((cList) => {
         const arr = Array.isArray(cList) ? cList : [];
         if (isMounted) {

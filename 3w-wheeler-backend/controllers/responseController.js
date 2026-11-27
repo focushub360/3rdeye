@@ -5479,8 +5479,7 @@ export const getResponsesByForm = async (req, res) => {
         if (!query.$and) query.$and = [];
         query.$and.push({ $or: orConditions });
       } else if (ts === 'pending') {
-        // Pending TVS Review = Dispatched units that have NO TVS review yet
-        query.isDispatched = true;
+        // Pending TVS Review = All submitted responses that have NO TVS review yet
         const reviewDocIds = await Review.distinct('responseId', {
           $or: [
             { status: { $in: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } },
@@ -7700,8 +7699,24 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
     const mainFormIds = [mainFormId, mainForm?.id, mainForm?._id?.toString()].filter(Boolean);
     const childFormIds = [childFormId, childForm?.id, childForm?._id?.toString()].filter(Boolean);
 
+    // Extract all chassis variants in this batch to guarantee 100% sibling resolution directly from MongoDB
+    const chassisVariantsSet = new Set();
+    reviews.forEach(row => {
+      const raw = String(
+        row.chassisNumber || row.chassisNo || row.che || row.cha || row['Chassis Number'] || row['chasis number'] || row['Che'] || row['cha'] || ''
+      ).trim();
+      if (raw) {
+        chassisVariantsSet.add(raw);
+        chassisVariantsSet.add(raw.toUpperCase());
+        chassisVariantsSet.add(raw.toLowerCase());
+        chassisVariantsSet.add(raw.toUpperCase().replace(/\s+/g, ''));
+        chassisVariantsSet.add(raw.toLowerCase().replace(/\s+/g, ''));
+      }
+    });
+    const batchChassisVariants = Array.from(chassisVariantsSet);
+
     // Fast path: if frontend already resolved mainResponseId/childResponseId for rows,
-    // fetch ONLY those exact _ids (~100ms instead of 25s full form scan)
+    // fetch those exact _ids PLUS any sibling submissions matching the batch chassis numbers
     const directObjectIds = [];
     const directStringIds = [];
     const addDirectId = (val) => {
@@ -7732,6 +7747,30 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
       if (directObjectIds.length > 0) directOr.push({ _id: { $in: directObjectIds } });
       if (directStringIds.length > 0) directOr.push({ id: { $in: directStringIds } });
 
+      // In addition to direct IDs, query all database siblings for these chassis numbers in main and child forms
+      if (batchChassisVariants.length > 0) {
+        if (mainFormIds.length > 0) {
+          directOr.push({
+            questionId: { $in: mainFormIds },
+            isSectionSubmit: { $ne: true },
+            $or: [
+              { chassisNumber: { $in: batchChassisVariants } },
+              { systemChassisNumber: { $in: batchChassisVariants } }
+            ]
+          });
+        }
+        if (childFormIds.length > 0) {
+          directOr.push({
+            questionId: { $in: childFormIds },
+            isSectionSubmit: { $ne: true },
+            $or: [
+              { chassisNumber: { $in: batchChassisVariants } },
+              { systemChassisNumber: { $in: batchChassisVariants } }
+            ]
+          });
+        }
+      }
+
       const [directDocs, usersList] = await Promise.all([
         Response.find({ $or: directOr }).select(selectFields).lean(),
         User.find({}).select('_id firstName lastName username email tenantId').lean()
@@ -7740,6 +7779,12 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
       directDocs.forEach(d => {
         if (d._id) responseByIdMap.set(d._id.toString(), d);
         if (d.id) responseByIdMap.set(String(d.id), d);
+        const qIdStr = String(d.questionId || d.formId || '');
+        if (childFormIds.some(cfId => String(cfId) === qIdStr)) {
+          childCandidateResponses.push(d);
+        } else {
+          mainCandidateResponses.push(d);
+        }
       });
     } else {
       // Fallback: indexed parallel preload by questionId (exclude partial section-submit drafts)
@@ -8276,6 +8321,56 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
                   update: { $set: childSet }
                 }
               });
+
+              // Also sync imported reviews to any sibling submissions for the same chassis in child form
+              const siblingChildPool = [];
+              if (Array.isArray(row.childResponseIds)) {
+                row.childResponseIds.forEach(sid => {
+                  const doc = responseByIdMap.get(String(sid));
+                  if (doc) siblingChildPool.push(doc);
+                });
+              } else if (Array.isArray(matchedChild)) {
+                siblingChildPool.push(...matchedChild);
+              }
+              const seenChildSibIds = new Set([childResp._id.toString()]);
+              for (const csib of siblingChildPool) {
+                const csibId = csib?._id?.toString();
+                if (!csibId || seenChildSibIds.has(csibId)) continue;
+                seenChildSibIds.add(csibId);
+
+                undoSnapshots.push({
+                  target: 'child',
+                  responseId: csibId,
+                  chassisNumber: chNum,
+                  prevBiwReview: cloneVal(csib.biwReview),
+                  prevReview: cloneVal(csib.review),
+                  prevStatus: csib.status || null,
+                  prevParentReview: cloneVal(csib.parentReview),
+                  changeSummary: `${summaryStr} (child sibling)`
+                });
+
+                const csibSet = {};
+                if (childResp.biwReview) csibSet.biwReview = childResp.biwReview;
+                if (childResp.review) csibSet.review = childResp.review;
+                if (childResp.parentReview) csibSet.parentReview = childResp.parentReview;
+                if (childResp.status) {
+                  if (childResp.status === 'Accepted' || childResp.status === 'Rework Accepted') {
+                    csibSet.status = hasAnyReworkHistory(csib, csib.review, csib.biwReview)
+                      ? 'Rework Accepted'
+                      : (csib.status === 'Direct Ok' ? 'Direct Ok' : 'Accepted');
+                  } else {
+                    csibSet.status = childResp.status;
+                  }
+                }
+                if (Object.keys(csibSet).length > 0) {
+                  responseBulkOps.push({
+                    updateOne: {
+                      filter: { _id: csib._id },
+                      update: { $set: csibSet }
+                    }
+                  });
+                }
+              }
             }
           }
           updatedCount++;

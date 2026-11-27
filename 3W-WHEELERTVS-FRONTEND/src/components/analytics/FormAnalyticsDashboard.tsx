@@ -554,15 +554,22 @@ export default function FormAnalyticsDashboard({
     return "";
   }, [tenantsMap]);
 
-  // Downloads BIW template pre-loaded with current table chassis, BIW reviews & TVS reviews cloned for targeted tenant
-  const handleDownloadBiwTemplate = async () => {
+  // Downloads BIW template pre-loaded with filtered or full all-time table chassis, BIW reviews & TVS reviews
+  const handleDownloadBiwTemplate = async (mode: "filtered" | "all" = "filtered") => {
     setIsExporting(true);
-    showToast("Preparing BIW Review Excel template (last 30 days)...", "info");
+    const isFilteredMode = mode === "filtered";
+    showToast(
+      isFilteredMode
+        ? "Preparing Filtered BIW Review Excel template..."
+        : "Preparing Full All-Time BIW Review Excel template...",
+      "info"
+    );
     try {
       let activeResponsesSource: any[] = [];
       const hasExplicitSelection =
-        (selectedResponseIds && selectedResponseIds.length > 0) ||
-        (selectedBiwIds && selectedBiwIds.length > 0);
+        isFilteredMode &&
+        ((selectedResponseIds && selectedResponseIds.length > 0) ||
+          (selectedBiwIds && selectedBiwIds.length > 0));
       const activeSelectionIds =
         selectedResponseIds && selectedResponseIds.length > 0
           ? selectedResponseIds
@@ -578,7 +585,7 @@ export default function FormAnalyticsDashboard({
       } else {
         const targetFormId = String(id || (form as any)?._id || (form as any)?.id || propFormId || "");
         const exportParams: any = {};
-        if (dateFilter && dateFilter.type !== "all") {
+        if (isFilteredMode && dateFilter && dateFilter.type !== "all") {
           if (dateFilter.startDate) exportParams.startDate = dateFilter.startDate;
           if (dateFilter.endDate) exportParams.endDate = dateFilter.endDate;
         }
@@ -617,10 +624,11 @@ export default function FormAnalyticsDashboard({
           expectedTotal > 0 &&
           responses &&
           responses.length >= expectedTotal &&
-          !analyticsResponsesLoading;
+          !analyticsResponsesLoading &&
+          (isFilteredMode || dateFilter.type === "all");
 
         if (hasFullInMemory) {
-          activeResponsesSource = responses;
+          activeResponsesSource = isFilteredMode ? filteredResponses : responses;
           if (relatedExportPromise) {
             try {
               preloadedRelatedExport = await relatedExportPromise;
@@ -643,54 +651,115 @@ export default function FormAnalyticsDashboard({
 
         // Fallback to in-memory responses if export call returns empty
         if (!activeResponsesSource || activeResponsesSource.length === 0) {
-          activeResponsesSource =
-            responses && responses.length > 0
-              ? responses
-              : filteredResponses && filteredResponses.length > 0
+          activeResponsesSource = isFilteredMode
+            ? (filteredResponses && filteredResponses.length > 0
                 ? filteredResponses
+                : responses && responses.length > 0
+                  ? responses
+                  : tableResponses && tableResponses.length > 0
+                    ? tableResponses
+                    : [])
+            : (responses && responses.length > 0
+                ? responses
                 : tableResponses && tableResponses.length > 0
                   ? tableResponses
-                  : [];
+                  : []);
         }
 
-        // Strictly enforce active date range (e.g. 30-day filter) ONLY if it yields at least 1 record
-        if (dateFilter && dateFilter.type !== "all" && (dateFilter.startDate || dateFilter.endDate)) {
-          const inRange = activeResponsesSource.filter((r: any) => {
-            const raw = r.submittedAt || r.createdAt || r.timestamp;
-            if (!raw) return true;
-            let dStr = "";
-            if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}/.test(raw)) {
-              dStr = raw.substring(0, 10);
-            } else {
-              const d = new Date(raw);
-              if (!isNaN(d.getTime())) {
-                dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        if (isFilteredMode) {
+          // 1. Strictly enforce active date range (e.g. 30-day filter)
+          if (dateFilter && dateFilter.type !== "all" && (dateFilter.startDate || dateFilter.endDate)) {
+            activeResponsesSource = activeResponsesSource.filter((r: any) => {
+              const raw = r.submittedAt || r.createdAt || r.timestamp;
+              if (!raw) return true;
+              let dStr = "";
+              if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}/.test(raw)) {
+                dStr = raw.substring(0, 10);
+              } else {
+                const d = new Date(raw);
+                if (!isNaN(d.getTime())) {
+                  dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                }
               }
-            }
-            if (dateFilter.startDate && dStr && dStr < dateFilter.startDate) return false;
-            if (dateFilter.endDate && dStr && dStr > dateFilter.endDate) return false;
-            return true;
-          });
-          if (inRange.length > 0) {
-            activeResponsesSource = inRange;
+              if (dateFilter.startDate && dStr && dStr < dateFilter.startDate) return false;
+              if (dateFilter.endDate && dStr && dStr > dateFilter.endDate) return false;
+              return true;
+            });
+          }
+
+          // 2. Apply targetUnitsSet, inspector filter, search query, and active column filters (TVS Review, Dispatch, Status, BIW Review, etc.)
+          if (targetUnitsSet.size > 0) {
+            activeResponsesSource = activeResponsesSource.filter((r: any) => {
+              const unitId = (getChassisOrItemId(r, chassisQuestionId) || "").toLowerCase().trim();
+              if (unitId && targetUnitsSet.has(unitId)) return true;
+              const fallbackCh = String(r.chassisNumber || "").toLowerCase().trim();
+              return fallbackCh ? targetUnitsSet.has(fallbackCh) : false;
+            });
+          }
+
+          if (selectedInspectorForTrend !== "Overall") {
+            activeResponsesSource = activeResponsesSource.filter(
+              (r: any) => r.submittedBy === selectedInspectorForTrend
+            );
+          }
+
+          if (deferredSearchTerm.trim() !== "") {
+            const term = deferredSearchTerm.toLowerCase().trim();
+            activeResponsesSource = activeResponsesSource.filter((response: any) => {
+              const submitter = (response.submittedBy || response.createdBy || "").toLowerCase();
+              if (submitter.includes(term)) return true;
+              const status = (responseStatuses[response.id] || "").toLowerCase();
+              if (status.includes(term)) return true;
+              const chResolved = getResponseChassisValue(response);
+              if (chResolved && chResolved !== "-" && chResolved.toLowerCase().includes(term)) return true;
+              if (response.chassisNumber && String(response.chassisNumber).toLowerCase().includes(term)) return true;
+              if (response.answers) {
+                for (const val of Object.values(response.answers)) {
+                  if (val === null || val === undefined) continue;
+                  const valStr = typeof val === "object" ? JSON.stringify(val).toLowerCase() : String(val).toLowerCase();
+                  if (valStr.includes(term)) return true;
+                }
+              }
+              return false;
+            });
+          }
+
+          const activeColFilters = Object.entries(columnFilters).filter(
+            ([, values]) => Boolean(values && values.length > 0)
+          );
+          if (activeColFilters.length > 0) {
+            activeResponsesSource = activeResponsesSource.filter((response: any) =>
+              activeColFilters.every(([columnId, allowedValues]) =>
+                matchSingleColumnFilter(response, columnId, allowedValues || [])
+              )
+            );
           }
         }
 
         // Exclude active rework statuses (e.g. "Rework 1", "Rework 2", "Rework") from BIW template download,
         // while keeping "Rework Accepted", "Direct Ok", "Accepted", and dispatched units
-        const nonReworkResponses = activeResponsesSource.filter((r: any) => {
-          if (!r) return false;
-          if (r.isDispatched) return true;
-          const computed = String(
-            responseStatuses?.[r._id || r.id] ||
-            computeFastRowStatus(r, chassisQuestionId) ||
-            r.status ||
-            ""
-          ).toLowerCase().trim();
-          return !(computed.includes("rework") && !computed.includes("accept"));
-        });
-        if (nonReworkResponses.length > 0) {
-          activeResponsesSource = nonReworkResponses;
+        const hasExplicitStatusFilter = Boolean(columnFilters["__status"] && columnFilters["__status"].length > 0);
+        if (!isFilteredMode || !hasExplicitStatusFilter) {
+          const nonReworkResponses = activeResponsesSource.filter((r: any) => {
+            if (!r) return false;
+            if (r.isDispatched) return true;
+            const computed = String(
+              responseStatuses?.[r._id || r.id] ||
+              computeFastRowStatus(r, chassisQuestionId) ||
+              r.status ||
+              ""
+            ).toLowerCase().trim();
+            return !(computed.includes("rework") && !computed.includes("accept"));
+          });
+          if (nonReworkResponses.length > 0) {
+            activeResponsesSource = nonReworkResponses;
+          }
+        }
+
+        if (isFilteredMode && hasActiveFiltersOrSort && (!activeResponsesSource || activeResponsesSource.length === 0)) {
+          showToast("No responses match the current active filters.", "warning");
+          setIsExporting(false);
+          return;
         }
       }
 
@@ -1034,7 +1103,7 @@ export default function FormAnalyticsDashboard({
         targetTenantTitle: targetTitle,
         targetTenantName,
         childResponses: resolvedChildResponses,
-        filename: `BIW Review Template - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
+        filename: `BIW Review Template${isFilteredMode && hasActiveFiltersOrSort ? " - Filtered" : mode === "all" ? " - All Time" : ""} - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
       });
       showToast("BIW Review template downloaded successfully!", "success");
     } catch (err: any) {
@@ -2113,10 +2182,6 @@ export default function FormAnalyticsDashboard({
           else if (ts === "rework" || ts === "defects" || ts === "rejected") target = ["Rework"];
           else if (ts === "pending") {
             target = ["No review yet"];
-            if (!dispatchParam && !next.__dispatch) {
-              next.__dispatch = ["Dispatched / Enabled"];
-              changed = true;
-            }
           }
           if (target && JSON.stringify(next.__tvsReview) !== JSON.stringify(target)) {
             next.__tvsReview = target;
@@ -3878,8 +3943,8 @@ export default function FormAnalyticsDashboard({
       const currentSubmittedBy = searchParams.get("submittedBy");
       const currentBiwReviewedBy = searchParams.get("biwReviewedBy");
       const currentReviewedCombined = searchParams.get("reviewedCombined");
-      const currentStartDate = searchParams.get("startDate");
-      const currentEndDate = searchParams.get("endDate");
+      const currentStartDate = searchParams.get("startDate") || (dateFilter.type !== "all" ? dateFilter.startDate : "");
+      const currentEndDate = searchParams.get("endDate") || (dateFilter.type !== "all" ? dateFilter.endDate : "");
       const data = await apiClient.getFormResponses(id, {
         page: page,
         limit: responsesPageSize,
@@ -4176,7 +4241,7 @@ export default function FormAnalyticsDashboard({
     if (activeTab === "responses" && loadedTabs.has("responses")) {
       fetchResponsesPage(responsesPage);
     }
-  }, [responsesPage, responsesPageSize, activeTab]);
+  }, [responsesPage, responsesPageSize, activeTab, dateFilter.type, dateFilter.startDate, dateFilter.endDate]);
 
   const handleRetry = async () => {
     setIsRetrying(true);
@@ -9334,20 +9399,52 @@ export default function FormAnalyticsDashboard({
                       </button>
 
                       {isBiwDropdownOpen && (
-                        <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                        <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
                           <button
                             onClick={async () => {
                               setIsBiwDropdownOpen(false);
-                              await handleDownloadBiwTemplate();
+                              await handleDownloadBiwTemplate("filtered");
                             }}
                             className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-3 transition-colors"
                           >
-                            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg text-emerald-600 dark:text-emerald-300">
+                            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg text-emerald-600 dark:text-emerald-300 shrink-0">
                               <Download className="w-4 h-4" />
                             </div>
-                            <div>
-                              <div className="font-semibold text-gray-900 dark:text-white">Download BIW Template</div>
-                              <div className="text-[10px] text-gray-500 dark:text-gray-400">Pre-loads current chassis & BIW status</div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-gray-900 dark:text-white flex items-center justify-between gap-2">
+                                <span>Download Filtered BIW Template</span>
+                                <span className="px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded">
+                                  {(hasActiveFiltersOrSort ? filteredResponses.length : activeTotalResponsesCount).toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                                {hasActiveFiltersOrSort
+                                  ? "Only filtered chassis numbers & status"
+                                  : "Pre-loads current table chassis & status"}
+                              </div>
+                            </div>
+                          </button>
+
+                          <button
+                            onClick={async () => {
+                              setIsBiwDropdownOpen(false);
+                              await handleDownloadBiwTemplate("all");
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
+                          >
+                            <div className="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg text-blue-600 dark:text-blue-300 shrink-0">
+                              <FileSpreadsheet className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-gray-900 dark:text-white flex items-center justify-between gap-2">
+                                <span>Download Full All-Time Template</span>
+                                <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded">
+                                  {(totalResponsesCount || responses.length).toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                                Full all-time data across entire form
+                              </div>
                             </div>
                           </button>
 
@@ -12046,7 +12143,7 @@ export default function FormAnalyticsDashboard({
         )}
         currentChassisNumbers={Array.from(
           new Set(
-            (responses.length > 0 ? responses : tableResponses).flatMap((r) => {
+            (hasActiveFiltersOrSort ? filteredResponses : (responses.length > 0 ? responses : tableResponses)).flatMap((r) => {
               const a = r.answers || {};
               const vals: string[] = [];
               if (r.chassisNumber) vals.push(String(r.chassisNumber).trim());
@@ -12074,6 +12171,9 @@ export default function FormAnalyticsDashboard({
         endDate={dateFilter?.type !== "all" ? dateFilter?.endDate : undefined}
         onImportSuccess={() => {
           showToast("BIW & TVS Reviews imported successfully!", "success");
+          try {
+            localStorage.setItem("analytics_data_updated", String(Date.now()));
+          } catch (_) {}
           fetchResponsesPage(responsesPage || 1);
           refreshDashboardData();
         }}
@@ -12087,6 +12187,9 @@ export default function FormAnalyticsDashboard({
         formTitle={form?.title || "Inspection Form"}
         onUndoSuccess={() => {
           showToast("Import undone successfully! Records restored.", "success");
+          try {
+            localStorage.setItem("analytics_data_updated", String(Date.now()));
+          } catch (_) {}
           fetchResponsesPage(responsesPage || 1);
           refreshDashboardData();
         }}

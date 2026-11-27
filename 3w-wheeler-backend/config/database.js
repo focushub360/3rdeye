@@ -13,9 +13,17 @@ mongoose.connection.on('connected', () => {
 });
 mongoose.connection.on('error', (err) => {
   console.error('⚠️ MongoDB connection error:', err.message || err);
+  if (cached) {
+    cached.conn = null;
+    cached.promise = null;
+  }
 });
 mongoose.connection.on('disconnected', () => {
-  console.warn('⚠️ MongoDB disconnected. Will attempt reconnection on next operation.');
+  console.warn('⚠️ MongoDB disconnected. Resetting connection cache...');
+  if (cached) {
+    cached.conn = null;
+    cached.promise = null;
+  }
 });
 
 const connectDB = async () => {
@@ -33,30 +41,32 @@ const connectDB = async () => {
     return cached.conn;
   }
 
-  if (!cached.promise) {
-    const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
-    const isReplicaSet = process.env.MONGODB_URI.includes('mongodb+srv') || process.env.MONGODB_URI.includes('replicaSet');
-    const opts = {
-      maxPoolSize: isServerless ? 2 : 100,
-      minPoolSize: isServerless ? 0 : 5,
-      maxIdleTimeMS: 45000,
-      serverSelectionTimeoutMS: 60000,
-      socketTimeoutMS: 120000,
-      connectTimeoutMS: 45000,
-      heartbeatFrequencyMS: 30000,
-      ...(isReplicaSet ? { retryWrites: true, w: 'majority' } : { retryWrites: false })
-    };
+  // If connection is not active, reset cached promise to establish fresh connection
+  cached.conn = null;
+  cached.promise = null;
 
-    cached.promise = mongoose.connect(process.env.MONGODB_URI, opts).then((conn) => {
-      console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
-      createDefaultAdmin().catch(err => console.error('Error creating default admin:', err));
-      return conn.connection;
-    }).catch((err) => {
-      cached.promise = null;
-      console.error('Database connection error:', err.message || err);
-      throw err;
-    });
-  }
+  const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+  const isReplicaSet = process.env.MONGODB_URI.includes('mongodb+srv') || process.env.MONGODB_URI.includes('replicaSet');
+  const opts = {
+    maxPoolSize: isServerless ? 2 : 100,
+    minPoolSize: isServerless ? 0 : 5,
+    maxIdleTimeMS: 120000,
+    serverSelectionTimeoutMS: 60000,
+    socketTimeoutMS: 120000,
+    connectTimeoutMS: 45000,
+    heartbeatFrequencyMS: 30000,
+    ...(isReplicaSet ? { retryWrites: true, w: 'majority' } : { retryWrites: false })
+  };
+
+  cached.promise = mongoose.connect(process.env.MONGODB_URI, opts).then((conn) => {
+    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    createDefaultAdmin().catch(err => console.error('Error creating default admin:', err));
+    return conn.connection;
+  }).catch((err) => {
+    cached.promise = null;
+    console.error('Database connection error:', err.message || err);
+    throw err;
+  });
 
   try {
     cached.conn = await cached.promise;

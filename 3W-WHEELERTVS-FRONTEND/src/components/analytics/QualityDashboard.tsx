@@ -142,7 +142,7 @@ const qualitySummaryClientCache = new Map<string, {
   timestamp: number;
 }>();
 
-const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v24_';
+const SWR_STORAGE_KEY_PREFIX = 'quality_summary_swr_v25_';
 
 const isValidSummaryData = (item: any): boolean => {
   const d = item?.data || item;
@@ -154,13 +154,13 @@ const isValidSummaryData = (item: any): boolean => {
 
 const getClientCachedData = (key: string) => {
   const mem = qualitySummaryClientCache.get(key);
-  if (mem && isValidSummaryData(mem) && Date.now() - mem.timestamp < 600000) return mem;
+  if (mem && isValidSummaryData(mem) && Date.now() - mem.timestamp < 86400000) return mem;
 
   try {
     const raw = sessionStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}${key}`) || localStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}${key}`);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && isValidSummaryData(parsed) && Date.now() - parsed.timestamp < 600000) {
+      if (parsed && isValidSummaryData(parsed) && Date.now() - parsed.timestamp < 86400000) {
         qualitySummaryClientCache.set(key, parsed);
         return parsed;
       }
@@ -171,13 +171,13 @@ const getClientCachedData = (key: string) => {
 
 const getLastGoodCachedData = () => {
   const mem = qualitySummaryClientCache.get('last_good');
-  if (mem && isValidSummaryData(mem) && Date.now() - mem.timestamp < 1800000) return mem;
+  if (mem && isValidSummaryData(mem) && Date.now() - mem.timestamp < 7 * 86400000) return mem;
 
   try {
     const raw = sessionStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}last_good`) || localStorage.getItem(`${SWR_STORAGE_KEY_PREFIX}last_good`);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && isValidSummaryData(parsed) && Date.now() - parsed.timestamp < 1800000) {
+      if (parsed && isValidSummaryData(parsed) && Date.now() - parsed.timestamp < 7 * 86400000) {
         qualitySummaryClientCache.set('last_good', parsed);
         return parsed;
       }
@@ -252,9 +252,7 @@ export const QualityDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<SummaryData | null>(() => {
     try {
-      const sortedFormKey = [...initialFormIds].sort().join(',');
-      const cacheKey = `v22_${sortedFormKey}__`;
-      const cached = getClientCachedData(cacheKey) || getLastGoodCachedData();
+      const cached = getLastGoodCachedData();
       return cached ? cached.data : null;
     } catch (_) {
       return null;
@@ -508,7 +506,9 @@ export const QualityDashboard: React.FC = () => {
     const tvsAcceptCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsAcceptCount || 0), 0);
     const tvsRejectCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsRejectCount || 0), 0);
     const tvsReworkCount = matchedForms.reduce((sum: number, f: any) => sum + (f.tvsReworkCount || 0), 0);
-    const pendingTvsReview = Math.max(0, totalDispatched - tvsReviewedCount);
+    const pendingTvsReview = matchedForms.length > 0
+      ? matchedForms.reduce((sum: number, f: any) => sum + (f.pendingTvsCount !== undefined ? f.pendingTvsCount : Math.max(0, (f.totalChecked || f.total || 0) - (f.tvsReviewedCount || 0))), 0)
+      : Math.max(0, (totalChecked || data.summary.totalChecked || 0) - tvsReviewedCount);
 
     const inspectorSet = new Set<string>();
     matchedForms.forEach((f: any) => {
@@ -695,8 +695,10 @@ export const QualityDashboard: React.FC = () => {
       ? activeSummary.tvsReworkCount
       : formsList.reduce((s, f) => s + (f.tvsReworkCount || 0), 0);
     const tvsDefectsCount = tvsRejectCount + tvsReworkCount;
-    // TVS Pending = Dispatched - Total TVS Review
-    const pendingTvsCount = Math.max(0, totalDispatched - tvsReviewedCount);
+    // TVS Pending = Total Submissions - Total TVS Reviewed (matches Performance Table exactly)
+    const pendingTvsCount = activeSummary.pendingTvsReview !== undefined
+      ? activeSummary.pendingTvsReview
+      : Math.max(0, total - tvsReviewedCount);
 
     const tvsReviewedPercent = total > 0 ? (tvsReviewedCount / total) * 100 : 0;
     const pendingTvsPercent = total > 0 ? (pendingTvsCount / total) * 100 : 0;
@@ -1288,21 +1290,13 @@ export const QualityDashboard: React.FC = () => {
 
       progressIntervalRef.current = setInterval(() => {
         setLoadingProgress((prev) => {
-          if (prev >= 98) {
-            return 99;
-          }
-          if (prev >= 90) {
-            return prev < 98 ? prev + 1 : 98;
-          }
-          if (prev < 30) {
-            return prev + Math.floor(Math.random() * 5) + 3;
-          }
-          if (prev < 65) {
-            return prev + Math.floor(Math.random() * 4) + 2;
-          }
-          return prev + Math.floor(Math.random() * 3) + 1;
+          if (prev >= 98) return 99;
+          if (prev >= 90) return prev < 98 ? prev + 1 : 98;
+          if (prev < 35) return prev + Math.floor(Math.random() * 8) + 6;
+          if (prev < 70) return prev + Math.floor(Math.random() * 6) + 4;
+          return prev + Math.floor(Math.random() * 4) + 2;
         });
-      }, 200);
+      }, 90);
 
       const timerInterval = setInterval(() => {
         setElapsedMs(prev => prev + 100);
@@ -1422,6 +1416,37 @@ export const QualityDashboard: React.FC = () => {
       fetchSummary(false);
     }, 80);
     return () => clearTimeout(timer);
+  }, [selectedFormIds, startDate, endDate]);
+
+  // Auto-refresh time-to-time when returning to tab or when another tab imports/updates reviews
+  const lastAutoRefreshRef = useRef<number>(Date.now());
+  useEffect(() => {
+    const triggerRefreshIfStale = (force = false) => {
+      const now = Date.now();
+      if (force || now - lastAutoRefreshRef.current > 4000) {
+        lastAutoRefreshRef.current = now;
+        fetchSummary(true);
+      }
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        triggerRefreshIfStale(false);
+      }
+    };
+    const handleFocus = () => triggerRefreshIfStale(false);
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'analytics_data_updated') {
+        triggerRefreshIfStale(true);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, [selectedFormIds, startDate, endDate]);
 
   useEffect(() => {
@@ -2994,7 +3019,9 @@ export const QualityDashboard: React.FC = () => {
                       ? form.pendingDispatchCount
                       : Math.max(0, (directOk + reworkAccepted) - formDispatched);
                     const formPendingData = Math.max(0, formDispatched - formBiwReviewed);
-                    const formPendingTvs = Math.max(0, formDispatched - formTvsReviewed);
+                    const formPendingTvs = form.pendingTvsCount !== undefined
+                      ? form.pendingTvsCount
+                      : Math.max(0, total - formTvsReviewed);
 
                     let displayCount = total;
                     let displayPct = '100';
@@ -3052,8 +3079,8 @@ export const QualityDashboard: React.FC = () => {
                       activeLabel = 'Pending BIW Data';
                     } else if (hoveredSlice === 'pendingTvs') {
                       displayCount = formPendingTvs;
-                      displayPct = formDispatched > 0
-                        ? ((formPendingTvs / formDispatched) * 100).toFixed(1)
+                      displayPct = total > 0
+                        ? ((formPendingTvs / total) * 100).toFixed(1)
                         : '0';
                       tagColor = 'text-amber-700 bg-amber-50 border-amber-300';
                       activeLabel = 'Pending TVS';
@@ -3110,22 +3137,23 @@ export const QualityDashboard: React.FC = () => {
                     }
 
                     const formIdStr = form.id || form._id;
+                    const dateQuerySuffix = `${startDate ? `&startDate=${encodeURIComponent(startDate)}` : ''}${endDate ? `&endDate=${encodeURIComponent(endDate)}` : ''}`;
                     const getFormMetricUrl = (slice: string) => {
-                      if (slice === 'pendingDispatch') return `/forms/${formIdStr}/analytics?tab=responses&dispatch=pending`;
-                      if (slice === 'dispatched') return `/forms/${formIdStr}/analytics?tab=responses&dispatch=dispatched`;
-                      if (slice === 'biwReviewed') return `/forms/${formIdStr}/analytics?tab=responses&biwStatus=accepted`;
-                      if (slice === 'biwAccepted') return `/forms/${formIdStr}/analytics?tab=responses&biwStatus=accepted`;
-                      if (slice === 'biwDefects') return `/forms/${formIdStr}/analytics?tab=responses&biwStatus=rework`;
-                      if (slice === 'pendingData') return `/forms/${formIdStr}/analytics?tab=responses&dispatch=dispatched&biwStatus=pending`;
-                      if (slice === 'tvsReviewed') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=reviewed`;
-                      if (slice === 'tvsAccepted') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=accepted`;
-                      if (slice === 'tvsDefects') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=rework`;
-                      if (slice === 'pendingTvs') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=pending`;
-                      if (slice === 'directOk') return `/forms/${formIdStr}/analytics?tab=responses&status=Direct Ok`;
-                      if (slice === 'reworkCompleted') return `/forms/${formIdStr}/analytics?tab=responses&status=Rework Accepted`;
-                      if (slice === 'rework') return `/forms/${formIdStr}/analytics?tab=responses&status=Rework`;
-                      if (slice === 'rejected') return `/forms/${formIdStr}/analytics?tab=responses&status=Rejected`;
-                      return `/forms/${formIdStr}/analytics?tab=responses`;
+                      if (slice === 'pendingDispatch') return `/forms/${formIdStr}/analytics?tab=responses&dispatch=pending${dateQuerySuffix}`;
+                      if (slice === 'dispatched') return `/forms/${formIdStr}/analytics?tab=responses&dispatch=dispatched${dateQuerySuffix}`;
+                      if (slice === 'biwReviewed') return `/forms/${formIdStr}/analytics?tab=responses&biwStatus=accepted${dateQuerySuffix}`;
+                      if (slice === 'biwAccepted') return `/forms/${formIdStr}/analytics?tab=responses&biwStatus=accepted${dateQuerySuffix}`;
+                      if (slice === 'biwDefects') return `/forms/${formIdStr}/analytics?tab=responses&biwStatus=rework${dateQuerySuffix}`;
+                      if (slice === 'pendingData') return `/forms/${formIdStr}/analytics?tab=responses&dispatch=dispatched&biwStatus=pending${dateQuerySuffix}`;
+                      if (slice === 'tvsReviewed') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=reviewed${dateQuerySuffix}`;
+                      if (slice === 'tvsAccepted') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=accepted${dateQuerySuffix}`;
+                      if (slice === 'tvsDefects') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=rework${dateQuerySuffix}`;
+                      if (slice === 'pendingTvs') return `/forms/${formIdStr}/analytics?tab=responses&tvsStatus=pending${dateQuerySuffix}`;
+                      if (slice === 'directOk') return `/forms/${formIdStr}/analytics?tab=responses&status=Direct Ok${dateQuerySuffix}`;
+                      if (slice === 'reworkCompleted') return `/forms/${formIdStr}/analytics?tab=responses&status=Rework Accepted${dateQuerySuffix}`;
+                      if (slice === 'rework') return `/forms/${formIdStr}/analytics?tab=responses&status=Rework${dateQuerySuffix}`;
+                      if (slice === 'rejected') return `/forms/${formIdStr}/analytics?tab=responses&status=Rejected${dateQuerySuffix}`;
+                      return `/forms/${formIdStr}/analytics?tab=responses${dateQuerySuffix}`;
                     };
 
                     return (
@@ -3185,7 +3213,7 @@ export const QualityDashboard: React.FC = () => {
                           <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden flex">
                             <div style={{ width: `${(formTvsAccepted / (formDispatched || 1)) * 100}%` }} className="bg-emerald-500 h-full" title={`TVS Accepted: ${formTvsAccepted}`} />
                             <div style={{ width: `${(formTvsDefects / (formDispatched || 1)) * 100}%` }} className="bg-rose-500 h-full" title={`TVS Defects: ${formTvsDefects}`} />
-                            <div style={{ width: `${(formPendingTvs / (formDispatched || 1)) * 100}%` }} className="bg-amber-400 h-full" title={`Pending TVS: ${formPendingTvs}`} />
+                            <div style={{ width: `${(formPendingTvs / (total || 1)) * 100}%` }} className="bg-amber-400 h-full" title={`Pending TVS: ${formPendingTvs}`} />
                           </div>
                         ) : (
                           <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden flex">

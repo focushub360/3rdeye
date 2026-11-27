@@ -59,4 +59,25 @@ export const clearFormCache = () => {
   }
 };
 
+export const clearAnalyticsCache = () => {
+  try {
+    const keys = appCache.keys();
+    keys.forEach(key => {
+      if (
+        key.includes('quality_summary') ||
+        key.includes('master_form_counts') ||
+        key.includes('forms_meta') ||
+        key.includes('performance') ||
+        key.includes('__express__') ||
+        key.includes('analytics') ||
+        key.includes('response')
+      ) {
+        appCache.del(key);
+      }
+    });
+  } catch (err) {
+    console.warn('Error clearing analytics cache:', err);
+  }
+};
+
 export default appCache;

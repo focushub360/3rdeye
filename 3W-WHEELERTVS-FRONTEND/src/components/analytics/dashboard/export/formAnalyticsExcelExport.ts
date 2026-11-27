@@ -135,7 +135,7 @@ export const exportFormAnalyticsToExcel = async (
       rowsToExport = fullResponses;
 
       // Global Date Filter
-      if (dateFilter.type !== "all") {
+      if (dateFilter.type !== "all" && (dateFilter.startDate || dateFilter.endDate)) {
         rowsToExport = rowsToExport.filter((response) => {
           const timestamp = getResponseTimestamp(response);
           if (!timestamp) return false;
@@ -143,17 +143,16 @@ export const exportFormAnalyticsToExcel = async (
 
           if (dateFilter.type === "single" && dateFilter.startDate) {
             return responseDate === dateFilter.startDate;
-          } else if (dateFilter.type === "range") {
-            if (dateFilter.startDate && dateFilter.endDate) {
-              return (
-                responseDate >= dateFilter.startDate &&
-                responseDate <= dateFilter.endDate
-              );
-            } else if (dateFilter.startDate) {
-              return responseDate >= dateFilter.startDate;
-            } else if (dateFilter.endDate) {
-              return responseDate <= dateFilter.endDate;
-            }
+          }
+          if (dateFilter.startDate && dateFilter.endDate) {
+            return (
+              responseDate >= dateFilter.startDate &&
+              responseDate <= dateFilter.endDate
+            );
+          } else if (dateFilter.startDate) {
+            return responseDate >= dateFilter.startDate;
+          } else if (dateFilter.endDate) {
+            return responseDate <= dateFilter.endDate;
           }
           return true;
         });
