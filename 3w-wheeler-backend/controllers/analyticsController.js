@@ -4475,30 +4475,9 @@ export const getQualitySummary = async (req, res) => {
           createdBy: 1,
           'submissionMetadata.chassisNumber': 1,
           hasDefectInAnswers: {
-            $anyElementTrue: {
-              $map: {
-                input: { $objectToArray: { $ifNull: ['$answers', {}] } },
-                as: 'ans',
-                in: {
-                  $regexMatch: {
-                    input: {
-                      $toLower: {
-                        $ifNull: [
-                          '$$ans.v.status',
-                          {
-                            $cond: [
-                              { $eq: [{ $type: '$$ans.v' }, 'string'] },
-                              '$$ans.v',
-                              ''
-                            ]
-                          }
-                        ]
-                      }
-                    },
-                    regex: 'rework|rejected|defect|fail|not ok'
-                  }
-                }
-              }
+            $regexMatch: {
+              input: { $toLower: { $ifNull: ['$status', ''] } },
+              regex: 'rework|rejected|defect|fail'
             }
           }
         }
@@ -4675,7 +4654,13 @@ export const getQualitySummary = async (req, res) => {
                 tvsAcceptCount: {
                   $sum: {
                     $cond: [
-                      { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] },
+                      {
+                        $and: [
+                          { $eq: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -4684,7 +4669,13 @@ export const getQualitySummary = async (req, res) => {
                 tvsRejectCount: {
                   $sum: {
                     $cond: [
-                      { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] },
+                      {
+                        $and: [
+                          { $eq: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -4693,7 +4684,13 @@ export const getQualitySummary = async (req, res) => {
                 tvsReworkCount: {
                   $sum: {
                     $cond: [
-                      { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] },
+                      {
+                        $and: [
+                          { $eq: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -4702,7 +4699,13 @@ export const getQualitySummary = async (req, res) => {
                 tvsReviewedCount: {
                   $sum: {
                     $cond: [
-                      { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] },
+                      {
+                        $and: [
+                          { $eq: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -4867,7 +4870,13 @@ export const getQualitySummary = async (req, res) => {
                 tvsAcceptCount: {
                   $sum: {
                     $cond: [
-                      { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] },
+                      {
+                        $and: [
+                          { $eq: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -4876,7 +4885,13 @@ export const getQualitySummary = async (req, res) => {
                 tvsRejectCount: {
                   $sum: {
                     $cond: [
-                      { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] },
+                      {
+                        $and: [
+                          { $eq: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -4885,7 +4900,13 @@ export const getQualitySummary = async (req, res) => {
                 tvsReworkCount: {
                   $sum: {
                     $cond: [
-                      { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] },
+                      {
+                        $and: [
+                          { $eq: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -4894,7 +4915,13 @@ export const getQualitySummary = async (req, res) => {
                 tvsReviewedCount: {
                   $sum: {
                     $cond: [
-                      { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] },
+                      {
+                        $and: [
+                          { $eq: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -5034,7 +5061,13 @@ export const getQualitySummary = async (req, res) => {
                 tvsAcceptCount: {
                   $sum: {
                     $cond: [
-                      { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] },
+                      {
+                        $and: [
+                          { $eq: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -5043,7 +5076,13 @@ export const getQualitySummary = async (req, res) => {
                 tvsRejectCount: {
                   $sum: {
                     $cond: [
-                      { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] },
+                      {
+                        $and: [
+                          { $eq: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -5052,7 +5091,13 @@ export const getQualitySummary = async (req, res) => {
                 tvsReworkCount: {
                   $sum: {
                     $cond: [
-                      { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] },
+                      {
+                        $and: [
+                          { $eq: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -5061,7 +5106,13 @@ export const getQualitySummary = async (req, res) => {
                 tvsReviewedCount: {
                   $sum: {
                     $cond: [
-                      { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] },
+                      {
+                        $and: [
+                          { $eq: ['$isDispatched', true] },
+                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework 1|rework 2|^rework$|reject' } }] },
+                          { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] }
+                        ]
+                      },
                       1,
                       0
                     ]
@@ -5397,7 +5448,7 @@ export const getQualitySummary = async (req, res) => {
     summary.tvsAcceptCount = tvsAcceptCount;
     summary.tvsRejectCount = tvsRejectCount;
     summary.tvsReworkCount = tvsReworkCount;
-    summary.pendingTvsReview = Math.max(0, totalChecked - tvsReviewedCount);
+    summary.pendingTvsReview = Math.max(0, totalDispatched - tvsReviewedCount);
 
     // Defect breakdown extraction from responses (direct from aggregation facet)
     const defectTypeMap = {};
@@ -5745,7 +5796,7 @@ export const getQualitySummary = async (req, res) => {
         tvsRejectCount: tvsReject,
         tvsReworkCount: tvsRework,
         tvsReviewedCount: tvsReviewed,
-        pendingTvsCount: Math.max(0, tChecked - tvsReviewed),
+        pendingTvsCount: Math.max(0, dDispatched - tvsReviewed),
         biwAcceptRate: biwRate,
         acceptRate: aRate,
         defectRate: dRate,
@@ -6160,7 +6211,7 @@ export const getQualitySummary = async (req, res) => {
           tvsAcceptCount: summary.tvsAcceptCount || 0,
           tvsRejectCount: summary.tvsRejectCount || 0,
           tvsReworkCount: summary.tvsReworkCount || 0,
-          pendingTvsReview: summary.pendingTvsReview !== undefined ? summary.pendingTvsReview : Math.max(0, totalChecked - (summary.tvsReviewedCount || 0)),
+          pendingTvsReview: summary.pendingTvsReview !== undefined ? summary.pendingTvsReview : Math.max(0, totalDispatched - (summary.tvsReviewedCount || 0)),
           overallAcceptRate,
           overallDefectRate,
           totalInspectors: inspectorList.length,

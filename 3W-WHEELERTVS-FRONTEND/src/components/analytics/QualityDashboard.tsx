@@ -249,6 +249,7 @@ export const QualityDashboard: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [loadingProgress, setLoadingProgress] = useState<number>(0);
   const progressIntervalRef = useRef<any>(null);
+  const safetyTimeoutRef = useRef<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<SummaryData | null>(() => {
     try {
@@ -1299,21 +1300,30 @@ export const QualityDashboard: React.FC = () => {
 
     try {
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      if (safetyTimeoutRef.current) clearTimeout(safetyTimeoutRef.current);
       setLoading(true);
       setLoadingProgress(8);
       setError(null);
       setElapsedMs(0);
       setLoadTimeMs(null);
 
+      // Safety timeout: automatically unblock loading if network or server exceeds 6s
+      safetyTimeoutRef.current = setTimeout(() => {
+        if (requestId === currentRequestIdRef.current) {
+          if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+          setLoadingProgress(100);
+          setLoading(false);
+        }
+      }, 6000);
+
       progressIntervalRef.current = setInterval(() => {
         setLoadingProgress((prev) => {
-          if (prev >= 98) return 99;
-          if (prev >= 90) return prev < 98 ? prev + 1 : 98;
-          if (prev < 35) return prev + Math.floor(Math.random() * 8) + 6;
-          if (prev < 70) return prev + Math.floor(Math.random() * 6) + 4;
-          return prev + Math.floor(Math.random() * 4) + 2;
+          if (prev >= 92) return 92;
+          if (prev < 40) return prev + Math.floor(Math.random() * 8) + 6;
+          if (prev < 75) return prev + Math.floor(Math.random() * 5) + 3;
+          return prev + 1;
         });
-      }, 90);
+      }, 120);
 
       const timerInterval = setInterval(() => {
         setElapsedMs(prev => prev + 100);
@@ -1330,6 +1340,7 @@ export const QualityDashboard: React.FC = () => {
 
       clearInterval(timerInterval);
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      if (safetyTimeoutRef.current) clearTimeout(safetyTimeoutRef.current);
       setLoadingProgress(100);
       const endTime = performance.now();
       setLoadTimeMs(Math.round(endTime - startTime));
@@ -1402,6 +1413,7 @@ export const QualityDashboard: React.FC = () => {
       }
     } finally {
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      if (safetyTimeoutRef.current) clearTimeout(safetyTimeoutRef.current);
       setLoadingProgress(100);
       setTimeout(() => {
         setLoading(false);

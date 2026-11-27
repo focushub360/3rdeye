@@ -5452,8 +5452,14 @@ export const getResponsesByForm = async (req, res) => {
     }
 
     // Add TVS Review filter if provided (e.g. tvsStatus=reviewed, accepted, rework, pending)
+    // 🔒 Ironclad Multi-Tenant Invariants (AGENTS.md Rule 5E):
+    // Only dispatched chassis can have TVS review, and active rework units cannot receive TVS review
     const tvsStatusParam = req.query.tvsStatus;
     if (tvsStatusParam) {
+      query.isDispatched = true;
+      if (!query.status) {
+        query.status = { $nin: ['Rework', 'Rework 1', 'Rework 2', 'Rejected', 'rework', 'rework 1', 'rework 2', 'rejected'] };
+      }
       const ts = String(tvsStatusParam).toLowerCase().trim();
       if (ts === 'reviewed') {
         const reviewDocIds = await Review.distinct('responseId', {
@@ -5507,7 +5513,7 @@ export const getResponsesByForm = async (req, res) => {
         if (!query.$and) query.$and = [];
         query.$and.push({ $or: orConditions });
       } else if (ts === 'pending') {
-        // Pending TVS Review = All submitted responses that have NO TVS review yet
+        // Pending TVS Review = Dispatched approved responses that have NO TVS review yet
         const reviewDocIds = await Review.distinct('responseId', {
           $or: [
             { status: { $in: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } },
@@ -5529,8 +5535,13 @@ export const getResponsesByForm = async (req, res) => {
     }
 
     // Add BIW Review filter if provided (e.g. biwStatus=accepted, rejected, reworked, pending)
+    // 🔒 Only dispatched approved chassis can have BIW review
     const biwStatusParam = req.query.biwStatus;
     if (biwStatusParam) {
+      query.isDispatched = true;
+      if (!query.status) {
+        query.status = { $nin: ['Rework', 'Rework 1', 'Rework 2', 'Rejected', 'rework', 'rework 1', 'rework 2', 'rejected'] };
+      }
       const bs = String(biwStatusParam).toLowerCase().trim();
       if (bs === 'accepted') {
         query['biwReview.status'] = 'Accepted';
@@ -8080,8 +8091,10 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
         }
 
         // Apply TVS Feedback: if only one response exists (main or child), route the review to that response
+        // 🔒 Only dispatched chassis can have TVS review; active rework units cannot receive TVS review
         const targetMainResp = mainResp || (!targetTvsStatus ? childResp : null);
-        if (tvsStatus && targetMainResp) {
+        const isMainEligibleForTvs = targetMainResp && targetMainResp.isDispatched === true && !['rework', 'rework 1', 'rework 2', 'rejected'].includes(String(targetMainResp.status || '').toLowerCase().trim());
+        if (tvsStatus && isMainEligibleForTvs) {
           const tvsReason = String(
             row.tvsReason || row.tvsReworkReason || row['Rework Resion (Rust..)'] || row['Rework and Rejected Resion (Rust..)'] || row['Rework and Rejected Reason'] || row.defectReason || ''
           ).trim();
@@ -8166,7 +8179,8 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
         }
 
         const targetChildResp = childResp || (!tvsStatus ? mainResp : null);
-        if (targetTvsStatus && targetChildResp) {
+        const isChildEligibleForTvs = targetChildResp && targetChildResp.isDispatched === true && !['rework', 'rework 1', 'rework 2', 'rejected'].includes(String(targetChildResp.status || '').toLowerCase().trim());
+        if (targetTvsStatus && isChildEligibleForTvs) {
           const targetTvsReason = String(row.targetTvsReason || row.targetTvsReworkReason || '').trim();
           const targetTvsRejectReason = String(row.targetTvsRejectReason || '').trim();
           const targetTvsRemark = String(row.targetTvsRemark || '').trim();

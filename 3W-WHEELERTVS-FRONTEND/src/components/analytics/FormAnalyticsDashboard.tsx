@@ -6101,6 +6101,11 @@ export default function FormAnalyticsDashboard({
 
     // 6b. __tvsReview / __review (Chat & Discussion Review filter)
     if (columnId === "__tvsReview" || columnId === "__review") {
+      // 🔒 TVS Review is strictly only applicable to dispatched and review-eligible (approved) responses
+      if (!isReviewEligibleResponse(response) || !response.isDispatched) {
+        return false;
+      }
+
       const serverRev = (response as any).review;
       const parentRev = (response as any).parentReview || (response as any).followUpStatus?.parentReview;
       const childRev = (response as any).childReview || (response as any).followUpStatus?.childReview;
@@ -10818,8 +10823,8 @@ export default function FormAnalyticsDashboard({
                                                   </button>
                                                 )}
 
-                                                {/* Review & Discussion - Only after dispatch */}
-                                                {Boolean(response.isDispatched) && (
+                                                {/* Review & Discussion - Only after dispatch and if review eligible */}
+                                                {Boolean(response.isDispatched) && isReviewEligibleResponse(response) && (
                                                   <button
                                                     onClick={() => {
                                                       setChatResponse(response);
@@ -10925,27 +10930,31 @@ export default function FormAnalyticsDashboard({
                                         ? (form?.title || "2nd: Child Form")
                                         : ((response as any).childFormTitle || (response as any).followUpStatus?.childFormTitle || relatedFormData?.childForms?.[0]?.title || "2nd: Child Form");
 
-                                      // If neither review exists
+                                      // 🔒 Ironclad Multi-Tenant Invariants (AGENTS.md Rule 5E):
+                                      // 1. Rework units (Rework 1, Rework 2, Rejected) CANNOT have TVS review: render '-'
+                                      if (!isReviewEligibleResponse(response)) {
+                                        return (
+                                          <div className="flex items-center justify-center text-center">
+                                            <span className="text-gray-400 text-xs font-medium" title="Under rework: not eligible for review">-</span>
+                                          </div>
+                                        );
+                                      }
+
+                                      // 2. Dispatch Prerequisite: Only dispatched chassis can have TVS review
+                                      if (!response.isDispatched) {
+                                        return (
+                                          <div
+                                            className="inline-flex items-center justify-center gap-1 px-2 py-1 text-amber-600/80 dark:text-amber-400/80 bg-amber-50/60 dark:bg-amber-950/20 rounded-lg text-xs italic select-none border border-amber-200/50 dark:border-amber-900/30"
+                                            title="Review is locked until chassis is dispatched by the owning plant"
+                                          >
+                                            <Lock className="w-3 h-3 text-amber-500/80" />
+                                            <span>Pending Dispatch</span>
+                                          </div>
+                                        );
+                                      }
+
+                                      // If neither review exists on this dispatched, approved unit
                                       if (!mainRevData && !childRevDataFinal) {
-                                        // 🔒 Rework units do not receive TVS review: render '-'
-                                        if (!isReviewEligibleResponse(response)) {
-                                          return (
-                                            <div className="flex items-center justify-center text-center">
-                                              <span className="text-gray-400 text-xs font-medium" title="Under rework: not eligible for review">-</span>
-                                            </div>
-                                          );
-                                        }
-                                        if (!response.isDispatched) {
-                                          return (
-                                            <div
-                                              className="inline-flex items-center justify-center gap-1 px-2 py-1 text-amber-600/80 dark:text-amber-400/80 bg-amber-50/60 dark:bg-amber-950/20 rounded-lg text-xs italic select-none border border-amber-200/50 dark:border-amber-900/30"
-                                              title="Review is locked until chassis is dispatched by the owning plant"
-                                            >
-                                              <Lock className="w-3 h-3 text-amber-500/80" />
-                                              <span>Pending Dispatch</span>
-                                            </div>
-                                          );
-                                        }
                                         return (
                                           <div
                                             onClick={(e) => {
