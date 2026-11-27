@@ -22,6 +22,14 @@ export const sendMessage = async (req, res) => {
         ]
       });
       if (resp) {
+        // 🔒 Dispatch prerequisite: Chat / review discussion is only permitted after chassis has been dispatched
+        if (!resp.isDispatched) {
+          return res.status(400).json({
+            success: false,
+            message: 'Review discussion chat is only available after the chassis has been dispatched by the owning plant.'
+          });
+        }
+
         const targetFormId = resp.formId || resp.questionId || formId;
         const isFormObjId = targetFormId && mongoose.Types.ObjectId.isValid(targetFormId);
         const form = targetFormId

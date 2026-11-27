@@ -659,6 +659,8 @@ export async function downloadBiwReviewTemplate(options: {
   const responseMap = new Map<string, any>();
   if (responses && Array.isArray(responses)) {
     responses.forEach((r) => {
+      // 🔒 Dispatch Prerequisite: Only dispatched chassis can be included in TVS review template
+      if (!r.isDispatched) return;
       const a = r.answers || {};
       const resolvedChassis = getChassisFromResponse(r);
       const keys: string[] = [
@@ -718,6 +720,8 @@ export async function downloadBiwReviewTemplate(options: {
   // If responses provided, build items from them (preferring highest-scored / most recent per chassis)
   if (responses && Array.isArray(responses) && responses.length > 0) {
     responses.forEach((r) => {
+      // 🔒 Dispatch Prerequisite: Only dispatched chassis can be included in BIW review template
+      if (!r.isDispatched) return;
       const ch = getChassisFromResponse(r);
       if (ch && !ignoredUnitNames.has(ch.toUpperCase())) {
         const normCh = ch.toUpperCase();
@@ -1586,6 +1590,8 @@ export async function downloadTvsReviewTemplate(options: {
   const responseMap = new Map<string, any>();
   if (responses && Array.isArray(responses)) {
     responses.forEach((r) => {
+      // 🔒 Dispatch Prerequisite: Only dispatched chassis can be included in TVS review template
+      if (!r.isDispatched) return;
       const a = r.answers || {};
       const keys: string[] = [
         r.chassisNumber,

@@ -141,6 +141,11 @@ Accepted    Rejected     Reworked
   - Once a chassis is dispatched (`isDispatched: true`), subsequent reviews (such as TVS Quality / Chat Review in `submitReview`) are stored strictly under `review.*` without regressing the core inspection `status` to `Rework 1`.
   - Frontend display (`computeFastRowStatus` and `responseStatuses`) guarantees that any response with `isDispatched: true` always resolves to `Accepted` or `Rework Accepted`, never active `Rework 1` or `Rework 2`.
 
+### E. Separation of Plant & Reviewer Roles (Multi-Tenant Invariants)
+- **Rule 1 (Dispatch Ownership)**: Only users belonging to the form's owning plant (`form.tenantId`), or a `superadmin`, can dispatch the chassis (`isDispatched: true` / `false`). Triggered or partner tenants cannot dispatch another plant's chassis.
+- **Rule 2 (Review Ownership - Triggered Tenant Alone)**: Only the triggered/assigned partner tenant (configured via `chassisTenantAssignments` or `sharedWithTenants`), or a `superadmin`, can enter BIW Review and TVS Review / Chat Review. The owning plant that manufactured and dispatched the chassis cannot review its own units (anti-tamper / separation of maker & reviewer duties).
+- **Rule 3 (Dispatch Prerequisite)**: Only dispatched responses (`isDispatched: true`) can enter BIW Review or TVS Review / Chat Review. Non-dispatched chassis cannot receive BIW review or TVS review until the owning plant dispatches them.
+
 ---
 
 ## 6. Authentication & API Client Resilience

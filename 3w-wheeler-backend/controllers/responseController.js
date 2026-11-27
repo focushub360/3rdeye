@@ -4645,7 +4645,7 @@ export const updateResponse = async (req, res) => {
       }
     }
     if (req.body.isDispatched !== undefined) {
-      // ✅ Security: Only the form's creator tenant, creator user, or superadmin can dispatch or revoke dispatch
+      // ✅ Security Rule: ONLY the owning tenant of this form (or superadmin) can dispatch or revoke dispatch
       const targetFormId = response.formId || response.questionId;
       const formDoc = await Form.findOne(
         mongoose.Types.ObjectId.isValid(targetFormId)
@@ -4655,17 +4655,14 @@ export const updateResponse = async (req, res) => {
 
       const userTenantStr = req.user?.tenantId ? String(req.user.tenantId) : '';
       const formTenantStr = formDoc?.tenantId ? String(formDoc.tenantId) : '';
-      const formCreatorUserStr = formDoc?.createdBy ? String(formDoc.createdBy) : '';
-      const currentUserIdStr = req.user?._id ? String(req.user._id) : '';
 
       const isSuperadmin = req.user?.role === 'superadmin';
-      const isCreatorTenant = formTenantStr && userTenantStr && formTenantStr === userTenantStr;
-      const isCreatorUser = formCreatorUserStr && currentUserIdStr && formCreatorUserStr === currentUserIdStr;
+      const isOwningTenant = formTenantStr && userTenantStr && formTenantStr === userTenantStr;
 
-      if (!isSuperadmin && !isCreatorTenant && !isCreatorUser) {
+      if (!isSuperadmin && !isOwningTenant) {
         return res.status(403).json({
           success: false,
-          message: 'Only the creator tenant of this form can dispatch this chassis'
+          message: 'Only users from the owning plant of this form can dispatch this chassis'
         });
       }
 
@@ -4706,11 +4703,11 @@ export const updateResponse = async (req, res) => {
       }
     }
 
-    // ✅ BIW Review — any reviewer other than the response's own submitter
-    // can Accept / Reject / Rework. Send `{ biwReview: { status } }` to set
-    // it, or `{ biwReview: null }` to clear it. reviewedBy/reviewedAt are
-    // always set server-side from the authenticated user, never trusted
-    // from the client.
+    // ✅ BIW Review Rules:
+    // 1. DISPATCH PREREQUISITE: Only dispatched chassis can be entered into BIW Review
+    // 2. TRIGGERED TENANT ALONE: Only the triggered / partner tenant (or superadmin) can enter BIW Review
+    // 3. Owning plant CANNOT review its own chassis
+    // 4. Submitter cannot review their own submission
     if (req.body.hasOwnProperty('biwReview')) {
       const biwReview = req.body.biwReview;
 
@@ -4725,14 +4722,23 @@ export const updateResponse = async (req, res) => {
           });
         }
 
+        // 🔒 Dispatch Prerequisite: Chassis must be dispatched before entering into BIW Review
+        if (!response.isDispatched) {
+          return res.status(400).json({
+            success: false,
+            message: 'Chassis must be dispatched by the owning plant before BIW review can be performed'
+          });
+        }
+
         const userEmail = (req.user.email || '').toLowerCase();
         const userUsername = (req.user.username || '').toLowerCase();
         const userIdStr = req.user._id ? req.user._id.toString() : '';
         const creatorIdStr = originalCreatedBy ? originalCreatedBy.toString() : '';
         const isSuperAdmin = req.user.role === 'superadmin';
         const isExcelImport = originalSubmittedBy === 'Excel Import';
+        const userTenantIdStr = req.user.tenantId ? req.user.tenantId.toString() : '';
 
-        // Check if form has chassisTenantAssignments
+        // 🔒 Triggered Tenant & Anti-Tamper Authorization
         if (!isSuperAdmin) {
           const Form = mongoose.model('Form');
           const formQueryOr = [];
@@ -4761,6 +4767,16 @@ export const updateResponse = async (req, res) => {
             parentDoc = await Form.findOne({ $or: parentQuery }).lean();
           }
 
+          const formOwnerTenantStr = formObj?.tenantId ? formObj.tenantId.toString() : (parentDoc?.tenantId ? parentDoc.tenantId.toString() : '');
+
+          // Owning plant CANNOT review its own dispatched chassis
+          if (formOwnerTenantStr && userTenantIdStr && formOwnerTenantStr === userTenantIdStr) {
+            return res.status(403).json({
+              success: false,
+              message: 'The owning plant cannot enter BIW reviews for its own chassis. BIW review must be performed by the triggered / partner tenant.'
+            });
+          }
+
           const assignmentsToCheck = (formObj && Array.isArray(formObj.chassisTenantAssignments) && formObj.chassisTenantAssignments.length > 0)
             ? formObj.chassisTenantAssignments
             : (parentDoc?.chassisTenantAssignments || []);
@@ -4774,20 +4790,23 @@ export const updateResponse = async (req, res) => {
             });
 
             if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
-              const userTenantIdStr = req.user.tenantId ? req.user.tenantId.toString() : '';
               const isAssigned = assignment.assignedTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
-              const isFormOwner = (formObj?.tenantId && formObj.tenantId.toString() === userTenantIdStr) ||
-                (parentDoc?.tenantId && parentDoc.tenantId.toString() === userTenantIdStr);
-              const isSharedTenant = (Array.isArray(formObj?.sharedWithTenants) && formObj.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr)) ||
-                (Array.isArray(parentDoc?.sharedWithTenants) && parentDoc.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr));
-              const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
-
-              if (!isAssigned && !isFormOwner && !isSharedTenant && !isAdmin) {
+              if (!isAssigned) {
                 return res.status(403).json({
                   success: false,
-                  message: 'Only assigned tenant reviewers can perform BIW review for this chassis.'
+                  message: 'Only the triggered / assigned partner tenant can perform BIW review for this chassis.'
                 });
               }
+            }
+          } else {
+            // Check sharedWithTenants
+            const isSharedTenant = (Array.isArray(formObj?.sharedWithTenants) && formObj.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr)) ||
+              (Array.isArray(parentDoc?.sharedWithTenants) && parentDoc.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr));
+            if (!isSharedTenant && formOwnerTenantStr) {
+              return res.status(403).json({
+                success: false,
+                message: 'Only the triggered / partner tenant can perform BIW review for this chassis.'
+              });
             }
           }
         }
@@ -7387,6 +7406,12 @@ export const bulkUpdateBiwReview = async (req, res) => {
     const Form = mongoose.model('Form');
 
     for (const response of responses) {
+      // 🔒 1. Dispatch prerequisite: Only dispatched chassis can be entered into BIW Review
+      if (status !== null && !response.isDispatched) {
+        skippedCount++;
+        continue;
+      }
+
       if (!isSuperAdmin) {
         const formQueryOr = [];
         if (response.formId) {
@@ -7414,6 +7439,14 @@ export const bulkUpdateBiwReview = async (req, res) => {
           parentDoc = await Form.findOne({ $or: parentQuery }).lean();
         }
 
+        const formOwnerTenantStr = formObj?.tenantId ? formObj.tenantId.toString() : (parentDoc?.tenantId ? parentDoc.tenantId.toString() : '');
+
+        // Owning plant CANNOT review its own dispatched chassis
+        if (formOwnerTenantStr && userTenantIdStr && formOwnerTenantStr === userTenantIdStr) {
+          skippedCount++;
+          continue;
+        }
+
         const assignmentsToCheck = (formObj && Array.isArray(formObj.chassisTenantAssignments) && formObj.chassisTenantAssignments.length > 0)
           ? formObj.chassisTenantAssignments
           : (parentDoc?.chassisTenantAssignments || []);
@@ -7428,16 +7461,18 @@ export const bulkUpdateBiwReview = async (req, res) => {
 
           if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
             const isAssigned = assignment.assignedTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
-            const isFormOwner = (formObj?.tenantId && formObj.tenantId.toString() === userTenantIdStr) ||
-              (parentDoc?.tenantId && parentDoc.tenantId.toString() === userTenantIdStr);
-            const isSharedTenant = (Array.isArray(formObj?.sharedWithTenants) && formObj.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr)) ||
-              (Array.isArray(parentDoc?.sharedWithTenants) && parentDoc.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr));
-            const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
-
-            if (!isAssigned && !isFormOwner && !isSharedTenant && !isAdmin) {
+            if (!isAssigned) {
               skippedCount++;
               continue;
             }
+          }
+        } else {
+          // Check sharedWithTenants
+          const isSharedTenant = (Array.isArray(formObj?.sharedWithTenants) && formObj.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr)) ||
+            (Array.isArray(parentDoc?.sharedWithTenants) && parentDoc.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr));
+          if (!isSharedTenant && formOwnerTenantStr) {
+            skippedCount++;
+            continue;
           }
         }
       }
@@ -7874,6 +7909,25 @@ export const bulkImportBiwExcelReviews = async (req, res) => {
 
         // Anti-tamper check on target response
         const activeResp = (form.parentFormId ? childResp : mainResp) || childResp || mainResp;
+
+        // 🔒 Dispatch prerequisite: Only dispatched chassis can be reviewed
+        if (!activeResp?.isDispatched) {
+          skippedCount++;
+          errors.push({ row: i + 1, chassis: rawChassis, error: 'Chassis must be dispatched by the owning plant before BIW review can be imported' });
+          continue;
+        }
+
+        // 🔒 Triggered tenant check: Owning plant cannot review its own chassis
+        if (req.user?.role !== 'superadmin') {
+          const formOwnerTenantStr = form?.tenantId ? form.tenantId.toString() : '';
+          const userTenantIdStr = req.user?.tenantId ? req.user.tenantId.toString() : '';
+          if (formOwnerTenantStr && userTenantIdStr && formOwnerTenantStr === userTenantIdStr) {
+            skippedCount++;
+            errors.push({ row: i + 1, chassis: rawChassis, error: 'The owning plant cannot enter BIW reviews for its own chassis' });
+            continue;
+          }
+        }
+
         const originalSubmittedBy = activeResp?.submittedBy;
         const isExcelImport = originalSubmittedBy === 'Excel Import';
         const isSubmitter =

@@ -123,6 +123,8 @@ interface Form {
   title: string;
   description?: string;
   parentFormId?: string;
+  tenantId?: any;
+  createdBy?: any;
   sections?: any[];
   followUpQuestions?: any[];
 }
@@ -214,6 +216,28 @@ export default function ResponseDetailsPage() {
   }, [searchParams]);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [dispatching, setDispatching] = useState(false);
+
+  // Security: Only superadmin or users belonging to the owning plant can dispatch
+  const canDispatch = useMemo(() => {
+    if (user?.role === 'superadmin') return true;
+    if (!user) return false;
+
+    const formTenantId = form?.tenantId
+      ? (typeof form.tenantId === 'object' ? String((form.tenantId as any)._id || (form.tenantId as any).id) : String(form.tenantId))
+      : null;
+    const userTenantId = user?.tenantId
+      ? (typeof user.tenantId === 'object' ? String((user.tenantId as any)._id || (user.tenantId as any).id) : String(user.tenantId))
+      : null;
+
+    if (!formTenantId) {
+      const formCreatedById = form?.createdBy
+        ? (typeof form.createdBy === 'object' ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
+        : null;
+      const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
+      return Boolean(formCreatedById && currentUserId && formCreatedById === currentUserId);
+    }
+    return Boolean(userTenantId && formTenantId === userTenantId);
+  }, [form, user]);
 
   const handleDirectDispatch = async () => {
     if (!response) return;
@@ -2201,7 +2225,7 @@ export default function ResponseDetailsPage() {
                 <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 <span>Dispatched</span>
               </div>
-            ) : (
+            ) : canDispatch ? (
               <button
                 onClick={handleDirectDispatch}
                 disabled={dispatching}
@@ -2215,7 +2239,7 @@ export default function ResponseDetailsPage() {
                 )}
                 <span>{dispatching ? "Dispatching..." : "Dispatch"}</span>
               </button>
-            )}
+            ) : null}
 
             <button
               onClick={handleEditResponse}

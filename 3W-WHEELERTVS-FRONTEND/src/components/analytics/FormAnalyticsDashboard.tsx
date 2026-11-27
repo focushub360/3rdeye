@@ -21,6 +21,7 @@ import {
   Layers,
   Link2,
   Clock,
+  Lock,
   XCircle,
   BarChart3,
   Calendar,
@@ -1683,21 +1684,12 @@ export default function FormAnalyticsDashboard({
   };
 
   const isOwnTenantResponse = (response: Response) => {
-    // Only superadmins, direct form creators, or users belonging to the form's creator tenant can dispatch responses
+    // Only superadmins or users belonging to the form's owning creator tenant can dispatch responses
     if (user?.role === "superadmin") {
       return true;
     }
 
     if (!user) return false;
-
-    // Direct creator of the form
-    const formCreatedById = form?.createdBy
-      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
-      : null;
-    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
-    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
-      return true;
-    }
 
     const userTenantId = user?.tenantId;
     if (!userTenantId) {
@@ -2906,14 +2898,6 @@ export default function FormAnalyticsDashboard({
     if (user?.role === "superadmin") return true;
     if (!user) return false;
 
-    const formCreatedById = form?.createdBy
-      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
-      : null;
-    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
-    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
-      return true;
-    }
-
     const formTenantId = form?.tenantId
       ? (typeof form.tenantId === "object" ? String((form.tenantId as any)._id || (form.tenantId as any).id) : String(form.tenantId))
       : null;
@@ -2921,8 +2905,12 @@ export default function FormAnalyticsDashboard({
       ? (typeof user.tenantId === "object" ? String((user.tenantId as any)._id || (user.tenantId as any).id) : String(user.tenantId))
       : null;
 
-    // If the form has no tenant, only allow direct creator user or superadmin
+    // If the form has no tenant, fall back to direct creator user
     if (!formTenantId) {
+      const formCreatedById = form?.createdBy
+        ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
+        : null;
+      const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
       return Boolean(formCreatedById && currentUserId && formCreatedById === currentUserId);
     }
     return Boolean(userTenantId && formTenantId === userTenantId);
@@ -4846,30 +4834,39 @@ export default function FormAnalyticsDashboard({
     return Boolean(r);
   };
 
-  // Only assigned tenant reviewers (or superadmin / admin / form owner) can perform BIW review / review feedback
+  // Only assigned tenant reviewers (or superadmin) can perform BIW review / review feedback
+  // Rules enforced:
+  // 1. Dispatch prerequisite: Chassis must be dispatched by the owning plant before review can be performed
+  // 2. Owning plant CANNOT review its own chassis
+  // 3. Triggered / partner tenant alone can review (via chassisTenantAssignments or sharedWithTenants)
+  // 4. Anti-tamper: Submitter cannot review their own submission
   const canUserBiwReview = (response: Response | null | undefined): { canReview: boolean; reason?: string } => {
     if (!response) return { canReview: false, reason: "No response selected" };
 
-    if (user?.role === "superadmin" || user?.role === "admin" || user?.role === "subadmin" || user?.role === "tenant_admin") return { canReview: true };
+    // 🔒 1. Dispatch Prerequisite: Only dispatched chassis can be entered into review
+    if (!response.isDispatched) {
+      return {
+        canReview: false,
+        reason: "Chassis must be dispatched by the owning plant before review can be performed"
+      };
+    }
+
+    // Superadmin has universal review permissions
+    if (user?.role === "superadmin") return { canReview: true };
 
     const userTenantStr = String((user?.tenantId as any)?._id || (user?.tenantId as any)?.id || user?.tenantId || "");
     const formTenantStr = String((form?.tenantId as any)?._id || (form?.tenantId as any)?.id || form?.tenantId || "");
     const isFormOwnerTenant = Boolean(formTenantStr && userTenantStr && formTenantStr === userTenantStr);
-    const isFormSharedTenant = Array.isArray(form?.sharedWithTenants) && form.sharedWithTenants.some(
-      (t: any) => String(t?._id || t?.id || t) === userTenantStr
-    );
 
-    if (isFormOwnerTenant || isFormSharedTenant) {
-      if (isSubmitterOfResponse(response)) {
-        return {
-          canReview: false,
-          reason: "You cannot BIW review your own submission"
-        };
-      }
-      return { canReview: true };
+    // 🔒 2. Owning plant CANNOT review its own chassis
+    if (isFormOwnerTenant) {
+      return {
+        canReview: false,
+        reason: "The owning plant cannot review its own chassis. Reviews must be performed by the triggered partner tenant."
+      };
     }
 
-    // 1. Check if the chassis has assigned tenants (on this form or parent form)
+    // 🔒 3. Triggered tenant check: Chassis assignments or shared tenants
     const assignments = (form as any)?.chassisTenantAssignments || (form as any)?.parentForm?.chassisTenantAssignments;
     if (Array.isArray(assignments) && assignments.length > 0) {
       const chassisCandidates = new Set<string>();
@@ -4903,13 +4900,23 @@ export default function FormAnalyticsDashboard({
         if (!isAssigned) {
           return {
             canReview: false,
-            reason: "Only assigned tenant reviewers can perform BIW review for this chassis."
+            reason: "Only the triggered / assigned tenant reviewer can perform BIW review for this chassis."
           };
         }
       }
+    } else if (Array.isArray(form?.sharedWithTenants) && form.sharedWithTenants.length > 0) {
+      const isFormSharedTenant = form.sharedWithTenants.some(
+        (t: any) => String(t?._id || t?.id || t) === userTenantStr
+      );
+      if (!isFormSharedTenant && formTenantStr) {
+        return {
+          canReview: false,
+          reason: "Only the triggered partner tenant can perform reviews for this chassis."
+        };
+      }
     }
 
-    // 2. Anti-tamper check: submitter cannot review their own submission
+    // 🔒 4. Anti-tamper check: submitter cannot review their own submission
     if (isSubmitterOfResponse(response)) {
       return {
         canReview: false,
@@ -10878,6 +10885,17 @@ export default function FormAnalyticsDashboard({
 
                                       // If neither review exists
                                       if (!mainRevData && !childRevDataFinal) {
+                                        if (!response.isDispatched) {
+                                          return (
+                                            <div
+                                              className="inline-flex items-center justify-center gap-1 px-2 py-1 text-amber-600/80 dark:text-amber-400/80 bg-amber-50/60 dark:bg-amber-950/20 rounded-lg text-xs italic select-none border border-amber-200/50 dark:border-amber-900/30"
+                                              title="Review is locked until chassis is dispatched by the owning plant"
+                                            >
+                                              <Lock className="w-3 h-3 text-amber-500/80" />
+                                              <span>Pending Dispatch</span>
+                                            </div>
+                                          );
+                                        }
                                         return (
                                           <div
                                             onClick={(e) => {

@@ -965,7 +965,23 @@ export const submitReview = async (req, res) => {
       : { id: responseId };
     const targetResponse = await Response.findOne(respQuery);
 
-    if (targetResponse && req.user?.role !== 'superadmin') {
+    if (!targetResponse) {
+      return res.status(404).json({
+        success: false,
+        message: 'Response not found'
+      });
+    }
+
+    // 🔒 1. Dispatch Prerequisite: Only dispatched chassis can be entered into TVS / Quality review
+    if (!targetResponse.isDispatched && !isClearReview) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot review this chassis: unit must be dispatched by the owning plant first.'
+      });
+    }
+
+    // 🔒 2. Triggered Tenant Check: Only triggered / partner tenant (or superadmin) can enter TVS review
+    if (req.user?.role !== 'superadmin') {
       const formOrConditions = [];
       if (targetResponse.formId) {
         formOrConditions.push({ id: targetResponse.formId });
@@ -984,6 +1000,17 @@ export const submitReview = async (req, res) => {
         ? await Form.findOne({ $or: formOrConditions }).lean()
         : null;
 
+      const userTenantIdStr = (req.user?.tenantId || tenantId || '').toString();
+      const formOwnerTenantStr = formObj?.tenantId ? formObj.tenantId.toString() : '';
+
+      // Rule: Owning plant CANNOT submit reviews for its own chassis
+      if (formOwnerTenantStr && userTenantIdStr && formOwnerTenantStr === userTenantIdStr) {
+        return res.status(403).json({
+          success: false,
+          message: 'The owning plant cannot submit TVS reviews for its own chassis. Reviews must be submitted by the triggered / partner tenant.'
+        });
+      }
+
       if (formObj && Array.isArray(formObj.chassisTenantAssignments) && formObj.chassisTenantAssignments.length > 0) {
         const respChassis = String(
           targetResponse.chassisNumber ||
@@ -996,18 +1023,21 @@ export const submitReview = async (req, res) => {
         );
 
         if (assignment && Array.isArray(assignment.assignedTenants) && assignment.assignedTenants.length > 0) {
-          const userTenantIdStr = (req.user?.tenantId || tenantId || '').toString();
           const isAssigned = assignment.assignedTenants.some(t => t.toString() === userTenantIdStr);
-          const isFormOwner = Boolean(formObj?.tenantId && formObj.tenantId.toString() === userTenantIdStr);
-          const isSharedTenant = Array.isArray(formObj?.sharedWithTenants) && formObj.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
-          const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superadmin';
-
-          if (!isAssigned && !isFormOwner && !isSharedTenant && !isAdmin) {
+          if (!isAssigned) {
             return res.status(403).json({
               success: false,
-              message: 'Only assigned tenant reviewers can submit reviews for this chassis.'
+              message: 'Only the triggered / assigned tenant reviewer can submit reviews for this chassis.'
             });
           }
+        }
+      } else if (formObj && Array.isArray(formObj.sharedWithTenants) && formObj.sharedWithTenants.length > 0) {
+        const isSharedTenant = formObj.sharedWithTenants.some(t => String(t?._id || t?.id || t) === userTenantIdStr);
+        if (!isSharedTenant && formOwnerTenantStr) {
+          return res.status(403).json({
+            success: false,
+            message: 'Only the triggered / partner tenant can submit TVS reviews for this chassis.'
+          });
         }
       }
     }
