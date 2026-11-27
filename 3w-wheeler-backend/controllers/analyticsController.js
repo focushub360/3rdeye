@@ -2348,6 +2348,23 @@ export const getMyReviewStats = async (req, res) => {
 
 // ─── Shared appCache for the performance table (5 min TTL, auto-invalidated on mutations) ───
 const PERFORMANCE_TABLE_CACHE_TTL_SEC = 300; // 5 minutes
+const inFlightAnalyticsRequests = new Map();
+
+const runCoalesced = async (key, fn) => {
+  if (inFlightAnalyticsRequests.has(key)) {
+    console.log(`[Analytics Coalesce] Joining in-flight computation for ${key}`);
+    return inFlightAnalyticsRequests.get(key);
+  }
+  const promise = (async () => {
+    try {
+      return await fn();
+    } finally {
+      inFlightAnalyticsRequests.delete(key);
+    }
+  })();
+  inFlightAnalyticsRequests.set(key, promise);
+  return promise;
+};
 
 const buildPerformanceTableCacheKey = ({
   tenantKey, startDate, endDate, formId, queryTenantId, page, limit
@@ -2446,6 +2463,7 @@ export const getPerformanceTable = async (req, res) => {
       }
     }
 
+    const payload = await runCoalesced(`perf:${cacheKey}`, async () => {
     // Determine which users to show
     let usersQuery = { ...tenantFilter };
 
@@ -2621,8 +2639,8 @@ export const getPerformanceTable = async (req, res) => {
       Response.countDocuments(responseBaseFilter).maxTimeMS(30000),
       Response.find(responseBaseFilter)
         .select('createdBy submittedBy isDispatched biwReview review tvsReview status chassisNumber questionId createdAt id _id tenantId')
-        .limit(10000)
-        .maxTimeMS(30000)
+        .limit(50000)
+        .maxTimeMS(45000)
         .lean(),
       Response.aggregate([
         { $match: responseBaseFilter },
@@ -2977,7 +2995,7 @@ export const getPerformanceTable = async (req, res) => {
         }
       };
       setCachedPerformanceTable(cacheKey, emptyPayload);
-      return res.json(emptyPayload);
+      return emptyPayload;
     }
 
     // Fetch reviews - handle both ObjectId and non-ObjectId (email/username)
@@ -3228,6 +3246,60 @@ export const getPerformanceTable = async (req, res) => {
       return statsEntry.formBreakdownMap.get(formKey);
     };
 
+    // Helper to bucket responses into time intervals (30-day blocks & calendar months)
+    const getTimeBuckets = (date) => {
+      if (!date) return null;
+      const d = new Date(date);
+      if (isNaN(d.getTime())) return null;
+      const diffDays = Math.max(0, Math.floor((Date.now() - d.getTime()) / (24 * 60 * 60 * 1000)));
+      let bucketKey = '0_30';
+      let bucketLabel = 'Last 30 Days (0 - 30d)';
+      if (diffDays > 90) {
+        bucketKey = '91_plus';
+        bucketLabel = 'Older (90+ Days)';
+      } else if (diffDays > 60) {
+        bucketKey = '61_90';
+        bucketLabel = '61 - 90 Days Ago';
+      } else if (diffDays > 30) {
+        bucketKey = '31_60';
+        bucketLabel = '31 - 60 Days Ago';
+      }
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const monthLabel = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+      return { bucketKey, bucketLabel, monthKey, monthLabel, diffDays };
+    };
+
+    const getOrCreateTimeStat = (statsEntry, timeInfo) => {
+      if (!statsEntry) return null;
+      if (!statsEntry.timeBreakdownMap) statsEntry.timeBreakdownMap = new Map();
+      if (!timeInfo) return null;
+      const { bucketKey, bucketLabel, monthKey, monthLabel } = timeInfo;
+      if (!statsEntry.timeBreakdownMap.has(bucketKey)) {
+        statsEntry.timeBreakdownMap.set(bucketKey, {
+          bucketKey,
+          label: bucketLabel,
+          monthKey,
+          monthLabel,
+          totalSubmitted: 0,
+          directOk: 0,
+          reworkQcPending: 0,
+          reworkQcCompleted: 0,
+          rejected: 0,
+          dispatched: 0,
+          dispatchPending: 0,
+          biwTotalReviewed: 0,
+          biwAccepted: 0,
+          biwRejected: 0,
+          biwReworked: 0,
+          tvsTotalReviewed: 0,
+          tvsAccepted: 0,
+          tvsRejected: 0,
+          tvsReworked: 0
+        });
+      }
+      return statsEntry.timeBreakdownMap.get(bucketKey);
+    };
+
     // Initialize stats for all users
     const userStatsMap = new Map();
 
@@ -3372,6 +3444,11 @@ export const getPerformanceTable = async (req, res) => {
       stats.totalSubmitted++;
       stats.responses.push(response);
 
+      // Track time breakdown (30-day buckets & calendar months)
+      const timeInfo = getTimeBuckets(response.createdAt);
+      const timeStat = getOrCreateTimeStat(stats, timeInfo);
+      if (timeStat) timeStat.totalSubmitted++;
+
       // Track form-level breakdown for the submitter
       const formStat = getOrCreateFormStat(stats, response.questionId);
       formStat.totalSubmitted++;
@@ -3380,12 +3457,15 @@ export const getPerformanceTable = async (req, res) => {
       if (status === 'Direct Ok') {
         stats.directOk++;
         formStat.directOk++;
+        if (timeStat) timeStat.directOk++;
       } else if (status === 'Rework QC Pending') {
         stats.reworkQcPending++;
         formStat.reworkQcPending++;
+        if (timeStat) timeStat.reworkQcPending++;
       } else if (status === 'Rejected') {
         stats.rejected++;
         formStat.rejected++;
+        if (timeStat) timeStat.rejected++;
       }
 
       // Dispatched count is credited to the inspector who submitted the inspection form,
@@ -3393,11 +3473,13 @@ export const getPerformanceTable = async (req, res) => {
       if (response.isDispatched) {
         stats.dispatched++;
         formStat.dispatched++;
+        if (timeStat) timeStat.dispatched++;
       } else {
         const dispatchableStatuses = ['Direct Ok', 'Rework QC Completed', 'Accepted'];
         if (dispatchableStatuses.includes(status)) {
           stats.dispatchPending++;
           formStat.dispatchPending++;
+          if (timeStat) timeStat.dispatchPending++;
         }
       }
 
@@ -3476,6 +3558,7 @@ export const getPerformanceTable = async (req, res) => {
       if (biwStatus) {
         const bsLower = String(biwStatus).toLowerCase();
         const biwFormStat = getOrCreateFormStat(biwTargetStats, response.questionId);
+        const biwTimeStat = getOrCreateTimeStat(biwTargetStats, timeInfo);
         if (
           bsLower.includes('accept') ||
           bsLower.includes('direct ok') ||
@@ -3489,6 +3572,11 @@ export const getPerformanceTable = async (req, res) => {
 
           biwFormStat.biwAccepted++;
           biwFormStat.biwTotalReviewed++;
+
+          if (biwTimeStat) {
+            biwTimeStat.biwAccepted++;
+            biwTimeStat.biwTotalReviewed++;
+          }
         } else if (bsLower.includes('reject')) {
           biwTargetStats.biwRejected++;
           biwTargetStats.rejectedReview++;
@@ -3497,6 +3585,11 @@ export const getPerformanceTable = async (req, res) => {
 
           biwFormStat.biwRejected++;
           biwFormStat.biwTotalReviewed++;
+
+          if (biwTimeStat) {
+            biwTimeStat.biwRejected++;
+            biwTimeStat.biwTotalReviewed++;
+          }
         } else if (bsLower.includes('rework')) {
           biwTargetStats.biwReworked++;
           biwTargetStats.reworked++;
@@ -3505,6 +3598,11 @@ export const getPerformanceTable = async (req, res) => {
 
           biwFormStat.biwReworked++;
           biwFormStat.biwTotalReviewed++;
+
+          if (biwTimeStat) {
+            biwTimeStat.biwReworked++;
+            biwTimeStat.biwTotalReviewed++;
+          }
         }
       }
 
@@ -3526,18 +3624,33 @@ export const getPerformanceTable = async (req, res) => {
 
           tvsFormStat.tvsAccepted++;
           tvsFormStat.tvsTotalReviewed++;
+
+          if (timeStat) {
+            timeStat.tvsAccepted++;
+            timeStat.tvsTotalReviewed++;
+          }
         } else if (tsLower.includes('reject')) {
           stats.tvsRejected++;
           stats.tvsTotalReviewed++;
 
           tvsFormStat.tvsRejected++;
           tvsFormStat.tvsTotalReviewed++;
+
+          if (timeStat) {
+            timeStat.tvsRejected++;
+            timeStat.tvsTotalReviewed++;
+          }
         } else if (tsLower.includes('rework')) {
           stats.tvsReworked++;
           stats.tvsTotalReviewed++;
 
           tvsFormStat.tvsReworked++;
           tvsFormStat.tvsTotalReviewed++;
+
+          if (timeStat) {
+            timeStat.tvsReworked++;
+            timeStat.tvsTotalReviewed++;
+          }
         }
       }
     });
@@ -3665,6 +3778,9 @@ export const getPerformanceTable = async (req, res) => {
         }
 
         const formBreakdown = Array.from(stats.formBreakdownMap ? stats.formBreakdownMap.values() : []);
+        const timeBreakdown = Array.from(stats.timeBreakdownMap ? stats.timeBreakdownMap.values() : []);
+        const bucketOrder = { '0_30': 1, '31_60': 2, '61_90': 3, '91_plus': 4 };
+        timeBreakdown.sort((a, b) => (bucketOrder[a.bucketKey] || 99) - (bucketOrder[b.bucketKey] || 99));
         const ownFormsCount = formBreakdown.filter(f => f.isOwnForm).length;
         const assignedFormsCount = formBreakdown.filter(f => !f.isOwnForm).length;
 
@@ -3707,6 +3823,7 @@ export const getPerformanceTable = async (req, res) => {
 
           performanceScore: stats.performanceScore || 0,
           formBreakdown,
+          timeBreakdown,
           ownFormsCount,
           assignedFormsCount
         };
@@ -3751,6 +3868,9 @@ export const getPerformanceTable = async (req, res) => {
     };
 
     setCachedPerformanceTable(cacheKey, payload);
+
+    return payload;
+    });
 
     res.json(payload);
 
@@ -4122,6 +4242,7 @@ export const getQualitySummary = async (req, res) => {
     }
     console.log(`[Quality Summary] Cache MISS or Bypassed (${cacheKey}) - computing from DB...`);
 
+    const payload = await runCoalesced(`summary:${cacheKey}`, async () => {
     // 1. Identify target tenant
     let targetTenantId = userTenantId;
     if (role === 'superadmin' && queryTenantId) {
@@ -4321,7 +4442,7 @@ export const getQualitySummary = async (req, res) => {
         }
       };
       appCache.set(cacheKey, emptyPayload, 60);
-      return res.json(emptyPayload);
+      return emptyPayload;
     }
 
     if (startObj || endObj) {
@@ -6059,6 +6180,9 @@ export const getQualitySummary = async (req, res) => {
     // Cache for 5 minutes (300s)
     appCache.set(cacheKey, payload, 300);
     console.log(`[Quality Summary] Computed in ${Date.now() - startTimer}ms for ${totalChecked} responses, cached as ${cacheKey}`);
+    return payload;
+    });
+
     res.json(payload);
 
   } catch (error) {

@@ -41,6 +41,7 @@ const PerformanceTable = ({
   const [showInspectorDetailModal, setShowInspectorDetailModal] = useState(false);
 
   // Hover Breakdown Tooltip state for ALL Performance Table Numbers
+  const [breakdownTab, setBreakdownTab] = useState<'forms' | 'time'>('forms');
   const [reviewTooltip, setReviewTooltip] = useState<{
     x: number;
     y: number;
@@ -50,6 +51,7 @@ const PerformanceTable = ({
     formula: string;
     sourceCategory?: string;
     forms: Array<{ formId?: string; title: string; count: string | number; subDetail?: string }>;
+    times: Array<{ bucketKey: string; title: string; count: string | number; subDetail?: string; startDate?: string; endDate?: string }>;
   } | null>(null);
 
   // Interactive Pinned Breakdown Modal when user CLICKS any number cell
@@ -63,6 +65,7 @@ const PerformanceTable = ({
     inspectorNames?: string[];
     totalSubmitted?: number;
     forms: Array<{ formId?: string; title: string; count: string | number; subDetail?: string }>;
+    times: Array<{ bucketKey: string; title: string; count: string | number; subDetail?: string; startDate?: string; endDate?: string }>;
   } | null>(null);
 
   const getFormListForMetric = useCallback((
@@ -178,6 +181,116 @@ const PerformanceTable = ({
     return list;
   }, []);
 
+  const getTimeListForMetric = useCallback((
+    metric: string,
+    timeBreakdown: any[],
+  ) => {
+    const list: Array<{ bucketKey: string; title: string; count: string | number; subDetail?: string; startDate?: string; endDate?: string }> = [];
+    const today = new Date();
+
+    const getBucketDates = (key: string) => {
+      const endD = new Date(today);
+      const startD = new Date(today);
+      if (key === '0_30') {
+        startD.setDate(startD.getDate() - 30);
+      } else if (key === '31_60') {
+        endD.setDate(endD.getDate() - 31);
+        startD.setDate(startD.getDate() - 60);
+      } else if (key === '61_90') {
+        endD.setDate(endD.getDate() - 61);
+        startD.setDate(startD.getDate() - 90);
+      } else {
+        endD.setDate(endD.getDate() - 91);
+        startD.setDate(startD.getDate() - 365);
+      }
+      const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return { startStr: fmt(startD), endStr: fmt(endD) };
+    };
+
+    const sourceBreakdowns = (timeBreakdown && timeBreakdown.length > 0)
+      ? timeBreakdown
+      : [
+          { bucketKey: '0_30', label: 'Last 30 Days (0 - 30d)', totalSubmitted: 0 },
+          { bucketKey: '31_60', label: '31 - 60 Days Ago', totalSubmitted: 0 },
+          { bucketKey: '61_90', label: '61 - 90 Days Ago', totalSubmitted: 0 },
+          { bucketKey: '91_plus', label: 'Older (90+ Days)', totalSubmitted: 0 },
+        ];
+
+    sourceBreakdowns.forEach((tb: any) => {
+      const dates = getBucketDates(tb.bucketKey);
+      let count = 0;
+
+      const tbBiwRev = tb.biwTotalReviewed ?? tb.totalReviewed ?? 0;
+      const tbTvsRev = tb.tvsTotalReviewed ?? tb.tvsReviewed ?? 0;
+      const tbRev = tbBiwRev + tbTvsRev;
+      const tbSub = tb.totalSubmitted || 0;
+      const tbPend = Math.max(0, tbSub - tbRev);
+      const tbBiwAcc = tb.biwAccepted ?? tb.accepted ?? 0;
+      const tbTvsAcc = tb.tvsAccepted || 0;
+      const tbAcc = tbBiwAcc + tbTvsAcc;
+      const tbBiwRej = tb.biwRejected ?? tb.rejectedReview ?? tb.rejected ?? 0;
+      const tbTvsRej = tb.tvsRejected || 0;
+      const tbRej = tbBiwRej + tbTvsRej;
+      const tbBiwRew = tb.biwReworked ?? tb.reworked ?? tb.rework ?? 0;
+      const tbTvsRew = tb.tvsReworked ?? tb.tvsRework ?? 0;
+      const tbRew = tbBiwRew + tbTvsRew;
+
+      if (metric === "Accepted" || metric === "InspectionAccepted") count = (tb.directOk || 0) + (tb.reworkQcCompleted || 0);
+      else if (metric === "Rework QC Pending" || metric === "ReworkPending") count = tb.reworkQcPending || 0;
+      else if (metric === "Rejected" || metric === "RejectedInspection") count = tb.rejected || 0;
+      else if (metric === "Dispatch Pending" || metric === "DispatchPending") count = tb.dispatchPending || 0;
+      else if (metric === "Dispatched") count = tb.dispatched || 0;
+      else if (metric === "Total Submitted" || metric === "TotalSubmitted") count = tbSub;
+      else if (metric === "BIW Total Reviewed" || metric === "BIWReviewed") count = tbBiwRev;
+      else if (metric === "BIW Review Pending" || metric === "BIWPending") count = tbSub === 0 ? 0 : Math.max(0, tbSub - tbBiwRev);
+      else if (metric === "BIW Accepted" || metric === "BIWAccepted") count = tbBiwAcc;
+      else if (metric === "BIW Rejected" || metric === "BIWRejected") count = tbBiwRej;
+      else if (metric === "BIW Reworked" || metric === "BIWReworked") count = tbBiwRew;
+      else if (metric === "TVS Total Reviewed" || metric === "TVSReviewed") count = tbTvsRev;
+      else if (metric === "TVS Review Pending" || metric === "TVSPending") count = tbSub === 0 ? 0 : Math.max(0, tbSub - tbTvsRev);
+      else if (metric === "TVS Accepted" || metric === "TVSAccepted") count = tbTvsAcc;
+      else if (metric === "TVS Rejected" || metric === "TVSRejected") count = tbTvsRej;
+      else if (metric === "TVS Rework" || metric === "TVSRework") count = tbTvsRew;
+      else if (metric === "Reviewed" || metric === "ReviewedTotal") count = tbRev;
+      else if (metric === "Pending" || metric === "ReviewedPending") count = tbPend;
+      else if (metric === "AcceptedReviewer" || metric === "ReviewedAccepted") count = tbAcc;
+      else if (metric === "RejectedReviewer" || metric === "ReviewedRejected") count = tbRej;
+      else if (metric === "ReworkReviewer" || metric === "ReviewedRework") count = tbRew;
+      else count = tbSub;
+
+      list.push({
+        bucketKey: tb.bucketKey,
+        title: tb.label || tb.bucketKey,
+        count,
+        subDetail: `${dates.startStr} to ${dates.endStr}${tb.monthLabel ? ` • Month: ${tb.monthLabel}` : ''}`,
+        startDate: dates.startStr,
+        endDate: dates.endStr,
+      });
+    });
+
+    return list;
+  }, []);
+
+  const tooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleCellMouseLeave = useCallback(() => {
+    if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+    tooltipTimeoutRef.current = setTimeout(() => {
+      setReviewTooltip(null);
+    }, 200);
+  }, []);
+
+  const handleTooltipMouseEnter = useCallback(() => {
+    if (tooltipTimeoutRef.current) {
+      clearTimeout(tooltipTimeoutRef.current);
+      tooltipTimeoutRef.current = null;
+    }
+  }, []);
+
+  const handleTooltipMouseLeave = useCallback(() => {
+    setReviewTooltip(null);
+  }, []);
+
   const handleCellHover = useCallback((
     e: React.MouseEvent<HTMLElement>,
     metric: string,
@@ -216,8 +329,13 @@ const PerformanceTable = ({
       reviewedRework?: number;
       performanceScore?: number;
       formBreakdown?: any[];
+      timeBreakdown?: any[];
     },
   ) => {
+    if (tooltipTimeoutRef.current) {
+      clearTimeout(tooltipTimeoutRef.current);
+      tooltipTimeoutRef.current = null;
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     const biwRev = entity.biwTotalReviewed ?? entity.totalReviewed ?? 0;
     const tvsRev = entity.tvsTotalReviewed ?? entity.tvsReviewed ?? 0;
@@ -362,6 +480,7 @@ const PerformanceTable = ({
     }
 
     const forms = getFormListForMetric(metric, entity.formBreakdown || []);
+    const times = getTimeListForMetric(metric, entity.timeBreakdown || []);
 
     const tooltipWidth = 360;
     const tooltipHeight = 280;
@@ -383,8 +502,9 @@ const PerformanceTable = ({
       formula,
       sourceCategory,
       forms,
+      times,
     });
-  }, [getFormListForMetric]);
+  }, [getFormListForMetric, getTimeListForMetric]);
 
   const handleReviewCellHover = handleCellHover;
 
@@ -533,6 +653,7 @@ const PerformanceTable = ({
     }
 
     const forms = getFormListForMetric(metric, entity.formBreakdown || []);
+    const times = getTimeListForMetric(metric, entity.timeBreakdown || []);
     const resolvedNames = inspectorNames && inspectorNames.length > 0
       ? inspectorNames
       : (entity.name && !String(entity.name).includes("All Plants") && !String(entity.name).includes("Plant Total") ? [entity.name] : []);
@@ -547,8 +668,9 @@ const PerformanceTable = ({
       inspectorNames: resolvedNames,
       totalSubmitted: sub,
       forms,
+      times,
     });
-  }, [getFormListForMetric]);
+  }, [getFormListForMetric, getTimeListForMetric]);
 
   // ✅ Bind strictly to Top Date Filter (startDate & endDate props)
   const effectiveStartDate = useMemo(() => {
@@ -617,10 +739,6 @@ const PerformanceTable = ({
         break;
       case "pendingData":
         setSortColumn("reviewPending");
-        setSortOrder("desc");
-        break;
-      case "accepted":
-        setSortColumn("accepted");
         setSortOrder("desc");
         break;
       case "tvsReviewed":
@@ -912,12 +1030,12 @@ const PerformanceTable = ({
   useEffect(() => {
     if (!showPerformanceTable) return;
 
-    // 1. High-frequency live polling interval (every 4 seconds for sec-to-sec freshness)
+    // 1. Lightweight 60s fallback polling (Socket.IO, tab focus, & Refresh button handle instant updates)
     const pollInterval = setInterval(() => {
       if (typeof document !== "undefined" && !document.hidden) {
         loadPerformanceData(true, true);
       }
-    }, 4000);
+    }, 60000);
 
     // 1b. Instant sync on tab focus / visibility / cross-tab analytics_data_updated
     const handleVisibilityOrFocus = () => {
@@ -1221,6 +1339,7 @@ const PerformanceTable = ({
     totalOverallRejected,
     totalOverallRework,
     allFormsBreakdown,
+    allTimeBreakdown,
     avgPerformance,
     statusTotals,
     totalDirectOk,
@@ -1553,6 +1672,7 @@ const PerformanceTable = ({
       tenantId?: string;
       rows: any[];
       formBreakdown: any[];
+      timeBreakdown: any[];
       totals: {
         directOk: number;
         reworkQcCompleted: number;
@@ -1588,6 +1708,7 @@ const PerformanceTable = ({
           tenantId: row.tenantId,
           rows: [],
           formBreakdown: [],
+          timeBreakdown: [],
           totals: {
             directOk: 0,
             reworkQcCompleted: 0,
@@ -1642,6 +1763,31 @@ const PerformanceTable = ({
           existingF.tvsAccepted = (existingF.tvsAccepted || 0) + (f.tvsAccepted || 0);
           existingF.tvsRejected = (existingF.tvsRejected || 0) + (f.tvsRejected || 0);
           existingF.tvsReworked = (existingF.tvsReworked || 0) + (f.tvsReworked || 0);
+        }
+      });
+
+      // Aggregate timeBreakdown for the plant
+      (row.timeBreakdown || []).forEach((tb: any) => {
+        let existingTB = g.timeBreakdown.find((x: any) => x.bucketKey === tb.bucketKey);
+        if (!existingTB) {
+          existingTB = { ...tb };
+          g.timeBreakdown.push(existingTB);
+        } else {
+          existingTB.totalSubmitted = (existingTB.totalSubmitted || 0) + (tb.totalSubmitted || 0);
+          existingTB.directOk = (existingTB.directOk || 0) + (tb.directOk || 0);
+          existingTB.reworkQcCompleted = (existingTB.reworkQcCompleted || 0) + (tb.reworkQcCompleted || 0);
+          existingTB.reworkQcPending = (existingTB.reworkQcPending || 0) + (tb.reworkQcPending || 0);
+          existingTB.rejected = (existingTB.rejected || 0) + (tb.rejected || 0);
+          existingTB.dispatched = (existingTB.dispatched || 0) + (tb.dispatched || 0);
+          existingTB.dispatchPending = (existingTB.dispatchPending || 0) + (tb.dispatchPending || 0);
+          existingTB.biwTotalReviewed = (existingTB.biwTotalReviewed || 0) + (tb.biwTotalReviewed || 0);
+          existingTB.biwAccepted = (existingTB.biwAccepted || 0) + (tb.biwAccepted || 0);
+          existingTB.biwRejected = (existingTB.biwRejected || 0) + (tb.biwRejected || 0);
+          existingTB.biwReworked = (existingTB.biwReworked || 0) + (tb.biwReworked || 0);
+          existingTB.tvsTotalReviewed = (existingTB.tvsTotalReviewed || 0) + (tb.tvsTotalReviewed || 0);
+          existingTB.tvsAccepted = (existingTB.tvsAccepted || 0) + (tb.tvsAccepted || 0);
+          existingTB.tvsRejected = (existingTB.tvsRejected || 0) + (tb.tvsRejected || 0);
+          existingTB.tvsReworked = (existingTB.tvsReworked || 0) + (tb.tvsReworked || 0);
         }
       });
 
@@ -1727,6 +1873,33 @@ const PerformanceTable = ({
       });
     });
 
+    const allTimeBreakdown: any[] = [];
+    filteredData.forEach((row) => {
+      (row.timeBreakdown || []).forEach((tb: any) => {
+        let existingTB = allTimeBreakdown.find((x: any) => x.bucketKey === tb.bucketKey);
+        if (!existingTB) {
+          existingTB = { ...tb };
+          allTimeBreakdown.push(existingTB);
+        } else {
+          existingTB.totalSubmitted = (existingTB.totalSubmitted || 0) + (tb.totalSubmitted || 0);
+          existingTB.directOk = (existingTB.directOk || 0) + (tb.directOk || 0);
+          existingTB.reworkQcCompleted = (existingTB.reworkQcCompleted || 0) + (tb.reworkQcCompleted || 0);
+          existingTB.reworkQcPending = (existingTB.reworkQcPending || 0) + (tb.reworkQcPending || 0);
+          existingTB.rejected = (existingTB.rejected || 0) + (tb.rejected || 0);
+          existingTB.dispatched = (existingTB.dispatched || 0) + (tb.dispatched || 0);
+          existingTB.dispatchPending = (existingTB.dispatchPending || 0) + (tb.dispatchPending || 0);
+          existingTB.biwTotalReviewed = (existingTB.biwTotalReviewed || 0) + (tb.biwTotalReviewed || 0);
+          existingTB.biwAccepted = (existingTB.biwAccepted || 0) + (tb.biwAccepted || 0);
+          existingTB.biwRejected = (existingTB.biwRejected || 0) + (tb.biwRejected || 0);
+          existingTB.biwReworked = (existingTB.biwReworked || 0) + (tb.biwReworked || 0);
+          existingTB.tvsTotalReviewed = (existingTB.tvsTotalReviewed || 0) + (tb.tvsTotalReviewed || 0);
+          existingTB.tvsAccepted = (existingTB.tvsAccepted || 0) + (tb.tvsAccepted || 0);
+          existingTB.tvsRejected = (existingTB.tvsRejected || 0) + (tb.tvsRejected || 0);
+          existingTB.tvsReworked = (existingTB.tvsReworked || 0) + (tb.tvsReworked || 0);
+        }
+      });
+    });
+
     const tenantGroups = Array.from(tenantGroupsMap.values())
       .map((g) => ({
         ...g,
@@ -1768,6 +1941,7 @@ const PerformanceTable = ({
       totalOverallRejected,
       totalOverallRework,
       allFormsBreakdown,
+      allTimeBreakdown,
       avgPerformance,
       statusTotals,
       totalDirectOk,
@@ -2423,330 +2597,223 @@ const PerformanceTable = ({
                               </span>
                             </div>
                           </td>
-                          {performanceStatuses
-                            .filter((status) => status !== "Dispatched")
-                            .map((status) => {
-                              let count = 0;
-                              if (status === "Accepted") {
-                                count = (group.totals.directOk || 0) + (group.totals.reworkQcCompleted || 0);
-                              } else {
-                                const statusKeyMap: Record<string, string> = {
-                                  "Rework QC Pending": "reworkQcPending",
-                                  "Rejected": "rejected",
-                                };
-                                const key = statusKeyMap[status];
-                                count = key ? (group.totals as any)[key] ?? 0 : (group.totals as any)[status] ?? 0;
-                              }
-                              const colorClass =
-                                status === "Accepted" || status === "Direct Ok" || status === "Rework Accepted"
-                                  ? "text-emerald-700 dark:text-emerald-300"
-                                  : status.startsWith("Rework")
-                                    ? "text-amber-700 dark:text-amber-300"
-                                    : status === "Rejected"
-                                      ? "text-rose-700 dark:text-rose-300"
-                                      : "text-blue-700 dark:text-blue-300";
-                              const plantEntity = {
-                                name: `${group.tenantName} (Plant Total)`,
-                                ...group.totals,
-                                formBreakdown: group.formBreakdown,
-                              };
-                              const plantInspectors = group.rows.map((r: any) => r.name);
-                              return (
+                          {(() => {
+                            const plantInspectors = group.rows.map((r: any) => r.name);
+                            const plantEntity = {
+                              name: `${group.tenantName} (Plant Total)`,
+                              ...group.totals,
+                              biwTotalReviewed: group.totals.totalReviewed,
+                              biwReviewPending: group.totals.reviewPending,
+                              tvsTotalReviewed: group.totals.tvsReviewed,
+                              tvsReviewPending: group.totals.tvsPending,
+                              tvsReworked: group.totals.tvsRework,
+                              formBreakdown: group.formBreakdown,
+                              timeBreakdown: group.timeBreakdown,
+                            };
+
+                            return (
+                              <>
+                                {performanceStatuses
+                                  .filter((status) => status !== "Dispatched")
+                                  .map((status) => {
+                                    let count = 0;
+                                    if (status === "Accepted") {
+                                      count = (group.totals.directOk || 0) + (group.totals.reworkQcCompleted || 0);
+                                    } else {
+                                      const statusKeyMap: Record<string, string> = {
+                                        "Rework QC Pending": "reworkQcPending",
+                                        "Rejected": "rejected",
+                                      };
+                                      const key = statusKeyMap[status];
+                                      count = key ? (group.totals as any)[key] ?? 0 : (group.totals as any)[status] ?? 0;
+                                    }
+                                    const colorClass =
+                                      status === "Accepted" || status === "Direct Ok" || status === "Rework Accepted"
+                                        ? "text-emerald-700 dark:text-emerald-300"
+                                        : status.startsWith("Rework")
+                                          ? "text-amber-700 dark:text-amber-300"
+                                          : status === "Rejected"
+                                            ? "text-rose-700 dark:text-rose-300"
+                                            : "text-blue-700 dark:text-blue-300";
+                                    return (
+                                      <td
+                                        key={`group-status-${group.tenantName}-${status}`}
+                                        className={`px-2 py-2 font-black text-center tabular-nums cursor-pointer hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40 ${colorClass}`}
+                                        onMouseEnter={(e) => handleCellHover(e, status, plantEntity)}
+                                        onClick={(e) => handleCellClick(e, status, plantEntity, plantInspectors)}
+                                        onMouseLeave={handleCellMouseLeave}
+                                      >
+                                        {count}
+                                      </td>
+                                    );
+                                  })}
                                 <td
-                                  key={`group-status-${group.tenantName}-${status}`}
-                                  className={`px-2 py-2 font-black text-center tabular-nums cursor-pointer hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40 ${colorClass}`}
-                                  onMouseEnter={(e) => handleCellHover(e, status, plantEntity)}
-                                  onClick={(e) => handleCellClick(e, status, plantEntity, plantInspectors)}
-                                  onMouseLeave={() => setReviewTooltip(null)}
+                                  className="px-2 py-2 font-black text-center tabular-nums text-violet-700 dark:text-violet-300 cursor-pointer hover:bg-violet-100/60 dark:hover:bg-violet-900/40"
+                                  onMouseEnter={(e) => handleCellHover(e, "Dispatch Pending", plantEntity)}
+                                  onClick={(e) => handleCellClick(e, "Dispatch Pending", plantEntity, plantInspectors)}
+                                  onMouseLeave={handleCellMouseLeave}
                                 >
-                                  {count}
+                                  {group.totals.dispatchPending}
                                 </td>
-                              );
-                            })}
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums text-violet-700 dark:text-violet-300 cursor-pointer hover:bg-violet-100/60 dark:hover:bg-violet-900/40"
-                            onMouseEnter={(e) => handleCellHover(e, "Dispatch Pending", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                            onClick={(e) => handleCellClick(e, "Dispatch Pending", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                            onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.dispatchPending}
-                          </td>
-                          {performanceStatuses.includes("Dispatched") && (
-                            <td
-                              className="px-2 py-2 font-black text-center tabular-nums text-blue-700 dark:text-blue-300 cursor-pointer hover:bg-blue-100/60 dark:hover:bg-blue-900/40"
-                              onMouseEnter={(e) => handleCellHover(e, "Dispatched", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                              onClick={(e) => handleCellClick(e, "Dispatched", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                              onMouseLeave={() => setReviewTooltip(null)}
-                            >
-                              {group.totals.dispatched}
-                            </td>
-                          )}
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums border-r border-emerald-300 dark:border-emerald-700 text-gray-900 dark:text-white cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
-                            onMouseEnter={(e) => handleCellHover(e, "Total Submitted", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                            onClick={(e) => handleCellClick(e, "Total Submitted", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                            onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.totalSubmitted}
-                          </td>
-                          {/* BIW Review Subtotals */}
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums border-l border-purple-200 bg-purple-50/50 dark:bg-purple-950/20 text-purple-900 dark:text-purple-200 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/50"
-                            onMouseEnter={(e) => handleCellHover(e, "BIW Total Reviewed", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                            onClick={(e) => handleCellClick(e, "BIW Total Reviewed", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                            onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.totalReviewed}
-                          </td>
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums bg-purple-50/50 dark:bg-purple-950/20 text-amber-700 dark:text-amber-300 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/50"
-                            onMouseEnter={(e) => handleCellHover(e, "BIW Review Pending", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                            onClick={(e) => handleCellClick(e, "BIW Review Pending", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                            onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.reviewPending}
-                          </td>
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums bg-purple-50/50 dark:bg-purple-950/20 text-green-700 dark:text-green-300 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/50"
-                            onMouseEnter={(e) => handleCellHover(e, "BIW Accepted", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                            onClick={(e) => handleCellClick(e, "BIW Accepted", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                            onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.biwAccepted}
-                          </td>
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums bg-purple-50/50 dark:bg-purple-950/20 text-red-700 dark:text-red-300 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/50"
-                            onMouseEnter={(e) => handleCellHover(e, "BIW Rejected", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                            onClick={(e) => handleCellClick(e, "BIW Rejected", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                            onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.biwRejected}
-                          </td>
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums border-r border-purple-200 bg-purple-50/50 dark:bg-purple-950/20 text-orange-700 dark:text-orange-300 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/50"
-                            onMouseEnter={(e) => handleCellHover(e, "BIW Reworked", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                            onClick={(e) => handleCellClick(e, "BIW Reworked", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                            onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.biwReworked}
-                          </td>
-                          {/* TVS Review Subtotals */}
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums border-l border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 text-blue-900 dark:text-blue-200 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50"
-                            onMouseEnter={(e) => handleCellHover(e, "TVS Total Reviewed", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                            onClick={(e) => handleCellClick(e, "TVS Total Reviewed", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                            onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.tvsReviewed}
-                          </td>
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums bg-blue-50/50 dark:bg-blue-950/20 text-amber-700 dark:text-amber-300 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50"
-                            onMouseEnter={(e) => handleCellHover(e, "TVS Review Pending", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                            onClick={(e) => handleCellClick(e, "TVS Review Pending", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                            onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.tvsPending}
-                          </td>
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums bg-blue-50/50 dark:bg-blue-950/20 text-emerald-700 dark:text-emerald-300 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50"
-                            onMouseEnter={(e) => handleCellHover(e, "TVS Accepted", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                            onClick={(e) => handleCellClick(e, "TVS Accepted", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                            onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.tvsAccepted}
-                          </td>
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums bg-blue-50/50 dark:bg-blue-950/20 text-rose-700 dark:text-rose-300 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50"
-                            onMouseEnter={(e) => handleCellHover(e, "TVS Rejected", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                            onClick={(e) => handleCellClick(e, "TVS Rejected", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                            onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.tvsRejected}
-                          </td>
-                          <td
-                            className="px-2 py-2 font-black text-center tabular-nums border-r border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 text-amber-700 dark:text-amber-300 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50"
-                            onMouseEnter={(e) => handleCellHover(e, "TVS Rework", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                            onClick={(e) => handleCellClick(e, "TVS Rework", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                            onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            {group.totals.tvsRework}
-                          </td>
-                          {/* Reviewed Section Subtotals */}
-                          {showReviewerSection && (
-                            <>
-                              <td
-                                className="px-2 py-2 font-black text-center tabular-nums border-l border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-900 dark:text-emerald-200 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
-                                onMouseEnter={(e) => handleReviewCellHover(e, "Reviewed", {
-                                  name: `${group.tenantName} (Plant Total)`,
-                                  totalSubmitted: group.totals.totalSubmitted,
-                                  biwTotalReviewed: group.totals.biwReviewed,
-                                  tvsTotalReviewed: group.totals.tvsReviewed,
-                                  biwAccepted: group.totals.biwAccepted,
-                                  tvsAccepted: group.totals.tvsAccepted,
-                                  biwRejected: group.totals.biwRejected,
-                                  tvsRejected: group.totals.tvsRejected,
-                                  biwReworked: group.totals.biwReworked,
-                                  tvsReworked: group.totals.tvsRework,
-                                  formBreakdown: group.formBreakdown,
-                                })}
-                                    onClick={(e) => handleCellClick(e, "Reviewed", {
-                                  name: `${group.tenantName} (Plant Total)`,
-                                  totalSubmitted: group.totals.totalSubmitted,
-                                  biwTotalReviewed: group.totals.biwReviewed,
-                                  tvsTotalReviewed: group.totals.tvsReviewed,
-                                  biwAccepted: group.totals.biwAccepted,
-                                  tvsAccepted: group.totals.tvsAccepted,
-                                  biwRejected: group.totals.biwRejected,
-                                  tvsRejected: group.totals.tvsRejected,
-                                  biwReworked: group.totals.biwReworked,
-                                  tvsReworked: group.totals.tvsRework,
-                                  formBreakdown: group.formBreakdown,
-                                }, group.rows.map((r: any) => r.name))}
-                                    onMouseLeave={() => setReviewTooltip(null)}
-                              >
-                                {group.totals.reviewedTotal}
-                              </td>
-                              <td
-                                className="px-2 py-2 font-black text-center tabular-nums bg-emerald-50/50 dark:bg-emerald-950/20 text-amber-700 dark:text-amber-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
-                                onMouseEnter={(e) => handleReviewCellHover(e, "Pending", {
-                                  name: `${group.tenantName} (Plant Total)`,
-                                  totalSubmitted: group.totals.totalSubmitted,
-                                  biwTotalReviewed: group.totals.biwReviewed,
-                                  tvsTotalReviewed: group.totals.tvsReviewed,
-                                  biwAccepted: group.totals.biwAccepted,
-                                  tvsAccepted: group.totals.tvsAccepted,
-                                  biwRejected: group.totals.biwRejected,
-                                  tvsRejected: group.totals.tvsRejected,
-                                  biwReworked: group.totals.biwReworked,
-                                  tvsReworked: group.totals.tvsRework,
-                                  formBreakdown: group.formBreakdown,
-                                })}
-                                    onClick={(e) => handleCellClick(e, "Pending", {
-                                  name: `${group.tenantName} (Plant Total)`,
-                                  totalSubmitted: group.totals.totalSubmitted,
-                                  biwTotalReviewed: group.totals.biwReviewed,
-                                  tvsTotalReviewed: group.totals.tvsReviewed,
-                                  biwAccepted: group.totals.biwAccepted,
-                                  tvsAccepted: group.totals.tvsAccepted,
-                                  biwRejected: group.totals.biwRejected,
-                                  tvsRejected: group.totals.tvsRejected,
-                                  biwReworked: group.totals.biwReworked,
-                                  tvsReworked: group.totals.tvsRework,
-                                  formBreakdown: group.formBreakdown,
-                                }, group.rows.map((r: any) => r.name))}
-                                    onMouseLeave={() => setReviewTooltip(null)}
-                              >
-                                {group.totals.reviewedPending}
-                              </td>
-                              <td
-                                className="px-2 py-2 font-black text-center tabular-nums bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
-                                onMouseEnter={(e) => handleReviewCellHover(e, "Accepted", {
-                                  name: `${group.tenantName} (Plant Total)`,
-                                  totalSubmitted: group.totals.totalSubmitted,
-                                  biwTotalReviewed: group.totals.biwReviewed,
-                                  tvsTotalReviewed: group.totals.tvsReviewed,
-                                  biwAccepted: group.totals.biwAccepted,
-                                  tvsAccepted: group.totals.tvsAccepted,
-                                  biwRejected: group.totals.biwRejected,
-                                  tvsRejected: group.totals.tvsRejected,
-                                  biwReworked: group.totals.biwReworked,
-                                  tvsReworked: group.totals.tvsRework,
-                                  formBreakdown: group.formBreakdown,
-                                })}
-                                    onClick={(e) => handleCellClick(e, "AcceptedReviewer", {
-                                  name: `${group.tenantName} (Plant Total)`,
-                                  totalSubmitted: group.totals.totalSubmitted,
-                                  biwTotalReviewed: group.totals.biwReviewed,
-                                  tvsTotalReviewed: group.totals.tvsReviewed,
-                                  biwAccepted: group.totals.biwAccepted,
-                                  tvsAccepted: group.totals.tvsAccepted,
-                                  biwRejected: group.totals.biwRejected,
-                                  tvsRejected: group.totals.tvsRejected,
-                                  biwReworked: group.totals.biwReworked,
-                                  tvsReworked: group.totals.tvsRework,
-                                  formBreakdown: group.formBreakdown,
-                                }, group.rows.map((r: any) => r.name))}
-                                    onMouseLeave={() => setReviewTooltip(null)}
-                              >
-                                {group.totals.reviewedAccepted}
-                              </td>
-                              <td
-                                className="px-2 py-2 font-black text-center tabular-nums bg-emerald-50/50 dark:bg-emerald-950/20 text-rose-700 dark:text-rose-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
-                                onMouseEnter={(e) => handleReviewCellHover(e, "Rejected", {
-                                  name: `${group.tenantName} (Plant Total)`,
-                                  totalSubmitted: group.totals.totalSubmitted,
-                                  biwTotalReviewed: group.totals.biwReviewed,
-                                  tvsTotalReviewed: group.totals.tvsReviewed,
-                                  biwAccepted: group.totals.biwAccepted,
-                                  tvsAccepted: group.totals.tvsAccepted,
-                                  biwRejected: group.totals.biwRejected,
-                                  tvsRejected: group.totals.tvsRejected,
-                                  biwReworked: group.totals.biwReworked,
-                                  tvsReworked: group.totals.tvsRework,
-                                  formBreakdown: group.formBreakdown,
-                                })}
-                                    onClick={(e) => handleCellClick(e, "RejectedReviewer", {
-                                  name: `${group.tenantName} (Plant Total)`,
-                                  totalSubmitted: group.totals.totalSubmitted,
-                                  biwTotalReviewed: group.totals.biwReviewed,
-                                  tvsTotalReviewed: group.totals.tvsReviewed,
-                                  biwAccepted: group.totals.biwAccepted,
-                                  tvsAccepted: group.totals.tvsAccepted,
-                                  biwRejected: group.totals.biwRejected,
-                                  tvsRejected: group.totals.tvsRejected,
-                                  biwReworked: group.totals.biwReworked,
-                                  tvsReworked: group.totals.tvsRework,
-                                  formBreakdown: group.formBreakdown,
-                                }, group.rows.map((r: any) => r.name))}
-                                    onMouseLeave={() => setReviewTooltip(null)}
-                              >
-                                {group.totals.reviewedRejected}
-                              </td>
-                              <td
-                                className="px-2 py-2 font-black text-center tabular-nums border-r border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 text-amber-700 dark:text-amber-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
-                                onMouseEnter={(e) => handleReviewCellHover(e, "Rework", {
-                                  name: `${group.tenantName} (Plant Total)`,
-                                  totalSubmitted: group.totals.totalSubmitted,
-                                  biwTotalReviewed: group.totals.biwReviewed,
-                                  tvsTotalReviewed: group.totals.tvsReviewed,
-                                  biwAccepted: group.totals.biwAccepted,
-                                  tvsAccepted: group.totals.tvsAccepted,
-                                  biwRejected: group.totals.biwRejected,
-                                  tvsRejected: group.totals.tvsRejected,
-                                  biwReworked: group.totals.biwReworked,
-                                  tvsReworked: group.totals.tvsRework,
-                                  formBreakdown: group.formBreakdown,
-                                })}
-                                    onClick={(e) => handleCellClick(e, "ReworkReviewer", {
-                                  name: `${group.tenantName} (Plant Total)`,
-                                  totalSubmitted: group.totals.totalSubmitted,
-                                  biwTotalReviewed: group.totals.biwReviewed,
-                                  tvsTotalReviewed: group.totals.tvsReviewed,
-                                  biwAccepted: group.totals.biwAccepted,
-                                  tvsAccepted: group.totals.tvsAccepted,
-                                  biwRejected: group.totals.biwRejected,
-                                  tvsRejected: group.totals.tvsRejected,
-                                  biwReworked: group.totals.biwReworked,
-                                  tvsReworked: group.totals.tvsRework,
-                                  formBreakdown: group.formBreakdown,
-                                }, group.rows.map((r: any) => r.name))}
-                                    onMouseLeave={() => setReviewTooltip(null)}
-                              >
-                                {group.totals.reviewedRework}
-                              </td>
-                            </>
-                          )}
-                          {/* Performance Score */}
-                          <td
-                            className="px-2 py-2 text-center cursor-pointer hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40"
-                            onMouseEnter={(e) => handleCellHover(e, "PerformanceScore", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown })}
-                            onClick={(e) => handleCellClick(e, "PerformanceScore", { name: `${group.tenantName} (Plant Total)`, ...group.totals, formBreakdown: group.formBreakdown }, group.rows.map((r: any) => r.name))}
-                            onMouseLeave={() => setReviewTooltip(null)}
-                          >
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200 tabular-nums">
-                              {group.totals.performanceScore}%
-                            </span>
-                          </td>
+                                {performanceStatuses.includes("Dispatched") && (
+                                  <td
+                                    className="px-2 py-2 font-black text-center tabular-nums text-blue-700 dark:text-blue-300 cursor-pointer hover:bg-blue-100/60 dark:hover:bg-blue-900/40"
+                                    onMouseEnter={(e) => handleCellHover(e, "Dispatched", plantEntity)}
+                                    onClick={(e) => handleCellClick(e, "Dispatched", plantEntity, plantInspectors)}
+                                    onMouseLeave={handleCellMouseLeave}
+                                  >
+                                    {group.totals.dispatched}
+                                  </td>
+                                )}
+                                <td
+                                  className="px-2 py-2 font-black text-center tabular-nums border-r border-emerald-300 dark:border-emerald-700 text-gray-900 dark:text-white cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                                  onMouseEnter={(e) => handleCellHover(e, "Total Submitted", plantEntity)}
+                                  onClick={(e) => handleCellClick(e, "Total Submitted", plantEntity, plantInspectors)}
+                                  onMouseLeave={handleCellMouseLeave}
+                                >
+                                  {group.totals.totalSubmitted}
+                                </td>
+                                {/* BIW Review Subtotals */}
+                                <td
+                                  className="px-2 py-2 font-black text-center tabular-nums border-l border-purple-200 bg-purple-50/50 dark:bg-purple-950/20 text-purple-900 dark:text-purple-200 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/50"
+                                  onMouseEnter={(e) => handleCellHover(e, "BIW Total Reviewed", plantEntity)}
+                                  onClick={(e) => handleCellClick(e, "BIW Total Reviewed", plantEntity, plantInspectors)}
+                                  onMouseLeave={handleCellMouseLeave}
+                                >
+                                  {group.totals.totalReviewed}
+                                </td>
+                                <td
+                                  className="px-2 py-2 font-black text-center tabular-nums bg-purple-50/50 dark:bg-purple-950/20 text-amber-700 dark:text-amber-300 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/50"
+                                  onMouseEnter={(e) => handleCellHover(e, "BIW Review Pending", plantEntity)}
+                                  onClick={(e) => handleCellClick(e, "BIW Review Pending", plantEntity, plantInspectors)}
+                                  onMouseLeave={handleCellMouseLeave}
+                                >
+                                  {group.totals.reviewPending}
+                                </td>
+                                <td
+                                  className="px-2 py-2 font-black text-center tabular-nums bg-purple-50/50 dark:bg-purple-950/20 text-green-700 dark:text-green-300 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/50"
+                                  onMouseEnter={(e) => handleCellHover(e, "BIW Accepted", plantEntity)}
+                                  onClick={(e) => handleCellClick(e, "BIW Accepted", plantEntity, plantInspectors)}
+                                  onMouseLeave={handleCellMouseLeave}
+                                >
+                                  {group.totals.biwAccepted}
+                                </td>
+                                <td
+                                  className="px-2 py-2 font-black text-center tabular-nums bg-purple-50/50 dark:bg-purple-950/20 text-red-700 dark:text-red-300 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/50"
+                                  onMouseEnter={(e) => handleCellHover(e, "BIW Rejected", plantEntity)}
+                                  onClick={(e) => handleCellClick(e, "BIW Rejected", plantEntity, plantInspectors)}
+                                  onMouseLeave={handleCellMouseLeave}
+                                >
+                                  {group.totals.biwRejected}
+                                </td>
+                                <td
+                                  className="px-2 py-2 font-black text-center tabular-nums border-r border-purple-200 bg-purple-50/50 dark:bg-purple-950/20 text-orange-700 dark:text-orange-300 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/50"
+                                  onMouseEnter={(e) => handleCellHover(e, "BIW Reworked", plantEntity)}
+                                  onClick={(e) => handleCellClick(e, "BIW Reworked", plantEntity, plantInspectors)}
+                                  onMouseLeave={handleCellMouseLeave}
+                                >
+                                  {group.totals.biwReworked}
+                                </td>
+                                {/* TVS Review Subtotals */}
+                                <td
+                                  className="px-2 py-2 font-black text-center tabular-nums border-l border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 text-blue-900 dark:text-blue-200 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50"
+                                  onMouseEnter={(e) => handleCellHover(e, "TVS Total Reviewed", plantEntity)}
+                                  onClick={(e) => handleCellClick(e, "TVS Total Reviewed", plantEntity, plantInspectors)}
+                                  onMouseLeave={handleCellMouseLeave}
+                                >
+                                  {group.totals.tvsReviewed}
+                                </td>
+                                <td
+                                  className="px-2 py-2 font-black text-center tabular-nums bg-blue-50/50 dark:bg-blue-950/20 text-amber-700 dark:text-amber-300 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50"
+                                  onMouseEnter={(e) => handleCellHover(e, "TVS Review Pending", plantEntity)}
+                                  onClick={(e) => handleCellClick(e, "TVS Review Pending", plantEntity, plantInspectors)}
+                                  onMouseLeave={handleCellMouseLeave}
+                                >
+                                  {group.totals.tvsPending}
+                                </td>
+                                <td
+                                  className="px-2 py-2 font-black text-center tabular-nums bg-blue-50/50 dark:bg-blue-950/20 text-emerald-700 dark:text-emerald-300 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50"
+                                  onMouseEnter={(e) => handleCellHover(e, "TVS Accepted", plantEntity)}
+                                  onClick={(e) => handleCellClick(e, "TVS Accepted", plantEntity, plantInspectors)}
+                                  onMouseLeave={handleCellMouseLeave}
+                                >
+                                  {group.totals.tvsAccepted}
+                                </td>
+                                <td
+                                  className="px-2 py-2 font-black text-center tabular-nums bg-blue-50/50 dark:bg-blue-950/20 text-rose-700 dark:text-rose-300 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50"
+                                  onMouseEnter={(e) => handleCellHover(e, "TVS Rejected", plantEntity)}
+                                  onClick={(e) => handleCellClick(e, "TVS Rejected", plantEntity, plantInspectors)}
+                                  onMouseLeave={handleCellMouseLeave}
+                                >
+                                  {group.totals.tvsRejected}
+                                </td>
+                                <td
+                                  className="px-2 py-2 font-black text-center tabular-nums border-r border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 text-amber-700 dark:text-amber-300 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50"
+                                  onMouseEnter={(e) => handleCellHover(e, "TVS Rework", plantEntity)}
+                                  onClick={(e) => handleCellClick(e, "TVS Rework", plantEntity, plantInspectors)}
+                                  onMouseLeave={handleCellMouseLeave}
+                                >
+                                  {group.totals.tvsRework}
+                                </td>
+                                {/* Reviewed Section Subtotals */}
+                                {showReviewerSection && (
+                                  <>
+                                    <td
+                                      className="px-2 py-2 font-black text-center tabular-nums border-l border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-900 dark:text-emerald-200 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
+                                      onMouseEnter={(e) => handleReviewCellHover(e, "Reviewed", plantEntity)}
+                                      onClick={(e) => handleCellClick(e, "Reviewed", plantEntity, plantInspectors)}
+                                      onMouseLeave={handleCellMouseLeave}
+                                    >
+                                      {group.totals.reviewedTotal}
+                                    </td>
+                                    <td
+                                      className="px-2 py-2 font-black text-center tabular-nums bg-emerald-50/50 dark:bg-emerald-950/20 text-amber-700 dark:text-amber-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
+                                      onMouseEnter={(e) => handleReviewCellHover(e, "Pending", plantEntity)}
+                                      onClick={(e) => handleCellClick(e, "Pending", plantEntity, plantInspectors)}
+                                      onMouseLeave={handleCellMouseLeave}
+                                    >
+                                      {group.totals.reviewedPending}
+                                    </td>
+                                    <td
+                                      className="px-2 py-2 font-black text-center tabular-nums bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
+                                      onMouseEnter={(e) => handleReviewCellHover(e, "Accepted", plantEntity)}
+                                      onClick={(e) => handleCellClick(e, "AcceptedReviewer", plantEntity, plantInspectors)}
+                                      onMouseLeave={handleCellMouseLeave}
+                                    >
+                                      {group.totals.reviewedAccepted}
+                                    </td>
+                                    <td
+                                      className="px-2 py-2 font-black text-center tabular-nums bg-emerald-50/50 dark:bg-emerald-950/20 text-rose-700 dark:text-rose-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
+                                      onMouseEnter={(e) => handleReviewCellHover(e, "Rejected", plantEntity)}
+                                      onClick={(e) => handleCellClick(e, "RejectedReviewer", plantEntity, plantInspectors)}
+                                      onMouseLeave={handleCellMouseLeave}
+                                    >
+                                      {group.totals.reviewedRejected}
+                                    </td>
+                                    <td
+                                      className="px-2 py-2 font-black text-center tabular-nums border-r border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 text-amber-700 dark:text-amber-300 cursor-help transition-colors hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60"
+                                      onMouseEnter={(e) => handleReviewCellHover(e, "Rework", plantEntity)}
+                                      onClick={(e) => handleCellClick(e, "ReworkReviewer", plantEntity, plantInspectors)}
+                                      onMouseLeave={handleCellMouseLeave}
+                                    >
+                                      {group.totals.reviewedRework}
+                                    </td>
+                                  </>
+                                )}
+                                {/* Performance Score */}
+                                <td
+                                  className="px-2 py-2 text-center cursor-pointer hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40"
+                                  onMouseEnter={(e) => handleCellHover(e, "PerformanceScore", plantEntity)}
+                                  onClick={(e) => handleCellClick(e, "PerformanceScore", plantEntity, plantInspectors)}
+                                  onMouseLeave={handleCellMouseLeave}
+                                >
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200 tabular-nums">
+                                    {group.totals.performanceScore}%
+                                  </span>
+                                </td>
+                              </>
+                            );
+                          })()}
                           <td className="px-2 py-2 text-center">
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">
                               Plant Summary
@@ -3647,6 +3714,7 @@ const PerformanceTable = ({
                     reviewedRework: totalOverallRework,
                     performanceScore: avgPerformance || 0,
                     formBreakdown: allFormsBreakdown,
+                    timeBreakdown: allTimeBreakdown,
                   };
 
                   return (
@@ -4174,12 +4242,14 @@ const PerformanceTable = ({
       {/* Floating Hover Breakdown Card for Reviewer Section */}
       {reviewTooltip && (
         <div
-          className="fixed z-[99999] pointer-events-none transition-all duration-150 animate-in fade-in zoom-in-95"
+          className="fixed z-[99999] pointer-events-auto transition-all duration-150 animate-in fade-in zoom-in-95"
           style={{
             left: `${reviewTooltip.x}px`,
             top: `${reviewTooltip.y}px`,
             width: "360px",
           }}
+          onMouseEnter={handleTooltipMouseEnter}
+          onMouseLeave={handleTooltipMouseLeave}
         >
           <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-md rounded-2xl shadow-2xl border border-emerald-500/30 dark:border-emerald-500/40 p-4 text-gray-800 dark:text-gray-100 ring-1 ring-black/5">
             {/* Header */}
@@ -4206,7 +4276,7 @@ const PerformanceTable = ({
             </div>
 
             {/* Formula Explanation */}
-            <div className="p-2.5 bg-emerald-50/70 dark:bg-emerald-950/40 rounded-xl border border-emerald-200/70 dark:border-emerald-800/70 mb-3 text-[11px]">
+            <div className="p-2.5 bg-emerald-50/70 dark:bg-emerald-950/40 rounded-xl border border-emerald-200/70 dark:border-emerald-800/70 mb-2.5 text-[11px]">
               <span className="text-[10px] uppercase font-black tracking-wider text-emerald-800 dark:text-emerald-300 block mb-0.5">
                 📐 Calculation Formula / Origin:
               </span>
@@ -4215,41 +4285,111 @@ const PerformanceTable = ({
               </span>
             </div>
 
-            {/* Form Wise Breakdown Header */}
-            <div className="text-[10px] uppercase font-black tracking-wider text-gray-500 dark:text-gray-400 mb-1.5 flex items-center justify-between">
-              <span>Form-Wise Breakdown</span>
-              <span>Count</span>
+            {/* Tab Switcher: Form-Wise vs Time-Wise (30d / Month) */}
+            <div className="flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl mb-2.5">
+              <button
+                type="button"
+                onClick={() => setBreakdownTab("forms")}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  breakdownTab === "forms"
+                    ? "bg-white dark:bg-gray-700 text-emerald-700 dark:text-emerald-300 shadow-xs"
+                    : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+                }`}
+              >
+                <FileText className="w-3 h-3" />
+                <span>Form-Wise ({reviewTooltip.forms.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setBreakdownTab("time")}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  breakdownTab === "time"
+                    ? "bg-white dark:bg-gray-700 text-emerald-700 dark:text-emerald-300 shadow-xs"
+                    : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+                }`}
+              >
+                <Calendar className="w-3 h-3" />
+                <span>Time-Wise (30d Buckets)</span>
+              </button>
             </div>
 
-            {/* Form List */}
-            <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 text-xs">
-              {reviewTooltip.forms.length === 0 ? (
-                <p className="text-[11px] text-gray-400 italic py-1 text-center">
-                  No individual form breakdown available.
-                </p>
-              ) : (
-                reviewTooltip.forms.map((f, i) => (
-                  <div
-                    key={i}
-                    className="flex items-start justify-between gap-2 p-1.5 rounded-lg bg-gray-50/80 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-750"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="font-bold text-[11px] text-gray-800 dark:text-gray-200 truncate">
-                        {f.title}
-                      </p>
-                      {f.subDetail && (
-                        <p className="text-[10px] text-gray-500 dark:text-gray-400">
-                          {f.subDetail}
-                        </p>
-                      )}
-                    </div>
-                    <span className="font-black text-xs tabular-nums text-emerald-700 dark:text-emerald-400 shrink-0">
-                      {f.count}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
+            {breakdownTab === "forms" ? (
+              <>
+                {/* Form Wise Breakdown Header */}
+                <div className="text-[10px] uppercase font-black tracking-wider text-gray-500 dark:text-gray-400 mb-1.5 flex items-center justify-between">
+                  <span>Form-Wise Breakdown</span>
+                  <span>Count</span>
+                </div>
+
+                {/* Form List */}
+                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 text-xs">
+                  {reviewTooltip.forms.length === 0 ? (
+                    <p className="text-[11px] text-gray-400 italic py-1 text-center">
+                      No individual form breakdown available.
+                    </p>
+                  ) : (
+                    reviewTooltip.forms.map((f, i) => (
+                      <div
+                        key={i}
+                        className="flex items-start justify-between gap-2 p-1.5 rounded-lg bg-gray-50/80 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-750"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-[11px] text-gray-800 dark:text-gray-200 truncate">
+                            {f.title}
+                          </p>
+                          {f.subDetail && (
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                              {f.subDetail}
+                            </p>
+                          )}
+                        </div>
+                        <span className="font-black text-xs tabular-nums text-emerald-700 dark:text-emerald-400 shrink-0">
+                          {f.count}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Time Wise Breakdown Header */}
+                <div className="text-[10px] uppercase font-black tracking-wider text-gray-500 dark:text-gray-400 mb-1.5 flex items-center justify-between">
+                  <span>Time-Wise Breakdown (30-Day Intervals)</span>
+                  <span>Count</span>
+                </div>
+
+                {/* Time List */}
+                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 text-xs">
+                  {!reviewTooltip.times || reviewTooltip.times.length === 0 ? (
+                    <p className="text-[11px] text-gray-400 italic py-2 text-center">
+                      No time-wise breakdown available for this date filter.
+                    </p>
+                  ) : (
+                    reviewTooltip.times.map((t, i) => (
+                      <div
+                        key={i}
+                        className="flex items-start justify-between gap-2 p-2 rounded-lg bg-emerald-50/40 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/50"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-[11px] text-gray-800 dark:text-gray-100 truncate">
+                            📅 {t.title}
+                          </p>
+                          {t.subDetail && (
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                              {t.subDetail}
+                            </p>
+                          )}
+                        </div>
+                        <span className="font-black text-xs tabular-nums px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 shrink-0">
+                          {t.count}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -4298,7 +4438,7 @@ const PerformanceTable = ({
             </div>
 
             {/* Formula Explanation */}
-            <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/40 rounded-xl border border-emerald-200/70 dark:border-emerald-800/70 mb-4 text-xs">
+            <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/40 rounded-xl border border-emerald-200/70 dark:border-emerald-800/70 mb-3.5 text-xs">
               <span className="text-[10px] uppercase font-black tracking-wider text-emerald-800 dark:text-emerald-300 block mb-0.5">
                 📐 Calculation Formula / Origin:
               </span>
@@ -4307,103 +4447,239 @@ const PerformanceTable = ({
               </span>
             </div>
 
-            {/* Form Wise Breakdown Header */}
-            <div className="text-[10px] uppercase font-black tracking-wider text-gray-500 dark:text-gray-400 mb-2 flex items-center justify-between">
-              <span>Form-Wise Breakdown (Click a form to open exact filtered responses)</span>
-              <span>Count / Action</span>
+            {/* Tab Switcher: Form-Wise vs Time-Wise (30d / Month) */}
+            <div className="flex items-center gap-1.5 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl mb-3.5">
+              <button
+                type="button"
+                onClick={() => setBreakdownTab("forms")}
+                className={`flex-1 flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  breakdownTab === "forms"
+                    ? "bg-white dark:bg-gray-700 text-emerald-700 dark:text-emerald-300 shadow-xs"
+                    : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Form-Wise Breakdown ({pinnedBreakdown.forms.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setBreakdownTab("time")}
+                className={`flex-1 flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  breakdownTab === "time"
+                    ? "bg-white dark:bg-gray-700 text-emerald-700 dark:text-emerald-300 shadow-xs"
+                    : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Time-Wise Breakdown (30d Intervals)</span>
+              </button>
             </div>
 
-            {/* Clickable Form List */}
-            <div className="max-h-72 overflow-y-auto space-y-2 pr-1 text-xs">
-              {pinnedBreakdown.forms.length === 0 ? (
-                <p className="text-xs text-gray-400 italic py-4 text-center">
-                  No individual form breakdown available.
-                </p>
-              ) : (
-                pinnedBreakdown.forms.map((f, i) => {
-                  const numCount = typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0;
-                  const canOpen = Boolean(f.formId && f.formId !== "general_form" && numCount > 0);
-                  const openFormResponses = () => {
-                    if (!canOpen || !f.formId) return;
-                    const q = new URLSearchParams();
-                    q.set("tab", "responses");
-                    q.set("metricLabel", pinnedBreakdown.metric);
-                    if (effectiveStartDate) q.set("startDate", effectiveStartDate);
-                    if (effectiveEndDate) q.set("endDate", effectiveEndDate);
+            {breakdownTab === "forms" ? (
+              <>
+                {/* Form Wise Breakdown Header */}
+                <div className="text-[10px] uppercase font-black tracking-wider text-gray-500 dark:text-gray-400 mb-2 flex items-center justify-between">
+                  <span>Form-Wise Breakdown (Click a form to open exact filtered responses)</span>
+                  <span>Count / Action</span>
+                </div>
 
-                    const mk = pinnedBreakdown.metricKey;
-                    const names = pinnedBreakdown.inspectorNames || [];
-                    const isBiwMetric = ["BIW Total Reviewed", "BIWReviewed", "BIW Accepted", "BIWAccepted", "BIW Rejected", "BIWRejected", "BIW Reworked", "BIWReworked"].includes(mk);
-                    const isReviewerCombined = ["Reviewed", "ReviewedTotal", "Pending", "ReviewedPending", "AcceptedReviewer", "ReviewedAccepted", "RejectedReviewer", "ReviewedRejected", "ReworkReviewer", "ReviewedRework"].includes(mk);
+                {/* Clickable Form List */}
+                <div className="max-h-72 overflow-y-auto space-y-2 pr-1 text-xs">
+                  {pinnedBreakdown.forms.length === 0 ? (
+                    <p className="text-xs text-gray-400 italic py-4 text-center">
+                      No individual form breakdown available.
+                    </p>
+                  ) : (
+                    pinnedBreakdown.forms.map((f, i) => {
+                      const numCount = typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0;
+                      const canOpen = Boolean(f.formId && f.formId !== "general_form" && numCount > 0);
+                      const openFormResponses = () => {
+                        if (!canOpen || !f.formId) return;
+                        const q = new URLSearchParams();
+                        q.set("tab", "responses");
+                        q.set("metricLabel", pinnedBreakdown.metric);
+                        if (effectiveStartDate) q.set("startDate", effectiveStartDate);
+                        if (effectiveEndDate) q.set("endDate", effectiveEndDate);
 
-                    if (names.length > 0) {
-                      if (isBiwMetric || (isReviewerCombined && (pinnedBreakdown.totalSubmitted || 0) === 0)) {
-                        q.set("biwReviewedBy", names.join(","));
-                      } else {
-                        q.set("submittedBy", names.join(","));
-                      }
-                    }
+                        const mk = pinnedBreakdown.metricKey;
+                        const names = pinnedBreakdown.inspectorNames || [];
+                        const isBiwMetric = ["BIW Total Reviewed", "BIWReviewed", "BIW Accepted", "BIWAccepted", "BIW Rejected", "BIWRejected", "BIW Reworked", "BIWReworked"].includes(mk);
+                        const isReviewerCombined = ["Reviewed", "ReviewedTotal", "Pending", "ReviewedPending", "AcceptedReviewer", "ReviewedAccepted", "RejectedReviewer", "ReviewedRejected", "ReworkReviewer", "ReviewedRework"].includes(mk);
 
-                    if (mk === "Accepted" || mk === "InspectionAccepted") q.set("status", "accepted");
-                    else if (mk === "Rework QC Pending" || mk === "ReworkPending") q.set("status", "rework");
-                    else if (mk === "Rejected" || mk === "RejectedInspection") q.set("status", "rejected");
-                    else if (mk === "Dispatch Pending" || mk === "DispatchPending") q.set("dispatch", "pending");
-                    else if (mk === "Dispatched") q.set("dispatch", "dispatched");
-                    else if (mk === "BIW Total Reviewed" || mk === "BIWReviewed") q.set("biwStatus", "reviewed");
-                    else if (mk === "BIW Review Pending" || mk === "BIWPending") q.set("biwStatus", "pending");
-                    else if (mk === "BIW Accepted" || mk === "BIWAccepted") q.set("biwStatus", "accepted");
-                    else if (mk === "BIW Rejected" || mk === "BIWRejected") q.set("biwStatus", "rejected");
-                    else if (mk === "BIW Reworked" || mk === "BIWReworked") q.set("biwStatus", "reworked");
-                    else if (mk === "TVS Total Reviewed" || mk === "TVSReviewed") q.set("tvsStatus", "reviewed");
-                    else if (mk === "TVS Review Pending" || mk === "TVSPending") q.set("tvsStatus", "pending");
-                    else if (mk === "TVS Accepted" || mk === "TVSAccepted") q.set("tvsStatus", "accepted");
-                    else if (mk === "TVS Rejected" || mk === "TVSRejected") q.set("tvsStatus", "rejected");
-                    else if (mk === "TVS Rework" || mk === "TVSRework") q.set("tvsStatus", "rework");
-                    else if (mk === "Reviewed" || mk === "ReviewedTotal") q.set("reviewedCombined", "reviewed");
-                    else if (mk === "Pending" || mk === "ReviewedPending") q.set("reviewedCombined", "pending");
-                    else if (mk === "AcceptedReviewer" || mk === "ReviewedAccepted") q.set("reviewedCombined", "accepted");
-                    else if (mk === "RejectedReviewer" || mk === "ReviewedRejected") q.set("reviewedCombined", "rejected");
-                    else if (mk === "ReworkReviewer" || mk === "ReviewedRework") q.set("reviewedCombined", "rework");
+                        if (names.length > 0) {
+                          if (isBiwMetric || (isReviewerCombined && (pinnedBreakdown.totalSubmitted || 0) === 0)) {
+                            q.set("biwReviewedBy", names.join(","));
+                          } else {
+                            q.set("submittedBy", names.join(","));
+                          }
+                        }
 
-                    setPinnedBreakdown(null);
-                    navigate(`/forms/${f.formId}/analytics?${q.toString()}`);
-                  };
+                        if (mk === "Accepted" || mk === "InspectionAccepted") q.set("status", "accepted");
+                        else if (mk === "Rework QC Pending" || mk === "ReworkPending") q.set("status", "rework");
+                        else if (mk === "Rejected" || mk === "RejectedInspection") q.set("status", "rejected");
+                        else if (mk === "Dispatch Pending" || mk === "DispatchPending") q.set("dispatch", "pending");
+                        else if (mk === "Dispatched") q.set("dispatch", "dispatched");
+                        else if (mk === "BIW Total Reviewed" || mk === "BIWReviewed") q.set("biwStatus", "reviewed");
+                        else if (mk === "BIW Review Pending" || mk === "BIWPending") q.set("biwStatus", "pending");
+                        else if (mk === "BIW Accepted" || mk === "BIWAccepted") q.set("biwStatus", "accepted");
+                        else if (mk === "BIW Rejected" || mk === "BIWRejected") q.set("biwStatus", "rejected");
+                        else if (mk === "BIW Reworked" || mk === "BIWReworked") q.set("biwStatus", "reworked");
+                        else if (mk === "TVS Total Reviewed" || mk === "TVSReviewed") q.set("tvsStatus", "reviewed");
+                        else if (mk === "TVS Review Pending" || mk === "TVSPending") q.set("tvsStatus", "pending");
+                        else if (mk === "TVS Accepted" || mk === "TVSAccepted") q.set("tvsStatus", "accepted");
+                        else if (mk === "TVS Rejected" || mk === "TVSRejected") q.set("tvsStatus", "rejected");
+                        else if (mk === "TVS Rework" || mk === "TVSRework") q.set("tvsStatus", "rework");
+                        else if (mk === "Reviewed" || mk === "ReviewedTotal") q.set("reviewedCombined", "reviewed");
+                        else if (mk === "Pending" || mk === "ReviewedPending") q.set("reviewedCombined", "pending");
+                        else if (mk === "AcceptedReviewer" || mk === "ReviewedAccepted") q.set("reviewedCombined", "accepted");
+                        else if (mk === "RejectedReviewer" || mk === "ReviewedRejected") q.set("reviewedCombined", "rejected");
+                        else if (mk === "ReworkReviewer" || mk === "ReviewedRework") q.set("reviewedCombined", "rework");
 
-                  return (
-                    <div
-                      key={i}
-                      onClick={canOpen ? openFormResponses : undefined}
-                      className={`flex items-center justify-between gap-3 p-2.5 rounded-xl border transition-all ${
-                        canOpen
-                          ? "bg-gray-50 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-400 cursor-pointer group"
-                          : "bg-gray-50/50 dark:bg-gray-800/30 border-gray-100 dark:border-gray-800 opacity-60"
-                      }`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="font-bold text-xs text-gray-900 dark:text-gray-100 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-300">
-                          {f.title}
-                        </p>
-                        {f.subDetail && (
-                          <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                            {f.subDetail}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="font-black text-sm tabular-nums text-emerald-700 dark:text-emerald-400">
-                          {f.count}
-                        </span>
-                        {canOpen && (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-bold group-hover:bg-emerald-700 shadow-xs">
-                            View <ExternalLink className="w-3 h-3" />
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+                        setPinnedBreakdown(null);
+                        navigate(`/forms/${f.formId}/analytics?${q.toString()}`);
+                      };
+
+                      return (
+                        <div
+                          key={i}
+                          onClick={canOpen ? openFormResponses : undefined}
+                          className={`flex items-center justify-between gap-3 p-2.5 rounded-xl border transition-all ${
+                            canOpen
+                              ? "bg-gray-50 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-400 cursor-pointer group"
+                              : "bg-gray-50/50 dark:bg-gray-800/30 border-gray-100 dark:border-gray-800 opacity-60"
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-xs text-gray-900 dark:text-gray-100 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-300">
+                              {f.title}
+                            </p>
+                            {f.subDetail && (
+                              <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                                {f.subDetail}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="font-black text-sm tabular-nums text-emerald-700 dark:text-emerald-400">
+                              {f.count}
+                            </span>
+                            {canOpen && (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-bold group-hover:bg-emerald-700 shadow-xs">
+                                View <ExternalLink className="w-3 h-3" />
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Time Wise Breakdown Header */}
+                <div className="text-[10px] uppercase font-black tracking-wider text-gray-500 dark:text-gray-400 mb-2 flex items-center justify-between">
+                  <span>Time-Wise Breakdown (Click a 30-day bucket to view responses in that period)</span>
+                  <span>Count / Action</span>
+                </div>
+
+                {/* Clickable Time List */}
+                <div className="max-h-72 overflow-y-auto space-y-2 pr-1 text-xs">
+                  {(!pinnedBreakdown.times || pinnedBreakdown.times.length === 0) ? (
+                    <p className="text-xs text-gray-400 italic py-4 text-center">
+                      No time-wise breakdown available for this date filter.
+                    </p>
+                  ) : (
+                    pinnedBreakdown.times.map((t, i) => {
+                      const numCount = typeof t.count === "number" ? t.count : parseInt(String(t.count), 10) || 0;
+                      const canOpen = numCount > 0 && Boolean(t.startDate && t.endDate);
+
+                      const openTimeResponses = () => {
+                        if (!canOpen) return;
+                        const targetFormId = (pinnedBreakdown.forms.find((f: any) => f.formId && f.formId !== "general_form")?.formId) || formId || (formIds && formIds[0]);
+                        if (!targetFormId) return;
+
+                        const q = new URLSearchParams();
+                        q.set("tab", "responses");
+                        q.set("metricLabel", pinnedBreakdown.metric);
+                        if (t.startDate) q.set("startDate", t.startDate);
+                        if (t.endDate) q.set("endDate", t.endDate);
+
+                        const mk = pinnedBreakdown.metricKey;
+                        const names = pinnedBreakdown.inspectorNames || [];
+                        const isBiwMetric = ["BIW Total Reviewed", "BIWReviewed", "BIW Accepted", "BIWAccepted", "BIW Rejected", "BIWRejected", "BIW Reworked", "BIWReworked"].includes(mk);
+                        const isReviewerCombined = ["Reviewed", "ReviewedTotal", "Pending", "ReviewedPending", "AcceptedReviewer", "ReviewedAccepted", "RejectedReviewer", "ReviewedRejected", "ReworkReviewer", "ReviewedRework"].includes(mk);
+
+                        if (names.length > 0) {
+                          if (isBiwMetric || (isReviewerCombined && (pinnedBreakdown.totalSubmitted || 0) === 0)) {
+                            q.set("biwReviewedBy", names.join(","));
+                          } else {
+                            q.set("submittedBy", names.join(","));
+                          }
+                        }
+
+                        if (mk === "Accepted" || mk === "InspectionAccepted") q.set("status", "accepted");
+                        else if (mk === "Rework QC Pending" || mk === "ReworkPending") q.set("status", "rework");
+                        else if (mk === "Rejected" || mk === "RejectedInspection") q.set("status", "rejected");
+                        else if (mk === "Dispatch Pending" || mk === "DispatchPending") q.set("dispatch", "pending");
+                        else if (mk === "Dispatched") q.set("dispatch", "dispatched");
+                        else if (mk === "BIW Total Reviewed" || mk === "BIWReviewed") q.set("biwStatus", "reviewed");
+                        else if (mk === "BIW Review Pending" || mk === "BIWPending") q.set("biwStatus", "pending");
+                        else if (mk === "BIW Accepted" || mk === "BIWAccepted") q.set("biwStatus", "accepted");
+                        else if (mk === "BIW Rejected" || mk === "BIWRejected") q.set("biwStatus", "rejected");
+                        else if (mk === "BIW Reworked" || mk === "BIWReworked") q.set("biwStatus", "reworked");
+                        else if (mk === "TVS Total Reviewed" || mk === "TVSReviewed") q.set("tvsStatus", "reviewed");
+                        else if (mk === "TVS Review Pending" || mk === "TVSPending") q.set("tvsStatus", "pending");
+                        else if (mk === "TVS Accepted" || mk === "TVSAccepted") q.set("tvsStatus", "accepted");
+                        else if (mk === "TVS Rejected" || mk === "TVSRejected") q.set("tvsStatus", "rejected");
+                        else if (mk === "TVS Rework" || mk === "TVSRework") q.set("tvsStatus", "rework");
+                        else if (mk === "Reviewed" || mk === "ReviewedTotal") q.set("reviewedCombined", "reviewed");
+                        else if (mk === "Pending" || mk === "ReviewedPending") q.set("reviewedCombined", "pending");
+                        else if (mk === "AcceptedReviewer" || mk === "ReviewedAccepted") q.set("reviewedCombined", "accepted");
+                        else if (mk === "RejectedReviewer" || mk === "ReviewedRejected") q.set("reviewedCombined", "rejected");
+                        else if (mk === "ReworkReviewer" || mk === "ReviewedRework") q.set("reviewedCombined", "rework");
+
+                        setPinnedBreakdown(null);
+                        navigate(`/forms/${targetFormId}/analytics?${q.toString()}`);
+                      };
+
+                      return (
+                        <div
+                          key={i}
+                          onClick={canOpen ? openTimeResponses : undefined}
+                          className={`flex items-center justify-between gap-3 p-3 rounded-xl border transition-all ${
+                            canOpen
+                              ? "bg-emerald-50/40 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/80 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/50 hover:border-emerald-500 cursor-pointer group"
+                              : "bg-gray-50/50 dark:bg-gray-800/30 border-gray-100 dark:border-gray-800 opacity-60"
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-xs text-gray-900 dark:text-gray-100 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-300">
+                              📅 {t.title}
+                            </p>
+                            {t.subDetail && (
+                              <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                                {t.subDetail}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="font-black text-sm tabular-nums text-emerald-700 dark:text-emerald-400">
+                              {t.count}
+                            </span>
+                            {canOpen && (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-bold group-hover:bg-emerald-700 shadow-xs">
+                                View <ExternalLink className="w-3 h-3" />
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

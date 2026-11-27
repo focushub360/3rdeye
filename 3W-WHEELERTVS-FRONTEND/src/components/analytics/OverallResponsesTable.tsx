@@ -134,10 +134,25 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
       past.setDate(past.getDate() - 30);
       setStartDate(formatDateYMD(past));
       setEndDate(formatDateYMD(today));
+    } else if (preset === '60d') {
+      const past = new Date();
+      past.setDate(past.getDate() - 60);
+      setStartDate(formatDateYMD(past));
+      setEndDate(formatDateYMD(today));
+    } else if (preset === '90d') {
+      const past = new Date();
+      past.setDate(past.getDate() - 90);
+      setStartDate(formatDateYMD(past));
+      setEndDate(formatDateYMD(today));
     } else if (preset === 'thisMonth') {
       const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
       setStartDate(formatDateYMD(firstDay));
       setEndDate(formatDateYMD(today));
+    } else if (preset === 'lastMonth') {
+      const firstDayPrev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const lastDayPrev = new Date(today.getFullYear(), today.getMonth(), 0);
+      setStartDate(formatDateYMD(firstDayPrev));
+      setEndDate(formatDateYMD(lastDayPrev));
     }
   };
 
@@ -518,7 +533,10 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
               <option value="yesterday">Yesterday</option>
               <option value="7d">Last 7 Days</option>
               <option value="30d">Last 30 Days</option>
+              <option value="60d">Last 60 Days</option>
+              <option value="90d">Last 90 Days</option>
               <option value="thisMonth">This Month</option>
+              <option value="lastMonth">Last Month</option>
               <option value="custom">Custom Range</option>
             </select>
 
@@ -526,6 +544,7 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
               <input
                 type="date"
                 value={startDate}
+                max={endDate || formatDateYMD(new Date())}
                 onChange={e => handleStartDateChange(e.target.value)}
                 className="text-xs border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50/50"
                 title="Start Date"
@@ -534,6 +553,8 @@ export const OverallResponsesTable: React.FC<OverallResponsesTableProps> = ({
               <input
                 type="date"
                 value={endDate}
+                min={startDate || undefined}
+                max={formatDateYMD(new Date())}
                 onChange={e => handleEndDateChange(e.target.value)}
                 className="text-xs border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50/50"
                 title="End Date"

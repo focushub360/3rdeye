@@ -1212,6 +1212,11 @@ export const QualityDashboard: React.FC = () => {
   );
 
   // Compute start/end dates with normalized YYYY-MM-DD format for 100% exact boundary matching
+  const todayStr = useMemo(() => {
+    const t = new Date();
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  }, []);
+
   const { startDate, endDate } = useMemo(() => {
     if (dateRange === 'all') return { startDate: undefined, endDate: undefined };
     if (dateRange === 'custom') {
@@ -1230,6 +1235,18 @@ export const QualityDashboard: React.FC = () => {
       start.setDate(start.getDate() - 7);
     } else if (dateRange === '30d') {
       start.setDate(start.getDate() - 30);
+    } else if (dateRange === '60d') {
+      start.setDate(start.getDate() - 60);
+    } else if (dateRange === '90d') {
+      start.setDate(start.getDate() - 90);
+    } else if (dateRange === 'this_month') {
+      start.setDate(1);
+    } else if (dateRange === 'last_month') {
+      const firstDayPrev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const lastDayPrev = new Date(today.getFullYear(), today.getMonth(), 0);
+      const sStr = `${firstDayPrev.getFullYear()}-${String(firstDayPrev.getMonth() + 1).padStart(2, '0')}-${String(firstDayPrev.getDate()).padStart(2, '0')}`;
+      const eStr = `${lastDayPrev.getFullYear()}-${String(lastDayPrev.getMonth() + 1).padStart(2, '0')}-${String(lastDayPrev.getDate()).padStart(2, '0')}`;
+      return { startDate: sStr, endDate: eStr };
     } else {
       start.setDate(start.getDate() - 90);
     }
@@ -1862,14 +1879,29 @@ export const QualityDashboard: React.FC = () => {
             <Calendar className="w-4 h-4 text-blue-600 flex-shrink-0" />
             <select
               value={dateRange}
-              onChange={(e) => setDateRange(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setDateRange(val);
+                if (val === 'custom' && (!customStartDate || !customEndDate)) {
+                  const today = new Date();
+                  const end = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                  const past = new Date(today);
+                  past.setDate(past.getDate() - 30);
+                  const start = `${past.getFullYear()}-${String(past.getMonth() + 1).padStart(2, '0')}-${String(past.getDate()).padStart(2, '0')}`;
+                  if (!customStartDate) setCustomStartDate(start);
+                  if (!customEndDate) setCustomEndDate(end);
+                }
+              }}
               className="text-sm font-medium border-0 bg-transparent text-gray-700 outline-none cursor-pointer pr-2"
             >
               <option value="all">All Time</option>
               <option value="today">Today</option>
               <option value="7d">Last 7 Days</option>
               <option value="30d">Last 30 Days</option>
+              <option value="60d">Last 60 Days</option>
               <option value="90d">Last 90 Days</option>
+              <option value="this_month">This Month</option>
+              <option value="last_month">Last Month</option>
               <option value="custom">Custom Calendar...</option>
             </select>
 
@@ -1878,17 +1910,32 @@ export const QualityDashboard: React.FC = () => {
                 <input
                   type="date"
                   value={customStartDate}
-                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  max={customEndDate || todayStr}
+                  onChange={(e) => {
+                    const newStart = e.target.value;
+                    setCustomStartDate(newStart);
+                    if (customEndDate && newStart > customEndDate) {
+                      setCustomEndDate(newStart);
+                    }
+                  }}
                   className="text-xs border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50"
-                  title="From Date"
+                  title="From Date (Past)"
                 />
                 <span className="text-xs text-gray-400 font-medium">to</span>
                 <input
                   type="date"
                   value={customEndDate}
-                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  min={customStartDate || undefined}
+                  max={todayStr}
+                  onChange={(e) => {
+                    const newEnd = e.target.value;
+                    setCustomEndDate(newEnd);
+                    if (customStartDate && newEnd < customStartDate) {
+                      setCustomStartDate(newEnd);
+                    }
+                  }}
                   className="text-xs border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50"
-                  title="To Date"
+                  title="To Date (Present)"
                 />
                 {(customStartDate || customEndDate) && (
                   <button

@@ -112,8 +112,19 @@ export const QualitySummaryModal: React.FC<QualitySummaryModalProps> = ({
       start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     } else if (dateRange === '30d') {
       start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else if (dateRange === '60d') {
+      start = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    } else if (dateRange === '90d') {
+      start = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
     } else if (dateRange === 'this_month') {
       start = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else if (dateRange === 'last_month') {
+      const firstDayPrev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastDayPrev = new Date(now.getFullYear(), now.getMonth(), 0);
+      return {
+        startDate: firstDayPrev.toISOString().split('T')[0],
+        endDate: lastDayPrev.toISOString().split('T')[0]
+      };
     } else {
       return { startDate: undefined, endDate: undefined };
     }
@@ -321,7 +332,10 @@ export const QualitySummaryModal: React.FC<QualitySummaryModalProps> = ({
                 <option value="all">📅 All Time</option>
                 <option value="7d">Last 7 Days</option>
                 <option value="30d">Last 30 Days</option>
+                <option value="60d">Last 60 Days</option>
+                <option value="90d">Last 90 Days</option>
                 <option value="this_month">This Month</option>
+                <option value="last_month">Last Month</option>
               </select>
             </div>
 
