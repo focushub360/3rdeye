@@ -145,6 +145,7 @@ Accepted    Rejected     Reworked
 - **Rule 1 (Dispatch Ownership)**: Only users belonging to the form's owning plant (`form.tenantId`), or a `superadmin`, can dispatch the chassis (`isDispatched: true` / `false`). Triggered or partner tenants cannot dispatch another plant's chassis.
 - **Rule 2 (Review Ownership - Triggered Tenant Alone)**: Only the triggered/assigned partner tenant (configured via `chassisTenantAssignments` or `sharedWithTenants`), or a `superadmin`, can enter BIW Review and TVS Review / Chat Review. The owning plant that manufactured and dispatched the chassis cannot review its own units (anti-tamper / separation of maker & reviewer duties).
 - **Rule 3 (Dispatch Prerequisite)**: Only dispatched responses (`isDispatched: true`) can enter BIW Review or TVS Review / Chat Review. Non-dispatched chassis cannot receive BIW review or TVS review until the owning plant dispatches them.
+- **Rule 4 (Rework Exclusion from Reviews & Review Accountability)**: Units under active rework or rejection (`Rework 1`, `Rework 2`, `Rework`, `Rejected`) CANNOT receive BIW or TVS reviews, and MUST NOT be counted in review accountability (such as TVS Review Pending, BIW Review Pending, or "No review yet" / "Pending Review" table filters). In the responses table, active rework units render `-` in review columns. Review accountability and eligibility apply strictly to approved units (`Direct Ok`, `Accepted`, and `Rework Accepted`).
 
 ---
 

@@ -3690,9 +3690,12 @@ export const getPerformanceTable = async (req, res) => {
         stats.dispatchPending = Math.max(0, stats.directOk + stats.reworkQcCompleted - stats.dispatched);
       }
 
-      stats.biwReviewPending = Math.max(0, stats.totalSubmitted - stats.biwTotalReviewed);
+      // 🔒 Review Accountability: Active rework and rejected units do NOT receive BIW/TVS review
+      // Accountability applies ONLY to approved units: Direct Ok + Rework QC Completed
+      const reviewAccountable = Math.max(0, (stats.directOk || 0) + (stats.reworkQcCompleted || 0));
+      stats.biwReviewPending = Math.max(0, reviewAccountable - stats.biwTotalReviewed);
       stats.reviewPending = stats.biwReviewPending;
-      stats.tvsReviewPending = Math.max(0, stats.totalSubmitted - stats.tvsTotalReviewed);
+      stats.tvsReviewPending = Math.max(0, reviewAccountable - stats.tvsTotalReviewed);
 
       const totalReviewed = stats.biwTotalReviewed + stats.tvsTotalReviewed;
       const totalAccepted = stats.biwAccepted + stats.tvsAccepted;
@@ -3742,13 +3745,13 @@ export const getPerformanceTable = async (req, res) => {
           biwAccepted: ai.biwAccepted || 0,
           biwRejected: ai.biwRejected || 0,
           biwReworked: ai.biwReworked || 0,
-          biwReviewPending: Math.max(0, ai.totalSubmitted - (ai.biwTotalReviewed || 0)),
-          reviewPending: Math.max(0, ai.totalSubmitted - (ai.biwTotalReviewed || 0)),
+          biwReviewPending: Math.max(0, Math.max(0, (dOk || 0) + (ai.reworkAcceptedCount || 0)) - (ai.biwTotalReviewed || 0)),
+          reviewPending: Math.max(0, Math.max(0, (dOk || 0) + (ai.reworkAcceptedCount || 0)) - (ai.biwTotalReviewed || 0)),
           tvsTotalReviewed: ai.tvsTotalReviewed || 0,
           tvsAccepted: ai.tvsAccepted || 0,
           tvsRejected: ai.tvsRejected || 0,
           tvsReworked: ai.tvsReworked || 0,
-          tvsReviewPending: Math.max(0, ai.totalSubmitted - (ai.tvsTotalReviewed || 0)),
+          tvsReviewPending: Math.max(0, Math.max(0, (dOk || 0) + (ai.reworkAcceptedCount || 0)) - (ai.tvsTotalReviewed || 0)),
           performanceScore: pScore,
           responses: [],
           formBreakdownMap: new Map()

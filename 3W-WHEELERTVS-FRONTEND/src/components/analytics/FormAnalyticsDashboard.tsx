@@ -21,7 +21,6 @@ import {
   Layers,
   Link2,
   Clock,
-  Lock,
   XCircle,
   BarChart3,
   Calendar,
@@ -1684,12 +1683,21 @@ export default function FormAnalyticsDashboard({
   };
 
   const isOwnTenantResponse = (response: Response) => {
-    // Only superadmins or users belonging to the form's owning creator tenant can dispatch responses
+    // Only superadmins, direct form creators, or users belonging to the form's creator tenant can dispatch responses
     if (user?.role === "superadmin") {
       return true;
     }
 
     if (!user) return false;
+
+    // Direct creator of the form
+    const formCreatedById = form?.createdBy
+      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
+      : null;
+    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
+    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
+      return true;
+    }
 
     const userTenantId = user?.tenantId;
     if (!userTenantId) {
@@ -2898,6 +2906,14 @@ export default function FormAnalyticsDashboard({
     if (user?.role === "superadmin") return true;
     if (!user) return false;
 
+    const formCreatedById = form?.createdBy
+      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
+      : null;
+    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
+    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
+      return true;
+    }
+
     const formTenantId = form?.tenantId
       ? (typeof form.tenantId === "object" ? String((form.tenantId as any)._id || (form.tenantId as any).id) : String(form.tenantId))
       : null;
@@ -2905,12 +2921,8 @@ export default function FormAnalyticsDashboard({
       ? (typeof user.tenantId === "object" ? String((user.tenantId as any)._id || (user.tenantId as any).id) : String(user.tenantId))
       : null;
 
-    // If the form has no tenant, fall back to direct creator user
+    // If the form has no tenant, only allow direct creator user or superadmin
     if (!formTenantId) {
-      const formCreatedById = form?.createdBy
-        ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
-        : null;
-      const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
       return Boolean(formCreatedById && currentUserId && formCreatedById === currentUserId);
     }
     return Boolean(userTenantId && formTenantId === userTenantId);
@@ -4828,22 +4840,51 @@ export default function FormAnalyticsDashboard({
     return map;
   }, [tableResponses, responses, responseStatuses, chassisQuestionId]);
 
-  // Helper to determine if a response has an eligible status for BIW Review
-  // Any valid response can receive an independent BIW Review
-  const isBiwEligibleResponse = (r: Response | null | undefined): boolean => {
-    return Boolean(r);
+  // Helper to determine if a response is eligible for review (BIW or TVS)
+  // Rule: for rework, NO BIW or TVS review and do NOT take into accountability.
+  // ONLY "Direct Ok", "Accepted", and "Rework Accepted" are eligible for review.
+  const isReviewEligibleResponse = (r: Response | null | undefined): boolean => {
+    if (!r) return false;
+    const respId = r.id || (r as any)._id;
+    const status = String(
+      (respId ? tableDisplayStatuses[respId] || responseStatuses[respId] : null) ||
+      computeFastRowStatus(r, chassisQuestionId) ||
+      (r.status && r.status !== "pending" ? r.status : "Direct Ok")
+    ).toLowerCase().trim();
+
+    if (status.includes("direct ok") || status.includes("direct_ok") || status.includes("rework accepted")) {
+      return true;
+    }
+    if (status.includes("rework") || status.includes("reject")) {
+      return false;
+    }
+    if (status.includes("accept") || status === "ok") {
+      return true;
+    }
+    return false;
   };
+
+  const isBiwEligibleResponse = isReviewEligibleResponse;
 
   // Only assigned tenant reviewers (or superadmin) can perform BIW review / review feedback
   // Rules enforced:
-  // 1. Dispatch prerequisite: Chassis must be dispatched by the owning plant before review can be performed
-  // 2. Owning plant CANNOT review its own chassis
-  // 3. Triggered / partner tenant alone can review (via chassisTenantAssignments or sharedWithTenants)
-  // 4. Anti-tamper: Submitter cannot review their own submission
+  // 1. ELIGIBILITY: Chassis under active rework or rejected CANNOT receive review
+  // 2. DISPATCH PREREQUISITE: Chassis must be dispatched by the owning plant before review can be performed
+  // 3. SEPARATION OF ROLES: Owning plant CANNOT review its own chassis
+  // 4. TRIGGERED TENANT ALONE: Only the triggered / partner tenant can review
+  // 5. ANTI-TAMPER: Submitter cannot review their own submission
   const canUserBiwReview = (response: Response | null | undefined): { canReview: boolean; reason?: string } => {
     if (!response) return { canReview: false, reason: "No response selected" };
 
-    // 🔒 1. Dispatch Prerequisite: Only dispatched chassis can be entered into review
+    // 🔒 1. Only Direct Ok, Accepted, or Rework Accepted units can be reviewed
+    if (!isReviewEligibleResponse(response)) {
+      return {
+        canReview: false,
+        reason: "Units under rework or rejected are not eligible for review. Only Direct Ok, Accepted, or Rework Accepted units can be reviewed."
+      };
+    }
+
+    // 🔒 2. Dispatch Prerequisite: Only dispatched chassis can be entered into review
     if (!response.isDispatched) {
       return {
         canReview: false,
@@ -4851,14 +4892,14 @@ export default function FormAnalyticsDashboard({
       };
     }
 
-    // Superadmin has universal review permissions
+    // Superadmin has universal review permissions on dispatched eligible units
     if (user?.role === "superadmin") return { canReview: true };
 
     const userTenantStr = String((user?.tenantId as any)?._id || (user?.tenantId as any)?.id || user?.tenantId || "");
     const formTenantStr = String((form?.tenantId as any)?._id || (form?.tenantId as any)?.id || form?.tenantId || "");
     const isFormOwnerTenant = Boolean(formTenantStr && userTenantStr && formTenantStr === userTenantStr);
 
-    // 🔒 2. Owning plant CANNOT review its own chassis
+    // 🔒 3. Owning plant CANNOT review its own chassis
     if (isFormOwnerTenant) {
       return {
         canReview: false,
@@ -4866,7 +4907,7 @@ export default function FormAnalyticsDashboard({
       };
     }
 
-    // 🔒 3. Triggered tenant check: Chassis assignments or shared tenants
+    // 🔒 4. Triggered tenant check: Chassis assignments or shared tenants
     const assignments = (form as any)?.chassisTenantAssignments || (form as any)?.parentForm?.chassisTenantAssignments;
     if (Array.isArray(assignments) && assignments.length > 0) {
       const chassisCandidates = new Set<string>();
@@ -4916,7 +4957,7 @@ export default function FormAnalyticsDashboard({
       }
     }
 
-    // 🔒 4. Anti-tamper check: submitter cannot review their own submission
+    // 🔒 5. Anti-tamper check: submitter cannot review their own submission
     if (isSubmitterOfResponse(response)) {
       return {
         canReview: false,
@@ -6044,6 +6085,8 @@ export default function FormAnalyticsDashboard({
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
         if (avLower === "no review yet" || avLower === "pending review" || avLower === "pending" || avLower === "-") {
+          // 🔒 Rework units are not eligible for review and are NOT counted in pending review accountability
+          if (!isReviewEligibleResponse(response)) return false;
           return !biwStatus || biwStatus === "pending review" || biwStatus === "pending" || biwStatus === "no review yet" || biwStatus === "-";
         }
         if (avLower === "rework" || avLower === "reworked") {
@@ -6098,6 +6141,8 @@ export default function FormAnalyticsDashboard({
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
         if (avLower === "no review yet" || avLower === "pending review" || avLower === "unreviewed" || avLower === "pending" || avLower === "-") {
+          // 🔒 Rework units are not eligible for review and are NOT counted in pending review accountability
+          if (!isReviewEligibleResponse(response)) return false;
           return activeStatuses.length === 0;
         }
         if (avLower === "reviewed") {
@@ -10885,6 +10930,14 @@ export default function FormAnalyticsDashboard({
 
                                       // If neither review exists
                                       if (!mainRevData && !childRevDataFinal) {
+                                        // 🔒 Rework units do not receive TVS review: render '-'
+                                        if (!isReviewEligibleResponse(response)) {
+                                          return (
+                                            <div className="flex items-center justify-center text-center">
+                                              <span className="text-gray-400 text-xs font-medium" title="Under rework: not eligible for review">-</span>
+                                            </div>
+                                          );
+                                        }
                                         if (!response.isDispatched) {
                                           return (
                                             <div

@@ -484,11 +484,16 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
     const totalInspected = uniqueChassisList.length || distinctResponses.length || allAvailableResponses.length;
     const totalBiwReviewed = biwAccepted + biwRework + biwRejected;
     const biwAcceptRate = totalBiwReviewed > 0 ? (biwAccepted / totalBiwReviewed) * 100 : 0;
-    const biwPending = Math.max(0, totalInspected - totalBiwReviewed);
+    // 🔒 Only approved units (Direct Ok / Rework Accepted) are eligible for review accountability
+    const eligibleInspected = distinctResponses.filter(r => {
+      const st = String(r?.status || "").toLowerCase().trim();
+      return st.includes("direct ok") || st.includes("accepted") || st === "ok";
+    }).length || totalInspected;
+    const biwPending = Math.max(0, eligibleInspected - totalBiwReviewed);
 
     const totalTvsReviewed = tvsAccepted + tvsRework + tvsRejected;
     const tvsAcceptRate = totalTvsReviewed > 0 ? (tvsAccepted / totalTvsReviewed) * 100 : 0;
-    const tvsPending = Math.max(0, totalInspected - totalTvsReviewed);
+    const tvsPending = Math.max(0, eligibleInspected - totalTvsReviewed);
 
     return {
       totalInspected,

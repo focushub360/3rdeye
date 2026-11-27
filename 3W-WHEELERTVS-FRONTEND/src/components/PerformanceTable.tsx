@@ -119,8 +119,9 @@ const PerformanceTable = ({
         cnt = fBiwRev;
         subDetail = `Acc: ${fBiwAcc} | Rej: ${fBiwRej} | Rew: ${fBiwRew}`;
       } else if (metric === "BIW Review Pending" || metric === "BIWPending") {
-        cnt = Math.max(0, fSub - fBiwRev);
-        subDetail = `Submitted: ${fSub} | BIW Reviewed: ${fBiwRev}`;
+        const fEligible = fDirectOk + fRComp;
+        cnt = Math.max(0, fEligible - fBiwRev);
+        subDetail = `Eligible (${fEligible}) [Ok: ${fDirectOk} | Rew Acc: ${fRComp}] | BIW Reviewed: ${fBiwRev}`;
       } else if (metric === "BIW Accepted" || metric === "BIWAccepted") {
         cnt = fBiwAcc;
         subDetail = `Approved by quality reviewer in BIW review`;
@@ -134,8 +135,9 @@ const PerformanceTable = ({
         cnt = fTvsRev;
         subDetail = `Acc: ${fTvsAcc} | Rej: ${fTvsRej} | Rew: ${fTvsRew}`;
       } else if (metric === "TVS Review Pending" || metric === "TVSPending") {
-        cnt = Math.max(0, fSub - fTvsRev);
-        subDetail = `Submitted: ${fSub} | TVS Reviewed: ${fTvsRev}`;
+        const fEligible = fDirectOk + fRComp;
+        cnt = Math.max(0, fEligible - fTvsRev);
+        subDetail = `Eligible (${fEligible}) [Ok: ${fDirectOk} | Rew Acc: ${fRComp}] | TVS Reviewed: ${fTvsRev}`;
       } else if (metric === "TVS Accepted" || metric === "TVSAccepted") {
         cnt = fTvsAcc;
         subDetail = `Customer audit review: Accepted`;
@@ -242,12 +244,18 @@ const PerformanceTable = ({
       else if (metric === "Dispatched") count = tb.dispatched || 0;
       else if (metric === "Total Submitted" || metric === "TotalSubmitted") count = tbSub;
       else if (metric === "BIW Total Reviewed" || metric === "BIWReviewed") count = tbBiwRev;
-      else if (metric === "BIW Review Pending" || metric === "BIWPending") count = tbSub === 0 ? 0 : Math.max(0, tbSub - tbBiwRev);
+      else if (metric === "BIW Review Pending" || metric === "BIWPending") {
+        const tbEligible = (tb.directOk || 0) + (tb.reworkQcCompleted || 0);
+        count = tbEligible === 0 ? 0 : Math.max(0, tbEligible - tbBiwRev);
+      }
       else if (metric === "BIW Accepted" || metric === "BIWAccepted") count = tbBiwAcc;
       else if (metric === "BIW Rejected" || metric === "BIWRejected") count = tbBiwRej;
       else if (metric === "BIW Reworked" || metric === "BIWReworked") count = tbBiwRew;
       else if (metric === "TVS Total Reviewed" || metric === "TVSReviewed") count = tbTvsRev;
-      else if (metric === "TVS Review Pending" || metric === "TVSPending") count = tbSub === 0 ? 0 : Math.max(0, tbSub - tbTvsRev);
+      else if (metric === "TVS Review Pending" || metric === "TVSPending") {
+        const tbEligible = (tb.directOk || 0) + (tb.reworkQcCompleted || 0);
+        count = tbEligible === 0 ? 0 : Math.max(0, tbEligible - tbTvsRev);
+      }
       else if (metric === "TVS Accepted" || metric === "TVSAccepted") count = tbTvsAcc;
       else if (metric === "TVS Rejected" || metric === "TVSRejected") count = tbTvsRej;
       else if (metric === "TVS Rework" || metric === "TVSRework") count = tbTvsRew;
@@ -403,8 +411,9 @@ const PerformanceTable = ({
     } else if (metric === "BIW Review Pending" || metric === "BIWPending") {
       metricDisplay = "BIW Review Pending";
       sourceCategory = "BIW Review Section (Secondary Quality Audit)";
-      totalVal = Math.max(0, sub - biwRev);
-      formula = `Total Submitted (${sub}) - BIW Reviewed (${biwRev}) = ${Math.max(0, sub - biwRev)}`;
+      const eligibleUnits = (directOk || 0) + (reworkQCCompleted || 0);
+      totalVal = Math.max(0, eligibleUnits - biwRev);
+      formula = `Eligible Units (${eligibleUnits}) [Direct Ok (${directOk}) + Rework Accepted (${reworkQCCompleted})] - BIW Reviewed (${biwRev}) = ${totalVal}`;
     } else if (metric === "BIW Accepted" || metric === "BIWAccepted") {
       metricDisplay = "BIW Accepted";
       sourceCategory = "BIW Review Section (Secondary Quality Audit)";
@@ -428,8 +437,9 @@ const PerformanceTable = ({
     } else if (metric === "TVS Review Pending" || metric === "TVSPending") {
       metricDisplay = "TVS Review Pending";
       sourceCategory = "TVS Review Section (Final Customer Audit)";
-      totalVal = Math.max(0, sub - tvsRev);
-      formula = `Total Submitted (${sub}) - TVS Reviewed (${tvsRev}) = ${Math.max(0, sub - tvsRev)}`;
+      const eligibleUnits = (directOk || 0) + (reworkQCCompleted || 0);
+      totalVal = Math.max(0, eligibleUnits - tvsRev);
+      formula = `Eligible Units (${eligibleUnits}) [Direct Ok (${directOk}) + Rework Accepted (${reworkQCCompleted})] - TVS Reviewed (${tvsRev}) = ${totalVal}`;
     } else if (metric === "TVS Accepted" || metric === "TVSAccepted") {
       metricDisplay = "TVS Accepted";
       sourceCategory = "TVS Review Section (Final Customer Audit)";
@@ -601,8 +611,9 @@ const PerformanceTable = ({
     } else if (metric === "TVS Review Pending" || metric === "TVSPending") {
       metricDisplay = "TVS Review Pending";
       sourceCategory = "TVS Review Section";
-      totalVal = sub === 0 ? 0 : Math.max(0, sub - tvsRev);
-      formula = sub === 0 ? `0 pending (Customer reviewer)` : `Total Submitted (${sub}) - TVS Reviewed (${tvsRev}) = ${Math.max(0, sub - tvsRev)}`;
+      const eligibleUnits = (directOk || 0) + (reworkQCCompleted || 0);
+      totalVal = eligibleUnits === 0 ? 0 : Math.max(0, eligibleUnits - tvsRev);
+      formula = eligibleUnits === 0 ? `0 pending (Customer reviewer)` : `Eligible Units (${eligibleUnits}) [Direct Ok (${directOk}) + Rework Accepted (${reworkQCCompleted})] - TVS Reviewed (${tvsRev}) = ${totalVal}`;
     } else if (metric === "TVS Accepted" || metric === "TVSAccepted") {
       metricDisplay = "TVS Accepted";
       sourceCategory = "TVS Review Section";

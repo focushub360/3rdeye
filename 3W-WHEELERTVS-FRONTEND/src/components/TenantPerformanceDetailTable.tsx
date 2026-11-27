@@ -246,7 +246,7 @@ export default function TenantPerformanceDetailTable({ tenant, onBack }: { tenan
         acc.rejected += user.rejectedReview ?? user.rejected ?? user.biwRejected ?? 0;
         acc.reworked += user.reworked ?? user.rework ?? user.biwReworked ?? 0;
         acc.tvsTotalReviewed += user.tvsTotalReviewed || 0;
-        acc.tvsReviewPending += user.tvsReviewPending || Math.max(0, (user.totalSubmitted || 0) - (user.tvsTotalReviewed || 0));
+        acc.tvsReviewPending += user.tvsReviewPending || Math.max(0, ((user.directOk || 0) + (user.reworkQcCompleted || 0)) - (user.tvsTotalReviewed || 0));
         acc.tvsAccepted += user.tvsAccepted || 0;
         acc.tvsRejected += user.tvsRejected || 0;
         acc.tvsReworked += user.tvsReworked || 0;
@@ -482,7 +482,7 @@ export default function TenantPerformanceDetailTable({ tenant, onBack }: { tenan
                         <td className="px-4 py-4 text-center font-extrabold text-amber-600 dark:text-amber-500 tabular-nums bg-purple-50/25 dark:bg-purple-950/10 border-r border-purple-100 dark:border-purple-900/30">{user.biwReworked ?? user.reworked ?? user.rework ?? 0}</td>
                         {/* TVS Review row cells */}
                         <td className="px-4 py-4 text-center font-bold text-blue-900 dark:text-blue-200 tabular-nums bg-blue-50/25 dark:bg-blue-950/10 border-l border-blue-100 dark:border-blue-900/30">{user.tvsTotalReviewed ?? 0}</td>
-                        <td className="px-4 py-4 text-center font-bold text-gray-700 dark:text-gray-300 tabular-nums bg-blue-50/25 dark:bg-blue-950/10">{user.tvsReviewPending ?? Math.max(0, (user.totalSubmitted || 0) - (user.tvsTotalReviewed || 0))}</td>
+                        <td className="px-4 py-4 text-center font-bold text-gray-700 dark:text-gray-300 tabular-nums bg-blue-50/25 dark:bg-blue-950/10">{user.tvsReviewPending ?? Math.max(0, ((user.directOk || 0) + (user.reworkQcCompleted || 0)) - (user.tvsTotalReviewed || 0))}</td>
                         <td className="px-4 py-4 text-center font-extrabold text-emerald-600 dark:text-emerald-500 tabular-nums bg-blue-50/25 dark:bg-blue-950/10">{user.tvsAccepted ?? 0}</td>
                         <td className="px-4 py-4 text-center font-extrabold text-rose-600 dark:text-rose-500 tabular-nums bg-blue-50/25 dark:bg-blue-950/10">{user.tvsRejected ?? 0}</td>
                         <td className="px-4 py-4 text-center font-extrabold text-amber-600 dark:text-amber-500 tabular-nums bg-blue-50/25 dark:bg-blue-950/10 border-r border-blue-100 dark:border-blue-900/30">{user.tvsReworked ?? 0}</td>

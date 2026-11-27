@@ -4730,6 +4730,15 @@ export const updateResponse = async (req, res) => {
           });
         }
 
+        // 🔒 Review Eligibility: Active rework and rejected units CANNOT receive BIW review
+        const currentRespStatus = String(response.status || '').toLowerCase().trim();
+        if ((currentRespStatus.includes('rework') && !currentRespStatus.includes('rework accepted')) || currentRespStatus.includes('reject')) {
+          return res.status(400).json({
+            success: false,
+            message: 'Units under active rework or rejected are not eligible for review. Only Direct Ok, Accepted, or Rework Accepted units can be reviewed.'
+          });
+        }
+
         const userEmail = (req.user.email || '').toLowerCase();
         const userUsername = (req.user.username || '').toLowerCase();
         const userIdStr = req.user._id ? req.user._id.toString() : '';
