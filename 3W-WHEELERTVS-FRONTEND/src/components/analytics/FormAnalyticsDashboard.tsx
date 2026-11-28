@@ -555,8 +555,47 @@ export default function FormAnalyticsDashboard({
     return "";
   }, [tenantsMap]);
 
+  // Check if current user is authorized to perform BIW reviews or access BIW review templates on this form
+  const canUserReviewThisForm = useMemo(() => {
+    if (user?.role === "superadmin") return true;
+    if (isGuest) return false;
+
+    const userTenantStr = String((user?.tenantId as any)?._id || (user?.tenantId as any)?.id || user?.tenantId || "");
+    const formTenantStr = String((form?.tenantId as any)?._id || (form?.tenantId as any)?.id || form?.tenantId || "");
+
+    // 🔒 Owning plant CANNOT review its own chassis (Rule 5E Rule 2)
+    if (formTenantStr && userTenantStr && formTenantStr === userTenantStr) {
+      return false;
+    }
+
+    // Must be assigned or shared partner tenant
+    const assignments = (form as any)?.chassisTenantAssignments || (form as any)?.parentForm?.chassisTenantAssignments;
+    if (Array.isArray(assignments) && assignments.length > 0) {
+      const isAssigned = assignments.some((a: any) =>
+        Array.isArray(a.assignedTenants) && a.assignedTenants.some((t: any) => String(t?._id || t?.id || t) === userTenantStr)
+      );
+      if (isAssigned) return true;
+    }
+
+    if (Array.isArray(form?.sharedWithTenants) && form.sharedWithTenants.length > 0) {
+      const isShared = form.sharedWithTenants.some((t: any) => String(t?._id || t?.id || t) === userTenantStr);
+      if (isShared) return true;
+    }
+
+    // If user is from another tenant and form is global or shared, allow, but never if form owner
+    if (formTenantStr && userTenantStr && formTenantStr !== userTenantStr) {
+      return true;
+    }
+
+    return false;
+  }, [user, form, isGuest]);
+
   // Downloads BIW template pre-loaded with filtered or full all-time table chassis, BIW reviews & TVS reviews
   const handleDownloadBiwTemplate = async (mode: "filtered" | "all" = "filtered") => {
+    if (!canUserReviewThisForm) {
+      showToast("Owning plant cannot download BIW review templates. Review templates are for triggered reviewer tenants only.", "error");
+      return;
+    }
     setIsExporting(true);
     const isFilteredMode = mode === "filtered";
     showToast(
@@ -9446,103 +9485,105 @@ export default function FormAnalyticsDashboard({
                         {isExporting ? "Exporting..." : "Export"}
                       </span>
                     </button>
-                    {/* Unified BIW Review Dropdown */}
-                    <div className="relative inline-block text-left" ref={biwDropdownRef}>
-                      <button
-                        onClick={() => setIsBiwDropdownOpen((prev) => !prev)}
-                        className="px-3 sm:px-4 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm"
-                        title="BIW Review: Download pre-filled template or import & validate review results"
-                      >
-                        <ClipboardCheck className="w-4 h-4" />
-                        <span>BIW Review</span>
-                        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isBiwDropdownOpen ? "rotate-180" : ""}`} />
-                      </button>
+                    {/* Unified BIW Review Dropdown - Only for triggered partner tenant reviewers or superadmin */}
+                    {canUserReviewThisForm && (
+                      <div className="relative inline-block text-left" ref={biwDropdownRef}>
+                        <button
+                          onClick={() => setIsBiwDropdownOpen((prev) => !prev)}
+                          className="px-3 sm:px-4 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm"
+                          title="BIW Review: Download pre-filled template or import & validate review results"
+                        >
+                          <ClipboardCheck className="w-4 h-4" />
+                          <span>BIW Review</span>
+                          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isBiwDropdownOpen ? "rotate-180" : ""}`} />
+                        </button>
 
-                      {isBiwDropdownOpen && (
-                        <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
-                          <button
-                            onClick={async () => {
-                              setIsBiwDropdownOpen(false);
-                              await handleDownloadBiwTemplate("filtered");
-                            }}
-                            className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-3 transition-colors"
-                          >
-                            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg text-emerald-600 dark:text-emerald-300 shrink-0">
-                              <Download className="w-4 h-4" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-semibold text-gray-900 dark:text-white flex items-center justify-between gap-2">
-                                <span>Download Filtered BIW Template</span>
-                                <span className="px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded">
-                                  {(hasActiveFiltersOrSort ? filteredResponses.length : activeTotalResponsesCount).toLocaleString()}
-                                </span>
+                        {isBiwDropdownOpen && (
+                          <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                            <button
+                              onClick={async () => {
+                                setIsBiwDropdownOpen(false);
+                                await handleDownloadBiwTemplate("filtered");
+                              }}
+                              className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-3 transition-colors"
+                            >
+                              <div className="p-2 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg text-emerald-600 dark:text-emerald-300 shrink-0">
+                                <Download className="w-4 h-4" />
                               </div>
-                              <div className="text-[10px] text-gray-500 dark:text-gray-400">
-                                {hasActiveFiltersOrSort
-                                  ? "Only filtered chassis numbers & status"
-                                  : "Pre-loads current table chassis & status"}
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold text-gray-900 dark:text-white flex items-center justify-between gap-2">
+                                  <span>Download Filtered BIW Template</span>
+                                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded">
+                                    {(hasActiveFiltersOrSort ? filteredResponses.length : activeTotalResponsesCount).toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                                  {hasActiveFiltersOrSort
+                                    ? "Only filtered chassis numbers & status"
+                                    : "Pre-loads current table chassis & status"}
+                                </div>
                               </div>
-                            </div>
-                          </button>
+                            </button>
 
-                          <button
-                            onClick={async () => {
-                              setIsBiwDropdownOpen(false);
-                              await handleDownloadBiwTemplate("all");
-                            }}
-                            className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
-                          >
-                            <div className="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg text-blue-600 dark:text-blue-300 shrink-0">
-                              <FileSpreadsheet className="w-4 h-4" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-semibold text-gray-900 dark:text-white flex items-center justify-between gap-2">
-                                <span>Download Full All-Time Template</span>
-                                <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded">
-                                  {(totalResponsesCount || responses.length).toLocaleString()}
-                                </span>
+                            <button
+                              onClick={async () => {
+                                setIsBiwDropdownOpen(false);
+                                await handleDownloadBiwTemplate("all");
+                              }}
+                              className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
+                            >
+                              <div className="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg text-blue-600 dark:text-blue-300 shrink-0">
+                                <FileSpreadsheet className="w-4 h-4" />
                               </div>
-                              <div className="text-[10px] text-gray-500 dark:text-gray-400">
-                                Full all-time data across entire form
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold text-gray-900 dark:text-white flex items-center justify-between gap-2">
+                                  <span>Download Full All-Time Template</span>
+                                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded">
+                                    {(totalResponsesCount || responses.length).toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                                  Full all-time data across entire form
+                                </div>
                               </div>
-                            </div>
-                          </button>
+                            </button>
 
-                          <button
-                            onClick={() => {
-                              setIsBiwDropdownOpen(false);
-                              setIsBiwExcelModalOpen(true);
-                            }}
-                            className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
-                          >
-                            <div className="p-2 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg text-indigo-600 dark:text-indigo-300">
-                              <Upload className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <div className="font-semibold text-gray-900 dark:text-white">Import & Validate Reviews</div>
-                              <div className="text-[10px] text-gray-500 dark:text-gray-400">Validate chassis & fill review table</div>
-                            </div>
-                          </button>
+                            <button
+                              onClick={() => {
+                                setIsBiwDropdownOpen(false);
+                                setIsBiwExcelModalOpen(true);
+                              }}
+                              className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
+                            >
+                              <div className="p-2 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg text-indigo-600 dark:text-indigo-300">
+                                <Upload className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <div className="font-semibold text-gray-900 dark:text-white">Import & Validate Reviews</div>
+                                <div className="text-[10px] text-gray-500 dark:text-gray-400">Validate chassis & fill review table</div>
+                              </div>
+                            </button>
 
-                          <button
-                            onClick={() => {
-                              setIsBiwDropdownOpen(false);
-                              setIsBiwHistoryModalOpen(true);
-                            }}
-                            className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-700 dark:hover:text-amber-300 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
-                          >
-                            <div className="p-2 bg-amber-100 dark:bg-amber-900/40 rounded-lg text-amber-600 dark:text-amber-300">
-                              <Clock className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <div className="font-semibold text-gray-900 dark:text-white">Import History & Timeline</div>
-                              <div className="text-[10px] text-gray-500 dark:text-gray-400">View changes & 5-hr undo</div>
-                            </div>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    {selectedResponseIds.length > 0 && !isGuest && (
+                            <button
+                              onClick={() => {
+                                setIsBiwDropdownOpen(false);
+                                setIsBiwHistoryModalOpen(true);
+                              }}
+                              className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-700 dark:hover:text-amber-300 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
+                            >
+                              <div className="p-2 bg-amber-100 dark:bg-amber-900/40 rounded-lg text-amber-600 dark:text-amber-300">
+                                <Clock className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <div className="font-semibold text-gray-900 dark:text-white">Import History & Timeline</div>
+                                <div className="text-[10px] text-gray-500 dark:text-gray-400">View changes & 5-hr undo</div>
+                              </div>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {selectedResponseIds.length > 0 && !isGuest && canUserReviewThisForm && (
                       <>
                         <button
                           onClick={() => handleBulkBiwReviewUpdate("Accepted")}
@@ -10502,7 +10543,7 @@ export default function FormAnalyticsDashboard({
                                     }}
                                   />
                                 </div>
-                                {canBulkSelectResponses && (() => {
+                                {canBulkSelectResponses && canUserReviewThisForm && (() => {
                                   const eligibleBiwResponses = tableResponses.filter(r => isBiwEligibleResponse(r));
                                   const eligibleBiwIds = eligibleBiwResponses.map(r => r.id);
                                   const isAllEligibleSelected = eligibleBiwIds.length > 0 && eligibleBiwIds.every(id => selectedBiwIds.includes(id));
@@ -11351,6 +11392,51 @@ export default function FormAnalyticsDashboard({
                                         return (
                                           <div className="flex items-center justify-center text-center">
                                             <span className="text-gray-400 text-xs font-medium">-</span>
+                                          </div>
+                                        );
+                                      }
+
+                                      // 🔒 Owning plant cannot review its own chassis (Rule 5E Rule 2)
+                                      // If reviewed by partner, render status badge; otherwise render '-'
+                                      if (!canUserReviewThisForm) {
+                                        if (currentStatus) {
+                                          return (
+                                            <div className="flex flex-col items-center justify-center gap-1">
+                                              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                                                {currentStatus}
+                                              </span>
+                                              {biwFlaggedCategories.length > 0 && (
+                                                <div className="flex flex-wrap gap-1 justify-center mt-0.5 max-w-full">
+                                                  {biwFlaggedCategories.map((cat, i) => (
+                                                    <span
+                                                      key={i}
+                                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-50 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 max-w-[200px] truncate"
+                                                      title={`BIW Defect Category: ${cat}`}
+                                                    >
+                                                      <span>⚠️</span>
+                                                      <span className="truncate">{cat}</span>
+                                                    </span>
+                                                  ))}
+                                                </div>
+                                              )}
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setBiwViewResponse(response);
+                                                  setShowBiwViewModal(true);
+                                                }}
+                                                className="flex items-center gap-1 text-[11px] font-medium text-purple-600 dark:text-purple-400 hover:underline"
+                                              >
+                                                <Eye className="w-3 h-3" />
+                                                <span>View</span>
+                                              </button>
+                                            </div>
+                                          );
+                                        }
+                                        return (
+                                          <div className="flex items-center justify-center text-center">
+                                            <span className="text-gray-400 text-xs font-medium" title="Awaiting partner review">-</span>
                                           </div>
                                         );
                                       }
