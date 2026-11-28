@@ -276,8 +276,12 @@ class ApiClient {
           const key = localStorage.key(i);
           if (
             key &&
-            key.startsWith("api_cache:") &&
-            (key.includes("/forms") || key.includes("/responses") || key.includes("/analytics"))
+            ((key.startsWith("api_cache:") && (key.includes("/forms") || key.includes("/responses") || key.includes("/analytics"))) ||
+              key.startsWith("dashboard_forms_") ||
+              key === "forms" ||
+              key === "form_questions" ||
+              key.startsWith("offline_") ||
+              key.startsWith("form_drafts"))
           ) {
             keysToRemove.push(key);
           }

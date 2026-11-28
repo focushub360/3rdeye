@@ -288,9 +288,11 @@ export const QualityDashboard: React.FC = () => {
 
   // Master available forms memo
   const allAvailableForms = useMemo(() => {
-    if (data?.formOptions && data.formOptions.length > 0) return data.formOptions;
-    if (data?.formsSummary && data.formsSummary.length > 0) {
-      return data.formsSummary.map((f: any) => ({
+    let list: any[] = [];
+    if (data?.formOptions && data.formOptions.length > 0) {
+      list = data.formOptions;
+    } else if (data?.formsSummary && data.formsSummary.length > 0) {
+      list = data.formsSummary.map((f: any) => ({
         id: f.id || f._id,
         _id: f._id || f.id,
         title: f.title || 'Untitled Form',
@@ -301,9 +303,17 @@ export const QualityDashboard: React.FC = () => {
         parentFormId: f.parentFormId || null,
         parentFormTitle: f.parentFormTitle || null
       }));
+    } else if (availableFormOptions.length > 0) {
+      list = availableFormOptions;
     }
-    if (availableFormOptions.length > 0) return availableFormOptions;
-    return [];
+    return list.filter((f: any) => {
+      if (!f) return false;
+      const title = (f.title || '').trim().toLowerCase();
+      // Purge empty draft copy forms and deleted/inactive forms from analytics
+      if (title.includes('(copy)') && (!f.totalChecked || f.totalChecked === 0) && (!f.masterTotal || f.masterTotal === 0)) return false;
+      if (f.isDeleted === true || f.isActive === false) return false;
+      return true;
+    });
   }, [availableFormOptions, data?.formOptions, data?.formsSummary]);
 
   // Master cache map to preserve known form stats and eliminate 0 units flicker

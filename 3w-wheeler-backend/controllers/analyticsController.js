@@ -2394,14 +2394,17 @@ export const getPerformanceTable = async (req, res) => {
 
     let start = null;
     let end = null;
-    if (startDate) {
+    if (startDate && startDate !== 'all') {
       const datePart = typeof startDate === 'string' && startDate.includes('T') ? startDate.split('T')[0] : startDate;
       start = new Date(`${datePart}T00:00:00.000Z`);
-      if (isNaN(start.getTime())) start = new Date(0);
-    } else {
+      if (isNaN(start.getTime())) start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    } else if (startDate === 'all') {
       start = new Date(0);
+    } else {
+      // Default to last 30 days when no date is specified for fast performance
+      start = formIdList.length > 0 ? new Date(0) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     }
-    if (endDate) {
+    if (endDate && endDate !== 'all') {
       const datePart = typeof endDate === 'string' && endDate.includes('T') ? endDate.split('T')[0] : endDate;
       end = new Date(`${datePart}T23:59:59.999Z`);
       if (isNaN(end.getTime())) end = new Date();
@@ -4257,7 +4260,10 @@ export const getQualitySummary = async (req, res) => {
     let formsMeta = appCache.get(formsMetaCacheKey);
 
     if (!formsMeta || shouldBypassCache) {
-      const formQuery = {};
+      const formQuery = {
+        isDeleted: { $ne: true },
+        isActive: { $ne: false }
+      };
       if (role === 'superadmin' && !queryTenantId) {
         // Superadmin sees all forms
       } else if (targetTenantId) {
@@ -4277,7 +4283,7 @@ export const getQualitySummary = async (req, res) => {
 
       // 1. Fetch base forms directly accessible to tenant
       const baseForms = await Form.find(formQuery)
-        .select('id _id title sections tenantId childForms parentFormId parentFormTitle isChildForm')
+        .select('id _id title isVisible isHidden isDeleted isActive sections tenantId childForms parentFormId parentFormTitle isChildForm')
         .lean();
 
       // 2. Collect all linked child form IDs & parent form IDs
@@ -4324,7 +4330,7 @@ export const getQualitySummary = async (req, res) => {
       const formMapById = new Map();
       baseForms.forEach(f => formMapById.set(f._id.toString(), f));
       additionalChildForms.forEach(f => formMapById.set(f._id.toString(), f));
-      const accessibleForms = Array.from(formMapById.values());
+      const accessibleForms = Array.from(formMapById.values()).filter(f => f && f.isDeleted !== true && f.isActive !== false);
 
       const formTitleMap = {};
       const formChassisQuestionMap = {};
@@ -4657,7 +4663,12 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
+                          {
+                            $or: [
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                              { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] }
+                            ]
+                          },
                           { $or: [{ $eq: ['$review.status', 'Accepted'] }, { $eq: ['$review.reviewOption', 'Accepted'] }] }
                         ]
                       },
@@ -4672,7 +4683,12 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
+                          {
+                            $or: [
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                              { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] }
+                            ]
+                          },
                           { $or: [{ $eq: ['$review.status', 'Rejected'] }, { $eq: ['$review.reviewOption', 'Rejected'] }] }
                         ]
                       },
@@ -4687,7 +4703,12 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
+                          {
+                            $or: [
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                              { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] }
+                            ]
+                          },
                           { $or: [{ $in: ['$review.status', ['Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Rework', 'Reworked']] }] }
                         ]
                       },
@@ -4702,7 +4723,12 @@ export const getQualitySummary = async (req, res) => {
                       {
                         $and: [
                           { $eq: ['$isDispatched', true] },
-                          { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] },
+                          {
+                            $or: [
+                              { $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework accept|rework complete' } },
+                              { $not: [{ $regexMatch: { input: { $toLower: { $ifNull: ['$status', ''] } }, regex: 'rework|reject' } }] }
+                            ]
+                          },
                           { $or: [{ $in: ['$review.status', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }, { $in: ['$review.reviewOption', ['Accepted', 'Rejected', 'Rework', 'Reworked']] }] }
                         ]
                       },
@@ -5849,10 +5875,11 @@ export const getQualitySummary = async (req, res) => {
         if (finalRej + finalR1 !== dCount) {
           if (finalRej > 0 && finalR1 === 0) {
             finalR1 = Math.max(0, dCount - finalRej);
-          } else if (finalR1 > 0 && finalRej === 0) {
-            finalRej = Math.max(0, dCount - finalR1);
-          } else if (finalRej === 0 && finalR1 === 0) {
+          } else if (finalRej === 0) {
             finalR1 = dCount;
+            finalRej = 0;
+          } else {
+            finalR1 = Math.max(0, dCount - finalRej);
           }
         }
       }

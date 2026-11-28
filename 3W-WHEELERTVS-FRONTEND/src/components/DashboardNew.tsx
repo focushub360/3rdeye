@@ -28,6 +28,7 @@ import {
   BarChart2,
   TrendingUp,
   Filter,
+  Trash2,
 } from "lucide-react";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import { Doughnut } from "react-chartjs-2";
@@ -680,7 +681,7 @@ export default function DashboardNew() {
   const [myReviewStatsLoading, setMyReviewStatsLoading] = useState(() => {
     return !apiClient.getCachedData("/analytics/my-review-stats");
   });
-  const [showSummaryTable, setShowSummaryTable] = useState(true);
+  const [showSummaryTable, setShowSummaryTable] = useState(false);
   const [allUsers, setAllUsers] = useState<any[]>([]);
 
 
@@ -1406,20 +1407,43 @@ export default function DashboardNew() {
   // Add this state near other states
   const [formsLoaded, setFormsLoaded] = useState(false);
 
-  // Replace the form loading useEffect with this:
+  // Form loading effect
   useEffect(() => {
-    if (formsLoaded) return;
     if (selectedTenant && viewMode === "forms") {
       loadFormsForTenant(selectedTenant._id);
     }
-  }, [selectedTenant, viewMode, formsLoaded]);
+  }, [selectedTenant, viewMode]);
 
-  const loadFormsForTenant = useCallback(async (tenantId: string, forceNetwork: boolean = false) => {
+  const handleDeleteFormFromDashboard = async (formId: string, formTitle: string) => {
+    if (!window.confirm(`Are you sure you want to delete "${formTitle}"? This will permanently remove the form and cannot be undone.`)) {
+      return;
+    }
+    try {
+      await apiClient.deleteForm(formId);
+      apiClient.invalidateFormsCache();
+      if (selectedTenant?._id) {
+        try {
+          localStorage.removeItem(`dashboard_forms_${selectedTenant._id}`);
+        } catch (_) {}
+      }
+      setFormsData((prev: any) => {
+        if (!prev?.forms) return prev;
+        return {
+          ...prev,
+          forms: prev.forms.filter((f: any) => (f._id !== formId && f.id !== formId))
+        };
+      });
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete form');
+    }
+  };
+
+  const loadFormsForTenant = useCallback(async (tenantId: string, forceNetwork: boolean = true) => {
     if (!tenantId) return;
 
     const cacheKey = `/forms?tenantId=${tenantId}&limit=100`;
-    let cachedForms = !forceNetwork ? (apiClient.getCachedData<any>(cacheKey) || apiClient.getAnyCachedList<any>("/forms")) : null;
-    if (!cachedForms && !forceNetwork) {
+    let cachedForms = apiClient.getCachedData<any>(cacheKey) || apiClient.getAnyCachedList<any>("/forms");
+    if (!cachedForms) {
       try {
         const stored = localStorage.getItem(`dashboard_forms_${tenantId}`);
         if (stored) cachedForms = JSON.parse(stored);
@@ -1427,7 +1451,6 @@ export default function DashboardNew() {
     }
     if (cachedForms) {
       setFormsData(cachedForms);
-      setFormsLoaded(true);
       setFormsLoading(false);
     } else {
       setFormsLoading(true);
@@ -1438,14 +1461,16 @@ export default function DashboardNew() {
       const formsResponse = await apiClient.getForms({
         tenantId: tenantId,
         limit: 100,
-        forceNetwork: forceNetwork
+        forceNetwork: true // Always revalidate real database state
       });
 
-      setFormsData(formsResponse);
-      setFormsLoaded(true); // ✅ Mark as loaded
-      try {
-        localStorage.setItem(`dashboard_forms_${tenantId}`, JSON.stringify(formsResponse));
-      } catch (_) {}
+      if (formsResponse && Array.isArray(formsResponse.forms)) {
+        setFormsData(formsResponse);
+        setFormsLoaded(true);
+        try {
+          localStorage.setItem(`dashboard_forms_${tenantId}`, JSON.stringify(formsResponse));
+        } catch (_) {}
+      }
     } catch (error: any) {
       console.error("Error loading forms:", error);
       if (!cachedForms) {
@@ -1806,9 +1831,19 @@ export default function DashboardNew() {
       const targetTenantId = selectedTenant._id?.toString?.() || selectedTenant.id?.toString?.();
       const targetSlug = selectedTenant.slug;
 
-      const tenantForms = formsData.forms.filter((form: any) => {
-        return isFormForTenant(form, targetTenantId, targetSlug, user?.role !== "superadmin");
-      });
+      const tenantForms = formsData.forms
+        .filter((form: any) => {
+          if (!form) return false;
+          if (form.isDeleted === true || form.isActive === false) return false;
+          // Purge empty draft copy forms from polluting the main operational dashboard
+          const title = (form.title || '').trim().toLowerCase();
+          const isZeroDraftCopy = title.includes('(copy)') && !form.isVisible && (!form.responseCount || form.responseCount === 0);
+          if (isZeroDraftCopy) return false;
+          return true;
+        })
+        .filter((form: any) => {
+          return isFormForTenant(form, targetTenantId, targetSlug, user?.role !== "superadmin");
+        });
 
       console.log(
         `Forms for tenant ${selectedTenant.companyName}:`,
@@ -2332,14 +2367,28 @@ export default function DashboardNew() {
                   <div className="p-4 bg-blue-50 dark:bg-blue-900/30 rounded-2xl group-hover:scale-110 transition-transform duration-500">
                     <FileText className="w-8 h-8 text-blue-600 dark:text-blue-400" />
                   </div>
-                  <span
-                    className={`inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${form.isVisible
-                      ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400"
-                      : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-                      }`}
-                  >
-                    {form.isVisible ? "Published" : "Draft"}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${form.isVisible
+                        ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400"
+                        : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
+                        }`}
+                    >
+                      {form.isVisible ? "Published" : "Draft"}
+                    </span>
+                    {(user?.role === "admin" || user?.role === "superadmin") && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteFormFromDashboard(form._id || form.id, form.title);
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer"
+                        title="Delete form"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mb-8">

@@ -847,8 +847,8 @@ const PerformanceTable = ({
 
   // ✅ Bind strictly to Top Date Filter (startDate & endDate props)
   const effectiveStartDate = useMemo(() => {
-    if (startDate) return startDate.includes("T") ? startDate.split("T")[0] : startDate;
-    if (startDate === undefined && endDate === undefined && !formId && !formIds) {
+    if (startDate && startDate.trim()) return startDate.includes("T") ? startDate.split("T")[0] : startDate;
+    if ((!startDate || !startDate.trim()) && (!endDate || !endDate.trim()) && !formId && !formIds) {
       const d = new Date();
       d.setDate(d.getDate() - 30);
       return d.toISOString().split("T")[0];
@@ -857,8 +857,8 @@ const PerformanceTable = ({
   }, [startDate, endDate, formId, formIds]);
 
   const effectiveEndDate = useMemo(() => {
-    if (endDate) return endDate.includes("T") ? endDate.split("T")[0] : endDate;
-    if (startDate === undefined && endDate === undefined && !formId && !formIds) {
+    if (endDate && endDate.trim()) return endDate.includes("T") ? endDate.split("T")[0] : endDate;
+    if ((!startDate || !startDate.trim()) && (!endDate || !endDate.trim()) && !formId && !formIds) {
       return new Date().toISOString().split("T")[0];
     }
     return "";
