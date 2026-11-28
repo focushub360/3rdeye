@@ -3169,7 +3169,8 @@ export const QualityDashboard: React.FC = () => {
                     const directOk = form.directOkCount !== undefined ? form.directOkCount : Math.max(0, accepted - reworkAccepted);
 
                     // Form-level pipeline and review metrics
-                    const formDispatched = form.dispatchedCount || 0;
+                    const formDispatched = form.dispatchedApprovedCount !== undefined ? form.dispatchedApprovedCount : (form.dispatchedCount || 0);
+                    const formTotalDispatchedRaw = form.dispatchedCount || 0;
                     const formBiwReviewed = form.biwReviewedCount !== undefined
                       ? form.biwReviewedCount
                       : ((form.biwAcceptCount || 0) + (form.biwDefectCount || 0));
