@@ -1016,14 +1016,20 @@ export const ChatDiscussionModal: React.FC<ChatDiscussionModalProps> = ({
 
                 {(() => {
                   const isAssignedReviewer = canUserBiwReview(chatResponse).canReview;
-                  const hasMessages = chatMessages.some(
-                    (m) => !m.message?.startsWith("[BIW Review]")
-                  );
+                  const hasMessages = chatMessages.length > 0;
+                  const respId = chatResponse?.id || (chatResponse as any)?._id;
+                  const activeTvsRev = respId ? tvsReviews[respId] : null;
                   const hasReviewFeedback = Boolean(
                     (chatResponse as any)?.review?.status ||
                     (chatResponse as any)?.review?.message ||
                     (chatResponse as any)?.review?.option ||
-                    (chatResponse as any)?.review?.reviewOption
+                    (chatResponse as any)?.review?.reviewOption ||
+                    (chatResponse as any)?.review?.reviewRemark ||
+                    activeTvsRev?.status ||
+                    activeTvsRev?.reviewOption ||
+                    activeTvsRev?.reviewRemark ||
+                    (chatResponse as any)?.biwReview?.status ||
+                    (chatResponse as any)?.biwReview?.reviewOption
                   );
                   const hasChatArisen = hasMessages || hasReviewFeedback;
 

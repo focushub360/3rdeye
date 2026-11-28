@@ -5659,12 +5659,13 @@ export default function FormAnalyticsDashboard({
       });
 
       // Determine recipient email / ID:
-      // If the current user is the submitter (e.g. LMPL user replying),
+      // If the current user is from the owning plant or submitter side,
       // the recipient must be the reviewer!
+      const isFromOwningPlant = !canUserReviewThisForm;
       const isSubmitter = isSubmitterOfResponse(chatResponse);
       let targetRecipient = "";
 
-      if (isSubmitter) {
+      if (isSubmitter || isFromOwningPlant) {
         // Find reviewer from review, biwReview, or past messages
         const revUser = (chatResponse.review?.reviewer as any);
         const revUserEmail =
@@ -11362,13 +11363,45 @@ export default function FormAnalyticsDashboard({
                                         .map((q: any) => typeof q === "object" ? (q.questionText || q.title || q.text || q.questionId) : String(q))
                                         .filter((s): s is string => Boolean(s && s.trim()));
 
-                                      // 🔒 Owning plant cannot review; only triggered partner tenant reviewers can review.
-                                      // If user is owning plant or response is not eligible for review:
-                                      if (!canUserReviewThisForm || !isEligible) {
+                                      // 1. Rework units (Rework 1, Rework 2, Rejected) CANNOT have BIW review: render '-'
+                                      if (!isEligible) {
+                                        return (
+                                          <div className="flex items-center justify-center text-center">
+                                            <span className="text-gray-400 text-xs font-medium" title="Under rework: not eligible for review">-</span>
+                                          </div>
+                                        );
+                                      }
+
+                                      // 2. Dispatch Prerequisite: Only dispatched chassis can have BIW review
+                                      if (!response.isDispatched) {
+                                        return (
+                                          <div
+                                            className="inline-flex items-center justify-center gap-1 px-2 py-1 text-amber-600/80 dark:text-amber-400/80 bg-amber-50/60 dark:bg-amber-950/20 rounded-lg text-xs italic select-none border border-amber-200/50 dark:border-amber-900/30"
+                                            title="BIW Review is locked until chassis is dispatched by the owning plant"
+                                          >
+                                            <Lock className="w-3 h-3 text-amber-500/80" />
+                                            <span>Pending Dispatch</span>
+                                          </div>
+                                        );
+                                      }
+
+                                      // 3. 🔒 Owning plant cannot edit review decisions, but can read the review & view details
+                                      if (!canUserReviewThisForm) {
                                         if (currentStatus) {
+                                          const isAccepted = currentStatus === "Accepted";
+                                          const isRejected = currentStatus === "Rejected";
+                                          const isRework = currentStatus === "Reworked" || currentStatus === "Rework";
+                                          const badgeClass = isAccepted
+                                            ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-green-300 dark:border-green-800"
+                                            : isRejected
+                                              ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border-red-300 dark:border-red-800"
+                                              : isRework
+                                                ? "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300 border-orange-300 dark:border-orange-800"
+                                                : "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 border-purple-300 dark:border-purple-800";
+
                                           return (
                                             <div className="flex flex-col items-center justify-center gap-1">
-                                              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                                              <span className={`text-xs font-bold px-2 py-0.5 rounded border ${badgeClass}`}>
                                                 {currentStatus}
                                               </span>
                                               {biwFlaggedCategories.length > 0 && (
@@ -11392,7 +11425,7 @@ export default function FormAnalyticsDashboard({
                                                   setBiwViewResponse(response);
                                                   setShowBiwViewModal(true);
                                                 }}
-                                                className="flex items-center gap-1 text-[11px] font-medium text-purple-600 dark:text-purple-400 hover:underline"
+                                                className="flex items-center gap-1 text-[11px] font-medium text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
                                               >
                                                 <Eye className="w-3 h-3" />
                                                 <span>View</span>
@@ -11401,8 +11434,12 @@ export default function FormAnalyticsDashboard({
                                           );
                                         }
                                         return (
-                                          <div className="flex items-center justify-center text-center">
-                                            <span className="text-gray-400 text-xs font-medium">-</span>
+                                          <div
+                                            className="inline-flex items-center justify-center gap-1.5 px-2 py-1 text-gray-400 dark:text-gray-500 rounded-lg text-xs italic select-none"
+                                            title="Awaiting BIW review from triggered partner tenant"
+                                          >
+                                            <ClipboardCheck className="w-3.5 h-3.5 text-gray-400" />
+                                            <span>No review yet</span>
                                           </div>
                                         );
                                       }
