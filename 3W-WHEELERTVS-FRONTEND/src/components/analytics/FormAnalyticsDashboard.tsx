@@ -2687,7 +2687,16 @@ export default function FormAnalyticsDashboard({
   // each tab's data is fetched the first time the user actually views it.
   const [activeTab, setActiveTab] = useState<
     "dashboard" | "question" | "section" | "overall" | "responses"
-  >("dashboard");
+  >(() => {
+    if (initialTab && ["responses", "dashboard"].includes(initialTab)) {
+      return initialTab;
+    }
+    const tabParam = new URLSearchParams(window.location.search).get("tab");
+    if (tabParam && ["responses", "dashboard"].includes(tabParam)) {
+      return tabParam as any;
+    }
+    return "dashboard";
+  });
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
   // Server-side paginated data for the Responses tab (replaces the old
   // client-side slice of the full `responses` array).
@@ -3776,9 +3785,14 @@ export default function FormAnalyticsDashboard({
       const formCacheKey = `/forms/${id}`;
       console.log("[ANALYTICS DEBUG] Fetching form details:", id);
 
+      // Check if we already have the form in memory cache first to render immediately
+      const cachedFormData = apiClient.getCachedData<{ form: any }>(formCacheKey);
+      if (cachedFormData?.form && !form) {
+        setForm(cachedFormData.form);
+      }
+
       // Fetch form details
       const formData = await apiClient.request<{ form: any }>(formCacheKey, {
-        forceNetwork: true,
         timeout: 60000, // 60 seconds for form data
       });
 
@@ -3802,6 +3816,12 @@ export default function FormAnalyticsDashboard({
 
     } catch (err) {
       console.error("Error fetching analytics data:", err);
+
+      // If we already have the form in state or cache, do not display full-screen fatal error
+      if (form) {
+        console.warn("Background form fetch failed or timed out, keeping existing form data:", err);
+        return;
+      }
 
       // Better error messaging for timeouts
       let errorMessage = "Failed to load analytics";
@@ -4280,9 +4300,6 @@ export default function FormAnalyticsDashboard({
       if (!loadedTabs.has("responses") || lastBatchParamRef.current !== batchKey) {
         lastBatchParamRef.current = batchKey;
         fetchResponsesPage(1);
-        if (responses.length === 0) {
-          fetchFullAnalyticsResponses();
-        }
         setLoadedTabs((prev) => new Set(prev).add("responses"));
       }
     }

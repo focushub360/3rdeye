@@ -5461,8 +5461,24 @@ export const getResponsesByForm = async (req, res) => {
       if (!query.status || ts === 'rework' || ts === 'defects' || ts === 'rejected' || ts === 'pending') {
         query.status = { $nin: ['Rework', 'Rework 1', 'Rework 2', 'Rejected', 'rework', 'rework 1', 'rework 2', 'rejected'] };
       }
+
+      // Memory cache for Review.distinct queries with 15s TTL to eliminate redundant collection scans
+      if (!global._tvsReviewDistinctCache) {
+        global._tvsReviewDistinctCache = new Map();
+      }
+      const fetchDistinctReviewIds = async (filter) => {
+        const key = JSON.stringify(filter);
+        const hit = global._tvsReviewDistinctCache.get(key);
+        if (hit && Date.now() - hit.timestamp < 15000) {
+          return hit.ids;
+        }
+        const ids = await Review.distinct('responseId', filter);
+        global._tvsReviewDistinctCache.set(key, { ids, timestamp: Date.now() });
+        return ids;
+      };
+
       if (ts === 'reviewed') {
-        const reviewDocIds = await Review.distinct('responseId', {
+        const reviewDocIds = await fetchDistinctReviewIds({
           $or: [
             { status: { $in: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } },
             { reviewOption: { $in: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } }
@@ -5480,7 +5496,7 @@ export const getResponsesByForm = async (req, res) => {
         if (!query.$and) query.$and = [];
         query.$and.push({ $or: orConditions });
       } else if (ts === 'accepted') {
-        const reviewDocIds = await Review.distinct('responseId', {
+        const reviewDocIds = await fetchDistinctReviewIds({
           $or: [{ status: 'Accepted' }, { reviewOption: 'Accepted' }]
         });
         const orConditions = [
@@ -5495,7 +5511,7 @@ export const getResponsesByForm = async (req, res) => {
         if (!query.$and) query.$and = [];
         query.$and.push({ $or: orConditions });
       } else if (ts === 'rework' || ts === 'defects' || ts === 'rejected') {
-        const reviewDocIds = await Review.distinct('responseId', {
+        const reviewDocIds = await fetchDistinctReviewIds({
           $or: [
             { status: { $in: ['Rework', 'Reworked', 'Rejected'] } },
             { reviewOption: { $in: ['Rework', 'Reworked', 'Rejected'] } }
@@ -5514,7 +5530,7 @@ export const getResponsesByForm = async (req, res) => {
         query.$and.push({ $or: orConditions });
       } else if (ts === 'pending') {
         // Pending TVS Review = Dispatched approved responses that have NO TVS review yet
-        const reviewDocIds = await Review.distinct('responseId', {
+        const reviewDocIds = await fetchDistinctReviewIds({
           $or: [
             { status: { $in: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } },
             { reviewOption: { $in: ['Accepted', 'Rejected', 'Rework', 'Reworked'] } }

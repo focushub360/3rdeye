@@ -264,6 +264,8 @@ ResponseSchema.index({ questionId: 1, isSectionSubmit: 1, createdAt: -1 });
 ResponseSchema.index({ questionId: 1, 'biwReview.status': 1 });
 
 // High-performance chassis tracking & rank lookups
+ResponseSchema.index({ questionId: 1, isDispatched: 1, createdAt: -1 });
+ResponseSchema.index({ isDispatched: 1, status: 1, createdAt: -1 });
 ResponseSchema.index({ chassisNumber: 1, questionId: 1, isSectionSubmit: 1 });
 ResponseSchema.index({ chassisNumber: 1, formId: 1, isSectionSubmit: 1 });
 ResponseSchema.index({ chassisNumber: 1, isSectionSubmit: 1 });

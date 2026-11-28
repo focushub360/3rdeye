@@ -63,6 +63,9 @@ const reviewSchema = new mongoose.Schema({
 
 // Compound index to ensure one review per reviewer-response pair
 reviewSchema.index({ responseId: 1, reviewerId: 1 }, { unique: true });
+reviewSchema.index({ responseId: 1 });
+reviewSchema.index({ status: 1 });
+reviewSchema.index({ reviewOption: 1 });
 
 // NEW - speeds up performance-table lookups that filter/group reviews by
 // submitterId (email, username, ObjectId string, or name)
