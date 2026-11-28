@@ -21,6 +21,7 @@ import {
   Layers,
   Link2,
   Clock,
+  Lock,
   XCircle,
   BarChart3,
   Calendar,
@@ -554,31 +555,12 @@ export default function FormAnalyticsDashboard({
     return "";
   }, [tenantsMap]);
 
-  // Check if current user belongs to the owning plant of the form
-  const isOwnTenantForm = useMemo(() => {
+  // Check if current user is authorized to perform BIW reviews or access BIW review templates on this form
+  const canUserReviewThisForm = useMemo(() => {
     if (user?.role === "superadmin") return true;
-    if (!user) return false;
+    if (isGuest || !user) return false;
 
-    const formCreatedById = form?.createdBy
-      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
-      : null;
-    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
-    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
-      return true;
-    }
-
-    const formTenantId = form?.tenantId
-      ? (typeof form.tenantId === "object" ? String((form.tenantId as any)._id || (form.tenantId as any).id) : String(form.tenantId))
-      : null;
-    const userTenantId = user?.tenantId
-      ? (typeof user.tenantId === "object" ? String((user.tenantId as any)._id || (user.tenantId as any).id) : String(user.tenantId))
-      : null;
-
-    if (userTenantId && formTenantId && formTenantId === userTenantId) {
-      return true;
-    }
-
-    // Check plant name match (e.g. "LMPL" in form title and user's tenant name or company name)
+    // Check plant name match (e.g. "LMPL" in form title and user's tenant name)
     const userTenantName = String(
       (user as any)?.tenantName ||
       (user?.tenantId as any)?.companyName ||
@@ -586,29 +568,14 @@ export default function FormAnalyticsDashboard({
       ""
     ).trim().toLowerCase();
     const formTitle = String(form?.title || "").trim().toLowerCase();
-
     if (userTenantName && formTitle) {
-      if (userTenantName.includes("lmpl") && formTitle.includes("lmpl")) return true;
-      if (userTenantName.includes("saify") && formTitle.includes("saify")) return true;
-      if (formTitle.includes(userTenantName)) return true;
-    }
-
-    return false;
-  }, [form, user]);
-
-  // Check if current user is authorized to perform BIW reviews or access BIW review templates on this form
-  const canUserReviewThisForm = useMemo(() => {
-    if (user?.role === "superadmin") return true;
-    if (isGuest || !user) return false;
-
-    // 🔒 Owning plant CANNOT review its own chassis (Rule 5E Rule 2)
-    if (isOwnTenantForm) {
-      return false;
+      if (userTenantName.includes("lmpl") && formTitle.includes("lmpl")) return false;
+      if (userTenantName.includes("saify") && formTitle.includes("saify")) return false;
+      if (formTitle.includes(userTenantName)) return false;
     }
 
     const userTenantStr = String((user?.tenantId as any)?._id || (user?.tenantId as any)?.id || user?.tenantId || "");
     const formTenantStr = String((form?.tenantId as any)?._id || (form?.tenantId as any)?.id || form?.tenantId || "");
-
     if (formTenantStr && userTenantStr && formTenantStr === userTenantStr) {
       return false;
     }
@@ -627,13 +594,12 @@ export default function FormAnalyticsDashboard({
       if (isShared) return true;
     }
 
-    // If user is from another tenant and form is global or shared, allow, but never if form owner
     if (formTenantStr && userTenantStr && formTenantStr !== userTenantStr) {
       return true;
     }
 
     return false;
-  }, [user, form, isGuest, isOwnTenantForm]);
+  }, [user, form, isGuest]);
 
   // Downloads BIW template pre-loaded with filtered or full all-time table chassis, BIW reviews & TVS reviews
   const handleDownloadBiwTemplate = async (mode: "filtered" | "all" = "filtered") => {
@@ -717,7 +683,7 @@ export default function FormAnalyticsDashboard({
           if (relatedExportPromise) {
             try {
               preloadedRelatedExport = await relatedExportPromise;
-            } catch (_) { }
+            } catch (_) {}
           }
         } else if (targetFormId) {
           try {
@@ -738,17 +704,17 @@ export default function FormAnalyticsDashboard({
         if (!activeResponsesSource || activeResponsesSource.length === 0) {
           activeResponsesSource = isFilteredMode
             ? (filteredResponses && filteredResponses.length > 0
-              ? filteredResponses
-              : responses && responses.length > 0
+                ? filteredResponses
+                : responses && responses.length > 0
+                  ? responses
+                  : tableResponses && tableResponses.length > 0
+                    ? tableResponses
+                    : [])
+            : (responses && responses.length > 0
                 ? responses
                 : tableResponses && tableResponses.length > 0
                   ? tableResponses
-                  : [])
-            : (responses && responses.length > 0
-              ? responses
-              : tableResponses && tableResponses.length > 0
-                ? tableResponses
-                : []);
+                  : []);
         }
 
         if (isFilteredMode) {
@@ -1126,9 +1092,9 @@ export default function FormAnalyticsDashboard({
         resolvedChildResponses = isFilteredMode
           ? indexResponsesByChassis(activeResponsesSource)
           : {
-            ...resolvedChildResponses,
-            ...indexResponsesByChassis(activeResponsesSource)
-          };
+              ...resolvedChildResponses,
+              ...indexResponsesByChassis(activeResponsesSource)
+            };
         if (mainId && mainId !== currentId) {
           try {
             const parentExport = (preloadedRelatedExport && preloadedRelatedExport.length > 0)
@@ -1168,9 +1134,9 @@ export default function FormAnalyticsDashboard({
           const childExport = (preloadedRelatedExport && preloadedRelatedExport.length > 0)
             ? preloadedRelatedExport
             : await Promise.race([
-              apiClient.getAllResponsesForExport(childId, dateRangeParams),
-              new Promise<any[]>((r) => setTimeout(() => r([]), 8000))
-            ]);
+                apiClient.getAllResponsesForExport(childId, dateRangeParams),
+                new Promise<any[]>((r) => setTimeout(() => r([]), 8000))
+              ]);
           const childList = Array.isArray(childExport) ? childExport : [];
           if (childList.length > 0) {
             resolvedChildResponses = {
@@ -1768,21 +1734,12 @@ export default function FormAnalyticsDashboard({
   };
 
   const isOwnTenantResponse = (response: Response) => {
-    // Only superadmins, direct form creators, or users belonging to the form's creator tenant can dispatch responses
+    // Only superadmins or users belonging to the form's owning creator tenant can dispatch responses
     if (user?.role === "superadmin") {
       return true;
     }
 
     if (!user) return false;
-
-    // Direct creator of the form
-    const formCreatedById = form?.createdBy
-      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
-      : null;
-    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
-    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
-      return true;
-    }
 
     const userTenantId = user?.tenantId;
     if (!userTenantId) {
@@ -1801,6 +1758,15 @@ export default function FormAnalyticsDashboard({
     // If the form has an owning creator tenant, user's tenant MUST match the creator tenant
     if (formTenantStr) {
       return userTenantStr === formTenantStr;
+    }
+
+    // Direct creator of the form fallback if no form tenant
+    const formCreatedById = form?.createdBy
+      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
+      : null;
+    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
+    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
+      return true;
     }
 
     // Legacy form with no tenant: only match if response tenant matches user's tenant
@@ -2982,6 +2948,31 @@ export default function FormAnalyticsDashboard({
         : user.tenantId;
     }
     return null;
+  }, [form, user]);
+
+  // Check if the current user belongs to the same tenant as the form.
+  // Dispatch enable (bulk select) should only be available for form creator tenant users,
+  // not for cross-tenant users or assigned/shared partner tenants.
+  const isOwnTenantForm = useMemo(() => {
+    if (user?.role === "superadmin") return true;
+    if (!user) return false;
+
+    const formTenantId = form?.tenantId
+      ? (typeof form.tenantId === "object" ? String((form.tenantId as any)._id || (form.tenantId as any).id) : String(form.tenantId))
+      : null;
+    const userTenantId = user?.tenantId
+      ? (typeof user.tenantId === "object" ? String((user.tenantId as any)._id || (user.tenantId as any).id) : String(user.tenantId))
+      : null;
+
+    // If the form has no tenant, fall back to direct creator user
+    if (!formTenantId) {
+      const formCreatedById = form?.createdBy
+        ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
+        : null;
+      const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
+      return Boolean(formCreatedById && currentUserId && formCreatedById === currentUserId);
+    }
+    return Boolean(userTenantId && formTenantId === userTenantId);
   }, [form, user]);
 
   // Dispatch bulk-select is allowed strictly for superadmins and form creator tenant admins.
@@ -4896,37 +4887,74 @@ export default function FormAnalyticsDashboard({
     return map;
   }, [tableResponses, responses, responseStatuses, chassisQuestionId]);
 
-  // Helper to determine if a response has an eligible status for BIW Review
-  // Any valid response can receive an independent BIW Review
-  const isBiwEligibleResponse = (r: Response | null | undefined): boolean => {
-    return Boolean(r);
+  // Helper to determine if a response is eligible for review (BIW or TVS)
+  // Rule: for rework, NO BIW or TVS review and do NOT take into accountability.
+  // ONLY "Direct Ok", "Accepted", and "Rework Accepted" are eligible for review.
+  const isReviewEligibleResponse = (r: Response | null | undefined): boolean => {
+    if (!r) return false;
+    const respId = r.id || (r as any)._id;
+    const status = String(
+      (respId ? tableDisplayStatuses[respId] || responseStatuses[respId] : null) ||
+      computeFastRowStatus(r, chassisQuestionId) ||
+      (r.status && r.status !== "pending" ? r.status : "Direct Ok")
+    ).toLowerCase().trim();
+
+    if (status.includes("direct ok") || status.includes("direct_ok") || status.includes("rework accepted")) {
+      return true;
+    }
+    if (status.includes("rework") || status.includes("reject")) {
+      return false;
+    }
+    if (status.includes("accept") || status === "ok") {
+      return true;
+    }
+    return false;
   };
 
+  const isBiwEligibleResponse = isReviewEligibleResponse;
+
   // Only assigned tenant reviewers (or superadmin) can perform BIW review / review feedback
-  // Owning plant CANNOT review its own chassis (Rule 5E Rule 2)
+  // Rules enforced:
+  // 1. ELIGIBILITY: Chassis under active rework or rejected CANNOT receive review
+  // 2. DISPATCH PREREQUISITE: Chassis must be dispatched by the owning plant before review can be performed
+  // 3. SEPARATION OF ROLES: Owning plant CANNOT review its own chassis
+  // 4. TRIGGERED TENANT ALONE: Only the triggered / partner tenant can review
+  // 5. ANTI-TAMPER: Submitter cannot review their own submission
   const canUserBiwReview = (response: Response | null | undefined): { canReview: boolean; reason?: string } => {
     if (!response) return { canReview: false, reason: "No response selected" };
 
+    // 🔒 1. Only Direct Ok, Accepted, or Rework Accepted units can be reviewed
+    if (!isReviewEligibleResponse(response)) {
+      return {
+        canReview: false,
+        reason: "Units under rework or rejected are not eligible for review. Only Direct Ok, Accepted, or Rework Accepted units can be reviewed."
+      };
+    }
+
+    // 🔒 2. Dispatch Prerequisite: Only dispatched chassis can be entered into review
+    if (!response.isDispatched) {
+      return {
+        canReview: false,
+        reason: "Chassis must be dispatched by the owning plant before review can be performed"
+      };
+    }
+
+    // Superadmin has universal review permissions on dispatched eligible units
     if (user?.role === "superadmin") return { canReview: true };
-    if (isGuest || !user) return { canReview: false, reason: "Guest users cannot perform BIW review" };
 
-    // 🔒 Owning plant CANNOT review its own chassis (Rule 5E Rule 2)
-    if (!canUserReviewThisForm) {
+    const userTenantStr = String((user?.tenantId as any)?._id || (user?.tenantId as any)?.id || user?.tenantId || "");
+    const formTenantStr = String((form?.tenantId as any)?._id || (form?.tenantId as any)?.id || form?.tenantId || "");
+    const isFormOwnerTenant = Boolean(formTenantStr && userTenantStr && formTenantStr === userTenantStr);
+
+    // 🔒 3. Owning plant CANNOT review its own chassis
+    if (isFormOwnerTenant) {
       return {
         canReview: false,
-        reason: "Owning plant cannot review its own chassis. Review is reserved for triggered reviewer tenants."
+        reason: "The owning plant cannot review its own chassis. Reviews must be performed by the triggered partner tenant."
       };
     }
 
-    // Submitter cannot review own response
-    if (isSubmitterOfResponse(response)) {
-      return {
-        canReview: false,
-        reason: "You cannot BIW review your own submission"
-      };
-    }
-
-    // 1. Check if the chassis has assigned tenants (on this form or parent form)
+    // 🔒 4. Triggered tenant check: Chassis assignments or shared tenants
     const assignments = (form as any)?.chassisTenantAssignments || (form as any)?.parentForm?.chassisTenantAssignments;
     if (Array.isArray(assignments) && assignments.length > 0) {
       const chassisCandidates = new Set<string>();
@@ -4960,13 +4988,23 @@ export default function FormAnalyticsDashboard({
         if (!isAssigned) {
           return {
             canReview: false,
-            reason: "Only assigned tenant reviewers can perform BIW review for this chassis."
+            reason: "Only the triggered / assigned tenant reviewer can perform BIW review for this chassis."
           };
         }
       }
+    } else if (Array.isArray(form?.sharedWithTenants) && form.sharedWithTenants.length > 0) {
+      const isFormSharedTenant = form.sharedWithTenants.some(
+        (t: any) => String(t?._id || t?.id || t) === userTenantStr
+      );
+      if (!isFormSharedTenant && formTenantStr) {
+        return {
+          canReview: false,
+          reason: "Only the triggered partner tenant can perform reviews for this chassis."
+        };
+      }
     }
 
-    // 2. Anti-tamper check: submitter cannot review their own submission
+    // 🔒 5. Anti-tamper check: submitter cannot review their own submission
     if (isSubmitterOfResponse(response)) {
       return {
         canReview: false,
@@ -6094,6 +6132,8 @@ export default function FormAnalyticsDashboard({
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
         if (avLower === "no review yet" || avLower === "pending review" || avLower === "pending" || avLower === "-") {
+          // 🔒 Rework units are not eligible for review and are NOT counted in pending review accountability
+          if (!isReviewEligibleResponse(response)) return false;
           return !biwStatus || biwStatus === "pending review" || biwStatus === "pending" || biwStatus === "no review yet" || biwStatus === "-";
         }
         if (avLower === "rework" || avLower === "reworked") {
@@ -6111,6 +6151,11 @@ export default function FormAnalyticsDashboard({
 
     // 6b. __tvsReview / __review (Chat & Discussion Review filter)
     if (columnId === "__tvsReview" || columnId === "__review") {
+      // 🔒 TVS Review is strictly only applicable to dispatched and review-eligible (approved) responses
+      if (!isReviewEligibleResponse(response) || !response.isDispatched) {
+        return false;
+      }
+
       const serverRev = (response as any).review;
       const parentRev = (response as any).parentReview || (response as any).followUpStatus?.parentReview;
       const childRev = (response as any).childReview || (response as any).followUpStatus?.childReview;
@@ -6148,6 +6193,8 @@ export default function FormAnalyticsDashboard({
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
         if (avLower === "no review yet" || avLower === "pending review" || avLower === "unreviewed" || avLower === "pending" || avLower === "-") {
+          // 🔒 Rework units are not eligible for review and are NOT counted in pending review accountability
+          if (!isReviewEligibleResponse(response)) return false;
           return activeStatuses.length === 0;
         }
         if (avLower === "reviewed") {
@@ -9451,101 +9498,101 @@ export default function FormAnalyticsDashboard({
                     </button>
                     {/* Unified BIW Review Dropdown - Only for triggered partner tenant reviewers or superadmin */}
                     {canUserReviewThisForm && (
-                      <div className="relative inline-block text-left" ref={biwDropdownRef}>
-                        <button
-                          onClick={() => setIsBiwDropdownOpen((prev) => !prev)}
-                          className="px-3 sm:px-4 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm"
-                          title="BIW Review: Download pre-filled template or import & validate review results"
-                        >
-                          <ClipboardCheck className="w-4 h-4" />
-                          <span>BIW Review</span>
-                          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isBiwDropdownOpen ? "rotate-180" : ""}`} />
-                        </button>
+                    <div className="relative inline-block text-left" ref={biwDropdownRef}>
+                      <button
+                        onClick={() => setIsBiwDropdownOpen((prev) => !prev)}
+                        className="px-3 sm:px-4 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm"
+                        title="BIW Review: Download pre-filled template or import & validate review results"
+                      >
+                        <ClipboardCheck className="w-4 h-4" />
+                        <span>BIW Review</span>
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isBiwDropdownOpen ? "rotate-180" : ""}`} />
+                      </button>
 
-                        {isBiwDropdownOpen && (
-                          <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
-                            <button
-                              onClick={async () => {
-                                setIsBiwDropdownOpen(false);
-                                await handleDownloadBiwTemplate("filtered");
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-3 transition-colors"
-                            >
-                              <div className="p-2 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg text-emerald-600 dark:text-emerald-300 shrink-0">
-                                <Download className="w-4 h-4" />
+                      {isBiwDropdownOpen && (
+                        <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                          <button
+                            onClick={async () => {
+                              setIsBiwDropdownOpen(false);
+                              await handleDownloadBiwTemplate("filtered");
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-3 transition-colors"
+                          >
+                            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg text-emerald-600 dark:text-emerald-300 shrink-0">
+                              <Download className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-gray-900 dark:text-white flex items-center justify-between gap-2">
+                                <span>Download Filtered BIW Template</span>
+                                <span className="px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded">
+                                  {(hasActiveFiltersOrSort ? filteredResponses.length : activeTotalResponsesCount).toLocaleString()}
+                                </span>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-semibold text-gray-900 dark:text-white flex items-center justify-between gap-2">
-                                  <span>Download Filtered BIW Template</span>
-                                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded">
-                                    {(hasActiveFiltersOrSort ? filteredResponses.length : activeTotalResponsesCount).toLocaleString()}
-                                  </span>
-                                </div>
-                                <div className="text-[10px] text-gray-500 dark:text-gray-400">
-                                  {hasActiveFiltersOrSort
-                                    ? "Only filtered chassis numbers & status"
-                                    : "Pre-loads current table chassis & status"}
-                                </div>
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                                {hasActiveFiltersOrSort
+                                  ? "Only filtered chassis numbers & status"
+                                  : "Pre-loads current table chassis & status"}
                               </div>
-                            </button>
+                            </div>
+                          </button>
 
-                            <button
-                              onClick={async () => {
-                                setIsBiwDropdownOpen(false);
-                                await handleDownloadBiwTemplate("all");
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
-                            >
-                              <div className="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg text-blue-600 dark:text-blue-300 shrink-0">
-                                <FileSpreadsheet className="w-4 h-4" />
+                          <button
+                            onClick={async () => {
+                              setIsBiwDropdownOpen(false);
+                              await handleDownloadBiwTemplate("all");
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
+                          >
+                            <div className="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg text-blue-600 dark:text-blue-300 shrink-0">
+                              <FileSpreadsheet className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-gray-900 dark:text-white flex items-center justify-between gap-2">
+                                <span>Download Full All-Time Template</span>
+                                <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded">
+                                  {(totalResponsesCount || responses.length).toLocaleString()}
+                                </span>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-semibold text-gray-900 dark:text-white flex items-center justify-between gap-2">
-                                  <span>Download Full All-Time Template</span>
-                                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded">
-                                    {(totalResponsesCount || responses.length).toLocaleString()}
-                                  </span>
-                                </div>
-                                <div className="text-[10px] text-gray-500 dark:text-gray-400">
-                                  Full all-time data across entire form
-                                </div>
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                                Full all-time data across entire form
                               </div>
-                            </button>
+                            </div>
+                          </button>
 
-                            <button
-                              onClick={() => {
-                                setIsBiwDropdownOpen(false);
-                                setIsBiwExcelModalOpen(true);
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
-                            >
-                              <div className="p-2 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg text-indigo-600 dark:text-indigo-300">
-                                <Upload className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <div className="font-semibold text-gray-900 dark:text-white">Import & Validate Reviews</div>
-                                <div className="text-[10px] text-gray-500 dark:text-gray-400">Validate chassis & fill review table</div>
-                              </div>
-                            </button>
+                          <button
+                            onClick={() => {
+                              setIsBiwDropdownOpen(false);
+                              setIsBiwExcelModalOpen(true);
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
+                          >
+                            <div className="p-2 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg text-indigo-600 dark:text-indigo-300">
+                              <Upload className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div className="font-semibold text-gray-900 dark:text-white">Import & Validate Reviews</div>
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400">Validate chassis & fill review table</div>
+                            </div>
+                          </button>
 
-                            <button
-                              onClick={() => {
-                                setIsBiwDropdownOpen(false);
-                                setIsBiwHistoryModalOpen(true);
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-700 dark:hover:text-amber-300 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
-                            >
-                              <div className="p-2 bg-amber-100 dark:bg-amber-900/40 rounded-lg text-amber-600 dark:text-amber-300">
-                                <Clock className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <div className="font-semibold text-gray-900 dark:text-white">Import History & Timeline</div>
-                                <div className="text-[10px] text-gray-500 dark:text-gray-400">View changes & 5-hr undo</div>
-                              </div>
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                          <button
+                            onClick={() => {
+                              setIsBiwDropdownOpen(false);
+                              setIsBiwHistoryModalOpen(true);
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-700 dark:hover:text-amber-300 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
+                          >
+                            <div className="p-2 bg-amber-100 dark:bg-amber-900/40 rounded-lg text-amber-600 dark:text-amber-300">
+                              <Clock className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div className="font-semibold text-gray-900 dark:text-white">Import History & Timeline</div>
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400">View changes & 5-hr undo</div>
+                            </div>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     )}
                     {selectedResponseIds.length > 0 && !isGuest && canUserReviewThisForm && (
                       <>
@@ -10828,8 +10875,8 @@ export default function FormAnalyticsDashboard({
                                                   </button>
                                                 )}
 
-                                                {/* Review & Discussion - Only after dispatch */}
-                                                {Boolean(response.isDispatched) && (
+                                                {/* Review & Discussion - Only after dispatch and if review eligible */}
+                                                {Boolean(response.isDispatched) && isReviewEligibleResponse(response) && (
                                                   <button
                                                     onClick={() => {
                                                       setChatResponse(response);
@@ -10935,19 +10982,31 @@ export default function FormAnalyticsDashboard({
                                         ? (form?.title || "2nd: Child Form")
                                         : ((response as any).childFormTitle || (response as any).followUpStatus?.childFormTitle || relatedFormData?.childForms?.[0]?.title || "2nd: Child Form");
 
-                                      // If neither review exists
+                                      // 🔒 Ironclad Multi-Tenant Invariants (AGENTS.md Rule 5E):
+                                      // 1. Rework units (Rework 1, Rework 2, Rejected) CANNOT have TVS review: render '-'
+                                      if (!isReviewEligibleResponse(response)) {
+                                        return (
+                                          <div className="flex items-center justify-center text-center">
+                                            <span className="text-gray-400 text-xs font-medium" title="Under rework: not eligible for review">-</span>
+                                          </div>
+                                        );
+                                      }
+
+                                      // 2. Dispatch Prerequisite: Only dispatched chassis can have TVS review
+                                      if (!response.isDispatched) {
+                                        return (
+                                          <div
+                                            className="inline-flex items-center justify-center gap-1 px-2 py-1 text-amber-600/80 dark:text-amber-400/80 bg-amber-50/60 dark:bg-amber-950/20 rounded-lg text-xs italic select-none border border-amber-200/50 dark:border-amber-900/30"
+                                            title="Review is locked until chassis is dispatched by the owning plant"
+                                          >
+                                            <Lock className="w-3 h-3 text-amber-500/80" />
+                                            <span>Pending Dispatch</span>
+                                          </div>
+                                        );
+                                      }
+
+                                      // If neither review exists on this dispatched, approved unit
                                       if (!mainRevData && !childRevDataFinal) {
-                                        if (!response.isDispatched) {
-                                          return (
-                                            <div
-                                              className="inline-flex items-center justify-center gap-1 px-2 py-1 text-amber-600/80 dark:text-amber-400/80 bg-amber-50/60 dark:bg-amber-950/20 rounded-lg text-xs italic select-none border border-amber-200/50 dark:border-amber-900/30"
-                                              title="Review is locked until chassis is dispatched by the owning plant"
-                                            >
-                                              <Lock className="w-3 h-3 text-amber-500/80" />
-                                              <span>Pending Dispatch</span>
-                                            </div>
-                                          );
-                                        }
                                         return (
                                           <div
                                             onClick={(e) => {
@@ -12249,7 +12308,7 @@ export default function FormAnalyticsDashboard({
           showToast("BIW & TVS Reviews imported successfully!", "success");
           try {
             localStorage.setItem("analytics_data_updated", String(Date.now()));
-          } catch (_) { }
+          } catch (_) {}
           fetchResponsesPage(responsesPage || 1);
           refreshDashboardData();
         }}
@@ -12265,7 +12324,7 @@ export default function FormAnalyticsDashboard({
           showToast("Import undone successfully! Records restored.", "success");
           try {
             localStorage.setItem("analytics_data_updated", String(Date.now()));
-          } catch (_) { }
+          } catch (_) {}
           fetchResponsesPage(responsesPage || 1);
           refreshDashboardData();
         }}
