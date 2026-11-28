@@ -21,7 +21,6 @@ import {
   Layers,
   Link2,
   Clock,
-  Lock,
   XCircle,
   BarChart3,
   Calendar,
@@ -555,15 +554,61 @@ export default function FormAnalyticsDashboard({
     return "";
   }, [tenantsMap]);
 
+  // Check if current user belongs to the owning plant of the form
+  const isOwnTenantForm = useMemo(() => {
+    if (user?.role === "superadmin") return true;
+    if (!user) return false;
+
+    const formCreatedById = form?.createdBy
+      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
+      : null;
+    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
+    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
+      return true;
+    }
+
+    const formTenantId = form?.tenantId
+      ? (typeof form.tenantId === "object" ? String((form.tenantId as any)._id || (form.tenantId as any).id) : String(form.tenantId))
+      : null;
+    const userTenantId = user?.tenantId
+      ? (typeof user.tenantId === "object" ? String((user.tenantId as any)._id || (user.tenantId as any).id) : String(user.tenantId))
+      : null;
+
+    if (userTenantId && formTenantId && formTenantId === userTenantId) {
+      return true;
+    }
+
+    // Check plant name match (e.g. "LMPL" in form title and user's tenant name or company name)
+    const userTenantName = String(
+      (user as any)?.tenantName ||
+      (user?.tenantId as any)?.companyName ||
+      (user?.tenantId as any)?.name ||
+      ""
+    ).trim().toLowerCase();
+    const formTitle = String(form?.title || "").trim().toLowerCase();
+
+    if (userTenantName && formTitle) {
+      if (userTenantName.includes("lmpl") && formTitle.includes("lmpl")) return true;
+      if (userTenantName.includes("saify") && formTitle.includes("saify")) return true;
+      if (formTitle.includes(userTenantName)) return true;
+    }
+
+    return false;
+  }, [form, user]);
+
   // Check if current user is authorized to perform BIW reviews or access BIW review templates on this form
   const canUserReviewThisForm = useMemo(() => {
     if (user?.role === "superadmin") return true;
-    if (isGuest) return false;
+    if (isGuest || !user) return false;
+
+    // 🔒 Owning plant CANNOT review its own chassis (Rule 5E Rule 2)
+    if (isOwnTenantForm) {
+      return false;
+    }
 
     const userTenantStr = String((user?.tenantId as any)?._id || (user?.tenantId as any)?.id || user?.tenantId || "");
     const formTenantStr = String((form?.tenantId as any)?._id || (form?.tenantId as any)?.id || form?.tenantId || "");
 
-    // 🔒 Owning plant CANNOT review its own chassis (Rule 5E Rule 2)
     if (formTenantStr && userTenantStr && formTenantStr === userTenantStr) {
       return false;
     }
@@ -588,7 +633,7 @@ export default function FormAnalyticsDashboard({
     }
 
     return false;
-  }, [user, form, isGuest]);
+  }, [user, form, isGuest, isOwnTenantForm]);
 
   // Downloads BIW template pre-loaded with filtered or full all-time table chassis, BIW reviews & TVS reviews
   const handleDownloadBiwTemplate = async (mode: "filtered" | "all" = "filtered") => {
@@ -672,7 +717,7 @@ export default function FormAnalyticsDashboard({
           if (relatedExportPromise) {
             try {
               preloadedRelatedExport = await relatedExportPromise;
-            } catch (_) {}
+            } catch (_) { }
           }
         } else if (targetFormId) {
           try {
@@ -693,17 +738,17 @@ export default function FormAnalyticsDashboard({
         if (!activeResponsesSource || activeResponsesSource.length === 0) {
           activeResponsesSource = isFilteredMode
             ? (filteredResponses && filteredResponses.length > 0
-                ? filteredResponses
-                : responses && responses.length > 0
-                  ? responses
-                  : tableResponses && tableResponses.length > 0
-                    ? tableResponses
-                    : [])
-            : (responses && responses.length > 0
+              ? filteredResponses
+              : responses && responses.length > 0
                 ? responses
                 : tableResponses && tableResponses.length > 0
                   ? tableResponses
-                  : []);
+                  : [])
+            : (responses && responses.length > 0
+              ? responses
+              : tableResponses && tableResponses.length > 0
+                ? tableResponses
+                : []);
         }
 
         if (isFilteredMode) {
@@ -1081,9 +1126,9 @@ export default function FormAnalyticsDashboard({
         resolvedChildResponses = isFilteredMode
           ? indexResponsesByChassis(activeResponsesSource)
           : {
-              ...resolvedChildResponses,
-              ...indexResponsesByChassis(activeResponsesSource)
-            };
+            ...resolvedChildResponses,
+            ...indexResponsesByChassis(activeResponsesSource)
+          };
         if (mainId && mainId !== currentId) {
           try {
             const parentExport = (preloadedRelatedExport && preloadedRelatedExport.length > 0)
@@ -1123,9 +1168,9 @@ export default function FormAnalyticsDashboard({
           const childExport = (preloadedRelatedExport && preloadedRelatedExport.length > 0)
             ? preloadedRelatedExport
             : await Promise.race([
-                apiClient.getAllResponsesForExport(childId, dateRangeParams),
-                new Promise<any[]>((r) => setTimeout(() => r([]), 8000))
-              ]);
+              apiClient.getAllResponsesForExport(childId, dateRangeParams),
+              new Promise<any[]>((r) => setTimeout(() => r([]), 8000))
+            ]);
           const childList = Array.isArray(childExport) ? childExport : [];
           if (childList.length > 0) {
             resolvedChildResponses = {
@@ -1723,12 +1768,21 @@ export default function FormAnalyticsDashboard({
   };
 
   const isOwnTenantResponse = (response: Response) => {
-    // Only superadmins or users belonging to the form's owning creator tenant can dispatch responses
+    // Only superadmins, direct form creators, or users belonging to the form's creator tenant can dispatch responses
     if (user?.role === "superadmin") {
       return true;
     }
 
     if (!user) return false;
+
+    // Direct creator of the form
+    const formCreatedById = form?.createdBy
+      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
+      : null;
+    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
+    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
+      return true;
+    }
 
     const userTenantId = user?.tenantId;
     if (!userTenantId) {
@@ -1747,15 +1801,6 @@ export default function FormAnalyticsDashboard({
     // If the form has an owning creator tenant, user's tenant MUST match the creator tenant
     if (formTenantStr) {
       return userTenantStr === formTenantStr;
-    }
-
-    // Direct creator of the form fallback if no form tenant
-    const formCreatedById = form?.createdBy
-      ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
-      : null;
-    const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
-    if (formCreatedById && currentUserId && formCreatedById === currentUserId) {
-      return true;
     }
 
     // Legacy form with no tenant: only match if response tenant matches user's tenant
@@ -2937,31 +2982,6 @@ export default function FormAnalyticsDashboard({
         : user.tenantId;
     }
     return null;
-  }, [form, user]);
-
-  // Check if the current user belongs to the same tenant as the form.
-  // Dispatch enable (bulk select) should only be available for form creator tenant users,
-  // not for cross-tenant users or assigned/shared partner tenants.
-  const isOwnTenantForm = useMemo(() => {
-    if (user?.role === "superadmin") return true;
-    if (!user) return false;
-
-    const formTenantId = form?.tenantId
-      ? (typeof form.tenantId === "object" ? String((form.tenantId as any)._id || (form.tenantId as any).id) : String(form.tenantId))
-      : null;
-    const userTenantId = user?.tenantId
-      ? (typeof user.tenantId === "object" ? String((user.tenantId as any)._id || (user.tenantId as any).id) : String(user.tenantId))
-      : null;
-
-    // If the form has no tenant, fall back to direct creator user
-    if (!formTenantId) {
-      const formCreatedById = form?.createdBy
-        ? (typeof form.createdBy === "object" ? String((form.createdBy as any)._id || (form.createdBy as any).id) : String(form.createdBy))
-        : null;
-      const currentUserId = user._id || user.id ? String(user._id || user.id) : null;
-      return Boolean(formCreatedById && currentUserId && formCreatedById === currentUserId);
-    }
-    return Boolean(userTenantId && formTenantId === userTenantId);
   }, [form, user]);
 
   // Dispatch bulk-select is allowed strictly for superadmins and form creator tenant admins.
@@ -4876,74 +4896,37 @@ export default function FormAnalyticsDashboard({
     return map;
   }, [tableResponses, responses, responseStatuses, chassisQuestionId]);
 
-  // Helper to determine if a response is eligible for review (BIW or TVS)
-  // Rule: for rework, NO BIW or TVS review and do NOT take into accountability.
-  // ONLY "Direct Ok", "Accepted", and "Rework Accepted" are eligible for review.
-  const isReviewEligibleResponse = (r: Response | null | undefined): boolean => {
-    if (!r) return false;
-    const respId = r.id || (r as any)._id;
-    const status = String(
-      (respId ? tableDisplayStatuses[respId] || responseStatuses[respId] : null) ||
-      computeFastRowStatus(r, chassisQuestionId) ||
-      (r.status && r.status !== "pending" ? r.status : "Direct Ok")
-    ).toLowerCase().trim();
-
-    if (status.includes("direct ok") || status.includes("direct_ok") || status.includes("rework accepted")) {
-      return true;
-    }
-    if (status.includes("rework") || status.includes("reject")) {
-      return false;
-    }
-    if (status.includes("accept") || status === "ok") {
-      return true;
-    }
-    return false;
+  // Helper to determine if a response has an eligible status for BIW Review
+  // Any valid response can receive an independent BIW Review
+  const isBiwEligibleResponse = (r: Response | null | undefined): boolean => {
+    return Boolean(r);
   };
 
-  const isBiwEligibleResponse = isReviewEligibleResponse;
-
   // Only assigned tenant reviewers (or superadmin) can perform BIW review / review feedback
-  // Rules enforced:
-  // 1. ELIGIBILITY: Chassis under active rework or rejected CANNOT receive review
-  // 2. DISPATCH PREREQUISITE: Chassis must be dispatched by the owning plant before review can be performed
-  // 3. SEPARATION OF ROLES: Owning plant CANNOT review its own chassis
-  // 4. TRIGGERED TENANT ALONE: Only the triggered / partner tenant can review
-  // 5. ANTI-TAMPER: Submitter cannot review their own submission
+  // Owning plant CANNOT review its own chassis (Rule 5E Rule 2)
   const canUserBiwReview = (response: Response | null | undefined): { canReview: boolean; reason?: string } => {
     if (!response) return { canReview: false, reason: "No response selected" };
 
-    // 🔒 1. Only Direct Ok, Accepted, or Rework Accepted units can be reviewed
-    if (!isReviewEligibleResponse(response)) {
-      return {
-        canReview: false,
-        reason: "Units under rework or rejected are not eligible for review. Only Direct Ok, Accepted, or Rework Accepted units can be reviewed."
-      };
-    }
-
-    // 🔒 2. Dispatch Prerequisite: Only dispatched chassis can be entered into review
-    if (!response.isDispatched) {
-      return {
-        canReview: false,
-        reason: "Chassis must be dispatched by the owning plant before review can be performed"
-      };
-    }
-
-    // Superadmin has universal review permissions on dispatched eligible units
     if (user?.role === "superadmin") return { canReview: true };
+    if (isGuest || !user) return { canReview: false, reason: "Guest users cannot perform BIW review" };
 
-    const userTenantStr = String((user?.tenantId as any)?._id || (user?.tenantId as any)?.id || user?.tenantId || "");
-    const formTenantStr = String((form?.tenantId as any)?._id || (form?.tenantId as any)?.id || form?.tenantId || "");
-    const isFormOwnerTenant = Boolean(formTenantStr && userTenantStr && formTenantStr === userTenantStr);
-
-    // 🔒 3. Owning plant CANNOT review its own chassis
-    if (isFormOwnerTenant) {
+    // 🔒 Owning plant CANNOT review its own chassis (Rule 5E Rule 2)
+    if (!canUserReviewThisForm) {
       return {
         canReview: false,
-        reason: "The owning plant cannot review its own chassis. Reviews must be performed by the triggered partner tenant."
+        reason: "Owning plant cannot review its own chassis. Review is reserved for triggered reviewer tenants."
       };
     }
 
-    // 🔒 4. Triggered tenant check: Chassis assignments or shared tenants
+    // Submitter cannot review own response
+    if (isSubmitterOfResponse(response)) {
+      return {
+        canReview: false,
+        reason: "You cannot BIW review your own submission"
+      };
+    }
+
+    // 1. Check if the chassis has assigned tenants (on this form or parent form)
     const assignments = (form as any)?.chassisTenantAssignments || (form as any)?.parentForm?.chassisTenantAssignments;
     if (Array.isArray(assignments) && assignments.length > 0) {
       const chassisCandidates = new Set<string>();
@@ -4977,23 +4960,13 @@ export default function FormAnalyticsDashboard({
         if (!isAssigned) {
           return {
             canReview: false,
-            reason: "Only the triggered / assigned tenant reviewer can perform BIW review for this chassis."
+            reason: "Only assigned tenant reviewers can perform BIW review for this chassis."
           };
         }
       }
-    } else if (Array.isArray(form?.sharedWithTenants) && form.sharedWithTenants.length > 0) {
-      const isFormSharedTenant = form.sharedWithTenants.some(
-        (t: any) => String(t?._id || t?.id || t) === userTenantStr
-      );
-      if (!isFormSharedTenant && formTenantStr) {
-        return {
-          canReview: false,
-          reason: "Only the triggered partner tenant can perform reviews for this chassis."
-        };
-      }
     }
 
-    // 🔒 5. Anti-tamper check: submitter cannot review their own submission
+    // 2. Anti-tamper check: submitter cannot review their own submission
     if (isSubmitterOfResponse(response)) {
       return {
         canReview: false,
@@ -6121,8 +6094,6 @@ export default function FormAnalyticsDashboard({
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
         if (avLower === "no review yet" || avLower === "pending review" || avLower === "pending" || avLower === "-") {
-          // 🔒 Rework units are not eligible for review and are NOT counted in pending review accountability
-          if (!isReviewEligibleResponse(response)) return false;
           return !biwStatus || biwStatus === "pending review" || biwStatus === "pending" || biwStatus === "no review yet" || biwStatus === "-";
         }
         if (avLower === "rework" || avLower === "reworked") {
@@ -6140,11 +6111,6 @@ export default function FormAnalyticsDashboard({
 
     // 6b. __tvsReview / __review (Chat & Discussion Review filter)
     if (columnId === "__tvsReview" || columnId === "__review") {
-      // 🔒 TVS Review is strictly only applicable to dispatched and review-eligible (approved) responses
-      if (!isReviewEligibleResponse(response) || !response.isDispatched) {
-        return false;
-      }
-
       const serverRev = (response as any).review;
       const parentRev = (response as any).parentReview || (response as any).followUpStatus?.parentReview;
       const childRev = (response as any).childReview || (response as any).followUpStatus?.childReview;
@@ -6182,8 +6148,6 @@ export default function FormAnalyticsDashboard({
       return allowedValues.some((av) => {
         const avLower = av.toLowerCase().trim();
         if (avLower === "no review yet" || avLower === "pending review" || avLower === "unreviewed" || avLower === "pending" || avLower === "-") {
-          // 🔒 Rework units are not eligible for review and are NOT counted in pending review accountability
-          if (!isReviewEligibleResponse(response)) return false;
           return activeStatuses.length === 0;
         }
         if (avLower === "reviewed") {
@@ -10864,8 +10828,8 @@ export default function FormAnalyticsDashboard({
                                                   </button>
                                                 )}
 
-                                                {/* Review & Discussion - Only after dispatch and if review eligible */}
-                                                {Boolean(response.isDispatched) && isReviewEligibleResponse(response) && (
+                                                {/* Review & Discussion - Only after dispatch */}
+                                                {Boolean(response.isDispatched) && (
                                                   <button
                                                     onClick={() => {
                                                       setChatResponse(response);
@@ -10971,31 +10935,19 @@ export default function FormAnalyticsDashboard({
                                         ? (form?.title || "2nd: Child Form")
                                         : ((response as any).childFormTitle || (response as any).followUpStatus?.childFormTitle || relatedFormData?.childForms?.[0]?.title || "2nd: Child Form");
 
-                                      // 🔒 Ironclad Multi-Tenant Invariants (AGENTS.md Rule 5E):
-                                      // 1. Rework units (Rework 1, Rework 2, Rejected) CANNOT have TVS review: render '-'
-                                      if (!isReviewEligibleResponse(response)) {
-                                        return (
-                                          <div className="flex items-center justify-center text-center">
-                                            <span className="text-gray-400 text-xs font-medium" title="Under rework: not eligible for review">-</span>
-                                          </div>
-                                        );
-                                      }
-
-                                      // 2. Dispatch Prerequisite: Only dispatched chassis can have TVS review
-                                      if (!response.isDispatched) {
-                                        return (
-                                          <div
-                                            className="inline-flex items-center justify-center gap-1 px-2 py-1 text-amber-600/80 dark:text-amber-400/80 bg-amber-50/60 dark:bg-amber-950/20 rounded-lg text-xs italic select-none border border-amber-200/50 dark:border-amber-900/30"
-                                            title="Review is locked until chassis is dispatched by the owning plant"
-                                          >
-                                            <Lock className="w-3 h-3 text-amber-500/80" />
-                                            <span>Pending Dispatch</span>
-                                          </div>
-                                        );
-                                      }
-
-                                      // If neither review exists on this dispatched, approved unit
+                                      // If neither review exists
                                       if (!mainRevData && !childRevDataFinal) {
+                                        if (!response.isDispatched) {
+                                          return (
+                                            <div
+                                              className="inline-flex items-center justify-center gap-1 px-2 py-1 text-amber-600/80 dark:text-amber-400/80 bg-amber-50/60 dark:bg-amber-950/20 rounded-lg text-xs italic select-none border border-amber-200/50 dark:border-amber-900/30"
+                                              title="Review is locked until chassis is dispatched by the owning plant"
+                                            >
+                                              <Lock className="w-3 h-3 text-amber-500/80" />
+                                              <span>Pending Dispatch</span>
+                                            </div>
+                                          );
+                                        }
                                         return (
                                           <div
                                             onClick={(e) => {
@@ -11351,9 +11303,9 @@ export default function FormAnalyticsDashboard({
                                         .map((q: any) => typeof q === "object" ? (q.questionText || q.title || q.text || q.questionId) : String(q))
                                         .filter((s): s is string => Boolean(s && s.trim()));
 
-                                      // ❌ Rework responses do not receive BIW review:
-                                      // Only "Direct Ok", "Accepted", and "Rework Accepted" can receive BIW review.
-                                      if (!isEligible) {
+                                      // 🔒 Owning plant cannot review; only triggered partner tenant reviewers can review.
+                                      // If user is owning plant or response is not eligible for review:
+                                      if (!canUserReviewThisForm || !isEligible) {
                                         if (currentStatus) {
                                           return (
                                             <div className="flex flex-col items-center justify-center gap-1">
@@ -11392,51 +11344,6 @@ export default function FormAnalyticsDashboard({
                                         return (
                                           <div className="flex items-center justify-center text-center">
                                             <span className="text-gray-400 text-xs font-medium">-</span>
-                                          </div>
-                                        );
-                                      }
-
-                                      // 🔒 Owning plant cannot review its own chassis (Rule 5E Rule 2)
-                                      // If reviewed by partner, render status badge; otherwise render '-'
-                                      if (!canUserReviewThisForm) {
-                                        if (currentStatus) {
-                                          return (
-                                            <div className="flex flex-col items-center justify-center gap-1">
-                                              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
-                                                {currentStatus}
-                                              </span>
-                                              {biwFlaggedCategories.length > 0 && (
-                                                <div className="flex flex-wrap gap-1 justify-center mt-0.5 max-w-full">
-                                                  {biwFlaggedCategories.map((cat, i) => (
-                                                    <span
-                                                      key={i}
-                                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-50 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 max-w-[200px] truncate"
-                                                      title={`BIW Defect Category: ${cat}`}
-                                                    >
-                                                      <span>⚠️</span>
-                                                      <span className="truncate">{cat}</span>
-                                                    </span>
-                                                  ))}
-                                                </div>
-                                              )}
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  setBiwViewResponse(response);
-                                                  setShowBiwViewModal(true);
-                                                }}
-                                                className="flex items-center gap-1 text-[11px] font-medium text-purple-600 dark:text-purple-400 hover:underline"
-                                              >
-                                                <Eye className="w-3 h-3" />
-                                                <span>View</span>
-                                              </button>
-                                            </div>
-                                          );
-                                        }
-                                        return (
-                                          <div className="flex items-center justify-center text-center">
-                                            <span className="text-gray-400 text-xs font-medium" title="Awaiting partner review">-</span>
                                           </div>
                                         );
                                       }
@@ -12342,7 +12249,7 @@ export default function FormAnalyticsDashboard({
           showToast("BIW & TVS Reviews imported successfully!", "success");
           try {
             localStorage.setItem("analytics_data_updated", String(Date.now()));
-          } catch (_) {}
+          } catch (_) { }
           fetchResponsesPage(responsesPage || 1);
           refreshDashboardData();
         }}
@@ -12358,7 +12265,7 @@ export default function FormAnalyticsDashboard({
           showToast("Import undone successfully! Records restored.", "success");
           try {
             localStorage.setItem("analytics_data_updated", String(Date.now()));
-          } catch (_) {}
+          } catch (_) { }
           fetchResponsesPage(responsesPage || 1);
           refreshDashboardData();
         }}

@@ -2498,9 +2498,8 @@ export const QualityDashboard: React.FC = () => {
                           if (el) el.scrollIntoView({ behavior: 'smooth' });
                         }
                       }}
-                      className={`absolute flex flex-col items-center justify-center select-none cursor-pointer transition-all duration-150 ${
-                        isChartSliceHovered ? 'opacity-0 pointer-events-none scale-95' : 'opacity-100 hover:scale-105'
-                      }`}
+                      className={`absolute flex flex-col items-center justify-center select-none cursor-pointer transition-all duration-150 ${isChartSliceHovered ? 'opacity-0 pointer-events-none scale-95' : 'opacity-100 hover:scale-105'
+                        }`}
                       style={{ top: "calc(50% - 10px)", left: "50%", transform: "translate(-50%, -50%)" }}
                       title="Click to view responses in table"
                     >
