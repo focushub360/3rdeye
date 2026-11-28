@@ -511,6 +511,7 @@ export const QualityDashboard: React.FC = () => {
   type HoveredSliceType = 'all' | 'directOk' | 'reworkCompleted' | 'accepted' | 'rework' | 'rejected' | 'pendingDispatch' | 'pendingData' | 'pendingTvs' | 'dispatched' | 'biwReviewed' | 'tvsReviewed' | 'tvsAccepted' | 'tvsDefects';
   const [selectedSlice, setSelectedSlice] = useState<HoveredSliceType>('all');
   const [hoverPreview, setHoverPreview] = useState<HoveredSliceType | null>(null);
+  const [isChartSliceHovered, setIsChartSliceHovered] = useState(false);
   const hoveredSlice: HoveredSliceType = hoverPreview ?? selectedSlice;
 
   const handleSelectSlice = (slice: HoveredSliceType) => {
@@ -945,15 +946,20 @@ export const QualityDashboard: React.FC = () => {
         }
       },
       onHover: (_event: any, elements: any[]) => {
-        if (selectedSlice !== 'all') return;
         if (elements && elements.length > 0) {
-          const idx = elements[0].index;
-          if (idx === 0) setHoverPreview('directOk');
-          else if (idx === 1) setHoverPreview('reworkCompleted');
-          else if (idx === 2) setHoverPreview('rejected');
-          else if (idx === 3) setHoverPreview('rework');
+          setIsChartSliceHovered(true);
+          if (selectedSlice === 'all') {
+            const idx = elements[0].index;
+            if (idx === 0) setHoverPreview('directOk');
+            else if (idx === 1) setHoverPreview('reworkCompleted');
+            else if (idx === 2) setHoverPreview('rejected');
+            else if (idx === 3) setHoverPreview('rework');
+          }
         } else {
-          setHoverPreview(null);
+          setIsChartSliceHovered(false);
+          if (selectedSlice === 'all') {
+            setHoverPreview(null);
+          }
         }
       }
     };
@@ -2477,9 +2483,12 @@ export const QualityDashboard: React.FC = () => {
                 <div className="flex-1 w-full min-w-0 flex flex-col items-center justify-center">
                   <div
                     className="relative w-full max-w-[320px] h-[240px] sm:h-[260px] flex items-center justify-center"
-                    onMouseLeave={handleHoverLeave}
+                    onMouseLeave={() => {
+                      setIsChartSliceHovered(false);
+                      handleHoverLeave();
+                    }}
                   >
-                    <Doughnut data={pieChartData} options={pieChartOptions} plugins={[centerTextPlugin]} />
+                    <Doughnut data={pieChartData} options={pieChartOptions} />
                     <div
                       onClick={() => {
                         if (hoveredSlice === 'pendingDispatch' || (!hoveredSlice || hoveredSlice === 'all')) {
@@ -2489,10 +2498,75 @@ export const QualityDashboard: React.FC = () => {
                           if (el) el.scrollIntoView({ behavior: 'smooth' });
                         }
                       }}
-                      className="absolute rounded-full cursor-pointer hover:bg-gray-500/5 transition-colors select-none"
-                      style={{ width: "120px", height: "120px", top: "50%", left: "50%", transform: "translate(-50%, -50%)" }}
+                      className={`absolute flex flex-col items-center justify-center select-none cursor-pointer transition-all duration-150 ${
+                        isChartSliceHovered ? 'opacity-0 pointer-events-none scale-95' : 'opacity-100 hover:scale-105'
+                      }`}
+                      style={{ top: "calc(50% - 10px)", left: "50%", transform: "translate(-50%, -50%)" }}
                       title="Click to view responses in table"
-                    />
+                    >
+                      <span className="text-2xl sm:text-3xl font-black text-gray-900 leading-none tracking-tight">
+                        {hoveredSlice === 'directOk'
+                          ? summaryPieDetails.counts.directOk.toLocaleString()
+                          : hoveredSlice === 'reworkCompleted'
+                            ? summaryPieDetails.counts.reworkCompleted.toLocaleString()
+                            : hoveredSlice === 'rejected'
+                              ? summaryPieDetails.counts.no.toLocaleString()
+                              : hoveredSlice === 'rework'
+                                ? summaryPieDetails.counts.na.toLocaleString()
+                                : hoveredSlice === 'pendingDispatch'
+                                  ? summaryPieDetails.counts.pendingDispatch.toLocaleString()
+                                  : hoveredSlice === 'pendingData'
+                                    ? summaryPieDetails.counts.pendingData.toLocaleString()
+                                    : hoveredSlice === 'pendingTvs'
+                                      ? summaryPieDetails.counts.pendingTvs.toLocaleString()
+                                      : hoveredSlice === 'dispatched'
+                                        ? summaryPieDetails.counts.dispatched.toLocaleString()
+                                        : hoveredSlice === 'biwReviewed'
+                                          ? summaryPieDetails.counts.biwReviewed.toLocaleString()
+                                          : hoveredSlice === 'biwAccepted'
+                                            ? summaryPieDetails.counts.biwAccepted.toLocaleString()
+                                            : hoveredSlice === 'biwDefects'
+                                              ? summaryPieDetails.counts.biwDefects.toLocaleString()
+                                          : hoveredSlice === 'tvsReviewed'
+                                            ? summaryPieDetails.counts.tvsReviewed.toLocaleString()
+                                            : hoveredSlice === 'tvsAccepted'
+                                              ? summaryPieDetails.counts.tvsAccepted.toLocaleString()
+                                              : hoveredSlice === 'tvsDefects'
+                                                ? summaryPieDetails.counts.tvsDefects.toLocaleString()
+                                                : ((summaryPieDetails.counts.directOk || 0) + (summaryPieDetails.counts.reworkCompleted || 0)).toLocaleString()}
+                      </span>
+                      <span className={`text-[10px] font-bold tracking-wider mt-1 uppercase ${hoveredSlice === 'directOk' ? 'text-green-600' :
+                        hoveredSlice === 'reworkCompleted' ? 'text-blue-600' :
+                          hoveredSlice === 'rejected' ? 'text-red-600' :
+                            hoveredSlice === 'rework' ? 'text-amber-600' :
+                              hoveredSlice === 'pendingDispatch' ? 'text-amber-600' :
+                                hoveredSlice === 'pendingData' ? 'text-rose-600' :
+                                  hoveredSlice === 'pendingTvs' ? 'text-amber-600' :
+                                    hoveredSlice === 'dispatched' ? 'text-indigo-600' :
+                                      hoveredSlice === 'biwReviewed' ? 'text-teal-600' :
+                                        hoveredSlice === 'biwAccepted' ? 'text-emerald-600' :
+                                          hoveredSlice === 'biwDefects' ? 'text-rose-600' :
+                                        hoveredSlice === 'tvsReviewed' ? 'text-purple-600' :
+                                          hoveredSlice === 'tvsAccepted' ? 'text-emerald-600' :
+                                            hoveredSlice === 'tvsDefects' ? 'text-rose-600' : 'text-gray-500'
+                        }`}>
+                        {hoveredSlice === 'directOk' ? 'DIRECT OK' :
+                          hoveredSlice === 'reworkCompleted' ? 'REWORK ACC' :
+                            hoveredSlice === 'rejected' ? 'REJECTED' :
+                              hoveredSlice === 'rework' ? 'REWORK' :
+                                hoveredSlice === 'pendingDispatch' ? 'PENDING DISPATCH' :
+                                  hoveredSlice === 'pendingData' ? 'PENDING BIW DATA' :
+                                    hoveredSlice === 'pendingTvs' ? 'PENDING TVS' :
+                                      hoveredSlice === 'dispatched' ? 'DISPATCHED' :
+                                        hoveredSlice === 'biwReviewed' ? 'BIW REVIEWED' :
+                                          hoveredSlice === 'biwAccepted' ? 'BIW ACCEPTED' :
+                                            hoveredSlice === 'biwDefects' ? 'BIW DEFECTS' :
+                                          hoveredSlice === 'tvsReviewed' ? 'TVS REVIEWED' :
+                                            hoveredSlice === 'tvsAccepted' ? 'TVS ACCEPTED' :
+                                              hoveredSlice === 'tvsDefects' ? 'TVS DEFECTS' : 'ACCEPTED'}
+                      </span>
+                    </div>
+                  </div>
 
                   {/* 4 Legend Badges Underneath Chart with exact color dots */}
                   <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 mt-3">
