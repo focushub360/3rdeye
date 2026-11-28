@@ -19,6 +19,7 @@ const PerformanceTable = ({
   endDate,
   formId,
   formIds,
+  formTitlesMap,
   title,
   selectedSlice,
   onClearSlice,
@@ -28,6 +29,7 @@ const PerformanceTable = ({
   endDate?: string;
   formId?: string;
   formIds?: string[];
+  formTitlesMap?: Record<string, string>;
   title?: string;
   selectedSlice?: string;
   onClearSlice?: () => void;
@@ -39,6 +41,35 @@ const PerformanceTable = ({
   const [showPerformanceGuide, setShowPerformanceGuide] = useState(false);
   const [selectedInspectorForDetails, setSelectedInspectorForDetails] = useState<any | null>(null);
   const [showInspectorDetailModal, setShowInspectorDetailModal] = useState(false);
+
+  // Lazy-load forms dictionary to ensure exact form titles on breakdown cards
+  const [internalFormTitles, setInternalFormTitles] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let active = true;
+    apiClient.getForms().then((res: any) => {
+      if (!active) return;
+      const list = Array.isArray(res) ? res : (res?.data || []);
+      const map: Record<string, string> = {};
+      list.forEach((f: any) => {
+        if (f.id) map[String(f.id)] = f.title;
+        if (f._id) map[String(f._id)] = f.title;
+      });
+      setInternalFormTitles(map);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  const resolveFormTitle = useCallback((fId?: string, fallbackTitle?: string) => {
+    if (fId) {
+      const idStr = String(fId);
+      if (formTitlesMap && formTitlesMap[idStr]) return formTitlesMap[idStr];
+      if (internalFormTitles[idStr]) return internalFormTitles[idStr];
+    }
+    if (fallbackTitle && fallbackTitle !== "Inspection Form" && fallbackTitle !== "Unknown Form") {
+      return fallbackTitle;
+    }
+    return fallbackTitle || "Inspection Form";
+  }, [formTitlesMap, internalFormTitles]);
 
   // Hover Breakdown Tooltip state for ALL Performance Table Numbers
   const [breakdownTab, setBreakdownTab] = useState<'forms' | 'time'>('forms');
@@ -174,14 +205,16 @@ const PerformanceTable = ({
       if (numVal > 0 || fSub > 0 || fRev > 0 || metric === "PerformanceScore") {
         list.push({
           formId: f.formId,
-          title: f.formTitle || "Inspection Form",
+          title: resolveFormTitle(f.formId, f.formTitle),
           count: cnt,
           subDetail,
         });
       }
     });
+    // Sort descending by count so active pending/action items appear at the top
+    list.sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0));
     return list;
-  }, []);
+  }, [resolveFormTitle]);
 
   const getTimeListForMetric = useCallback((
     metric: string,
@@ -391,8 +424,29 @@ const PerformanceTable = ({
     } else if (metric === "Dispatch Pending" || metric === "DispatchPending") {
       metricDisplay = "Dispatch Pending";
       sourceCategory = "Shop Floor Inspection & Dispatch";
-      totalVal = dispatchPending;
-      formula = `Accepted (${directOk + reworkQCCompleted}) - Dispatched (${dispatched}) = ${dispatchPending} units ready for gate clearance`;
+      const formsList = getFormListForMetric(metric, entity.formBreakdown || []);
+      const formSum = formsList.reduce((acc, f) => acc + (typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0), 0);
+      const passedVal = entity.dispatchPending;
+      if (formsList.length > 0) {
+        totalVal = formSum;
+        const activeForms = formsList.filter(f => (typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0) > 0);
+        if (formSum === 0) {
+          formula = `All accepted units dispatched: 0 units pending dispatch`;
+        } else if (activeForms.length === 1) {
+          const matchedF = entity.formBreakdown?.find((x: any) => (x.formId || x.formTitle) === (activeForms[0].formId || activeForms[0].title));
+          const fAcc = matchedF ? ((matchedF.directOk || 0) + (matchedF.reworkQcCompleted || 0)) : (directOk + reworkQCCompleted);
+          const fDisp = matchedF?.dispatched ?? dispatched;
+          formula = `${activeForms[0].title}: Accepted (${fAcc}) - Dispatched (${fDisp}) = ${totalVal} units ready for gate clearance`;
+        } else {
+          formula = `Sum of form pending units: ${formSum} units ready for gate clearance`;
+        }
+      } else if (passedVal !== undefined) {
+        totalVal = passedVal;
+        formula = `Accepted (${directOk + reworkQCCompleted}) - Dispatched (${dispatched}) = ${totalVal} units ready for gate clearance`;
+      } else {
+        totalVal = Math.max(0, (directOk + reworkQCCompleted) - dispatched);
+        formula = `Accepted (${directOk + reworkQCCompleted}) - Dispatched (${dispatched}) = ${totalVal} units ready for gate clearance`;
+      }
     } else if (metric === "Dispatched") {
       metricDisplay = "Dispatched Units";
       sourceCategory = "Shop Floor Inspection & Dispatch";
@@ -411,9 +465,30 @@ const PerformanceTable = ({
     } else if (metric === "BIW Review Pending" || metric === "BIWPending") {
       metricDisplay = "BIW Review Pending";
       sourceCategory = "BIW Review Section (Secondary Quality Audit)";
-      const eligibleUnits = dispatched || 0;
-      totalVal = Math.max(0, eligibleUnits - biwRev);
-      formula = `Dispatched Units (${eligibleUnits}) - BIW Reviewed (${biwRev}) = ${totalVal}`;
+      const formsList = getFormListForMetric(metric, entity.formBreakdown || []);
+      const formSum = formsList.reduce((acc, f) => acc + (typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0), 0);
+      const passedVal = entity.biwReviewPending !== undefined ? entity.biwReviewPending : (entity.reviewPending !== undefined ? entity.reviewPending : undefined);
+      if (formsList.length > 0) {
+        totalVal = formSum;
+        const activeForms = formsList.filter(f => (typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0) > 0);
+        if (formSum === 0) {
+          formula = `All dispatched units reviewed: 0 units awaiting BIW review`;
+        } else if (activeForms.length === 1) {
+          const matchedF = entity.formBreakdown?.find((x: any) => (x.formId || x.formTitle) === (activeForms[0].formId || activeForms[0].title));
+          const fDisp = matchedF?.dispatched ?? dispatched;
+          const fRev = matchedF?.biwTotalReviewed ?? biwRev;
+          formula = `${activeForms[0].title}: Dispatched (${fDisp}) - BIW Reviewed (${fRev}) = ${totalVal} units awaiting BIW review`;
+        } else {
+          formula = `Sum of form pending units: ${formSum} units awaiting BIW review`;
+        }
+      } else if (passedVal !== undefined) {
+        totalVal = passedVal;
+        formula = `Dispatched Units (${dispatched}) - BIW Reviewed (${biwRev}) = ${totalVal}`;
+      } else {
+        const eligibleUnits = dispatched || 0;
+        totalVal = Math.max(0, eligibleUnits - biwRev);
+        formula = `Dispatched Units (${eligibleUnits}) - BIW Reviewed (${biwRev}) = ${totalVal}`;
+      }
     } else if (metric === "BIW Accepted" || metric === "BIWAccepted") {
       metricDisplay = "BIW Accepted";
       sourceCategory = "BIW Review Section (Secondary Quality Audit)";
@@ -437,9 +512,30 @@ const PerformanceTable = ({
     } else if (metric === "TVS Review Pending" || metric === "TVSPending") {
       metricDisplay = "TVS Review Pending";
       sourceCategory = "TVS Review Section (Final Customer Audit)";
-      const eligibleUnits = dispatched || 0;
-      totalVal = Math.max(0, eligibleUnits - tvsRev);
-      formula = `Dispatched Units (${eligibleUnits}) - TVS Reviewed (${tvsRev}) = ${totalVal}`;
+      const formsList = getFormListForMetric(metric, entity.formBreakdown || []);
+      const formSum = formsList.reduce((acc, f) => acc + (typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0), 0);
+      const passedVal = entity.tvsReviewPending !== undefined ? entity.tvsReviewPending : (entity.tvsPending !== undefined ? entity.tvsPending : undefined);
+      if (formsList.length > 0) {
+        totalVal = formSum;
+        const activeForms = formsList.filter(f => (typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0) > 0);
+        if (formSum === 0) {
+          formula = `All dispatched units reviewed: 0 units awaiting TVS review`;
+        } else if (activeForms.length === 1) {
+          const matchedF = entity.formBreakdown?.find((x: any) => (x.formId || x.formTitle) === (activeForms[0].formId || activeForms[0].title));
+          const fDisp = matchedF?.dispatched ?? dispatched;
+          const fRev = matchedF?.tvsTotalReviewed ?? tvsRev;
+          formula = `${activeForms[0].title}: Dispatched (${fDisp}) - TVS Reviewed (${fRev}) = ${totalVal} units awaiting TVS review`;
+        } else {
+          formula = `Sum of form pending units: ${formSum} units awaiting TVS review`;
+        }
+      } else if (passedVal !== undefined) {
+        totalVal = passedVal;
+        formula = `Dispatched Units (${dispatched}) - TVS Reviewed (${tvsRev}) = ${totalVal}`;
+      } else {
+        const eligibleUnits = dispatched || 0;
+        totalVal = Math.max(0, eligibleUnits - tvsRev);
+        formula = `Dispatched Units (${eligibleUnits}) - TVS Reviewed (${tvsRev}) = ${totalVal}`;
+      }
     } else if (metric === "TVS Accepted" || metric === "TVSAccepted") {
       metricDisplay = "TVS Accepted";
       sourceCategory = "TVS Review Section (Final Customer Audit)";
@@ -567,10 +663,33 @@ const PerformanceTable = ({
       formula = `Defective units rejected/scrapped during initial floor inspection`;
     } else if (metric === "Dispatch Pending" || metric === "DispatchPending") {
       metricDisplay = "Dispatch Pending";
-      totalVal = dispatchPending;
-      formula = `Accepted (${directOk + reworkQCCompleted}) - Dispatched (${dispatched}) = ${dispatchPending} units ready for gate clearance`;
+      sourceCategory = "Shop Floor Inspection & Dispatch";
+      const formsList = getFormListForMetric(metric, entity.formBreakdown || []);
+      const formSum = formsList.reduce((acc, f) => acc + (typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0), 0);
+      const passedVal = entity.dispatchPending;
+      if (formsList.length > 0) {
+        totalVal = formSum;
+        const activeForms = formsList.filter(f => (typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0) > 0);
+        if (formSum === 0) {
+          formula = `All accepted units dispatched: 0 units pending dispatch`;
+        } else if (activeForms.length === 1) {
+          const matchedF = entity.formBreakdown?.find((x: any) => (x.formId || x.formTitle) === (activeForms[0].formId || activeForms[0].title));
+          const fAcc = matchedF ? ((matchedF.directOk || 0) + (matchedF.reworkQcCompleted || 0)) : (directOk + reworkQCCompleted);
+          const fDisp = matchedF?.dispatched ?? dispatched;
+          formula = `${activeForms[0].title}: Accepted (${fAcc}) - Dispatched (${fDisp}) = ${totalVal} units ready for gate clearance`;
+        } else {
+          formula = `Sum of form pending units: ${formSum} units ready for gate clearance`;
+        }
+      } else if (passedVal !== undefined) {
+        totalVal = passedVal;
+        formula = `Accepted (${directOk + reworkQCCompleted}) - Dispatched (${dispatched}) = ${totalVal} units ready for gate clearance`;
+      } else {
+        totalVal = Math.max(0, (directOk + reworkQCCompleted) - dispatched);
+        formula = `Accepted (${directOk + reworkQCCompleted}) - Dispatched (${dispatched}) = ${totalVal} units ready for gate clearance`;
+      }
     } else if (metric === "Dispatched") {
       metricDisplay = "Dispatched Units";
+      sourceCategory = "Shop Floor Inspection & Dispatch";
       totalVal = dispatched;
       formula = `Completed units with isDispatched: true cleared through factory dispatch gate`;
     } else if (metric === "Total Submitted" || metric === "TotalSubmitted") {
@@ -586,9 +705,30 @@ const PerformanceTable = ({
     } else if (metric === "BIW Review Pending" || metric === "BIWPending") {
       metricDisplay = "BIW Review Pending";
       sourceCategory = "BIW Review Section";
-      const eligibleUnits = dispatched || 0;
-      totalVal = eligibleUnits === 0 ? 0 : Math.max(0, eligibleUnits - biwRev);
-      formula = eligibleUnits === 0 ? `0 pending (Quality reviewer)` : `Dispatched Units (${eligibleUnits}) - BIW Reviewed (${biwRev}) = ${totalVal}`;
+      const formsList = getFormListForMetric(metric, entity.formBreakdown || []);
+      const formSum = formsList.reduce((acc, f) => acc + (typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0), 0);
+      const passedVal = entity.biwReviewPending !== undefined ? entity.biwReviewPending : (entity.reviewPending !== undefined ? entity.reviewPending : undefined);
+      if (formsList.length > 0) {
+        totalVal = formSum;
+        const activeForms = formsList.filter(f => (typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0) > 0);
+        if (formSum === 0) {
+          formula = `All dispatched units reviewed: 0 units awaiting BIW review`;
+        } else if (activeForms.length === 1) {
+          const matchedF = entity.formBreakdown?.find((x: any) => (x.formId || x.formTitle) === (activeForms[0].formId || activeForms[0].title));
+          const fDisp = matchedF?.dispatched ?? dispatched;
+          const fRev = matchedF?.biwTotalReviewed ?? biwRev;
+          formula = `${activeForms[0].title}: Dispatched (${fDisp}) - BIW Reviewed (${fRev}) = ${totalVal} units awaiting BIW review`;
+        } else {
+          formula = `Sum of form pending units: ${formSum} units awaiting BIW review`;
+        }
+      } else if (passedVal !== undefined) {
+        totalVal = passedVal;
+        formula = `Dispatched Units (${dispatched}) - BIW Reviewed (${biwRev}) = ${totalVal}`;
+      } else {
+        const eligibleUnits = dispatched || 0;
+        totalVal = Math.max(0, eligibleUnits - biwRev);
+        formula = `Dispatched Units (${eligibleUnits}) - BIW Reviewed (${biwRev}) = ${totalVal}`;
+      }
     } else if (metric === "BIW Accepted" || metric === "BIWAccepted") {
       metricDisplay = "BIW Accepted";
       sourceCategory = "BIW Review Section";
@@ -612,9 +752,30 @@ const PerformanceTable = ({
     } else if (metric === "TVS Review Pending" || metric === "TVSPending") {
       metricDisplay = "TVS Review Pending";
       sourceCategory = "TVS Review Section";
-      const eligibleUnits = dispatched || 0;
-      totalVal = eligibleUnits === 0 ? 0 : Math.max(0, eligibleUnits - tvsRev);
-      formula = eligibleUnits === 0 ? `0 pending (Customer reviewer)` : `Dispatched Units (${eligibleUnits}) - TVS Reviewed (${tvsRev}) = ${totalVal}`;
+      const formsList = getFormListForMetric(metric, entity.formBreakdown || []);
+      const formSum = formsList.reduce((acc, f) => acc + (typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0), 0);
+      const passedVal = entity.tvsReviewPending !== undefined ? entity.tvsReviewPending : (entity.tvsPending !== undefined ? entity.tvsPending : undefined);
+      if (formsList.length > 0) {
+        totalVal = formSum;
+        const activeForms = formsList.filter(f => (typeof f.count === "number" ? f.count : parseInt(String(f.count), 10) || 0) > 0);
+        if (formSum === 0) {
+          formula = `All dispatched units reviewed: 0 units awaiting TVS review`;
+        } else if (activeForms.length === 1) {
+          const matchedF = entity.formBreakdown?.find((x: any) => (x.formId || x.formTitle) === (activeForms[0].formId || activeForms[0].title));
+          const fDisp = matchedF?.dispatched ?? dispatched;
+          const fRev = matchedF?.tvsTotalReviewed ?? tvsRev;
+          formula = `${activeForms[0].title}: Dispatched (${fDisp}) - TVS Reviewed (${fRev}) = ${totalVal} units awaiting TVS review`;
+        } else {
+          formula = `Sum of form pending units: ${formSum} units awaiting TVS review`;
+        }
+      } else if (passedVal !== undefined) {
+        totalVal = passedVal;
+        formula = `Dispatched Units (${dispatched}) - TVS Reviewed (${tvsRev}) = ${totalVal}`;
+      } else {
+        const eligibleUnits = dispatched || 0;
+        totalVal = Math.max(0, eligibleUnits - tvsRev);
+        formula = `Dispatched Units (${eligibleUnits}) - TVS Reviewed (${tvsRev}) = ${totalVal}`;
+      }
     } else if (metric === "TVS Accepted" || metric === "TVSAccepted") {
       metricDisplay = "TVS Accepted";
       sourceCategory = "TVS Review Section";
@@ -1618,14 +1779,14 @@ const PerformanceTable = ({
       (sum, row) => sum + (row.reworkQcCompleted ?? inspectorStatusMap[row.name]?.["Rework QC Completed"] ?? 0),
       0,
     );
-    const totalDispatchPending = filteredData.reduce((sum, row) => {
+    let totalDispatchPending = filteredData.reduce((sum, row) => {
       const dOk = (row.directOk !== undefined ? row.directOk : (inspectorStatusMap[row.name]?.["Direct Ok"] || 0)) + (inspectorStatusMap[row.name]?.["Accepted"] || 0);
       const rComp = (row.reworkQcCompleted !== undefined ? row.reworkQcCompleted : (inspectorStatusMap[row.name]?.["Rework QC Completed"] || inspectorStatusMap[row.name]?.["Rework Accepted"] || 0));
       const disp = row.dispatched ?? inspectorStatusMap[row.name]?.["Dispatched"] ?? 0;
       const p = row.dispatchPending !== undefined ? row.dispatchPending : Math.max(0, dOk + rComp - disp);
       return sum + p;
     }, 0);
-    const totalReviewPending = Math.max(
+    let totalReviewPending = Math.max(
       0,
       totalDispatched - totalTotalReviewed,
     );
@@ -1634,7 +1795,7 @@ const PerformanceTable = ({
       (sum, row) => sum + (row.tvsTotalReviewed || 0),
       0,
     );
-    const totalTvsReviewPending = filteredData.reduce(
+    let totalTvsReviewPending = filteredData.reduce(
       (sum, row) => {
         const disp = row.dispatched || 0;
         return sum + (row.tvsReviewPending ?? Math.max(0, disp - (row.tvsTotalReviewed || 0)));
@@ -1845,6 +2006,22 @@ const PerformanceTable = ({
     });
 
     tenantGroupsMap.forEach((g) => {
+      // Reconcile plant-level pending values using form breakdowns to prevent cross-form over-cancellation
+      if (g.formBreakdown && g.formBreakdown.length > 0) {
+        g.totals.tvsPending = g.formBreakdown.reduce(
+          (sum: number, f: any) => sum + Math.max(0, (f.dispatched || 0) - (f.tvsTotalReviewed || 0)),
+          0
+        );
+        g.totals.reviewPending = g.formBreakdown.reduce(
+          (sum: number, f: any) => sum + Math.max(0, (f.dispatched || 0) - (f.biwTotalReviewed || 0)),
+          0
+        );
+        g.totals.dispatchPending = g.formBreakdown.reduce(
+          (sum: number, f: any) => sum + Math.max(0, ((f.directOk || 0) + (f.reworkQcCompleted || 0)) - (f.dispatched || 0)),
+          0
+        );
+      }
+
       const reviewed = g.rows.filter(r => (r.totalReviewed || r.biwTotalReviewed || 0) > 0);
       if (reviewed.length > 0) {
         g.totals.performanceScore = Math.round(
@@ -1884,6 +2061,22 @@ const PerformanceTable = ({
         }
       });
     });
+
+    // Reconcile grand totals using all forms breakdown
+    if (allFormsBreakdown.length > 0) {
+      totalDispatchPending = allFormsBreakdown.reduce(
+        (sum, f) => sum + Math.max(0, ((f.directOk || 0) + (f.reworkQcCompleted || 0)) - (f.dispatched || 0)),
+        0
+      );
+      totalReviewPending = allFormsBreakdown.reduce(
+        (sum, f) => sum + Math.max(0, (f.dispatched || 0) - (f.biwTotalReviewed || 0)),
+        0
+      );
+      totalTvsReviewPending = allFormsBreakdown.reduce(
+        (sum, f) => sum + Math.max(0, (f.dispatched || 0) - (f.tvsTotalReviewed || 0)),
+        0
+      );
+    }
 
     const allTimeBreakdown: any[] = [];
     filteredData.forEach((row) => {

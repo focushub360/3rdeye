@@ -952,6 +952,15 @@ export const QualityDashboard: React.FC = () => {
       .map((f: any) => f.title);
   }, [availableFormOptions, selectedFormIds]);
 
+  const formTitlesMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    (availableFormOptions || []).forEach((f: any) => {
+      if (f.id) map[String(f.id)] = f.title;
+      if (f._id) map[String(f._id)] = f.title;
+    });
+    return map;
+  }, [availableFormOptions]);
+
   const mergedInspectors = useMemo(() => {
     const map = new Map<string, any>();
     relevantInspectors.forEach(insp => {
@@ -3728,6 +3737,7 @@ export const QualityDashboard: React.FC = () => {
                     startDate={startDate}
                     endDate={endDate}
                     formIds={selectedFormIds.length > 0 ? selectedFormIds : undefined}
+                    formTitlesMap={formTitlesMap}
                     title={selectedFormIds.length > 1 ? `Combined Performance Table (${selectedFormIds.length} Forms)` : undefined}
                     selectedSlice={selectedSlice}
                     onClearSlice={() => handleSelectSlice('all')}

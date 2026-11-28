@@ -2862,7 +2862,7 @@ export const getPerformanceTable = async (req, res) => {
     console.log(`[Performance Table] Found ${allUserIds.length} unique user IDs from responses`);
 
     // Ensure all forms appearing in responses are loaded in formTenantMap and formTitleMap
-    const allResponseQuestionIds = [...new Set(allResponses.map(r => r.questionId).filter(Boolean))];
+    const allResponseQuestionIds = [...new Set(allResponses.map(r => r.questionId || r.formId).filter(Boolean))];
     const missingFormIds = allResponseQuestionIds.filter(id => !formTitleMap.has(id.toString()) && !formTitleMap.has(id));
     if (missingFormIds.length > 0) {
       try {
