@@ -867,19 +867,19 @@ export const QualityDashboard: React.FC = () => {
         tooltip: {
           enabled: true,
           position: 'nearest',
-          backgroundColor: 'rgba(15, 23, 42, 0.98)',
-          borderColor: 'rgba(71, 85, 105, 0.8)',
-          borderWidth: 1,
+          backgroundColor: '#0f172a',
+          borderColor: '#475569',
+          borderWidth: 1.5,
           titleColor: '#ffffff',
-          titleFont: { size: 13, weight: 'bold' as const, family: 'Inter, system-ui, -apple-system, sans-serif' },
-          titleSpacing: 6,
-          bodyColor: '#f8fafc',
-          bodyFont: { size: 12, weight: '500' as const, family: 'Inter, system-ui, -apple-system, sans-serif' },
-          bodySpacing: 5,
-          padding: 12,
-          cornerRadius: 8,
-          boxPadding: 4,
-          caretPadding: 6,
+          titleFont: { size: 14, weight: 'bold' as const, family: 'Inter, system-ui, -apple-system, sans-serif' },
+          titleSpacing: 8,
+          bodyColor: '#ffffff',
+          bodyFont: { size: 13, weight: '600' as const, family: 'Inter, system-ui, -apple-system, sans-serif' },
+          bodySpacing: 6,
+          padding: 14,
+          cornerRadius: 10,
+          boxPadding: 6,
+          caretPadding: 8,
           callbacks: {
             label: (context: any) => {
               const label = context.label || '';
@@ -1069,19 +1069,19 @@ export const QualityDashboard: React.FC = () => {
       tooltip: {
         enabled: true,
         position: 'nearest',
-        backgroundColor: 'rgba(15, 23, 42, 0.98)',
-        borderColor: 'rgba(71, 85, 105, 0.8)',
-        borderWidth: 1,
+        backgroundColor: '#0f172a',
+        borderColor: '#475569',
+        borderWidth: 1.5,
         titleColor: '#ffffff',
-        titleFont: { size: 13, weight: 'bold' as const, family: 'Inter, system-ui, -apple-system, sans-serif' },
-        titleSpacing: 6,
-        bodyColor: '#f8fafc',
-        bodyFont: { size: 12, weight: '500' as const, family: 'Inter, system-ui, -apple-system, sans-serif' },
-        bodySpacing: 5,
-        padding: 12,
-        cornerRadius: 8,
-        boxPadding: 4,
-        caretPadding: 6,
+        titleFont: { size: 14, weight: 'bold' as const, family: 'Inter, system-ui, -apple-system, sans-serif' },
+        titleSpacing: 8,
+        bodyColor: '#ffffff',
+        bodyFont: { size: 13, weight: '600' as const, family: 'Inter, system-ui, -apple-system, sans-serif' },
+        bodySpacing: 6,
+        padding: 14,
+        cornerRadius: 10,
+        boxPadding: 6,
+        caretPadding: 8,
         callbacks: {
           label: (context: any) => {
             const label = context.label || '';
@@ -1175,19 +1175,19 @@ export const QualityDashboard: React.FC = () => {
       tooltip: {
         enabled: true,
         position: 'nearest',
-        backgroundColor: 'rgba(15, 23, 42, 0.98)',
-        borderColor: 'rgba(71, 85, 105, 0.8)',
-        borderWidth: 1,
+        backgroundColor: '#0f172a',
+        borderColor: '#475569',
+        borderWidth: 1.5,
         titleColor: '#ffffff',
-        titleFont: { size: 13, weight: 'bold' as const, family: 'Inter, system-ui, -apple-system, sans-serif' },
-        titleSpacing: 6,
-        bodyColor: '#f8fafc',
-        bodyFont: { size: 12, weight: '500' as const, family: 'Inter, system-ui, -apple-system, sans-serif' },
-        bodySpacing: 5,
-        padding: 12,
-        cornerRadius: 8,
-        boxPadding: 4,
-        caretPadding: 6,
+        titleFont: { size: 14, weight: 'bold' as const, family: 'Inter, system-ui, -apple-system, sans-serif' },
+        titleSpacing: 8,
+        bodyColor: '#ffffff',
+        bodyFont: { size: 13, weight: '600' as const, family: 'Inter, system-ui, -apple-system, sans-serif' },
+        bodySpacing: 6,
+        padding: 14,
+        cornerRadius: 10,
+        boxPadding: 6,
+        caretPadding: 8,
         callbacks: {
           label: (context: any) => {
             const label = context.label || '';
@@ -2527,13 +2527,13 @@ export const QualityDashboard: React.FC = () => {
                                             ? summaryPieDetails.counts.biwAccepted.toLocaleString()
                                             : hoveredSlice === 'biwDefects'
                                               ? summaryPieDetails.counts.biwDefects.toLocaleString()
-                                          : hoveredSlice === 'tvsReviewed'
-                                            ? summaryPieDetails.counts.tvsReviewed.toLocaleString()
-                                            : hoveredSlice === 'tvsAccepted'
-                                              ? summaryPieDetails.counts.tvsAccepted.toLocaleString()
-                                              : hoveredSlice === 'tvsDefects'
-                                                ? summaryPieDetails.counts.tvsDefects.toLocaleString()
-                                                : ((summaryPieDetails.counts.directOk || 0) + (summaryPieDetails.counts.reworkCompleted || 0)).toLocaleString()}
+                                              : hoveredSlice === 'tvsReviewed'
+                                                ? summaryPieDetails.counts.tvsReviewed.toLocaleString()
+                                                : hoveredSlice === 'tvsAccepted'
+                                                  ? summaryPieDetails.counts.tvsAccepted.toLocaleString()
+                                                  : hoveredSlice === 'tvsDefects'
+                                                    ? summaryPieDetails.counts.tvsDefects.toLocaleString()
+                                                    : ((summaryPieDetails.counts.directOk || 0) + (summaryPieDetails.counts.reworkCompleted || 0)).toLocaleString()}
                       </span>
                       <span className={`text-[10px] font-bold tracking-wider mt-1 uppercase ${hoveredSlice === 'directOk' ? 'text-green-600' :
                         hoveredSlice === 'reworkCompleted' ? 'text-blue-600' :
@@ -2546,9 +2546,9 @@ export const QualityDashboard: React.FC = () => {
                                       hoveredSlice === 'biwReviewed' ? 'text-teal-600' :
                                         hoveredSlice === 'biwAccepted' ? 'text-emerald-600' :
                                           hoveredSlice === 'biwDefects' ? 'text-rose-600' :
-                                        hoveredSlice === 'tvsReviewed' ? 'text-purple-600' :
-                                          hoveredSlice === 'tvsAccepted' ? 'text-emerald-600' :
-                                            hoveredSlice === 'tvsDefects' ? 'text-rose-600' : 'text-gray-500'
+                                            hoveredSlice === 'tvsReviewed' ? 'text-purple-600' :
+                                              hoveredSlice === 'tvsAccepted' ? 'text-emerald-600' :
+                                                hoveredSlice === 'tvsDefects' ? 'text-rose-600' : 'text-gray-500'
                         }`}>
                         {hoveredSlice === 'directOk' ? 'DIRECT OK' :
                           hoveredSlice === 'reworkCompleted' ? 'REWORK ACC' :
@@ -2561,9 +2561,9 @@ export const QualityDashboard: React.FC = () => {
                                         hoveredSlice === 'biwReviewed' ? 'BIW REVIEWED' :
                                           hoveredSlice === 'biwAccepted' ? 'BIW ACCEPTED' :
                                             hoveredSlice === 'biwDefects' ? 'BIW DEFECTS' :
-                                          hoveredSlice === 'tvsReviewed' ? 'TVS REVIEWED' :
-                                            hoveredSlice === 'tvsAccepted' ? 'TVS ACCEPTED' :
-                                              hoveredSlice === 'tvsDefects' ? 'TVS DEFECTS' : 'ACCEPTED'}
+                                              hoveredSlice === 'tvsReviewed' ? 'TVS REVIEWED' :
+                                                hoveredSlice === 'tvsAccepted' ? 'TVS ACCEPTED' :
+                                                  hoveredSlice === 'tvsDefects' ? 'TVS DEFECTS' : 'ACCEPTED'}
                       </span>
                     </div>
                   </div>
