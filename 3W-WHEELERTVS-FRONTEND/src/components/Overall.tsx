@@ -48,6 +48,7 @@ import {
 } from "chart.js";
 import { apiClient } from "../api/client";
 import { formatTimestamp } from "../utils/dateUtils";
+import InspectorActivityHistory from "./analytics/InspectorActivityHistory";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {
@@ -595,7 +596,7 @@ export default function Overall() {
   const [showFormFilter, setShowFormFilter] = useState(false);
   const [expandScore, setExpandScore] = useState(false);
   const [expandRate, setExpandRate] = useState(false);
-  const [activeTab, setActiveTab] = useState<"summary" | "requests">("summary");
+  const [activeTab, setActiveTab] = useState<"summary" | "requests" | "history">("summary");
   const [expandedForms, setExpandedForms] = useState<string[]>([]);
   const [showSectionSelector, setShowSectionSelector] = useState(false);
   const [selectedSectionIds, setSelectedSectionIds] = useState<string[]>([]);
@@ -3046,6 +3047,7 @@ export default function Overall() {
             [
               { key: "summary", label: "Summary & Analytics" },
               { key: "requests", label: "Customer Requests" },
+              { key: "history", label: "Inspector Activity History" },
             ] as const
           ).map((tab) => (
             <button
@@ -5346,6 +5348,13 @@ export default function Overall() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════
+          INSPECTOR ACTIVITY HISTORY TAB (TENANT-WISE / 3-DAYS)
+      ════════════════════════════════════════════════════════════════════ */}
+      {activeTab === "history" && (
+        <InspectorActivityHistory />
       )}
     </div>
   );

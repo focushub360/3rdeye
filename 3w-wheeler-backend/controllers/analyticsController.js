@@ -7,6 +7,7 @@ import ActivityLog from '../models/ActivityLog.js';
 import Tenant from '../models/Tenant.js';
 import Shift from '../models/Shift.js';
 import Review from '../models/Review.js';
+import LoginLog from '../models/LoginLog.js';
 import { calculateUserActiveMinutes } from './activityController.js';
 import { appCache } from '../utils/cache.js';
 
@@ -6363,5 +6364,273 @@ export const getQualitySummary = async (req, res) => {
   } catch (error) {
     console.error('getQualitySummary error:', error);
     res.status(500).json({ success: false, message: 'Internal server error calculating quality summary' });
+  }
+};
+
+/**
+ * Inspector Activity History: Tenant-wise breakdown of who logged in, what was done, and chronological activity
+ * Defaulted to the last 3 days
+ */
+export const getInspectorActivityHistory = async (req, res) => {
+  try {
+    const { days = 3, startDate, endDate, tenantId: queryTenantId } = req.query;
+    const { role, tenantId: userTenantId } = req.user;
+
+    // 1. Calculate date boundaries
+    let start, end;
+    if (startDate && endDate) {
+      const sPart = typeof startDate === 'string' && startDate.includes('T') ? startDate.split('T')[0] : startDate;
+      const ePart = typeof endDate === 'string' && endDate.includes('T') ? endDate.split('T')[0] : endDate;
+      start = new Date(`${sPart}T00:00:00.000Z`);
+      end = new Date(`${ePart}T23:59:59.999Z`);
+    } else {
+      const numDays = Math.max(1, Math.min(30, parseInt(days, 10) || 3));
+      end = new Date();
+      start = new Date();
+      start.setDate(start.getDate() - (numDays - 1));
+      start.setHours(0, 0, 0, 0);
+    }
+
+    // 2. Tenant filtering: superadmins see all (or filtered by queryTenantId); admins see their own tenant
+    let targetTenantIds = null;
+    if (role === 'superadmin') {
+      if (queryTenantId && queryTenantId !== 'all') targetTenantIds = [queryTenantId];
+    } else if (userTenantId) {
+      targetTenantIds = [userTenantId.toString()];
+    }
+
+    // 3. Concurrently fetch Logins, Responses, Forms, and Tenants in date range
+    const loginQuery = { loginTime: { $gte: start, $lte: end } };
+    const responseQuery = { createdAt: { $gte: start, $lte: end }, isSectionSubmit: { $ne: true } };
+
+    if (targetTenantIds && targetTenantIds.length > 0) {
+      const tObjs = targetTenantIds.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
+      loginQuery.$or = [{ tenantId: { $in: targetTenantIds } }, { tenantId: { $in: tObjs } }];
+      responseQuery.$or = [{ tenantId: { $in: targetTenantIds } }, { tenantId: { $in: tObjs } }];
+    }
+
+    const [logins, responses, forms, tenantsList, allUsers] = await Promise.all([
+      LoginLog.find(loginQuery)
+        .populate('userId', 'firstName lastName username email role tenantId')
+        .populate('tenantId', 'name companyName slug')
+        .sort({ loginTime: -1 })
+        .limit(2500)
+        .lean(),
+      Response.find(responseQuery)
+        .select('submittedBy createdBy chassisNumber questionId formId status createdAt timeTaken isDispatched tenantId biwReview review answers')
+        .sort({ createdAt: -1 })
+        .limit(6000)
+        .lean(),
+      Form.find({}).select('id _id title tenantId').lean(),
+      Tenant.find({}).select('_id name companyName slug').lean(),
+      User.find({}).select('_id firstName lastName username email role tenantId').lean()
+    ]);
+
+    // Fast lookup maps
+    const formTitleMap = new Map();
+    forms.forEach(f => {
+      if (f.id) formTitleMap.set(f.id.toString(), f.title);
+      if (f._id) formTitleMap.set(f._id.toString(), f.title);
+    });
+
+    const tenantInfoMap = new Map();
+    tenantsList.forEach(t => {
+      tenantInfoMap.set(t._id.toString(), {
+        tenantId: t._id.toString(),
+        name: t.companyName || t.name || 'Plant Organization',
+        companyName: t.companyName || t.name || 'Plant Organization',
+        slug: t.slug || ''
+      });
+    });
+
+    const userMap = new Map();
+    allUsers.forEach(u => {
+      userMap.set(u._id.toString(), u);
+      if (u.username) userMap.set(u.username.toLowerCase(), u);
+      if (u.email) userMap.set(u.email.toLowerCase(), u);
+      const fullName = `${u.firstName || ''} ${u.lastName || ''}`.trim().toLowerCase();
+      if (fullName) userMap.set(fullName, u);
+    });
+
+    // Grouping by tenant -> by inspector
+    const tenantGroups = new Map();
+
+    const getOrCreateTenant = (tenantId, defaultName) => {
+      const tKey = tenantId ? tenantId.toString() : 'unknown';
+      if (!tenantGroups.has(tKey)) {
+        const info = tenantInfoMap.get(tKey) || {
+          tenantId: tKey,
+          name: defaultName || 'Plant Organization',
+          companyName: defaultName || 'Plant Organization',
+          slug: ''
+        };
+        tenantGroups.set(tKey, {
+          ...info,
+          inspectorsMap: new Map(),
+          totalLogins: 0,
+          totalInspections: 0
+        });
+      }
+      return tenantGroups.get(tKey);
+    };
+
+    // Process Logins
+    logins.forEach(log => {
+      const user = log.userId;
+      if (!user) return;
+
+      const tId = log.tenantId?._id?.toString() || user.tenantId?.toString() || 'unknown';
+      const tName = log.tenantId?.companyName || log.tenantId?.name;
+      const tGroup = getOrCreateTenant(tId, tName);
+
+      tGroup.totalLogins++;
+
+      const uId = user._id ? user._id.toString() : user.username;
+      const inspectorName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username || 'Inspector';
+
+      if (!tGroup.inspectorsMap.has(uId)) {
+        tGroup.inspectorsMap.set(uId, {
+          userId: uId,
+          name: inspectorName,
+          email: user.email || '',
+          role: user.role || 'inspector',
+          tenantId: tId,
+          tenantName: tGroup.name,
+          logins: [],
+          actions: [],
+          totalDone: 0,
+          directOkCount: 0,
+          reworkCount: 0,
+          lastActiveTime: null
+        });
+      }
+
+      const insp = tGroup.inspectorsMap.get(uId);
+      insp.logins.push({
+        id: log._id?.toString(),
+        loginTime: log.loginTime,
+        logoutTime: log.logoutTime || null,
+        ipAddress: log.ipAddress || '-',
+        userAgent: log.userAgent || '-',
+        isActive: Boolean(!log.logoutTime && log.isActive)
+      });
+
+      if (!insp.lastActiveTime || new Date(log.loginTime) > new Date(insp.lastActiveTime)) {
+        insp.lastActiveTime = log.loginTime;
+      }
+    });
+
+    // Process Responses ("What done")
+    responses.forEach(resp => {
+      const submitterName = (resp.submittedBy || 'Unknown Submitter').trim();
+      const creatorId = resp.createdBy ? resp.createdBy.toString() : null;
+
+      // Find matched user & tenant
+      let matchedUser = creatorId ? userMap.get(creatorId) : null;
+      if (!matchedUser) {
+        matchedUser = userMap.get(submitterName.toLowerCase());
+      }
+
+      const tId = resp.tenantId?.toString() || matchedUser?.tenantId?.toString() || 'unknown';
+      const tGroup = getOrCreateTenant(tId);
+
+      tGroup.totalInspections++;
+
+      const uId = matchedUser?._id ? matchedUser._id.toString() : submitterName;
+      if (!tGroup.inspectorsMap.has(uId)) {
+        tGroup.inspectorsMap.set(uId, {
+          userId: uId,
+          name: submitterName,
+          email: matchedUser?.email || '',
+          role: matchedUser?.role || 'inspector',
+          tenantId: tId,
+          tenantName: tGroup.name,
+          logins: [],
+          actions: [],
+          totalDone: 0,
+          directOkCount: 0,
+          reworkCount: 0,
+          lastActiveTime: null
+        });
+      }
+
+      const insp = tGroup.inspectorsMap.get(uId);
+      insp.totalDone++;
+
+      // Form title
+      const fId = (resp.questionId || resp.formId)?.toString();
+      const formTitle = (fId && formTitleMap.get(fId)) || 'Inspection Form';
+
+      // Status calculation
+      let st = resp.status || 'Direct Ok';
+      if (st.toLowerCase() === 'pending' || !st) {
+        st = 'Direct Ok';
+      }
+      if (st.toLowerCase().includes('direct ok') || st.toLowerCase() === 'accepted' || st.toLowerCase().includes('rework accept')) {
+        insp.directOkCount++;
+      } else if (st.toLowerCase().includes('rework') || st.toLowerCase().includes('reject')) {
+        insp.reworkCount++;
+      }
+
+      insp.actions.push({
+        id: resp._id?.toString(),
+        type: 'inspection',
+        chassisNumber: resp.chassisNumber || '-',
+        formTitle,
+        formId: fId || '',
+        status: st,
+        isDispatched: Boolean(resp.isDispatched),
+        timeTaken: resp.timeTaken ? (typeof resp.timeTaken === 'number' ? `${resp.timeTaken}s` : resp.timeTaken) : '-',
+        timestamp: resp.createdAt
+      });
+
+      if (!insp.lastActiveTime || new Date(resp.createdAt) > new Date(insp.lastActiveTime)) {
+        insp.lastActiveTime = resp.createdAt;
+      }
+    });
+
+    // Format output
+    const tenantResults = Array.from(tenantGroups.values()).map(tg => {
+      const inspectors = Array.from(tg.inspectorsMap.values()).map(insp => {
+        // Sort actions and logins by timestamp descending
+        insp.logins.sort((a, b) => new Date(b.loginTime) - new Date(a.loginTime));
+        insp.actions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        return {
+          ...insp,
+          totalLogins: insp.logins.length
+        };
+      }).sort((a, b) => b.totalDone - a.totalDone || b.totalLogins - a.totalLogins);
+
+      return {
+        tenantId: tg.tenantId,
+        tenantName: tg.name,
+        companyName: tg.companyName,
+        slug: tg.slug,
+        totalInspectors: inspectors.length,
+        totalLogins: tg.totalLogins,
+        totalInspections: tg.totalInspections,
+        inspectors
+      };
+    }).sort((a, b) => b.totalInspections - a.totalInspections);
+
+    res.json({
+      success: true,
+      data: {
+        dateRange: {
+          startDate: start.toISOString().split('T')[0],
+          endDate: end.toISOString().split('T')[0],
+          days: parseInt(days, 10) || 3
+        },
+        totalTenants: tenantResults.length,
+        totalInspectors: tenantResults.reduce((sum, t) => sum + t.totalInspectors, 0),
+        totalLogins: tenantResults.reduce((sum, t) => sum + t.totalLogins, 0),
+        totalInspections: tenantResults.reduce((sum, t) => sum + t.totalInspections, 0),
+        tenants: tenantResults
+      }
+    });
+
+  } catch (error) {
+    console.error('getInspectorActivityHistory error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error calculating inspector history' });
   }
 };

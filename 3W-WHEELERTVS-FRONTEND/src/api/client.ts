@@ -4004,6 +4004,25 @@ class ApiClient {
     const endpoint = `/analytics/quality-summary${queryString ? `?${queryString}` : ""}`;
     return this.get<any>(endpoint, { forceNetwork: params?.forceNetwork === true });
   }
+
+  async getInspectorActivityHistory(params?: {
+    days?: number;
+    startDate?: string;
+    endDate?: string;
+    tenantId?: string;
+    forceNetwork?: boolean;
+  }) {
+    const query = new URLSearchParams();
+    if (params?.days) query.append("days", params.days.toString());
+    if (params?.startDate) query.append("startDate", params.startDate);
+    if (params?.endDate) query.append("endDate", params.endDate);
+    if (params?.tenantId) query.append("tenantId", params.tenantId);
+    if (params?.forceNetwork === true) query.append("forceNetwork", "true");
+
+    const queryString = query.toString();
+    const endpoint = `/analytics/inspector-activity-history${queryString ? `?${queryString}` : ""}`;
+    return this.get<any>(endpoint, { forceNetwork: params?.forceNetwork === true });
+  }
 }
 
 // Create and export a singleton instance
