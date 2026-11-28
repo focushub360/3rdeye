@@ -19,6 +19,7 @@ import {
   UserCheck,
   ChevronRight,
   Eye,
+  Activity,
 } from "lucide-react";
 import { useLogo } from "../context/LogoContext";
 import { useAuth } from "../context/AuthContext";
@@ -222,6 +223,12 @@ export default function Header() {
       description: "View overall statistics",
       permission: "analytics:view",
       roles: ["admin", "inspector", "subadmin"],
+    },
+    {
+      title: "Activity",
+      icon: Activity,
+      path: "/activity",
+      description: "Inspector activity history and audit logs",
     },
     {
       title: "Tenant Management",

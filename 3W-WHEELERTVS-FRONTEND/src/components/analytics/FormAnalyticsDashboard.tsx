@@ -487,6 +487,7 @@ export default function FormAnalyticsDashboard({
   const [isExporting, setIsExporting] = useState(false);
   const [isBiwExcelModalOpen, setIsBiwExcelModalOpen] = useState(false);
   const [isBiwDropdownOpen, setIsBiwDropdownOpen] = useState(false);
+  const [isAcceptedSubmenuOpen, setIsAcceptedSubmenuOpen] = useState(false);
   const biwDropdownRef = useRef<HTMLDivElement>(null);
 
   // Close BIW dropdown on outside click
@@ -602,7 +603,10 @@ export default function FormAnalyticsDashboard({
   }, [user, form, isGuest]);
 
   // Downloads BIW template pre-loaded with filtered or full all-time table chassis, BIW reviews & TVS reviews
-  const handleDownloadBiwTemplate = async (mode: "filtered" | "all" = "filtered") => {
+  const handleDownloadBiwTemplate = async (
+    mode: "filtered" | "all" = "filtered",
+    prefillAccepted: boolean = false
+  ) => {
     if (!canUserReviewThisForm) {
       showToast("Owning plant cannot download BIW review templates. Review templates are for triggered reviewer tenants only.", "error");
       return;
@@ -611,8 +615,12 @@ export default function FormAnalyticsDashboard({
     const isFilteredMode = mode === "filtered";
     showToast(
       isFilteredMode
-        ? "Preparing Filtered BIW Review Excel template..."
-        : "Preparing Full All-Time BIW Review Excel template...",
+        ? prefillAccepted
+          ? "Preparing Filtered BIW Review template (TVS All Accepted)..."
+          : "Preparing Filtered BIW Review Excel template..."
+        : prefillAccepted
+          ? "Preparing Full All-Time BIW Review template (TVS All Accepted)..."
+          : "Preparing Full All-Time BIW Review Excel template...",
       "info"
     );
     try {
@@ -1160,9 +1168,15 @@ export default function FormAnalyticsDashboard({
         targetTenantTitle: targetTitle,
         targetTenantName,
         childResponses: resolvedChildResponses,
-        filename: `BIW Review Template${isFilteredMode && hasActiveFiltersOrSort ? " - Filtered" : mode === "all" ? " - All Time" : ""} - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
+        prefillTvsAccepted: prefillAccepted,
+        filename: `BIW Review Template${isFilteredMode && hasActiveFiltersOrSort ? " - Filtered" : mode === "all" ? " - All Time" : ""}${prefillAccepted ? " - TVS All Accepted" : ""} - ${(form?.title || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
       });
-      showToast("BIW Review template downloaded successfully!", "success");
+      showToast(
+        prefillAccepted
+          ? "BIW Review template (TVS All Accepted) downloaded successfully!"
+          : "BIW Review template downloaded successfully!",
+        "success"
+      );
     } catch (err: any) {
       console.error("[handleDownloadBiwTemplate] Error:", err);
       showToast(`Failed to generate template: ${err.message || err}`, "error");
@@ -9529,10 +9543,12 @@ export default function FormAnalyticsDashboard({
 
                       {isBiwDropdownOpen && (
                         <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                          {/* 1. Download Filtered Template (Standard Blank) */}
                           <button
                             onClick={async () => {
                               setIsBiwDropdownOpen(false);
-                              await handleDownloadBiwTemplate("filtered");
+                              setIsAcceptedSubmenuOpen(false);
+                              await handleDownloadBiwTemplate("filtered", false);
                             }}
                             className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-3 transition-colors"
                           >
@@ -9541,23 +9557,25 @@ export default function FormAnalyticsDashboard({
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="font-semibold text-gray-900 dark:text-white flex items-center justify-between gap-2">
-                                <span>Download Filtered BIW Template</span>
+                                <span>Download Filtered Template</span>
                                 <span className="px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded">
                                   {(hasActiveFiltersOrSort ? filteredResponses.length : activeTotalResponsesCount).toLocaleString()}
                                 </span>
                               </div>
                               <div className="text-[10px] text-gray-500 dark:text-gray-400">
                                 {hasActiveFiltersOrSort
-                                  ? "Only filtered chassis numbers & status"
-                                  : "Pre-loads current table chassis & status"}
+                                  ? "Standard blank review feedback columns"
+                                  : "Pre-loads current table chassis (Blank reviews)"}
                               </div>
                             </div>
                           </button>
 
+                          {/* 2. Download Full All-Time Template (Standard Blank) */}
                           <button
                             onClick={async () => {
                               setIsBiwDropdownOpen(false);
-                              await handleDownloadBiwTemplate("all");
+                              setIsAcceptedSubmenuOpen(false);
+                              await handleDownloadBiwTemplate("all", false);
                             }}
                             className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
                           >
@@ -9566,16 +9584,105 @@ export default function FormAnalyticsDashboard({
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="font-semibold text-gray-900 dark:text-white flex items-center justify-between gap-2">
-                                <span>Download Full All-Time Template</span>
+                                <span>Download Full All-Time</span>
                                 <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded">
                                   {(totalResponsesCount || responses.length).toLocaleString()}
                                 </span>
                               </div>
                               <div className="text-[10px] text-gray-500 dark:text-gray-400">
-                                Full all-time data across entire form
+                                Full all-time data across entire form (Blank reviews)
                               </div>
                             </div>
                           </button>
+
+                          {/* 3. Nested Dropdown: All Accepted Templates */}
+                          <div
+                            className="relative border-t border-gray-100 dark:border-gray-700/50"
+                            onMouseEnter={() => setIsAcceptedSubmenuOpen(true)}
+                            onMouseLeave={() => setIsAcceptedSubmenuOpen(false)}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setIsAcceptedSubmenuOpen((prev) => !prev)}
+                              className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-emerald-800 dark:text-emerald-200 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/40 flex items-center justify-between transition-colors"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="p-2 bg-emerald-600 text-white rounded-lg shrink-0 shadow-sm">
+                                  <CheckCircle className="w-4 h-4" />
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                    <span>All Accepted Templates</span>
+                                    <span className="px-1.5 py-0.5 text-[9px] font-extrabold bg-emerald-600 text-white rounded uppercase tracking-wide">
+                                      TVS Accepted ✓
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                                    Pre-filled TVS Accepted alone till down
+                                  </div>
+                                </div>
+                              </div>
+                              <ChevronRight className={`w-4 h-4 text-emerald-600 dark:text-emerald-400 transition-transform duration-200 ${isAcceptedSubmenuOpen ? "rotate-90 sm:rotate-0" : ""}`} />
+                            </button>
+
+                            {/* Nested Submenu (Flyout to left on desktop, expands inline on mobile) */}
+                            {isAcceptedSubmenuOpen && (
+                              <div className="sm:absolute sm:right-full sm:top-0 sm:mr-1.5 w-full sm:w-80 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-emerald-300 dark:border-emerald-700/70 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                                <div className="px-3 py-1.5 text-[10px] font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wider border-b border-gray-100 dark:border-gray-700/50 flex items-center justify-between">
+                                  <span>Pre-filled TVS Accepted Alone</span>
+                                  <span className="text-[9px] font-normal lowercase text-gray-500">BIW blank</span>
+                                </div>
+
+                                <button
+                                  onClick={async () => {
+                                    setIsAcceptedSubmenuOpen(false);
+                                    setIsBiwDropdownOpen(false);
+                                    await handleDownloadBiwTemplate("filtered", true);
+                                  }}
+                                  className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 flex items-center gap-3 transition-colors"
+                                >
+                                  <div className="p-2 bg-emerald-500 text-white rounded-lg shrink-0 shadow-sm">
+                                    <CheckCircle className="w-4 h-4" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-bold text-emerald-900 dark:text-emerald-200 flex items-center justify-between gap-2">
+                                      <span>Download Filtered</span>
+                                      <span className="px-1.5 py-0.5 text-[10px] font-bold bg-emerald-200 dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100 rounded">
+                                        {(hasActiveFiltersOrSort ? filteredResponses.length : activeTotalResponsesCount).toLocaleString()}
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] text-emerald-700 dark:text-emerald-300 font-medium">
+                                      Pre-filled TVS "Accepted" alone till down (Filtered)
+                                    </div>
+                                  </div>
+                                </button>
+
+                                <button
+                                  onClick={async () => {
+                                    setIsAcceptedSubmenuOpen(false);
+                                    setIsBiwDropdownOpen(false);
+                                    await handleDownloadBiwTemplate("all", true);
+                                  }}
+                                  className="w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700/50"
+                                >
+                                  <div className="p-2 bg-blue-600 text-white rounded-lg shrink-0 shadow-sm">
+                                    <CheckCircle className="w-4 h-4" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-bold text-blue-900 dark:text-blue-200 flex items-center justify-between gap-2">
+                                      <span>Download Full All-Time</span>
+                                      <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-200 dark:bg-blue-800 text-blue-900 dark:text-blue-100 rounded">
+                                        {(totalResponsesCount || responses.length).toLocaleString()}
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] text-blue-700 dark:text-blue-300 font-medium">
+                                      Pre-filled TVS "Accepted" alone (Full All-Time)
+                                    </div>
+                                  </div>
+                                </button>
+                              </div>
+                            )}
+                          </div>
 
                           <button
                             onClick={() => {

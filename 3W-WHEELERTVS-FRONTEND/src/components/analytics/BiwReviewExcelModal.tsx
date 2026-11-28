@@ -115,6 +115,7 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
   } | null>(null);
 
   const [prefillChassis, setPrefillChassis] = useState(true);
+  const [prefillAccepted, setPrefillAccepted] = useState(false);
   const [copiedHtml, setCopiedHtml] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1045,7 +1046,8 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
         targetTenantForm,
         targetTenantTitle,
         targetTenantName: resolvedTargetTenantName,
-        filename: `BIW template - ${(formTitle || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
+        prefillTvsAccepted: prefillAccepted,
+        filename: `BIW template${prefillAccepted ? " (All Accepted)" : ""} - ${(formTitle || "Inspection").replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`
       });
     } catch (err: any) {
       alert(`Error downloading template: ${err.message || err}`);
@@ -2282,6 +2284,31 @@ export const BiwReviewExcelModal: React.FC<BiwReviewExcelModalProps> = ({
                     </span>
                     <p className="text-xs text-gray-500">
                       Populates {uniqueChassisList.length} chassis numbers currently loaded in the dashboard view.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Prefill All Accepted Option */}
+              <div className="p-4 border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/50 dark:bg-emerald-950/20 rounded-xl space-y-2">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={prefillAccepted}
+                    onChange={(e) => setPrefillAccepted(e.target.checked)}
+                    className="w-4 h-4 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500"
+                  />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white">
+                        Select All as "Accepted" for all numbers till down
+                      </span>
+                      <span className="px-2 py-0.5 text-[10px] font-extrabold bg-emerald-600 text-white rounded-full">
+                        Accepted Only
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+                      When selected, pre-fills the TVS Review feedback column with "Accepted" for all chassis numbers in Excel till down. (Only for Accept — never for Rework or Reject).
                     </p>
                   </div>
                 </label>

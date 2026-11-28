@@ -50,7 +50,7 @@ import { apiClient } from "../api/client";
 import { formatTimestamp } from "../utils/dateUtils";
 import InspectorActivityHistory from "./analytics/InspectorActivityHistory";
 import { useAuth } from "../context/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   generateOverallPDF,
   downloadPDF,
@@ -596,7 +596,29 @@ export default function Overall() {
   const [showFormFilter, setShowFormFilter] = useState(false);
   const [expandScore, setExpandScore] = useState(false);
   const [expandRate, setExpandRate] = useState(false);
-  const [activeTab, setActiveTab] = useState<"summary" | "requests" | "history">("summary");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab") === "history"
+    ? "history"
+    : searchParams.get("tab") === "requests"
+    ? "requests"
+    : "summary";
+  const [activeTab, setActiveTab] = useState<"summary" | "requests" | "history">(initialTab);
+
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam === "history" || tabParam === "requests" || tabParam === "summary") {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
+
+  const handleTabChange = (key: "summary" | "requests" | "history") => {
+    setActiveTab(key);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("tab", key);
+      return next;
+    });
+  };
   const [expandedForms, setExpandedForms] = useState<string[]>([]);
   const [showSectionSelector, setShowSectionSelector] = useState(false);
   const [selectedSectionIds, setSelectedSectionIds] = useState<string[]>([]);
@@ -3052,7 +3074,7 @@ export default function Overall() {
           ).map((tab) => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => handleTabChange(tab.key)}
               className={`flex-1 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all duration-200 ${activeTab === tab.key
                 ? "text-white"
                 : "text-gray-600 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/10"

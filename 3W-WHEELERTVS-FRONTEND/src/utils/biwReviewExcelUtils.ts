@@ -212,6 +212,7 @@ export async function downloadBiwReviewTemplate(options: {
   targetTenantName?: string;
   childResponses?: any;
   reviewerOptions?: string[];
+  prefillTvsAccepted?: boolean;
 }) {
   const {
     form,
@@ -224,7 +225,8 @@ export async function downloadBiwReviewTemplate(options: {
     targetTenantTitle,
     targetTenantName,
     childResponses = {},
-    reviewerOptions = []
+    reviewerOptions = [],
+    prefillTvsAccepted = false
   } = options;
 
   const hasTargetTenant = Boolean(targetTenantForm);
@@ -867,7 +869,9 @@ export async function downloadBiwReviewTemplate(options: {
     const tvsRev = matchedResp?.review || null;
     let tvsStatus = "";
     const rawTvsOpt = tvsRev?.reviewOption || tvsRev?.status || "";
-    if (matchedResp?.status === "Rework Accepted" || matchedResp?.status === "Rework Completed") {
+    if (prefillTvsAccepted) {
+      tvsStatus = "Accepted";
+    } else if (matchedResp?.status === "Rework Accepted" || matchedResp?.status === "Rework Completed") {
       tvsStatus = rawTvsOpt && String(rawTvsOpt).toLowerCase().includes("reject") ? "Rejected" : "Accepted";
     } else if (rawTvsOpt) {
       const st = String(rawTvsOpt).toLowerCase();
@@ -875,14 +879,15 @@ export async function downloadBiwReviewTemplate(options: {
       else if (st.includes("reject")) tvsStatus = "Rejected";
       else if (st.includes("rework") || st.includes("defect")) tvsStatus = "Rework";
     }
-    const tvsReason =
-      tvsRev?.reason ||
-      (Array.isArray(tvsRev?.flaggedQuestions) && tvsRev.flaggedQuestions.length > 0
-        ? tvsRev.flaggedQuestions.map((fq: any) => fq?.questionText || fq?.text).filter(Boolean).join(", ")
-        : "") ||
-      "";
-    const tvsRemark = tvsRev?.remark || tvsRev?.message || "";
-    const tvsFileUrl = tvsRev?.evidenceUrl || "";
+    const tvsReason = prefillTvsAccepted
+      ? ""
+      : (tvsRev?.reason ||
+         (Array.isArray(tvsRev?.flaggedQuestions) && tvsRev.flaggedQuestions.length > 0
+           ? tvsRev.flaggedQuestions.map((fq: any) => fq?.questionText || fq?.text).filter(Boolean).join(", ")
+           : "") ||
+         "");
+    const tvsRemark = prefillTvsAccepted ? "" : (tvsRev?.remark || tvsRev?.message || "");
+    const tvsFileUrl = prefillTvsAccepted ? "" : (tvsRev?.evidenceUrl || "");
 
     const row = [
       ch,                 // Col 1 (A): Chassis Number
@@ -900,43 +905,45 @@ export async function downloadBiwReviewTemplate(options: {
     ];
 
     if (hasTargetTenant) {
-      let targetTvsStatus = "";
+      let targetTvsStatus = prefillTvsAccepted ? "Accepted" : "";
       let targetTvsReason = "";
       let targetTvsRemark = "";
       let targetTvsFileUrl = "";
 
-      const normChUpper = ch.toUpperCase();
-      const normChStripped = normChUpper.replace(/\s+/g, "");
-      const childResp =
-        matchedResp?.childResponse ||
-        (childResponses &&
-          (childResponses[ch] ||
-            childResponses[normChUpper] ||
-            childResponses[normChStripped])) ||
-        null;
+      if (!prefillTvsAccepted) {
+        const normChUpper = ch.toUpperCase();
+        const normChStripped = normChUpper.replace(/\s+/g, "");
+        const childResp =
+          matchedResp?.childResponse ||
+          (childResponses &&
+            (childResponses[ch] ||
+              childResponses[normChUpper] ||
+              childResponses[normChStripped])) ||
+          null;
 
-      const childRev =
-        childResp?.review ||
-        matchedResp?.childReview ||
-        matchedResp?.followUpStatus?.childReview ||
-        null;
+        const childRev =
+          childResp?.review ||
+          matchedResp?.childReview ||
+          matchedResp?.followUpStatus?.childReview ||
+          null;
 
-      const rawTargetTvsOpt = childRev?.reviewOption || childRev?.status || "";
-      if (rawTargetTvsOpt) {
-        const st = String(rawTargetTvsOpt).toLowerCase();
-        if (st.includes("accept")) targetTvsStatus = "Accepted";
-        else if (st.includes("reject")) targetTvsStatus = "Rejected";
-        else if (st.includes("rework") || st.includes("defect")) targetTvsStatus = "Rework";
-      }
-      if (childRev) {
-        targetTvsReason =
-          childRev.reason ||
-          (Array.isArray(childRev.flaggedQuestions) && childRev.flaggedQuestions.length > 0
-            ? childRev.flaggedQuestions.map((fq: any) => fq?.questionText || fq?.text).filter(Boolean).join(", ")
-            : "") ||
-          "";
-        targetTvsRemark = childRev.remark || childRev.message || "";
-        targetTvsFileUrl = childRev.evidenceUrl || "";
+        const rawTargetTvsOpt = childRev?.reviewOption || childRev?.status || "";
+        if (rawTargetTvsOpt) {
+          const st = String(rawTargetTvsOpt).toLowerCase();
+          if (st.includes("accept")) targetTvsStatus = "Accepted";
+          else if (st.includes("reject")) targetTvsStatus = "Rejected";
+          else if (st.includes("rework") || st.includes("defect")) targetTvsStatus = "Rework";
+        }
+        if (childRev) {
+          targetTvsReason =
+            childRev.reason ||
+            (Array.isArray(childRev.flaggedQuestions) && childRev.flaggedQuestions.length > 0
+              ? childRev.flaggedQuestions.map((fq: any) => fq?.questionText || fq?.text).filter(Boolean).join(", ")
+              : "") ||
+            "";
+          targetTvsRemark = childRev.remark || childRev.message || "";
+          targetTvsFileUrl = childRev.evidenceUrl || "";
+        }
       }
 
       row.push(
@@ -1570,6 +1577,7 @@ export async function downloadTvsReviewTemplate(options: {
   chassisNumbers?: string[];
   responses?: any[];
   filename?: string;
+  prefillTvsAccepted?: boolean;
 }) {
   const {
     targetForm,
@@ -1578,7 +1586,8 @@ export async function downloadTvsReviewTemplate(options: {
     isChildForm,
     chassisNumbers = [],
     responses = [],
-    filename
+    filename,
+    prefillTvsAccepted = false
   } = options;
 
   const defectOptions = extractFormDefectReasons(targetForm, responses);
@@ -1643,15 +1652,17 @@ export async function downloadTvsReviewTemplate(options: {
     const matchedResp = ch ? responseMap.get(ch.toUpperCase()) : null;
 
     let tvsStatus = "";
-    if (matchedResp?.review?.reviewOption) {
+    if (prefillTvsAccepted) {
+      tvsStatus = "Accepted";
+    } else if (matchedResp?.review?.reviewOption) {
       const st = String(matchedResp.review.reviewOption).toLowerCase();
       if (st.includes("accept")) tvsStatus = "Accepted";
       else if (st.includes("reject")) tvsStatus = "Rejected";
       else if (st.includes("rework")) tvsStatus = "Rework";
     }
-    const tvsReason = matchedResp?.review?.reason || "";
-    const tvsRemark = matchedResp?.review?.remark || matchedResp?.review?.message || "";
-    const tvsFileUrl = matchedResp?.review?.evidenceUrl || "";
+    const tvsReason = prefillTvsAccepted ? "" : (matchedResp?.review?.reason || "");
+    const tvsRemark = prefillTvsAccepted ? "" : (matchedResp?.review?.remark || matchedResp?.review?.message || "");
+    const tvsFileUrl = prefillTvsAccepted ? "" : (matchedResp?.review?.evidenceUrl || "");
 
     mainSheetData.push([
       ch,          // Col 1: Chassis Number

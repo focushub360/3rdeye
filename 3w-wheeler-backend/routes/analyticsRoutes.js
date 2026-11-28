@@ -66,6 +66,6 @@ router.get('/inspector-summary', inspectorOrAdmin, cacheMiddleware(60), getInspe
 router.get('/my-review-stats', inspectorOrAdmin, cacheMiddleware(60), getMyReviewStats);
 router.get('/performance-table', inspectorOrAdmin, cacheMiddleware(60), getPerformanceTable);
 router.get('/quality-summary', inspectorOrAdmin, getQualitySummary);
-router.get('/inspector-activity-history', inspectorOrAdmin, getInspectorActivityHistory);
+router.get('/inspector-activity-history', superAdminOnly, getInspectorActivityHistory);
 
 export default router;

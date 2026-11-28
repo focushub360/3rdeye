@@ -1754,7 +1754,7 @@ export default function DashboardNew() {
       if (selectedTenant.id) stats[selectedTenant.id] = statsObj;
       if (selectedTenant.slug) stats[selectedTenant.slug] = statsObj;
 
-      tenants.forEach((tenant) => {
+      (tenants || []).forEach((tenant) => {
         const tenantIdStr = tenant._id?.toString?.() || tenant.id?.toString?.() || tenant.slug;
         const tForms = formsData.forms.filter((form: any) => {
           return isFormForTenant(form, tenantIdStr, tenant.slug, false);

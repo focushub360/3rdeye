@@ -15,6 +15,7 @@ import {
   Building2,
   Users,
   Clock,
+  Activity,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useSidebar } from "../../context/SidebarContext";
@@ -82,6 +83,12 @@ export default function Sidebar() {
       icon: BarChart2,
       path: "/overall",
       description: "View overall statistics",
+    },
+    {
+      title: "Activity",
+      icon: Activity,
+      path: "/activity",
+      description: "Inspector activity history and audit logs",
     },
     {
       title: "Tenant Management",

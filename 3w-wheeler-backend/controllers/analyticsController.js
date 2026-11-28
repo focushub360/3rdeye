@@ -6595,9 +6595,31 @@ export const getInspectorActivityHistory = async (req, res) => {
         // Sort actions and logins by timestamp descending
         insp.logins.sort((a, b) => new Date(b.loginTime) - new Date(a.loginTime));
         insp.actions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        // Create unified chronological timeline
+        const timeline = [
+          ...insp.logins.map(l => ({
+            id: l.id || `login-${l.loginTime}`,
+            type: 'login',
+            timestamp: l.loginTime,
+            loginTime: l.loginTime,
+            logoutTime: l.logoutTime,
+            ipAddress: l.ipAddress,
+            userAgent: l.userAgent,
+            isActive: l.isActive
+          })),
+          ...insp.actions.map(a => ({
+            ...a,
+            type: 'inspection'
+          }))
+        ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
         return {
           ...insp,
-          totalLogins: insp.logins.length
+          totalLogins: insp.logins.length,
+          totalInspections: insp.actions.length,
+          inspections: insp.actions,
+          timeline
         };
       }).sort((a, b) => b.totalDone - a.totalDone || b.totalLogins - a.totalLogins);
 

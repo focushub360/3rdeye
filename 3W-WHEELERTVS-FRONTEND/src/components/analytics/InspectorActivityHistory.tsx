@@ -178,7 +178,7 @@ export const InspectorActivityHistory: React.FC = () => {
 
   // Filter tenants and inspectors based on UI selections
   const filteredTenants = useMemo(() => {
-    if (!data?.tenants) return [];
+    if (!data?.tenants || !Array.isArray(data.tenants)) return [];
 
     let groups = data.tenants;
 
@@ -192,13 +192,14 @@ export const InspectorActivityHistory: React.FC = () => {
       const q = searchQuery.toLowerCase().trim();
       groups = groups
         .map((group) => {
-          const matchingInspectors = group.inspectors.filter((insp) => {
+          const matchingInspectors = (group.inspectors || []).filter((insp) => {
             const matchName = (insp.name || "").toLowerCase().includes(q);
             const matchEmail = (insp.email || "").toLowerCase().includes(q);
-            const matchForm = insp.inspections.some((i) =>
+            const inspList = insp.inspections || (insp as any).actions || [];
+            const matchForm = inspList.some((i: any) =>
               (i.formTitle || "").toLowerCase().includes(q)
             );
-            const matchChassis = insp.inspections.some((i) =>
+            const matchChassis = inspList.some((i: any) =>
               (i.chassisNumber || "").toLowerCase().includes(q)
             );
             return matchName || matchEmail || matchForm || matchChassis;
@@ -208,7 +209,7 @@ export const InspectorActivityHistory: React.FC = () => {
             inspectors: matchingInspectors,
           };
         })
-        .filter((group) => group.inspectors.length > 0);
+        .filter((group) => (group.inspectors || []).length > 0);
     }
 
     return groups;
@@ -216,7 +217,7 @@ export const InspectorActivityHistory: React.FC = () => {
 
   // Aggregate metrics
   const aggregateMetrics = useMemo(() => {
-    if (!data?.tenants) {
+    if (!data?.tenants || !Array.isArray(data.tenants)) {
       return {
         totalTenants: 0,
         totalInspectors: 0,
@@ -234,10 +235,10 @@ export const InspectorActivityHistory: React.FC = () => {
     let reworkCount = 0;
 
     data.tenants.forEach((tenant) => {
-      tenant.inspectors.forEach((insp) => {
+      (tenant.inspectors || []).forEach((insp) => {
         totalInspectors += 1;
         totalLogins += insp.totalLogins || 0;
-        totalInspections += insp.totalInspections || 0;
+        totalInspections += insp.totalInspections || (insp as any).totalDone || 0;
         directOkCount += insp.directOkCount || 0;
         reworkCount += insp.reworkCount || 0;
       });
@@ -257,9 +258,10 @@ export const InspectorActivityHistory: React.FC = () => {
   const masterStream = useMemo(() => {
     const events: Array<TimelineItem & { inspectorName: string; tenantName: string; role: string }> = [];
 
-    filteredTenants.forEach((group) => {
-      group.inspectors.forEach((insp) => {
-        insp.timeline.forEach((item) => {
+    (filteredTenants || []).forEach((group) => {
+      (group.inspectors || []).forEach((insp) => {
+        const timelineItems = insp.timeline || [];
+        timelineItems.forEach((item) => {
           events.push({
             ...item,
             inspectorName: insp.name,
@@ -277,7 +279,7 @@ export const InspectorActivityHistory: React.FC = () => {
 
   // Export to Excel
   const handleExportToExcel = () => {
-    if (!data?.tenants) return;
+    if (!data?.tenants || !Array.isArray(data.tenants)) return;
 
     // 1. Inspector Summary sheet
     const summaryRows: any[] = [];
@@ -287,22 +289,23 @@ export const InspectorActivityHistory: React.FC = () => {
     const loginsRows: any[] = [];
 
     data.tenants.forEach((group) => {
-      group.inspectors.forEach((insp) => {
+      (group.inspectors || []).forEach((insp) => {
         summaryRows.push({
           Plant: group.tenantName,
           "Inspector Name": insp.name,
           Email: insp.email,
           Role: insp.role,
-          "Total Logins": insp.totalLogins,
-          "Total Inspections": insp.totalInspections,
-          "Direct Ok": insp.directOkCount,
-          Rework: insp.reworkCount,
+          "Total Logins": insp.totalLogins || 0,
+          "Total Inspections": insp.totalInspections || (insp as any).totalDone || 0,
+          "Direct Ok": insp.directOkCount || 0,
+          Rework: insp.reworkCount || 0,
           "Last Active": insp.lastActiveTime
             ? new Date(insp.lastActiveTime).toLocaleString()
             : "-",
         });
 
-        insp.inspections.forEach((item) => {
+        const inspList = insp.inspections || (insp as any).actions || [];
+        inspList.forEach((item: any) => {
           inspectionsRows.push({
             Timestamp: new Date(item.timestamp).toLocaleString(),
             Plant: group.tenantName,
@@ -315,7 +318,7 @@ export const InspectorActivityHistory: React.FC = () => {
           });
         });
 
-        insp.logins.forEach((log) => {
+        (insp.logins || []).forEach((log: any) => {
           loginsRows.push({
             "Login Time": new Date(log.loginTime).toLocaleString(),
             "Logout Time": log.logoutTime
@@ -929,7 +932,7 @@ export const InspectorActivityHistory: React.FC = () => {
                     {group.tenantName}
                   </h3>
                   <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-white/20 text-white">
-                    {group.inspectors.length} Staff Logged
+                    {(group.inspectors || []).length} Staff Logged
                   </span>
                 </div>
 
@@ -937,7 +940,7 @@ export const InspectorActivityHistory: React.FC = () => {
                   <span>
                     Total Logins:{" "}
                     <strong className="text-blue-200">
-                      {group.inspectors.reduce(
+                      {(group.inspectors || []).reduce(
                         (acc, i) => acc + (i.totalLogins || 0),
                         0
                       )}
@@ -947,8 +950,8 @@ export const InspectorActivityHistory: React.FC = () => {
                   <span>
                     Inspections:{" "}
                     <strong className="text-emerald-300">
-                      {group.inspectors.reduce(
-                        (acc, i) => acc + (i.totalInspections || 0),
+                      {(group.inspectors || []).reduce(
+                        (acc, i) => acc + (i.totalInspections || (i as any).totalDone || 0),
                         0
                       )}
                     </strong>
@@ -958,10 +961,13 @@ export const InspectorActivityHistory: React.FC = () => {
 
               {/* Inspectors List */}
               <div className="divide-y divide-gray-100 dark:divide-gray-700">
-                {group.inspectors.map((insp) => {
+                {(group.inspectors || []).map((insp) => {
                   const isExpanded = !!expandedInspectors[insp.userId];
                   const subTab = activeInspectorSubTab[insp.userId] || "inspections";
-                  const hasActiveLogin = insp.logins.some((l) => l.isActive);
+                  const hasActiveLogin = (insp.logins || []).some((l) => l.isActive);
+                  const inspList = insp.inspections || (insp as any).actions || [];
+                  const loginsList = insp.logins || [];
+                  const timelineList = insp.timeline || [];
 
                   return (
                     <div
@@ -1019,7 +1025,7 @@ export const InspectorActivityHistory: React.FC = () => {
                               Logins
                             </span>
                             <span className="text-sm font-bold text-gray-800 dark:text-gray-200">
-                              {insp.totalLogins} sessions
+                              {insp.totalLogins || loginsList.length} sessions
                             </span>
                           </div>
 
@@ -1028,7 +1034,7 @@ export const InspectorActivityHistory: React.FC = () => {
                               Inspections
                             </span>
                             <span className="text-sm font-bold text-blue-600 dark:text-blue-400">
-                              {insp.totalInspections} done
+                              {insp.totalInspections || (insp as any).totalDone || inspList.length} done
                             </span>
                           </div>
 
@@ -1038,11 +1044,11 @@ export const InspectorActivityHistory: React.FC = () => {
                             </span>
                             <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
                               <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                                {insp.directOkCount} OK
+                                {insp.directOkCount || 0} OK
                               </span>
                               {" / "}
                               <span className="text-amber-600 dark:text-amber-400 font-bold">
-                                {insp.reworkCount} Rew
+                                {insp.reworkCount || 0} Rew
                               </span>
                             </span>
                           </div>
@@ -1083,7 +1089,7 @@ export const InspectorActivityHistory: React.FC = () => {
                                     : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100"
                                 }`}
                               >
-                                Inspections ({insp.inspections.length})
+                                Inspections ({inspList.length})
                               </button>
                               <button
                                 onClick={() =>
@@ -1095,7 +1101,7 @@ export const InspectorActivityHistory: React.FC = () => {
                                     : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100"
                                 }`}
                               >
-                                Logins ({insp.logins.length})
+                                Logins ({loginsList.length})
                               </button>
                               <button
                                 onClick={() =>
@@ -1107,7 +1113,7 @@ export const InspectorActivityHistory: React.FC = () => {
                                     : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100"
                                 }`}
                               >
-                                Time-Wise ({insp.timeline.length})
+                                Time-Wise ({timelineList.length})
                               </button>
                             </div>
 
@@ -1119,7 +1125,7 @@ export const InspectorActivityHistory: React.FC = () => {
                           {/* Sub-tab 1: Inspections (What Done) */}
                           {subTab === "inspections" && (
                             <div>
-                              {insp.inspections.length === 0 ? (
+                              {inspList.length === 0 ? (
                                 <p className="text-xs text-gray-500 py-4 text-center">
                                   No inspection submissions recorded in this time window.
                                 </p>
@@ -1137,7 +1143,7 @@ export const InspectorActivityHistory: React.FC = () => {
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                      {insp.inspections.map((row) => (
+                                      {inspList.map((row: any) => (
                                         <tr
                                           key={row.id}
                                           className="hover:bg-white dark:hover:bg-gray-800/60"
@@ -1180,7 +1186,7 @@ export const InspectorActivityHistory: React.FC = () => {
                           {/* Sub-tab 2: Logins (Who Logged) */}
                           {subTab === "logins" && (
                             <div>
-                              {insp.logins.length === 0 ? (
+                              {loginsList.length === 0 ? (
                                 <p className="text-xs text-gray-500 py-4 text-center">
                                   No login records found for this period.
                                 </p>
@@ -1197,7 +1203,7 @@ export const InspectorActivityHistory: React.FC = () => {
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                      {insp.logins.map((log) => (
+                                      {loginsList.map((log: any) => (
                                         <tr
                                           key={log.id}
                                           className="hover:bg-white dark:hover:bg-gray-800/60"
@@ -1241,7 +1247,7 @@ export const InspectorActivityHistory: React.FC = () => {
                           {/* Sub-tab 3: Inspector Time-Wise Timeline */}
                           {subTab === "timeline" && (
                             <div className="relative pl-5 space-y-4 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200 dark:before:bg-gray-700 pt-2">
-                              {insp.timeline.map((evt, eIdx) => {
+                              {timelineList.map((evt: any, eIdx: number) => {
                                 const isInsp = evt.type === "inspection";
                                 return (
                                   <div key={evt.id || eIdx} className="relative">

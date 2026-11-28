@@ -69,6 +69,7 @@ import Header from "./components/Header";
 import Sidebar from "./components/layout/Sidebar";
 
 // === LAZY-LOADED: Admin, HR, SuperAdmin, and rarely-visited pages ===
+const InspectorActivityPage = React.lazy(() => import("./components/analytics/InspectorActivityPage"));
 const FormsPreview = React.lazy(() => import("./components/FormsPreview"));
 const TestAPI = React.lazy(() => import("./components/TestAPI"));
 const ResponseForm = React.lazy(() => import("./components/ResponseForm"));
@@ -399,6 +400,10 @@ const router = createBrowserRouter(
         {
           path: "/overall",
           element: withAuthenticatedLayout(<Overall />),
+        },
+        {
+          path: "/activity",
+          element: withAccessControl(<InspectorActivityPage />, { allowedRoles: ["superadmin"] }),
         },
         {
           path: "/forms/analytics",
